@@ -1,46 +1,46 @@
-import { BRAND } from "@/types/brand";
+import { CONNECTION } from "@/types/connection";
 import Image from "next/image";
 import DropdownDefault from "../Dropdowns/DropdownDefault";
 
-const brandData: BRAND[] = [
+const connectionList: CONNECTION[] = [
   {
     logo: "/images/brand/brand-01.svg",
     name: "Google",
-    visitors: 3.5,
-    revenues: "5,768",
-    sales: 590,
+    events: 3.5,
+    updatedEvents: "5,768",
+    authStatus: 590,
     conversion: 4.8,
   },
   {
     logo: "/images/brand/brand-02.svg",
     name: "Twitter",
-    visitors: 2.2,
-    revenues: "4,635",
-    sales: 467,
+    events: 2.2,
+    updatedEvents: "4,635",
+    authStatus: 467,
     conversion: 4.3,
   },
   {
     logo: "/images/brand/brand-06.svg",
     name: "Youtube",
-    visitors: 2.1,
-    revenues: "4,290",
-    sales: 420,
+    events: 2.1,
+    updatedEvents: "4,290",
+    authStatus: 420,
     conversion: 3.7,
   },
   {
     logo: "/images/brand/brand-04.svg",
     name: "Vimeo",
-    visitors: 1.5,
-    revenues: "3,580",
-    sales: 389,
+    events: 1.5,
+    updatedEvents: "3,580",
+    authStatus: 389,
     conversion: 2.5,
   },
   {
     logo: "/images/brand/brand-05.svg",
     name: "Facebook",
-    visitors: 3.5,
-    revenues: "6,768",
-    sales: 390,
+    events: 3.5,
+    updatedEvents: "6,768",
+    authStatus: 390,
     conversion: 4.2,
   },
 ];
@@ -67,12 +67,12 @@ const TableFour: React.FC = () => {
             </div>
             <div className="p-2.5 text-center xl:p-4">
               <h5 className="text-sm font-medium uppercase xsm:text-base">
-                Visitors
+                events
               </h5>
             </div>
             <div className="p-2.5 text-center xl:p-4">
               <h5 className="text-sm font-medium uppercase xsm:text-base">
-                Revenues
+                Updated Events
               </h5>
             </div>
             <div className="hidden p-2.5 text-center sm:block xl:p-4">
@@ -82,10 +82,10 @@ const TableFour: React.FC = () => {
             </div>
           </div>
 
-          {brandData.map((brand, key) => (
+          {connectionList.map((connection, key) => (
             <div
               className={`grid grid-cols-3 sm:grid-cols-4 ${
-                key === brandData.length - 1
+                key === connectionList.length - 1
                   ? ""
                   : "border-b border-stroke dark:border-strokedark"
               }`}
@@ -93,25 +93,23 @@ const TableFour: React.FC = () => {
             >
               <div className="flex items-center gap-3 p-2.5 xl:p-5">
                 <div className="h-9 w-full max-w-9 flex-shrink-0">
-                  <Image src={brand.logo} width={60} height={50} alt="Brand" />
+                  <Image src={connection.logo} width={60} height={50} alt="Connection" />
                 </div>
                 <p className="hidden font-medium text-black dark:text-white sm:block">
-                  {brand.name}
+                  {connection.name}
                 </p>
               </div>
 
               <div className="flex items-center justify-center p-2.5 xl:p-5">
-                <p className="font-medium text-black dark:text-white">
-                  {brand.visitors}K
-                </p>
+                <p className="font-medium text-black dark:text-white">{connection.events}K</p>
               </div>
 
               <div className="flex items-center justify-center p-2.5 xl:p-5">
-                <p className="font-medium text-meta-3">${brand.revenues}</p>
+                <p className="font-medium text-meta-3">{connection.updatedEvents}</p>
               </div>
 
               <div className="hidden items-center justify-center p-2.5 sm:flex xl:p-5">
-                <p className="font-medium text-meta-5">{brand.conversion}%</p>
+                <p className="font-medium text-meta-5">{connection.conversion}%</p>
               </div>
             </div>
           ))}

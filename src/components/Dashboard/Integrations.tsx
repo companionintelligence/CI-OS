@@ -41,7 +41,7 @@ const Integrations: React.FC = () => {
             />
           </svg>
         </CardDataStats>
-        <CardDataStats title="Food Cost" total="$452 a Week" rate="4.35%" levelUp>
+        <CardDataStats title="Food Cost" total="452 a Week" rate="4.35%" levelUp>
           <svg
             className="fill-primary dark:fill-white"
             width="20"
