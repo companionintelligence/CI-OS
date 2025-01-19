@@ -1,4 +1,4 @@
-# Companion Intelligence
+# Companion Intelligence Dashboard
 
 
 
