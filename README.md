@@ -1,56 +1,19 @@
-# Companion Intelligence Dashboard
-
-
-
-
-
-
-
+# CI Dashboard
 
 ### [✨ Visit Website](https://tailadmin.com/)
-### [🚀 PRO Demo](https://nextjs-demo.tailadmin.com/)
-### [🚀 FREE Demo](https://nextjs-free-demo.tailadmin.com/)
 
-### TailAdmin Next.js PRO vs TailAdmin Next.js FREE Comparison 📊
+### [🚀 FREE Demo](https://free-react-demo.tailadmin.com/)
 
-#### [TailAdmin Next.js PRO](https://nextjs-demo.tailadmin.com/)
+## CI Dashboard - Installation
 
-### [⬇️ Download Now](https://tailadmin.com/download)
+- Then run : <code>npm install</code>
 
-### [⚡ Get PRO Version](https://tailadmin.com/pricing)
+- Then run : <code>npm run dev</code>
 
-### [📄 Documentation/Installation](https://tailadmin.com/docs)
+Now, in the browser go to <code>localhost:5173</code>
 
-### [🖌️ TailAdmin Figma Free Sample](https://www.figma.com/community/file/1214477970819985778)
+**For Production Build**
+Run : <code>npm run build</code>
 
-### [👉 TailAdmin HTML Version](https://github.com/TailAdmin/tailadmin-free-tailwind-dashboard-template)
-
-
-## Installation
-Here are the steps you need to follow to install the dependencies.
-
-1. Download and extract the template from Next.js Templates.
-
-2. After that **cd** into the template directory then run this command to install all the dependencies
-
-```
-npm install
-```
-or
-
-```
-yarn install
-```
-
-3. Now run this command to start the developement server
-
-```
-npm run dev
-```
-
-or 
-
-```
-yarn dev
-```
+Default build output directory: /dist
 

@@ -4,5 +4,5 @@ export type Chat = {
   text: string;
   time: number;
   textCount: number;
-  dot: number;
+  color: string;
 };
