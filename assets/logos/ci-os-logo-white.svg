@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <!-- White version for dark backgrounds -->
+  <!-- Background Circle -->
+  <circle cx="100" cy="100" r="95" fill="white" stroke="#E5E7EB" stroke-width="2"/>
+  
+  <!-- CI Letters -->
+  <text x="100" y="120" font-family="Arial, sans-serif" font-size="72" font-weight="bold" 
+        text-anchor="middle" fill="#2563EB">CI</text>
+  
+  <!-- OS Text -->
+  <text x="100" y="160" font-family="Arial, sans-serif" font-size="24" font-weight="normal" 
+        text-anchor="middle" fill="#6B7280">OS</text>
+  
+  <!-- Circuit Pattern -->
+  <g stroke="#2563EB" stroke-width="2" fill="none" opacity="0.3">
+    <path d="M20 50 L50 50 L50 30 L80 30"/>
+    <path d="M120 30 L150 30 L150 50 L180 50"/>
+    <path d="M20 150 L50 150 L50 170 L80 170"/>
+    <path d="M120 170 L150 170 L150 150 L180 150"/>
+    <circle cx="50" cy="50" r="3" fill="#2563EB"/>
+    <circle cx="150" cy="50" r="3" fill="#2563EB"/>
+    <circle cx="50" cy="150" r="3" fill="#2563EB"/>
+    <circle cx="150" cy="150" r="3" fill="#2563EB"/>
+  </g>
+</svg>

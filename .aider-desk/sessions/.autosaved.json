@@ -16,6 +16,66 @@
     {
       "path": "scripts/setup-gaming.sh",
       "readOnly": false
+    },
+    {
+      "path": "assets/branding/brand-guidelines.md",
+      "readOnly": false
+    },
+    {
+      "path": "configs/packages/package-list.txt",
+      "readOnly": false
+    },
+    {
+      "path": "configs/scripts/ci-os-customization.sh",
+      "readOnly": false
+    },
+    {
+      "path": "configs/preseed/ci-os.preseed",
+      "readOnly": false
+    },
+    {
+      "path": "docs/cubic-customization-plan.md",
+      "readOnly": false
+    },
+    {
+      "path": "docs/installation-guide.md",
+      "readOnly": false
+    },
+    {
+      "path": "scripts/build-ci-os.sh",
+      "readOnly": false
+    },
+    {
+      "path": "scripts/test-ci-os.sh",
+      "readOnly": false
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "readOnly": false
+    },
+    {
+      "path": "LICENSE",
+      "readOnly": false
+    },
+    {
+      "path": "CHANGELOG.md",
+      "readOnly": false
+    },
+    {
+      "path": "configs/boot/grub-default",
+      "readOnly": false
+    },
+    {
+      "path": "configs/desktop/gnome-settings.sh",
+      "readOnly": false
+    },
+    {
+      "path": "docs/quick-start-guide.md",
+      "readOnly": false
+    },
+    {
+      "path": "scripts/validate-project.sh",
+      "readOnly": false
     }
   ]
 }
