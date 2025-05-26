@@ -1,6 +1,6 @@
 # CI OS
 
-## Custom Ubuntu Distribution for Continuous Integration and Development
+## Custom Linux Distribution for AI Companions and Development
 
 ![CI OS Logo](assets/logos/ci-os-logo.svg)
 
