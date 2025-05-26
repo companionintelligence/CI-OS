@@ -2,7 +2,7 @@
 
 ## Custom Linux Distribution for AI Companions and Development
 
-![CI OS Logo](assets/logos/holo-ci.png)
+![CI OS Logo](assets/logos/ci-holo-depth.png)
 
 CI OS is a specialized Ubuntu-based Linux distribution optimized for
 continuous integration, software development, and gaming workloads.
