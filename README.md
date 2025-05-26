@@ -4,6 +4,12 @@
 
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
+## COPYRIGHT COMPANION INTELLIGENCE - LIFESCOPE INC
+
+## DO NOT DISTRIBUTE
+
+## PRIVATE AND CONFIDENTIAL
+
 CI OS is a specialized Ubuntu-based Linux distribution optimized for
 continuous integration, software development, and gaming workloads.
 Built using [Cubic](https://github.com/PJ-Singh-001/Cubic), it provides
