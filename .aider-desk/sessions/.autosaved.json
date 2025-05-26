@@ -6,19 +6,11 @@
       "readOnly": false
     },
     {
-      "path": "README.md",
-      "readOnly": false
-    },
-    {
-      "path": "SETUP_SUMMARY.md",
-      "readOnly": false
-    },
-    {
-      "path": "assets/branding/brand-guidelines.md",
-      "readOnly": false
-    },
-    {
       "path": "scripts/validate-project.sh",
+      "readOnly": false
+    },
+    {
+      "path": "README.md",
       "readOnly": false
     }
   ]

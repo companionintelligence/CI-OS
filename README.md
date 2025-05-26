@@ -295,4 +295,4 @@ and configurations are licensed under MIT License.
 
 ## Made with ❤️ for developers, by developers
 
-![CI OS Icon](assets/logos/holo-ci.png)
+![CI OS Icon](assets/logos/ci-holo-depth.png)

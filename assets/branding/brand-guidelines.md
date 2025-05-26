@@ -1,8 +1,8 @@
 # CI OS Brand Guidelines
 
 ## Logo Usage
-- Primary logo: `assets/logos/holo-ci.png`
-- Icon version: `assets/logos/holo-ci.png`
+- Primary logo: `assets/logos/ci-holo-depth.png`
+- Icon version: `assets/logos/ci-holo-depth.png`
 - Minimum size: 32px for icon, 120px for full logo
 - Clear space: Minimum 20px around logo
 
