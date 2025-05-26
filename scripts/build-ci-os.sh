@@ -8,7 +8,7 @@ PROJECT_DIR="/Users/williambroza/devel/ci-os"
 CUBIC_PROJECT_DIR="$PROJECT_DIR/cubic-project"
 ISO_BASE_DIR="$PROJECT_DIR/iso/base"
 ISO_OUTPUT_DIR="$PROJECT_DIR/iso/output"
-UBUNTU_ISO_URL="https://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso"
+UBUNTU_ISO_URL="https://releases.ubuntu.com/noble/ubuntu-24.04.2-desktop-amd64.iso"
 UBUNTU_ISO_NAME="ubuntu-24.04-desktop-amd64.iso"
 
 echo "=== CI OS Automated Build Script ==="
