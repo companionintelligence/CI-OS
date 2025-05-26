@@ -2,11 +2,23 @@
   "contextMessages": [],
   "contextFiles": [
     {
-      "path": "README_FIXED.md",
+      "path": "scripts/ci-server-production-deploy.sh",
       "readOnly": false
     },
     {
-      "path": "scripts/ci-server-production-deploy.sh",
+      "path": "README.md",
+      "readOnly": false
+    },
+    {
+      "path": "SETUP_SUMMARY.md",
+      "readOnly": false
+    },
+    {
+      "path": "assets/branding/brand-guidelines.md",
+      "readOnly": false
+    },
+    {
+      "path": "scripts/validate-project.sh",
       "readOnly": false
     }
   ]

@@ -1,8 +1,8 @@
 # CI OS Brand Guidelines
 
 ## Logo Usage
-- Primary logo: `assets/logos/ci-os-logo.svg`
-- Icon version: `assets/icons/ci-os-icon.svg`
+- Primary logo: `assets/logos/holo-ci.png`
+- Icon version: `assets/logos/holo-ci.png`
 - Minimum size: 32px for icon, 120px for full logo
 - Clear space: Minimum 20px around logo
 
@@ -38,9 +38,11 @@
 ```
 assets/
 ├── logos/
-│   ├── ci-os-logo.svg (Primary logo)
-│   ├── ci-os-logo-white.svg (White version)
-│   └── ci-os-logo.png (PNG fallback)
+│   ├── holo-ci.png (Primary logo)
+│   ├── 2024_CI__Logo_Banner_Black.png (Banner version)
+│   ├── 2024_CI__Logo_Banner_Color_small.svg (Color banner)
+│   ├── 2024_CI__LogoMark_black.png (Black logomark)
+│   └── 2024_CI__LogoMark_Color_med.svg (Color logomark)
 ├── icons/
 │   ├── ci-os-icon.svg (Square icon)
 │   ├── ci-os-icon-16.png (16x16 px)

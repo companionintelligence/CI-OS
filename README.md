@@ -2,7 +2,7 @@
 
 ## Custom Linux Distribution for AI Companions and Development
 
-![CI OS Logo](assets/logos/ci-os-logo.svg)
+![CI OS Logo](assets/logos/holo-ci.png)
 
 CI OS is a specialized Ubuntu-based Linux distribution optimized for
 continuous integration, software development, and gaming workloads.
@@ -295,4 +295,4 @@ and configurations are licensed under MIT License.
 
 ## Made with ❤️ for developers, by developers
 
-![CI OS Icon](assets/icons/ci-os-icon.svg)
+![CI OS Icon](assets/logos/holo-ci.png)
