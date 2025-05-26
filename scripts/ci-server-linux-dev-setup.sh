@@ -1,64 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Get script directory and load libraries
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/common.sh"
+source "$SCRIPT_DIR/lib/postgresql-setup.sh"
+
+log_info "CI Server Linux Development Setup"
+
 # Update package index
+log_info "Updating package index..."
 sudo apt-get update -y
 
-# Install PostgreSQL
-sudo apt-get install -y postgresql postgresql-contrib
+# Setup PostgreSQL database
+setup_postgresql_database
 
-# Initialize the database (only needed in some environments)
-sudo pg_ctlcluster $(ls /etc/postgresql) main start
+# Setup Node.js and Yarn
+log_info "Setting up Node.js and Yarn..."
+if ! command_exists npm; then
+    log_error "Node.js/npm not found. Please install Node.js first."
+    exit 1
+fi
 
-# Set environment variables
-DB_USER="companion_intel"
-DB_PASSWORD="comp4nion_1ntel_ftw!"
-DB_NAME="companion_intel"
-PORT="5432"
-
-# Wait for PostgreSQL to be fully up
-sleep 2
-
-# Create the PostgreSQL user and database
-sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER'" | grep -q 1 || \
-  sudo -u postgres psql -c "CREATE USER $DB_USER WITH PASSWORD '$DB_PASSWORD';"
-
-sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1 || \
-  sudo -u postgres psql -c "CREATE DATABASE $DB_NAME OWNER $DB_USER;"
-
-sudo -u postgres psql -c "ALTER USER $DB_USER WITH SUPERUSER;"
-
-# Modify configs to allow remote access and password authentication
-PG_HBA="/etc/postgresql/$(ls /etc/postgresql)/main/pg_hba.conf"
-POSTGRESQL_CONF="/etc/postgresql/$(ls /etc/postgresql)/main/postgresql.conf"
-
-sudo sed -i "s/^local\s\+all\s\+postgres\s\+peer/local all postgres md5/" "$PG_HBA"
-sudo sed -i "s/^local\s\+all\s\+all\s\+peer/local all all md5/" "$PG_HBA"
-sudo sed -i "s/^host\s\+all\s\+all\s\+127.0.0.1\/32\s\+ident/host all all 0.0.0.0\/0 md5/" "$PG_HBA"
-
-sudo sed -i "s/^#listen_addresses = 'localhost'/listen_addresses = '*'/" "$POSTGRESQL_CONF"
-sudo sed -i "s/^port = .*/port = $PORT/" "$POSTGRESQL_CONF"
-
-# Restart PostgreSQL using pg_ctlcluster
-sudo pg_ctlcluster $(ls /etc/postgresql) main restart
-
-# Output summary
-echo "✅ PostgreSQL setup complete:"
-echo "  User:     $DB_USER"
-echo "  Password: $DB_PASSWORD"
-echo "  Database: $DB_NAME"
-echo "  Port:     $PORT"
-
-# Yarn
 npm install -g corepack
 yarn install
 
-sudo sh -c 'echo "127.0.0.1 dev.companionintelligence.com" >> /etc/hosts'
-grep dev.companionintelligence.com /etc/hosts
+# Setup hosts file
+log_info "Adding development host to /etc/hosts..."
+if ! grep -q "dev.companionintelligence.com" /etc/hosts; then
+    sudo sh -c 'echo "127.0.0.1 dev.companionintelligence.com" >> /etc/hosts'
+    log_success "Added dev.companionintelligence.com to hosts file"
+else
+    log_info "dev.companionintelligence.com already in hosts file"
+fi
 
-yarn migrate ./backend/app/api
+# Run database migrations
+log_info "Running database migrations..."
+if [[ -d "./backend/apps/api" ]]; then
+    yarn migrate ./backend/apps/api
+else
+    log_warning "Backend API directory not found, skipping migrations"
+fi
 
-ls -al
+# Install PM2 for process management
+log_info "Installing PM2 process manager..."
 npm install -g pm2
 
-pm2 start yarn --name web --cwd ./frontend/apps/web -- dev
-pm2 start yarn --name api --cwd ./backend/apps/api -- dev
+# Start development servers
+log_info "Starting development servers with PM2..."
 
-pm2 logs
+# Start web frontend
+if [[ -d "./frontend/apps/web" ]]; then
+    pm2 start yarn --name web --cwd ./frontend/apps/web -- dev
+    log_success "Started web frontend"
+else
+    log_warning "Frontend web directory not found"
+fi
+
+# Start API backend
+if [[ -d "./backend/apps/api" ]]; then
+    pm2 start yarn --name api --cwd ./backend/apps/api -- dev
+    log_success "Started API backend"
+else
+    log_warning "Backend API directory not found"
+fi
+
+# Show PM2 status
+log_info "Current PM2 processes:"
+pm2 status
+
+log_success "🎉 CI Server development setup completed!"
+echo
+echo "Services:"
+echo "  🌐 Web: http://dev.companionintelligence.com"
+echo "  📊 Database: PostgreSQL on localhost:$DB_PORT"
+echo
+echo "Management:"
+echo "  📋 View logs: pm2 logs"
+echo "  🔄 Restart: pm2 restart all"
+echo "  ⏹️  Stop: pm2 stop all"

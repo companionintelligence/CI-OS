@@ -1,13 +1,19 @@
 # CI OS
-### Custom Ubuntu Distribution for Continuous Integration and Development
+
+## Custom Ubuntu Distribution for Continuous Integration and Development
 
 ![CI OS Logo](assets/logos/ci-os-logo.svg)
 
-CI OS is a specialized Ubuntu-based Linux distribution optimized for continuous integration, software development, and gaming workloads. Built using [Cubic](https://github.com/PJ-Singh-001/Cubic), it provides a pre-configured environment with essential development tools, CI/CD platforms, and gaming support.
+CI OS is a specialized Ubuntu-based Linux distribution optimized for
+continuous integration, software development, and gaming workloads.
+Built using [Cubic](https://github.com/PJ-Singh-001/Cubic), it provides
+a pre-configured environment with essential development tools, CI/CD
+platforms, and gaming support.
 
 ## ✨ Features
 
 ### 🛠️ Development Environment
+
 - **Pre-installed Development Tools**: Git, build-essential, vim, nano, htop
 - **Container Support**: Docker and Docker Compose ready
 - **Multiple Language Support**: Python 3.12, Node.js, npm/yarn/pnpm
@@ -15,6 +21,7 @@ CI OS is a specialized Ubuntu-based Linux distribution optimized for continuous 
 - **IDE Support**: Visual Studio Code included
 
 ### 🔄 CI/CD Ready
+
 - **Process Management**: PM2 for application lifecycle
 - **SSH Server**: Secure remote access configured
 - **Security**: UFW firewall and fail2ban protection
@@ -22,12 +29,14 @@ CI OS is a specialized Ubuntu-based Linux distribution optimized for continuous 
 - **Automation**: Scripts for rapid deployment
 
 ### 🎮 Gaming Support
+
 - **Steam Integration**: Steam launcher with Proton support
 - **Performance Optimization**: GameMode and MangoHud
 - **Graphics Drivers**: NVIDIA and AMD GPU support
 - **Vulkan Ready**: Latest Vulkan drivers included
 
 ### 🔒 Security & Administration
+
 - **Hardened Configuration**: Secure SSH and firewall defaults
 - **User Management**: Pre-configured user accounts
 - **System Monitoring**: Built-in monitoring and logging
@@ -35,13 +44,68 @@ CI OS is a specialized Ubuntu-based Linux distribution optimized for continuous 
 
 ## 🚀 Quick Start
 
-### Prerequisites
+### CI Server Development Setup
+
+For setting up the CI Server development environment, use our automated
+setup scripts:
+
+#### Option 1: Interactive Setup (Recommended)
+
+```bash
+# Clone this repository
+git clone https://github.com/companionintelligence/ci-os.git
+cd ci-os
+
+# Run the interactive setup launcher
+./scripts/ci-setup-launcher.sh
+```
+
+#### Option 2: Direct Setup
+
+```bash
+# Download and setup CI Server with GitHub credentials
+./scripts/setup-ci-server-dev.sh -u <github-username> -t <github-token>
+
+# Or specify custom directory
+./scripts/setup-ci-server-dev.sh -u <github-username> -t <github-token> \
+  -d /opt/ci-server
+```
+
+#### Option 3: Manual Repository Setup
+
+```bash
+# If you already have the CI Server repository
+cd /path/to/ci-server
+/path/to/ci-os/scripts/ci-server-linux-dev-setup.sh
+```
+
+**What the setup includes:**
+
+- ✅ Node.js 18.x LTS with npm/yarn
+- ✅ Docker CE with Docker Compose
+- ✅ PostgreSQL database with CI Server schema
+- ✅ Ollama AI server with required models
+- ✅ PM2 process manager
+- ✅ Development hosts configuration
+- ✅ All project dependencies installed
+
+**Access your development environment:**
+
+- 🌐 Web Application: <http://dev.companionintelligence.com>
+- 📊 Database: PostgreSQL on localhost:5432
+- 🤖 Ollama API: <http://localhost:11434>
+
+### CI OS Installation
+
+#### Prerequisites
+
 - 4GB+ RAM (8GB+ recommended)
 - 25GB+ disk space
 - USB drive for installation
 - Internet connection
 
-### Download
+#### Download
+
 1. Download the latest CI OS ISO from [Releases](../../releases)
 2. Verify checksums for integrity
 3. Create bootable USB using tools like:
@@ -50,6 +114,7 @@ CI OS is a specialized Ubuntu-based Linux distribution optimized for continuous 
    - `dd` command (Linux/macOS)
 
 ### Installation
+
 ```bash
 # Standard installation - follow GUI wizard
 # OR automated installation with defaults
@@ -57,6 +122,7 @@ CI OS is a specialized Ubuntu-based Linux distribution optimized for continuous 
 ```
 
 ### Post-Installation Setup
+
 ```bash
 # Update system
 sudo apt update && sudo apt upgrade -y
@@ -73,7 +139,7 @@ sudo ./scripts/ci-server-setup-ubuntu-amd.sh
 
 ## 📁 Project Structure
 
-```
+```text
 ci-os/
 ├── assets/                     # Branding and visual assets
 │   ├── logos/                  # CI OS logos and branding
@@ -101,9 +167,12 @@ ci-os/
 ## 🔧 Building from Source
 
 ### 1. Install Cubic
+
 **Ubuntu/Derivatives:**
+
 ```bash
-sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys B7579F80E494ED3406A59DF9081525E2B4F1283B
+sudo apt-key adv --keyserver keyserver.ubuntu.com \
+  --recv-keys B7579F80E494ED3406A59DF9081525E2B4F1283B
 sudo apt-add-repository universe
 sudo apt-add-repository ppa:cubic-wizard/release
 sudo apt update
@@ -111,17 +180,24 @@ sudo apt install --no-install-recommends cubic
 ```
 
 **Debian/Derivatives:**
+
 ```bash
-echo "deb https://ppa.launchpadcontent.net/cubic-wizard/release/ubuntu/ noble main" | sudo tee /etc/apt/sources.list.d/cubic-wizard-release.list
-curl -S "https://keyserver.ubuntu.com/pks/lookup?op=get&search=0x081525e2b4f1283b" | sudo gpg --batch --yes --dearmor --output /etc/apt/trusted.gpg.d/cubic-wizard-ubuntu-release.gpg
+echo "deb https://ppa.launchpadcontent.net/cubic-wizard/release/ubuntu/ \
+  noble main" | sudo tee \
+  /etc/apt/sources.list.d/cubic-wizard-release.list
+curl -S "https://keyserver.ubuntu.com/pks/lookup?op=get&search=\
+0x081525e2b4f1283b" | sudo gpg --batch --yes --dearmor \
+  --output /etc/apt/trusted.gpg.d/cubic-wizard-ubuntu-release.gpg
 sudo apt update
 sudo apt install --no-install-recommends cubic
 ```
 
 ### 2. Download Base ISO
+
 Download Ubuntu 24.04 LTS Desktop ISO and place in `iso/base/`
 
 ### 3. Build Process
+
 1. Launch Cubic
 2. Create new project in `cubic-project/`
 3. Select base Ubuntu ISO
@@ -132,6 +208,7 @@ Download Ubuntu 24.04 LTS Desktop ISO and place in `iso/base/`
 8. Generate CI OS ISO
 
 ### 4. Testing
+
 ```bash
 # Test in virtual machine
 # Validate all features work
@@ -140,9 +217,12 @@ Download Ubuntu 24.04 LTS Desktop ISO and place in `iso/base/`
 
 ## 📚 Documentation
 
-- **[Installation Guide](docs/installation-guide.md)** - Complete installation instructions
-- **[Cubic Customization Plan](docs/cubic-customization-plan.md)** - Detailed build process
-- **[Brand Guidelines](assets/branding/brand-guidelines.md)** - Visual identity standards
+- **[Installation Guide](docs/installation-guide.md)** - Complete
+  installation instructions
+- **[Cubic Customization Plan](docs/cubic-customization-plan.md)** -
+  Detailed build process
+- **[Brand Guidelines](assets/branding/brand-guidelines.md)** - Visual
+  identity standards
 
 ## 🤝 Contributing
 
@@ -155,6 +235,7 @@ We welcome contributions! Please see our contributing guidelines:
 5. Submit a pull request
 
 ### Areas for Contribution
+
 - Package selection optimization
 - Performance improvements
 - Additional hardware support
@@ -165,23 +246,26 @@ We welcome contributions! Please see our contributing guidelines:
 
 - **Bug Reports**: [GitHub Issues](../../issues)
 - **Feature Requests**: [GitHub Discussions](../../discussions)
-- **Security Issues**: Email security@ci-os.org
+- **Security Issues**: Email <security@ci-os.org>
 
 ## 📋 Roadmap
 
 ### Version 1.0 (Current)
+
 - ✅ Base Ubuntu 24.04 LTS
 - ✅ Development tools integration
 - ✅ Gaming support
 - ✅ CI/CD tools
 
 ### Version 1.1 (Planned)
+
 - [ ] Kubernetes tools integration
 - [ ] Additional language support (Go, Rust)
 - [ ] Enhanced security features
 - [ ] Performance optimizations
 
 ### Version 2.0 (Future)
+
 - [ ] Custom package manager
 - [ ] Cloud-native tooling
 - [ ] Advanced virtualization
@@ -189,11 +273,13 @@ We welcome contributions! Please see our contributing guidelines:
 
 ## 📄 License
 
-CI OS is based on Ubuntu and inherits its licensing terms. Custom scripts and configurations are licensed under MIT License.
+CI OS is based on Ubuntu and inherits its licensing terms. Custom scripts
+and configurations are licensed under MIT License.
 
 ## 🙏 Acknowledgments
 
-- **[Cubic Project](https://github.com/PJ-Singh-001/Cubic)** - Ubuntu customization tool
+- **[Cubic Project](https://github.com/PJ-Singh-001/Cubic)** - Ubuntu
+  customization tool
 - **Ubuntu Team** - Base operating system
 - **Community Contributors** - Testing and feedback
 
@@ -207,7 +293,6 @@ CI OS is based on Ubuntu and inherits its licensing terms. Custom scripts and co
 
 ---
 
-**Made with ❤️ for developers, by developers**
+## Made with ❤️ for developers, by developers
 
 ![CI OS Icon](assets/icons/ci-os-icon.svg)
-
