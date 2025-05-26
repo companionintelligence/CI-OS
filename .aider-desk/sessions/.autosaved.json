@@ -1,17 +1,4 @@
 {
   "contextMessages": [],
-  "contextFiles": [
-    {
-      "path": "scripts/ci-server-production-deploy.sh",
-      "readOnly": false
-    },
-    {
-      "path": "scripts/validate-project.sh",
-      "readOnly": false
-    },
-    {
-      "path": "README.md",
-      "readOnly": false
-    }
-  ]
+  "contextFiles": []
 }
