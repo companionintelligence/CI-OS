@@ -39,5 +39,4 @@ original licenses. Please refer to each package's documentation for specific
 licensing information.
 
 ### Assets and Branding
-CI OS logos, icons, and branding materials are original works licensed under
-Creative Commons Attribution 4.0 International (CC BY 4.0).
+CI OS logos, icons, and branding materials are original works COPYRIGHT COMPANION INTELLIGENCE - LIFESCOPE INC
