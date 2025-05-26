@@ -1,0 +1,21 @@
+{
+  "contextMessages": [],
+  "contextFiles": [
+    {
+      "path": "README.md",
+      "readOnly": false
+    },
+    {
+      "path": "scripts/ci-server-linux-dev-setup.sh",
+      "readOnly": false
+    },
+    {
+      "path": "scripts/ci-server-setup-ubuntu-amd.sh",
+      "readOnly": false
+    },
+    {
+      "path": "scripts/setup-gaming.sh",
+      "readOnly": false
+    }
+  ]
+}
