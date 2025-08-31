@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=CI-OS
+Description=CI-OS Boot Splash Theme
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/ci-os-theme
+ScriptFile=/usr/share/plymouth/themes/ci-os-theme/ci-os.script

@@ -1,0 +1,108 @@
+# CI-OS Plymouth Script Theme
+# Modern boot splash with CI-OS branding
+
+# Window dimensions
+screen_width = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+# Background color (CI-OS blue gradient)
+Window.SetBackgroundTopColor(0.15, 0.25, 0.92);    # #2563EB
+Window.SetBackgroundBottomColor(0.12, 0.25, 0.69); # #1E40AF
+
+# Load CI-OS logo
+ci_logo = Image("ci-logo.png");
+ci_logo = ci_logo.Scale(256, 256);
+
+# Position logo at center-top
+logo_x = (screen_width - ci_logo.GetWidth()) / 2;
+logo_y = screen_height * 0.2;
+
+ci_logo_sprite = Sprite(ci_logo);
+ci_logo_sprite.SetPosition(logo_x, logo_y, 10);
+
+# Progress bar setup
+progress_bar_width = 300;
+progress_bar_height = 8;
+progress_bar_x = (screen_width - progress_bar_width) / 2;
+progress_bar_y = screen_height * 0.7;
+
+# Progress bar background
+progress_bg = Image.Text("", 0, 0, 0, 1, "");
+for (i = 0; i < progress_bar_width; i++) {
+    for (j = 0; j < progress_bar_height; j++) {
+        progress_bg.SetPixel(i, j, 0.3, 0.3, 0.3, 0.8);
+    }
+}
+
+progress_bg_sprite = Sprite(progress_bg);
+progress_bg_sprite.SetPosition(progress_bar_x, progress_bar_y, 100);
+
+# Progress bar fill
+progress_fill = Image.Text("", 0, 0, 0, 1, "");
+progress_fill_sprite = Sprite(progress_fill);
+progress_fill_sprite.SetPosition(progress_bar_x, progress_bar_y, 101);
+
+# Loading text
+loading_text = Image.Text("Starting CI-OS...", 1, 1, 1, 1, "Ubuntu 16px");
+loading_text_sprite = Sprite(loading_text);
+loading_text_sprite.SetPosition((screen_width - loading_text.GetWidth()) / 2, 
+                                progress_bar_y + 30, 10);
+
+# Progress function
+fun progress_callback(duration, progress) {
+    # Update progress bar
+    fill_width = progress * progress_bar_width;
+    for (i = 0; i < fill_width; i++) {
+        for (j = 0; j < progress_bar_height; j++) {
+            progress_fill.SetPixel(i, j, 0.15, 0.25, 0.92, 1.0);  # CI-OS blue
+        }
+    }
+    progress_fill_sprite.SetImage(progress_fill);
+}
+
+Plymouth.SetBootProgressFunction(progress_callback);
+
+# Message handling
+message_sprite = Sprite();
+message_sprite.SetPosition(10, 10, 10000);
+
+fun message_callback(text) {
+    if (text == "")
+        message_sprite.SetImage(Image.Text("", 0, 0, 0, 0));
+    else
+        message_sprite.SetImage(Image.Text(text, 1, 1, 1, 1, "Ubuntu 14px"));
+}
+
+Plymouth.SetMessageFunction(message_callback);
+
+# Password prompt
+question_sprite = Sprite();
+question_sprite.SetPosition(10, screen_height - 50, 10000);
+answer_sprite = Sprite();
+answer_sprite.SetPosition(10, screen_height - 30, 10000);
+
+fun question_callback(prompt, entry) {
+    question = Image.Text(prompt, 1, 1, 1, 1, "Ubuntu 16px");
+    question_sprite.SetImage(question);
+    
+    if (entry == "")
+        answer_sprite.SetImage(Image.Text("", 0, 0, 0, 0));
+    else {
+        bullets = "";
+        for (i = 0; i < entry.CharCount(); i++)
+            bullets += "•";
+        answer = Image.Text(bullets, 1, 1, 1, 1, "Ubuntu 16px");
+        answer_sprite.SetImage(answer);
+    }
+}
+
+Plymouth.SetDisplayQuestionFunction(question_callback);
+Plymouth.SetDisplayPasswordFunction(question_callback);
+
+# Quit function
+fun quit_callback() {
+    ci_logo_sprite.SetOpacity(1);
+    loading_text_sprite.SetOpacity(1);
+}
+
+Plymouth.SetQuitFunction(quit_callback);
