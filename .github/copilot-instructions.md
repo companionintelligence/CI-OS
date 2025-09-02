@@ -11,21 +11,18 @@ This repository currently contains:
 - Brand assets and logos
 - Basic project structure
 
-**Implementation needed**: Containerfiles, ujust commands, setup scripts, and documentation files referenced in the README.md.
+**Implementation needed**:  ujust commands, setup scripts, and documentation files referenced in the README.md.
 
 ### Core Technologies
 - **Base**: Bazzite (Fedora Silverblue derivative optimized for gaming)
-- **Containerization**: OCI containers built with rpm-ostree
 - **Windows Compatibility**: Wine, Proton, WinApps virtualization
-- **Build System**: GitHub Actions with container-to-ISO conversion
+- **Build System**: GitHub Actions with ISO 
 - **Package Management**: rpm-ostree (immutable OS) + ujust commands
 - **Variants**: Regular and NVIDIA-optimized builds
 
 ## Implementation Roadmap
 
 ### Priority 1: Core Build Files
-1. **Create Containerfile** - Base definition for regular CI-OS variant
-2. **Create Containerfile.nvidia** - NVIDIA-optimized variant with drivers
 3. **Set up files/just/** - ujust command definitions for setup and management
 4. **Create setup scripts** - First-time configuration and Wine/Proton setup
 
@@ -35,16 +32,15 @@ This repository currently contains:
 3. **docs/quick-start-guide.md** - Get running fast
 
 ### Priority 3: Testing & Validation
-1. **Local build testing** - Containerfile validation
+1. **Local build testing** - validation
 2. **ISO generation testing** - Full workflow validation
 3. **Windows app compatibility testing** - Wine/Proton functionality
 
 ## Architecture & Build System
 
-### Container-to-ISO Workflow
-1. **Containerfiles** define the base OS modifications
-2. **GitHub Actions** builds container images (regular + NVIDIA variants)
-3. **build-container-installer** converts containers to bootable ISOs
+### ISO Workflow
+2. **GitHub Actions** builds  images (regular + NVIDIA variants)
+3. **build-installer** converts to bootable ISOs
 4. **Signed images** and checksums published to GitHub Releases
 
 ### File Organization
@@ -54,8 +50,7 @@ This repository currently contains:
 │   ├── workflows/build-iso.yml    # Main build pipeline
 │   └── copilot-instructions.md    # This file
 ├── assets/logos/                  # Brand assets and logos
-├── Containerfile                  # Regular variant build definition (to be created)
-├── Containerfile.nvidia           # NVIDIA variant build definition (to be created)
+├── ISOs                          # Regular variant build definition (to be created)
 ├── files/                         # OS customization files (to be created)
 │   ├── just/                      # ujust command definitions
 │   └── scripts/                   # Setup and configuration scripts
@@ -66,10 +61,7 @@ This repository currently contains:
 
 ## Development Guidelines
 
-### Containerfile Best Practices
-- Use rpm-ostree for package installation with proper cleanup
-- Always run `rpm-ostree cleanup -m && ostree container commit` after installs
-- Leverage build caches: `--mount=type=cache,target=/var/cache/dnf`
+### ISO Best Practices
 - Keep regular and NVIDIA variants synchronized where possible
 - Use multi-stage builds for complex setups
 
@@ -82,7 +74,7 @@ This repository currently contains:
 
 ### Version Management
 - ISOs tagged with format: `v01-YYYYMMDD` (dated) and `v01-latest`
-- Container images follow same tagging convention
+- ISO images follow same tagging convention
 - Base version currently: `v01` (Bazzite Fedora 41)
 - Pin upstream dependencies to stable commits where possible
 
@@ -94,21 +86,15 @@ This repository currently contains:
 
 ## Build & Testing
 
-### Local Development
-```bash
-# Build container locally (testing only - ISOs built via GitHub Actions)
-podman build -f Containerfile -t ci-os:test .
-podman build -f Containerfile.nvidia -t ci-os-nvidia:test .
-```
 
 ### GitHub Actions Workflow
 - **Automatic**: Weekly builds every Sunday at 2 AM UTC
 - **Manual**: Via GitHub Actions "Run workflow" button
-- **On Push**: Triggered by changes to Containerfiles or workflow files
-- **Outputs**: Signed container images + bootable ISOs + checksums
+- **On Push**: Triggered by changes to ISOs or workflow files
+- **Outputs**: Signed images + bootable ISOs + checksums
 
 ### Testing Approach
-- **Container Builds**: Validate both variants build successfully
+- **Builds**: Validate both variants build successfully
 - **ISO Creation**: GitHub Actions handles full ISO build process
 - **Manual Testing**: Boot ISOs in VMs for integration testing
 - **ujust Commands**: Test setup commands work as expected
@@ -142,10 +128,10 @@ podman build -f Containerfile.nvidia -t ci-os-nvidia:test .
 - Gaming kernel and hardware acceleration pre-configured
 
 ### Immutable OS Concepts
-- System modifications via container layers, not direct package installs
+- System modifications via ISO layers, not direct package installs
 - User data and configs preserved across OS updates
 - rollback capabilities for system recovery
-- Container-based customization workflow
+- Image-based customization workflow
 
 ### NVIDIA Considerations
 - NVIDIA variant includes proprietary drivers
@@ -157,15 +143,15 @@ podman build -f Containerfile.nvidia -t ci-os-nvidia:test .
 
 ### When Making Changes
 1. **Understand the dual-variant system** - most changes need to apply to both regular and NVIDIA builds
-2. **Test container builds locally** before pushing changes
+2. **Test builds locally** before pushing changes
 3. **Update documentation** only when adding user-facing features
 4. **Preserve existing ujust commands** and their interfaces
 5. **Consider Windows compatibility** impact for any Wine/Proton changes
 
 ### Common Tasks
-- **Adding packages**: Modify Containerfile(s) with proper rpm-ostree syntax
+- **Adding packages**: Modify ISO(s) with proper rpm-ostree syntax
 - **New ujust commands**: Add to `files/just/` with consistent naming
-- **Build fixes**: Focus on GitHub Actions workflow or Containerfile issues  
+- **Build fixes**: Focus on GitHub Actions workflow or issues  
 - **Documentation updates**: Keep README.md current with feature changes
 
 ### Things to Avoid
@@ -177,8 +163,8 @@ podman build -f Containerfile.nvidia -t ci-os-nvidia:test .
 
 ## Security & Compliance
 
-### Container Security
-- All container images are signed with cosign
+### OS Security
+- All images are signed with cosign
 - Base images pinned to specific versions
 - Regular dependency updates via automated workflows
 
@@ -189,7 +175,7 @@ podman build -f Containerfile.nvidia -t ci-os-nvidia:test .
 
 ### Build Reproducibility
 - Checksums provided for all ISO releases
-- Container images tagged with build dates
+- ISO images tagged with build dates
 - GitHub Actions provides full build audit trail
 
 ## Summary
@@ -197,7 +183,7 @@ podman build -f Containerfile.nvidia -t ci-os-nvidia:test .
 This repository creates specialized Linux distributions focused on Windows application compatibility and gaming performance. All modifications should support this core mission while maintaining system stability and user experience. 
 
 When contributing to CI-OS:
-1. Understand the containerized OS build process
+1. Understand the OS build process
 2. Test both regular and NVIDIA variants
 3. Maintain Windows app compatibility
 4. Follow immutable OS best practices
