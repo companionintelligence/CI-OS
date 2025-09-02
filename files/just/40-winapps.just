@@ -42,16 +42,26 @@ setup-winapps:
     echo "  ✅ User added to libvirt group"
     
     # Configure WinApps
-    echo "  💻 Configuring WinApps..."
-    if [[ -d "/usr/share/ci-os/winapps" ]]; then
-        # Create WinApps configuration directory
-        mkdir -p "${HOME}/.config/winapps"
-        
-        # Copy WinApps to user directory for configuration
-        if [[ ! -d "${HOME}/.local/share/winapps" ]]; then
-            cp -r "/usr/share/ci-os/winapps" "${HOME}/.local/share/winapps"
-            echo "  ✅ WinApps copied to user directory"
-        fi
+    echo "  💻 Downloading and configuring WinApps..."
+    
+    # Create WinApps configuration directory
+    mkdir -p "${HOME}/.config/winapps"
+    
+    if [[ ! -d "${HOME}/.local/share/winapps" ]]; then
+        # Download WinApps to user directory
+        cd /tmp
+        curl -L -o winapps.tar.gz "https://github.com/winapps-org/winapps/archive/refs/heads/main.tar.gz" 2>/dev/null || {
+            echo "  ❌ Failed to download WinApps. Check internet connection."
+            exit 1
+        }
+        tar xzf winapps.tar.gz
+        mv winapps-main "${HOME}/.local/share/winapps"
+        chmod +x "${HOME}/.local/share/winapps/bin/"* 2>/dev/null || true
+        rm -f winapps.tar.gz
+        echo "  ✅ WinApps downloaded and installed"
+    else
+        echo "  ✅ WinApps already installed"
+    fi
         
         # Create basic WinApps configuration
         cat > "${HOME}/.config/winapps/winapps.conf" << 'EOF'
@@ -64,10 +74,6 @@ DEBUG=false
 EOF
         echo "  ✅ WinApps configuration created at ~/.config/winapps/winapps.conf"
         echo "     Edit this file with your Windows VM details"
-    else
-        echo "  ❌ WinApps not found. This should be installed during image build."
-        exit 1
-    fi
     
     # GPU passthrough setup for NVIDIA systems
     if [[ "${CI_OS_VARIANT:-regular}" == "nvidia" ]]; then

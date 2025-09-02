@@ -13,8 +13,8 @@ ARG FEDORA_MAJOR_VERSION=41
 ARG WINAPPS_COMMIT="0.1.0"
 ARG WINE_VERSION="9.0"
 
-# Install CI-OS branding and metadata
-COPY files/system /
+# Install CI-OS branding and metadata (if exists)
+# COPY files/system /
 
 # Install Wine and Windows compatibility stack with NVIDIA optimizations
 RUN --mount=type=cache,target=/var/cache/dnf \
@@ -75,14 +75,17 @@ RUN mkdir -p /etc/skel/.wine && \
     echo 'export __GL_SHADER_DISK_CACHE=1' >> /etc/environment && \
     echo 'export __GL_SHADER_DISK_CACHE_PATH=/home/$USER/.cache/nvidia' >> /etc/environment
 
-# Install WinApps (pinned commit for stability)
-RUN cd /tmp && \
-    curl -L -o winapps.tar.gz "https://github.com/winapps-org/winapps/archive/refs/heads/main.tar.gz" && \
-    tar xzf winapps.tar.gz && \
-    mkdir -p /usr/share/ci-os/winapps && \
-    cp -r winapps-main/* /usr/share/ci-os/winapps/ && \
-    chmod +x /usr/share/ci-os/winapps/bin/* && \
-    rm -rf /tmp/winapps* || true
+# Install WinApps (pinned commit for stability) - Done post-install
+# RUN cd /tmp && \
+#     curl -L -o winapps.tar.gz "https://github.com/winapps-org/winapps/archive/refs/heads/main.tar.gz" && \
+#     tar xzf winapps.tar.gz && \
+#     mkdir -p /usr/share/ci-os/winapps && \
+#     cp -r winapps-main/* /usr/share/ci-os/winapps/ && \
+#     chmod +x /usr/share/ci-os/winapps/bin/* && \
+#     rm -rf /tmp/winapps* || true
+
+# Create WinApps directory structure for later installation  
+RUN mkdir -p /usr/share/ci-os/winapps
 
 # Configure systemd services
 RUN systemctl enable libvirtd && \
