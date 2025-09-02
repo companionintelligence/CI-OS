@@ -5,21 +5,55 @@ All notable changes to CI OS will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v01-2024.12] - 2024-12-02
 
-### Added
+### Changed - Complete redesign to ISO-based approach
+- **BREAKING**: Removed all container-based approach per user request
+- **NEW**: Redesigned as bootable ISO distribution based on Bazzite
+- **NEW**: Two variants: Regular CI-OS and NVIDIA CI-OS
+- **NEW**: Full GitHub Actions workflow for automated ISO building
+- **NEW**: Signed container images with cosign
+- **NEW**: Weekly automated builds with GitHub Releases
+- **NEW**: Container-to-ISO conversion using jasonn3/build-container-installer
+
+### Added - ISO v01 Features
+- **Bootable ISOs**: Ready-to-install images based on Bazzite Fedora 41
+- **Two Containerfiles**: Regular and NVIDIA variants for container image building
+- **GitHub Actions**: Automated ISO building, signing, and release publishing
+- **Build Scripts**: Local container building with `./scripts/build-iso.sh`
+- **Just Commands**: Complete setup automation with `ujust` integration
+- **Wine Stack**: Pre-configured Wine with 32-bit libraries and winetricks
+- **Proton Integration**: Protontricks and Proton tools included
+- **WinApps Ready**: Full virtualization stack for seamless Windows app integration
+- **NVIDIA Support**: Dedicated NVIDIA variant with GPU optimizations
+- **Documentation**: Comprehensive ISO build guide and user documentation
+
+### Removed - Container-only approach
+- Removed Containerfile-only approach (now used for ISO base image creation)
+- Removed build-containerfile.sh script (replaced with build-iso.sh)
+- Removed container-specific documentation (replaced with ISO documentation)
+
+### Technical Details - ISO Creation Process
+- Container images serve as base for ISO creation via GitHub Actions
+- ISOs include complete Bazzite gaming environment plus Windows app support
+- Automatic weekly builds ensure fresh releases with latest security updates
+- Signed container images for security and verification
+- GitHub Releases with checksums for integrity verification
+
+## [Unreleased - Previous Container Approach]
+
+### Added - Initial container implementation (removed per user request)
+- **Containerfile (v0)**: Bazzite-based container approach for modern Linux gaming/development
+- **Wine/Proton Integration**: Complete Windows application support with Wine stack and Proton tools
+- **WinApps Support**: Seamless Windows app integration using KVM/libvirt backend
+- **ujust Automation**: First-boot helper commands for Wine, Proton, and WinApps setup  
+- **Build Automation**: Container build scripts and comprehensive documentation
 - Initial project structure and documentation
 - Cubic customization plan and build scripts
 - CI OS branding and visual assets
 - Comprehensive setup scripts for development, gaming, and AMD GPU support
 - Automated testing framework
 - Contributing guidelines and code of conduct
-
-### Changed
-- N/A (Initial release)
-
-### Deprecated
-- N/A (Initial release)
 
 ### Removed
 - N/A (Initial release)
