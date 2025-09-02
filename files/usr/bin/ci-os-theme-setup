@@ -1,0 +1,45 @@
+#!/usr/bin/bash
+# CI-OS First Boot Theme Setup Script
+# Automatically applies CI-OS branding and theming on first login
+
+set -euo pipefail
+
+THEME_LOCK_FILE="${HOME}/.ci-os-theme-applied"
+
+# Only run once per user
+if [[ -f "$THEME_LOCK_FILE" ]]; then
+    exit 0
+fi
+
+echo "🎨 CI-OS: Applying Companion Intelligence theming..."
+
+# Wait for desktop environment to be ready
+sleep 3
+
+# Apply CI-OS theme using ujust command
+if command -v ujust >/dev/null 2>&1; then
+    ujust setup-ci-theme 2>/dev/null || echo "Theme setup encountered issues, continuing..."
+else
+    # Fallback manual theme application
+    mkdir -p "${HOME}/.local/share/color-schemes"
+    mkdir -p "${HOME}/.config"
+    
+    # Copy theme files if they exist
+    if [[ -f "/etc/skel/.local/share/color-schemes/CI-OS-Dark.colors" ]]; then
+        cp /etc/skel/.local/share/color-schemes/CI-OS-Dark.colors "${HOME}/.local/share/color-schemes/" 2>/dev/null || true
+    fi
+    
+    if [[ -f "/etc/skel/.config/kdeglobals" ]]; then
+        cp /etc/skel/.config/kdeglobals "${HOME}/.config/" 2>/dev/null || true
+    fi
+fi
+
+# Mark as completed
+touch "$THEME_LOCK_FILE"
+
+# Show welcome message
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send "Welcome to CI-OS" "Companion Intelligence theme has been applied!" --icon=dialog-information 2>/dev/null || true
+fi
+
+exit 0

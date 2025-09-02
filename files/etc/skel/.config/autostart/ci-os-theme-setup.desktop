@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=CI-OS Theme Setup
+Comment=Apply CI-OS Companion Intelligence branding and theming
+Exec=/usr/bin/ci-os-theme-setup
+Icon=preferences-desktop-theme
+Hidden=false
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
+StartupNotify=false
+Categories=System;Settings;

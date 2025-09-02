@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="1024" height="768" viewBox="0 0 1024 768" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="grubBackground" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#066c80"/>
+      <stop offset="100%" style="stop-color:#072734"/>
+    </linearGradient>
+  </defs>
+  
+  <!-- Background -->
+  <rect width="1024" height="768" fill="url(#grubBackground)"/>
+  
+  <!-- CI-OS branding -->
+  <text x="512" y="100" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="48" font-weight="bold" fill="#72ddd4">CI-OS</text>
+  <text x="512" y="140" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="20" fill="#00a9a7">Linux for AI</text>
+  
+  <!-- Bottom branding -->
+  <text x="512" y="720" text-anchor="middle" font-family="DejaVu Sans, sans-serif" font-size="14" fill="#00a9a7" opacity="0.8">Companion Intelligence</text>
+</svg>

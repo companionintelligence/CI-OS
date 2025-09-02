@@ -21,6 +21,9 @@ setup-ci-os:
     echo "⏳ Setting up Proton tools..."
     just setup-proton
     
+    echo "⏳ Applying CI-OS theme..."
+    just setup-ci-theme
+    
     echo "⏳ Starting CI-Server..."
     just start-ci-server
     
@@ -162,6 +165,7 @@ ci-os-info:
     echo "  • Web interface: http://localhost:8080/ui"
     echo "  • Manage service: ujust start-ci-server / ujust stop-ci-server"
     echo "  • View logs: journalctl -u ci-server -f"
+    echo "  • Theme commands: ujust setup-ci-theme / ujust ci-theme-info"
 
 # Run Windows apps with Wine
 run-wine TARGET:

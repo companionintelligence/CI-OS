@@ -1,0 +1,10 @@
+[General]
+ColorScheme=CI-OS-Dark
+Theme=breeze-dark
+
+[Desktops]
+Id_1=d6c3a26b-a72a-4d0b-bb52-4c96c6e7b831
+Number=1
+
+[Desktops][d6c3a26b-a72a-4d0b-bb52-4c96c6e7b831]
+Name=Desktop

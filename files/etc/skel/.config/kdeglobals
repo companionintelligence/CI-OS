@@ -1,0 +1,21 @@
+[ColorScheme]
+ColorScheme=CI-OS-Dark
+
+[General]
+ColorScheme=CI-OS-Dark
+Name=CI-OS Dark
+
+[Icons]
+Theme=breeze-dark
+
+[KDE]
+SingleClick=false
+
+[WM]
+activeBackground=27,30,32
+activeBlend=239,240,241
+activeForeground=239,240,241
+frame=42,46,50
+inactiveBackground=42,46,50
+inactiveBlend=102,106,115
+inactiveForeground=102,106,115

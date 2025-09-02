@@ -1,0 +1,42 @@
+# CI-OS GRUB2 Theme Configuration
+desktop-image: "background.png"
+title-text: ""
+terminal-font: "DejaVu Sans Mono Regular 16"
+terminal-box: "terminal-box_*.png"
+title-color: "#72ddd4"
+message-color: "#00a9a7"
+terminal-border: "0"
+
++ boot_menu {
+    left = 20%
+    top = 30%
+    width = 60%
+    height = 50%
+    
+    item_font = "DejaVu Sans Regular 16"
+    item_color = "#72ddd4"
+    selected_item_font = "DejaVu Sans Bold 16"
+    selected_item_color = "#ffffff"
+    selected_item_pixmap_style = "select_*.png"
+    
+    menu_pixmap_style = "menu_*.png"
+    item_height = 32
+    item_padding = 8
+    item_spacing = 8
+    
+    icon_width = 24
+    icon_height = 24
+}
+
++ label {
+    id = "__timeout__"
+    text = "Booting in %d seconds"
+    color = "#00a9a7"
+    font = "DejaVu Sans Regular 12"
+    
+    left = 50%-120
+    top = 90%-40
+    width = 240
+    height = 20
+    align = "center"
+}

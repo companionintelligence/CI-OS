@@ -1,0 +1,62 @@
+# CI-OS Plymouth Boot Splash Script
+
+# Set background color to CI dark green
+Window.SetBackgroundTopColor(0.024, 0.424, 0.502);    # #066c80
+Window.SetBackgroundBottomColor(0.000, 0.663, 0.655); # #00a9a7
+
+# Load CI logo (if available)
+logo.image = Image("ci-logo.png");
+logo.sprite = Sprite(logo.image);
+logo.opacity = 1;
+
+# Center the logo
+logo.sprite.SetX(Window.GetWidth()  / 2 - logo.image.GetWidth()  / 2);
+logo.sprite.SetY(Window.GetHeight() / 2 - logo.image.GetHeight() / 2 - 50);
+
+# CI-OS title text
+title_text = "CI-OS";
+title_font = "Sans 36";
+title_color.red = 0.447;   # #72ddd4
+title_color.green = 0.867;
+title_color.blue = 0.831;
+
+title_image = Image.Text(title_text, title_color.red, title_color.green, title_color.blue, title_font);
+title_sprite = Sprite(title_image);
+title_sprite.SetX(Window.GetWidth() / 2 - title_image.GetWidth() / 2);
+title_sprite.SetY(Window.GetHeight() / 2 + 60);
+
+# Subtitle
+subtitle_text = "Linux for AI";
+subtitle_font = "Sans 16";
+subtitle_color.red = 0.000;   # #00a9a7
+subtitle_color.green = 0.663;
+subtitle_color.blue = 0.655;
+
+subtitle_image = Image.Text(subtitle_text, subtitle_color.red, subtitle_color.green, subtitle_color.blue, subtitle_font);
+subtitle_sprite = Sprite(subtitle_image);
+subtitle_sprite.SetX(Window.GetWidth() / 2 - subtitle_image.GetWidth() / 2);
+subtitle_sprite.SetY(Window.GetHeight() / 2 + 100);
+
+# Progress bar
+progress_bar.original_image = Image("progress_bar.png");
+progress_bar.sprite = Sprite();
+progress_bar.x = Window.GetWidth()  / 2 - progress_bar.original_image.GetWidth() / 2;
+progress_bar.y = Window.GetHeight() - 80;
+progress_bar.sprite.SetPosition(progress_bar.x, progress_bar.y, 10000);
+
+fun progress_callback (duration, progress) {
+    if (progress_bar.original_image.GetWidth () > 0) {
+        # CI brand colors for progress bar
+        new_progress_bar.image = progress_bar.original_image.Scale(progress_bar.original_image.GetWidth () * progress, progress_bar.original_image.GetHeight ());
+        progress_bar.sprite.SetImage (new_progress_bar.image);
+    }
+}
+
+Plymouth.SetBootProgressFunction(progress_callback);
+
+# Spinning animation (optional)
+fun refresh_callback () {
+    # Keep sprites visible
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);

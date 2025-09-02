@@ -14,6 +14,7 @@ COPY files/ /
 
 # Install ujust commands
 COPY files/just/ci-os.just /usr/share/ublue-os/justfiles/60-ci-os.just
+COPY files/just/60-ci-theme.just /usr/share/ublue-os/justfiles/60-ci-theme.just
 
 # Install additional packages for Windows app compatibility
 RUN rpm-ostree install \
@@ -28,10 +29,17 @@ RUN chmod +x /files/scripts/install-ci-server.sh && /files/scripts/install-ci-se
 
 # Configure Wine and gaming optimizations
 RUN mkdir -p /etc/skel/.local/share/applications \
-    && mkdir -p /etc/skel/.wine
+    && mkdir -p /etc/skel/.wine \
+    && chmod +x /usr/bin/ci-os-theme-setup \
+    && echo 'export CI_OS_VARIANT="regular"' >> /etc/environment
 
 # Rebuild initramfs
 RUN rpm-ostree initramfs --enable
+
+# Configure CI-OS Plymouth boot theme
+RUN if [ -f /usr/share/plymouth/themes/ci-os/ci-os.plymouth ]; then \
+        plymouth-set-default-theme ci-os || true; \
+    fi
 
 # Clean up
 RUN rpm-ostree cleanup -m \
