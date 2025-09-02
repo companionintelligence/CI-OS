@@ -1,4 +1,4 @@
-# CI-OS v01: Bazzite-based ISO with Windows Apps Support
+# CI OS : Custom Linux Distribution for AI Companions and Development
 
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
@@ -16,7 +16,7 @@ https://github.com/companionintelligence/CI-Server
 ### Key Features
 
 - 💿 **Bootable ISOs**: Ready-to-install images with everything included
-- 🎮 **Bazzite Foundation**: Gaming-optimized Fedora Silverblue derivative
+- 🎮 **Bazzite Foundation**: Performance-optimized Fedora Silverblue derivative
 - 🍷 **Wine Pre-configured**: Wine environment ready out-of-the-box
 - ⚙️ **Proton Integration**: Includes protontricks and Proton tools  
 - 💻 **WinApps Ready**: VM-based Windows app integration support
@@ -25,13 +25,13 @@ https://github.com/companionintelligence/CI-Server
 
 ## 📦 Available ISOs
 
-### Regular CI-OS
+### CI-OS Base
 - **Base**: Bazzite Fedora 41 (KDE)
 - **Target**: Gaming and general-purpose systems
 - **Size**: ~4GB ISO
 - **Includes**: Wine, Proton, WinApps, virtualization stack
 
-### NVIDIA CI-OS Addons
+### NVIDIA CI-OS Version
 - **Base**: Bazzite NVIDIA Fedora 41 (KDE)
 - **Target**: Systems with NVIDIA GPUs
 - **Size**: ~4.2GB ISO
