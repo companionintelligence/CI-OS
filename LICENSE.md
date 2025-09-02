@@ -15,23 +15,34 @@ INCLUDING CI SERVER, CI JUST IN CASE - JIC BACKUP, AND CI SPELLBOOK
 
 ## Third-Party Components
 
-Ubuntu is under a mix of licenses, each individual package has its copy right file under /usr/share/doc/PACKAGE/copyright
+Bazzite is based on Fedora Silverblue and includes packages under various licenses. Each individual package has its license information available in the package metadata.
 
-https://ubuntu.com/legal/open-source-licences All packages in main & universe are free software & can be modified & redistributed - restricted & multiverse packages fall under other licenses which may not allow this.
+Bazzite and Fedora packages are primarily free software that can be modified & redistributed under their respective licenses.
 
-See http://www.ubuntu.com/project/about-ubuntu/licensing for more details
+See https://bazzite.gg/ and https://fedoraproject.org/wiki/Licensing for more details
 
 CI OS includes components with their own licenses:
 
-### Ubuntu Linux
-- License: Various (primarily GPL v2)
-- Source: https://ubuntu.com/
-- Copyright: Canonical Ltd.
+### Bazzite Linux Distribution
+- License: Various (primarily GPL v2, MIT, Apache)
+- Source: https://bazzite.gg/
+- Copyright: Universal Blue Team
+- Base: Fedora Silverblue (Red Hat, Inc.)
 
-### Cubic (Custom Ubuntu ISO Creator)
-- License: GPL v3
-- Source: https://github.com/PJ-Singh-001/Cubic
-- Copyright: PJ Singh
+### build-container-installer (ISO Creation Tool)
+- License: Apache License 2.0
+- Source: https://github.com/jasonn3/build-container-installer
+- Copyright: jasonn3
+
+### Wine (Windows Compatibility Layer)
+- License: LGPL v2.1+
+- Source: https://www.winehq.org/
+- Copyright: Wine Team
+
+### Proton (Steam's Windows Compatibility Tool)
+- License: BSD-3-Clause and others
+- Source: https://github.com/ValveSoftware/Proton
+- Copyright: Valve Corporation
 
 ### Development Tools
 Individual development tools and packages included in CI OS retain their
