@@ -8,6 +8,11 @@ A bootable ISO distribution based on [Bazzite](https://bazzite.gg/) that include
 
 CI-OS v01 creates bootable installer ISOs based on Bazzite with pre-configured Windows compatibility tools. Install like any Linux distribution and get instant access to Windows apps through multiple compatibility layers.
 
+
+CI-Server will come preinstalled and running when you log in.
+https://github.com/companionintelligence/CI-Server
+
+
 ### Key Features
 
 - 💿 **Bootable ISOs**: Ready-to-install images with everything included
@@ -219,11 +224,7 @@ cd CI-OS
 - **WinApps**: Pinned to latest stable commit
 - **Container Images**: Tagged with build date and `latest`
 - **ISOs**: Released as GitHub releases with checksums
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
-
+ 
 ## 🙏 Acknowledgments
 
 - [Bazzite Team](https://bazzite.gg/) - For the excellent gaming-focused base distribution
