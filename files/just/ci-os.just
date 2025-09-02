@@ -92,14 +92,19 @@ start-ci-server:
         echo "✅ CI-Server is already running"
         just ci-server-status
     else
-        sudo systemctl start ci-server
-        sleep 2
-        if systemctl is-active ci-server >/dev/null 2>&1; then
-            echo "✅ CI-Server started successfully"
-            echo "🌐 Web interface: http://localhost:8080/ui"
+        if sudo systemctl start ci-server 2>/dev/null; then
+            sleep 2
+            if systemctl is-active ci-server >/dev/null 2>&1; then
+                echo "✅ CI-Server started successfully"
+                echo "🌐 Web interface: http://localhost:8080/ui"
+            else
+                echo "❌ CI-Server started but may not be ready yet"
+                echo "📋 Check status: journalctl -u ci-server -n 10"
+            fi
         else
-            echo "❌ Failed to start CI-Server"
-            echo "📋 Check status: journalctl -u ci-server -n 10"
+            echo "❌ Failed to start CI-Server service"
+            echo "📋 Check status with: systemctl status ci-server"
+            echo "📋 View logs with: journalctl -u ci-server -n 10"
         fi
     fi
 

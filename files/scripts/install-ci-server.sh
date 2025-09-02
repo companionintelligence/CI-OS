@@ -278,18 +278,21 @@ if [ -f "$LOCKFILE" ]; then
     exit 0
 fi
 
-# Start CI-Server system service
-/usr/bin/systemctl --no-block start ci-server.service
-
-# Enable CI-Server to start automatically on boot
-/usr/bin/systemctl --no-block enable ci-server.service
+# Start CI-Server system service (with error handling)
+if systemctl is-enabled ci-server >/dev/null 2>&1; then
+    systemctl --no-block start ci-server.service 2>/dev/null || true
+else
+    # Enable CI-Server to start automatically on boot
+    systemctl --no-block enable ci-server.service 2>/dev/null || true
+    systemctl --no-block start ci-server.service 2>/dev/null || true
+fi
 
 # Create lockfile to prevent running again
 touch "$LOCKFILE"
 
 # Optional: Show notification that CI-Server is starting
 if command -v notify-send > /dev/null 2>&1; then
-    notify-send "CI-Server" "Starting Companion Intelligence Server..." --icon=dialog-information
+    notify-send "CI-Server" "Starting Companion Intelligence Server..." --icon=dialog-information 2>/dev/null || true
 fi
 
 exit 0

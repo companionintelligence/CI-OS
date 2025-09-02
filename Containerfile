@@ -24,7 +24,7 @@ RUN rpm-ostree install \
     && rpm-ostree cleanup -m
 
 # Install and configure CI-Server
-RUN /files/scripts/install-ci-server.sh
+RUN chmod +x /files/scripts/install-ci-server.sh && /files/scripts/install-ci-server.sh
 
 # Configure Wine and gaming optimizations
 RUN mkdir -p /etc/skel/.local/share/applications \

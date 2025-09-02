@@ -94,15 +94,19 @@ start-ci-server-nvidia:
         just ci-server-status
     else
         # Set NVIDIA environment variables and start service
-        sudo systemctl set-environment NVIDIA_VISIBLE_DEVICES=all
-        sudo systemctl start ci-server
-        sleep 2
-        if systemctl is-active ci-server >/dev/null 2>&1; then
-            echo "✅ CI-Server started with NVIDIA support"
-            echo "🌐 Web interface: http://localhost:8080/ui"
+        if sudo systemctl set-environment NVIDIA_VISIBLE_DEVICES=all 2>/dev/null && sudo systemctl start ci-server 2>/dev/null; then
+            sleep 2
+            if systemctl is-active ci-server >/dev/null 2>&1; then
+                echo "✅ CI-Server started with NVIDIA support"
+                echo "🌐 Web interface: http://localhost:8080/ui"
+            else
+                echo "❌ CI-Server started but may not be ready yet"
+                echo "📋 Check status: journalctl -u ci-server -n 10"
+            fi
         else
-            echo "❌ Failed to start CI-Server"
-            echo "📋 Check status: journalctl -u ci-server -n 10"
+            echo "❌ Failed to start CI-Server with NVIDIA support"
+            echo "📋 Check NVIDIA drivers: nvidia-smi"
+            echo "📋 Check service status: systemctl status ci-server"
         fi
     fi
 

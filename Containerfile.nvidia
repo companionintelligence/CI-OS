@@ -26,7 +26,7 @@ RUN rpm-ostree install \
     && rpm-ostree cleanup -m
 
 # Install and configure CI-Server with NVIDIA support  
-RUN /files/scripts/install-ci-server.sh
+RUN chmod +x /files/scripts/install-ci-server.sh && /files/scripts/install-ci-server.sh
 
 # Configure Wine with NVIDIA optimizations
 RUN mkdir -p /etc/skel/.local/share/applications \
