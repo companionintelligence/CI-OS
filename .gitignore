@@ -1,0 +1,41 @@
+# CI-OS Build Artifacts and Development Files
+*.iso
+*.iso.CHECKSUM
+*.iso.MANIFEST
+
+# Container images and build cache
+*.tar
+*.tar.gz
+*.tar.xz
+
+# Development and testing files
+/tmp/
+/.tmp/
+/test/
+*.log
+*.tmp
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Local development overrides
+config.local.*
+*.override.*
+
+# Build outputs (keep source files only)
+build/
+dist/
+out/
