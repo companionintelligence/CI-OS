@@ -1,0 +1,65 @@
+# CI-OS Base Image - Bazzite Fork with Wine + WinApps Integration
+FROM ghcr.io/ublue-os/bazzite:latest
+
+LABEL org.opencontainers.image.title="CI-OS Gaming Distribution"
+LABEL org.opencontainers.image.description="Bazzite-based gaming distribution with Wine, Proton, and WinApps integration"
+LABEL org.opencontainers.image.source="https://github.com/companionintelligence/CI-OS"
+LABEL org.opencontainers.image.licenses="MIT"
+
+# Install Wine and dependencies
+RUN rpm-ostree install \
+    wine \
+    wine-core \
+    winetricks \
+    wine-fonts \
+    wine-systemd \
+    xorg-x11-server-Xvfb \
+    && rpm-ostree cleanup -m
+
+# Install WinApps prerequisites
+RUN rpm-ostree install \
+    freerdp \
+    python3 \
+    python3-pip \
+    icoutils \
+    && rpm-ostree cleanup -m
+
+# Clone and install WinApps (pinned to specific commit)
+ARG WINAPPS_COMMIT="main"
+RUN git clone https://github.com/winapps-org/winapps.git /opt/winapps \
+    && cd /opt/winapps \
+    && git checkout ${WINAPPS_COMMIT} \
+    && cp bin/winapps /usr/local/bin/ \
+    && chmod +x /usr/local/bin/winapps
+
+# Copy Wine configuration
+COPY configs/wine/ /etc/wine/
+COPY configs/winapps/ /etc/winapps/
+
+# Copy Proton helpers and configuration
+COPY configs/proton/ /opt/proton-helpers/
+
+# Set up Wine environment
+ENV WINEPREFIX=/home/deck/.wine
+ENV WINEARCH=win64
+
+# Configure WinApps
+RUN mkdir -p /usr/share/applications/winapps
+
+# Create wine initialization script
+RUN echo '#!/bin/bash\n\
+if [ ! -d "$WINEPREFIX" ]; then\n\
+    winecfg /v win10\n\
+    winetricks -q corefonts vcrun2019 vcrun2022\n\
+fi' > /usr/local/bin/init-wine \
+    && chmod +x /usr/local/bin/init-wine
+
+# Enable required services for Windows app integration
+RUN systemctl enable --global wine-init.service
+
+COPY scripts/setup-wine.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/setup-wine.sh
+
+# Final cleanup and commit
+RUN rpm-ostree cleanup -m \
+    && ostree container commit

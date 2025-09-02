@@ -1,0 +1,18 @@
+# NVIDIA-specific Wine configuration
+# Optimized settings for NVIDIA GPU acceleration
+
+REGEDIT4
+
+[HKEY_CURRENT_USER\Software\Wine\Direct3D]
+"renderer"="vulkan"
+"VideoMemorySize"="4096"
+"UseGLSL"="enabled"
+"VertexShaderMode"="hardware"
+"PixelShaderMode"="hardware"
+
+[HKEY_CURRENT_USER\Software\Wine\Graphics]
+"WindowsVersion"="win10"
+"GrabFullscreen"="Y"
+
+[HKEY_LOCAL_MACHINE\Software\Wine\OpenGL]
+"DisabledExtensions"=""

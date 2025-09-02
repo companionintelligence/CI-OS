@@ -1,6 +1,6 @@
-# CI OS
+# CI-OS Gaming Distribution (ISO v01)
 
-## Custom Linux Distribution for AI Companions and Development
+## Bazzite Fork with Wine + WinApps Integration
 
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
@@ -10,43 +10,33 @@
 
 ## PRIVATE AND CONFIDENTIAL
 
-CI OS is a specialized Ubuntu-based Linux distribution optimized for
-continuous integration, software development, and gaming workloads.
-Built using [Cubic](https://github.com/PJ-Singh-001/Cubic), it provides
-a pre-configured environment with essential development tools, CI/CD
-platforms, and gaming support.
+CI-OS is a specialized Bazzite-based gaming distribution focused on seamless Windows application compatibility. Built on Universal Blue's container-based approach, it provides Wine, Proton, and WinApps integration for running Windows applications natively on a modern Fedora-based immutable operating system.
 
 ## ✨ Features
 
-### 🛠️ Development Environment
+### 🎮 Gaming Excellence
+- **Bazzite Foundation**: Built on the proven Bazzite gaming distribution
+- **Steam Integration**: Full Steam support with Proton compatibility layers
+- **Performance Optimization**: GameMode, MangoHud, and gaming-focused kernel
+- **Graphics Drivers**: NVIDIA and AMD GPU support with container variants
 
-- **Pre-installed Development Tools**: Git, build-essential, vim, nano, htop
-- **Container Support**: Docker and Docker Compose ready
-- **Multiple Language Support**: Python 3.12, Node.js, npm/yarn/pnpm
-- **Database Ready**: PostgreSQL pre-configured
-- **IDE Support**: Visual Studio Code included
+### 🪟 Windows App Integration
+- **Wine Compatibility**: Latest Wine with Windows API compatibility
+- **Proton Support**: Steam's Proton for enhanced gaming and app compatibility
+- **WinApps Integration**: Seamless Windows application integration via [WinApps](https://github.com/winapps-org/winapps)
+- **DirectX Acceleration**: DXVK and VKD3D for DirectX 11/12 support
 
-### 🔄 CI/CD Ready
+### 🔄 Container-Based Architecture
+- **Immutable System**: Atomic updates via ostree technology
+- **Container Builds**: Reproducible builds using Containerfiles
+- **Universal Blue**: Built on Universal Blue infrastructure
+- **GitHub Actions**: Automated builds with cosign signing
 
-- **Process Management**: PM2 for application lifecycle
-- **SSH Server**: Secure remote access configured
-- **Security**: UFW firewall and fail2ban protection
-- **Monitoring**: System monitoring tools included
-- **Automation**: Scripts for rapid deployment
-
-### 🎮 Gaming Support
-
-- **Steam Integration**: Steam launcher with Proton support
-- **Performance Optimization**: GameMode and MangoHud
-- **Graphics Drivers**: NVIDIA and AMD GPU support
-- **Vulkan Ready**: Latest Vulkan drivers included
-
-### 🔒 Security & Administration
-
-- **Hardened Configuration**: Secure SSH and firewall defaults
-- **User Management**: Pre-configured user accounts
-- **System Monitoring**: Built-in monitoring and logging
-- **Automatic Updates**: Security update automation
+### 🔒 Security & Reliability
+- **Signed Images**: Cryptographically signed with cosign
+- **Immutable Base**: System integrity through immutable filesystem
+- **Automated Updates**: Reliable system updates via ostree
+- **Enterprise Ready**: Production-grade container infrastructure
 
 ## 🚀 Quick Start
 

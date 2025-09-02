@@ -1,0 +1,157 @@
+name: Build and Publish CI-OS Images
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Weekly build to keep images updated
+    - cron: '0 6 * * 1'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ci-os
+  WINAPPS_COMMIT: "main"  # Pin to specific commit for production
+
+jobs:
+  build-base:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build base image
+        run: |
+          podman build \
+            -f Containerfile.ci-os \
+            --build-arg WINAPPS_COMMIT=${{ env.WINAPPS_COMMIT }} \
+            -t ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:base \
+            .
+
+      - name: Test base image
+        run: |
+          # Test Wine functionality
+          podman run --rm ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:base wine --version
+          
+          # Test WinApps availability
+          podman run --rm ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:base which winapps
+
+      - name: Push base image
+        run: |
+          podman push ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:base
+
+      - name: Sign base image
+        run: |
+          cosign sign --yes ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:base
+
+  build-nvidia:
+    runs-on: ubuntu-latest
+    needs: build-base
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Build NVIDIA image
+        run: |
+          podman build \
+            -f Containerfile.ci-os-nvidia \
+            --build-arg WINAPPS_COMMIT=${{ env.WINAPPS_COMMIT }} \
+            -t ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:nvidia \
+            .
+
+      - name: Test NVIDIA image
+        run: |
+          # Test Wine functionality
+          podman run --rm ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:nvidia wine --version
+          
+          # Test WinApps availability
+          podman run --rm ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:nvidia which winapps
+
+      - name: Push NVIDIA image
+        run: |
+          podman push ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:nvidia
+
+      - name: Sign NVIDIA image
+        run: |
+          cosign sign --yes ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:nvidia
+
+  build-iso:
+    runs-on: ubuntu-latest
+    needs: [build-base, build-nvidia]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ISO generation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y genisoimage xorriso
+
+      - name: Generate ISO (if requested)
+        run: |
+          echo "ISO generation would happen here using the container images"
+          echo "This is optional and would require additional tooling setup"
+          
+      - name: Upload ISO artifacts
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-os-iso
+          path: "*.iso"
+          retention-days: 30

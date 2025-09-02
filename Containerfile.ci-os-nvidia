@@ -1,0 +1,72 @@
+# CI-OS NVIDIA Variant - Bazzite Fork with NVIDIA GPU Support
+FROM ghcr.io/ublue-os/bazzite-nvidia:latest
+
+LABEL org.opencontainers.image.title="CI-OS Gaming Distribution (NVIDIA)"
+LABEL org.opencontainers.image.description="Bazzite NVIDIA-based gaming distribution with Wine, Proton, and WinApps integration"
+LABEL org.opencontainers.image.source="https://github.com/companionintelligence/CI-OS"
+LABEL org.opencontainers.image.licenses="MIT"
+
+# Install Wine and dependencies with NVIDIA support
+RUN rpm-ostree install \
+    wine \
+    wine-core \
+    winetricks \
+    wine-fonts \
+    wine-systemd \
+    xorg-x11-server-Xvfb \
+    nvidia-vaapi-driver \
+    && rpm-ostree cleanup -m
+
+# Install WinApps prerequisites
+RUN rpm-ostree install \
+    freerdp \
+    python3 \
+    python3-pip \
+    icoutils \
+    && rpm-ostree cleanup -m
+
+# Clone and install WinApps (pinned to specific commit)
+ARG WINAPPS_COMMIT="main"
+RUN git clone https://github.com/winapps-org/winapps.git /opt/winapps \
+    && cd /opt/winapps \
+    && git checkout ${WINAPPS_COMMIT} \
+    && cp bin/winapps /usr/local/bin/ \
+    && chmod +x /usr/local/bin/winapps
+
+# Copy Wine configuration with NVIDIA optimizations
+COPY configs/wine/ /etc/wine/
+COPY configs/wine-nvidia/ /etc/wine/
+COPY configs/winapps/ /etc/winapps/
+
+# Copy Proton helpers and configuration with NVIDIA support
+COPY configs/proton/ /opt/proton-helpers/
+COPY configs/proton-nvidia/ /opt/proton-helpers/
+
+# Set up Wine environment with NVIDIA support
+ENV WINEPREFIX=/home/deck/.wine
+ENV WINEARCH=win64
+ENV __GL_SHADER_DISK_CACHE=1
+ENV __GL_THREADED_OPTIMIZATIONS=1
+
+# Configure WinApps
+RUN mkdir -p /usr/share/applications/winapps
+
+# Create wine initialization script with NVIDIA optimizations
+RUN echo '#!/bin/bash\n\
+if [ ! -d "$WINEPREFIX" ]; then\n\
+    winecfg /v win10\n\
+    winetricks -q corefonts vcrun2019 vcrun2022 dxvk\n\
+    # Enable NVIDIA GPU acceleration\n\
+    echo "Enable GPU acceleration for Wine applications"\n\
+fi' > /usr/local/bin/init-wine \
+    && chmod +x /usr/local/bin/init-wine
+
+# Enable required services for Windows app integration
+RUN systemctl enable --global wine-init.service
+
+COPY scripts/setup-wine-nvidia.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/setup-wine-nvidia.sh
+
+# Final cleanup and commit
+RUN rpm-ostree cleanup -m \
+    && ostree container commit

@@ -1,147 +1,147 @@
-# CI-OS Linux Distribution
+# CI-OS Bazzite Gaming Distribution (ISO v01)
 
 Always reference these instructions first and fallback to search or bash commands only when you encounter unexpected information that does not match the info here.
 
-CI-OS is a custom Ubuntu-based Linux distribution optimized for continuous integration, software development, and gaming workloads. Built using Cubic (Custom Ubuntu ISO Creator), it provides a pre-configured environment with essential development tools, CI/CD platforms, and gaming support.
+CI-OS is a custom Bazzite-based Linux gaming distribution optimized for running Windows applications through Wine, Proton, and WinApps. Built using Universal Blue's container-based approach with Containerfiles, it provides seamless Windows app compatibility on a modern Fedora-based immutable operating system.
+
+## Architecture Overview
+
+### Bazzite Foundation
+- **Base System**: Fedora-based immutable OS via Universal Blue
+- **Gaming Focus**: Steam, Proton, and gaming optimizations built-in
+- **Container Builds**: Uses Containerfiles instead of traditional ISO building
+- **Atomic Updates**: Immutable system with atomic updates via ostree
+
+### Windows App Integration
+- **Wine**: Windows API compatibility layer for running Windows applications
+- **Proton**: Steam's Wine fork optimized for gaming (also works for non-Steam apps)
+- **WinApps**: Seamless Windows app integration (https://github.com/winapps-org/winapps)
+- **Prerequisites**: All dependencies for Windows app compatibility pre-installed
 
 ## Working Effectively
 
 ### Bootstrap Environment
-- Update system packages: `sudo apt-get update -y`
-- Install essential development tools: `sudo apt-get install -y build-essential git curl wget vim nano htop tree unzip zip`
-- Install QEMU for VM testing: `sudo apt-get install -y qemu-system-x86`
-- NEVER CANCEL: System updates may take 5-15 minutes. Set timeout to 30+ minutes.
+- Update system: `rpm-ostree upgrade` (requires reboot)
+- Install development tools: `sudo rpm-ostree install git curl wget vim nano htop tree`
+- Install podman/docker: `sudo rpm-ostree install podman docker-ce` (if not included)
+- NEVER CANCEL: System updates may take 10-30 minutes. Set timeout to 45+ minutes.
+- Reboot required after rpm-ostree operations: `systemctl reboot`
 
-### Repository Structure Validation
-- Run project validation: `./scripts/validate-project.sh`
-- Validates directory structure, file permissions, and git status
-- Takes <1 second to complete
-- Note: Script contains hardcoded paths - validate output manually
+### Container Build System
+- Build base image: `podman build -f Containerfile.ci-os -t ci-os:base .`
+- Build NVIDIA variant: `podman build -f Containerfile.ci-os-nvidia -t ci-os:nvidia .`
+- Test builds: `podman run --rm -it ci-os:base /bin/bash`
+- Push to registry: `podman push ci-os:base ghcr.io/companionintelligence/ci-os:latest`
+- NEVER CANCEL: Container builds may take 20-60 minutes. Set timeout to 90+ minutes.
 
-### Cubic ISO Building Process
-- Install Cubic: `sudo apt-get install cubic` (Ubuntu/Debian derivatives only)
-- Build fails on systems without Cubic - this is expected behavior
-- Download Ubuntu 24.04 LTS ISO: Run `./scripts/build-ci-os.sh` 
-- NEVER CANCEL: ISO download is ~6GB and may take 10-30 minutes. Set timeout to 60+ minutes.
-- The build script only prepares the environment - actual ISO building requires Cubic GUI
+### WinApps Setup Validation
+- Check Wine installation: `wine --version`
+- Verify Proton: `ls ~/.steam/steam/steamapps/common/`
+- Test WinApps: `winapps check` (if available)
+- Windows app prerequisites: `winapps doctor` (diagnostic command)
+- These validations complete in <5 seconds each
 
-### CI Server Development Setup
-- Full automated setup: `./scripts/setup-ci-server-dev.sh -u <github-username> -t <github-token>`
-- Local setup only: `./scripts/ci-server-linux-dev-setup.sh`
-- Interactive setup: `./scripts/ci-setup-launcher.sh`
-- NEVER CANCEL: Full setup takes 15-45 minutes including repository clone, dependency installation, and service startup. Set timeout to 60+ minutes.
-
-### Development Environment Validation
-- Check system dependencies: `source scripts/lib/common.sh && check_requirements curl git wget`
-- Validate Node.js: `source scripts/lib/common.sh && source scripts/lib/nodejs-setup.sh && check_nodejs`
-- Test Docker: `source scripts/lib/common.sh && source scripts/lib/docker-setup.sh && test_docker`
-- Docker validation takes ~0.5 seconds including container test
-- PostgreSQL check: `source scripts/lib/common.sh && source scripts/lib/postgresql-setup.sh && check_postgresql_status`
-- PostgreSQL check will show "not running" if service isn't started - this is expected
-- These validations complete in <10 seconds each
-
-### Dependency Installation
-- Node.js project deps: `source scripts/lib/nodejs-setup.sh && install_project_dependencies <directory>`
-- Uses yarn if available, falls back to npm
-- Empty project installation takes <1 second
-- Real projects may take 2-10 minutes. Set timeout to 15+ minutes.
+### Development Environment Setup
+- Clone Bazzite source: `git clone https://github.com/ublue-os/bazzite.git`
+- Set up build environment: `./setup-dev-environment.sh`
+- Test container builds: `just build` (if using justfile)
+- Local development: `podman build --target development .`
 
 ## Validation Scenarios
 
 ### ALWAYS test functionality after making changes:
-- Run `./scripts/validate-project.sh` to verify project structure
-- Test library functions: `source scripts/lib/common.sh && check_requirements curl git`
-- Validate Docker setup: `docker --version && docker compose version`
-- Check Node.js environment: `node --version && npm --version && yarn --version`
+- Build container images: `podman build -f Containerfile.ci-os -t ci-os:test .`
+- Test Wine integration: `podman run --rm ci-os:test wine --version`
+- Validate WinApps: `podman run --rm -v /tmp:/tmp ci-os:test winapps check`
+- Check base system: `podman run --rm ci-os:test cat /etc/os-release`
 
 ### Manual Testing Requirements
-- Create test project in /tmp: `mkdir -p /tmp/test-validation && cd /tmp/test-validation`
-- Test dependency installation with minimal package.json: `echo '{"name": "test-project", "version": "1.0.0"}' > package.json`
-- Run installation test: `source /path/to/CI-OS/scripts/lib/common.sh && source /path/to/CI-OS/scripts/lib/nodejs-setup.sh && install_project_dependencies .`
-- Installation should complete successfully in <0.3 seconds for empty projects
-- Verify script permissions: `ls -la scripts/` - most are executable, some production scripts are not (expected)
+- Create test environment: `mkdir -p /tmp/ci-os-test && cd /tmp/ci-os-test`
+- Test Windows app: Create simple Windows executable test in container
+- Wine compatibility test: `wine notepad.exe` (basic Windows app test)
+- WinApps integration: Test seamless app integration on host system
+- Container tests complete in <30 seconds each
 
-### ISO Testing (when ISO exists)
-- Run `./scripts/test-ci-os.sh` to validate generated ISO files
-- Script checks for ISOs in `iso/output/` directory
-- Includes VM testing with VirtualBox if available
-- NEVER CANCEL: VM testing can take 10-30 minutes. Set timeout to 45+ minutes.
+### Image Testing (when images exist)
+- Run container validation: `./scripts/test-containers.sh`
+- Test NVIDIA variant: `podman run --rm --device nvidia.com/gpu=all ci-os:nvidia nvidia-smi`
+- Performance testing: Run gaming benchmarks in container
+- NEVER CANCEL: Full system testing can take 15-45 minutes. Set timeout to 60+ minutes.
 
 ## Build & Test Commands
 
-### Working Commands (Validated)
-- `./scripts/validate-project.sh` - Project structure validation (<1 sec)
-- `docker --version` - Check Docker availability (~0.01 sec)
-- `node --version` - Check Node.js availability (~0.004 sec)
-- Library functions work when properly sourced with common.sh first
-- `sudo apt-get update` - System updates (5-15 min, NEVER CANCEL)
+### Working Commands (Container-Based)
+- `podman build -f Containerfile.ci-os .` - Build base image (20-60 min, NEVER CANCEL)
+- `podman images` - List built container images (~0.1 sec)
+- `wine --version` - Check Wine installation (~0.1 sec)  
+- `podman run --rm ci-os:base wine --version` - Test Wine in container (~2 sec)
+- `rpm-ostree status` - Check system state (~1 sec)
 
 ### Commands That Require External Dependencies
-- `./scripts/build-ci-os.sh` - Requires Cubic installation, fails gracefully
-- CI Server setup scripts - Require GitHub credentials and may fail on network issues
-- ISO testing - Requires existing ISO files in correct location
-- PostgreSQL functions - Require PostgreSQL service to be running
+- GitHub Actions workflows - Require push to trigger automated builds
+- Image registry operations - Require proper authentication to ghcr.io
+- NVIDIA testing - Requires NVIDIA hardware and drivers
+- WinApps integration - Requires host system setup for seamless integration
 
 ### Timing Expectations
-- **NEVER CANCEL** any build or setup operation
-- Library function tests: <1 second each
-- Docker container test: ~0.5 seconds  
-- Empty npm/yarn install: <0.3 seconds
-- System package updates: 5-15 minutes (timeout: 30+ minutes)
-- CI Server full setup: 15-45 minutes (timeout: 60+ minutes)
-- ISO download: 10-30 minutes for ~6GB file (timeout: 60+ minutes)
-- VM testing: 10-30 minutes (timeout: 45+ minutes)
+- **NEVER CANCEL** any container build or system operation
+- Container image pulls: 5-15 minutes (timeout: 30+ minutes)
+- Full container builds: 20-60 minutes (timeout: 90+ minutes)
+- System package updates: 10-30 minutes (timeout: 45+ minutes)
+- Wine/Proton setup: 5-15 minutes (timeout: 30+ minutes)
+- Image testing: 2-10 minutes per test (timeout: 15+ minutes)
 
 ## Critical Validation Steps
 
 ### Before Making Changes
-- Always run `./scripts/validate-project.sh` to understand current state
-- Source library files correctly: `source scripts/lib/common.sh && source scripts/lib/<specific-lib>.sh`
-- Test basic functionality: `node --version && docker --version`
+- Always check container build status: `podman images | grep ci-os`
+- Verify base system: `cat /etc/os-release` to confirm Fedora/Bazzite base
+- Test Wine functionality: `wine --version` or in container
 
 ### After Making Changes  
-- Run validation scripts to ensure nothing is broken
-- Test any modified library functions with proper sourcing
-- Create minimal test scenarios in /tmp directory
-- ALWAYS verify file permissions with `ls -la scripts/` - scripts should be executable
+- Build test container: `podman build -f Containerfile.ci-os -t ci-os:test .`
+- Test Windows app compatibility: Run simple Windows executable
+- Validate WinApps integration: Check app appears in system menus
+- ALWAYS verify container runs without errors: `podman run --rm ci-os:test /bin/bash -c "echo 'Container OK'"`
 
 ## Common Locations
 
 ### Key Files
-- Main setup scripts: `scripts/` directory
-- Library functions: `scripts/lib/` directory  
-- Configuration templates: `configs/` directory
-- Documentation: `docs/` directory
-- Asset storage: `assets/` directory (created during build)
-- ISO storage: `iso/base/` and `iso/output/` (created during build)
+- **Containerfiles**: `Containerfile.ci-os`, `Containerfile.ci-os-nvidia`
+- **GitHub Actions**: `.github/workflows/` directory for automated builds
+- **Configuration files**: `configs/` directory for Wine, WinApps, Proton setup
+- **Scripts**: `scripts/` directory for helper and setup scripts
+- **Documentation**: `docs/` directory for build and usage guides
 
-### Important Scripts
-- `scripts/lib/common.sh` - Core utility functions (ALWAYS source first)
-- `scripts/lib/nodejs-setup.sh` - Node.js environment setup
-- `scripts/lib/docker-setup.sh` - Docker installation and testing  
-- `scripts/lib/postgresql-setup.sh` - Database setup functions
-- `scripts/validate-project.sh` - Project structure validation
-- `scripts/build-ci-os.sh` - ISO build preparation
+### Important Files
+- `Containerfile.ci-os` - Base Bazzite image with Wine/WinApps integration
+- `Containerfile.ci-os-nvidia` - NVIDIA variant for GPU acceleration
+- `.github/workflows/build.yml` - Automated container build and publish
+- `configs/wine/` - Wine configuration and Windows app compatibility
+- `configs/winapps/` - WinApps configuration and app definitions
+- `scripts/setup-development.sh` - Development environment setup
+- `scripts/test-containers.sh` - Container testing and validation
 
-### Configuration
-- Package lists: `configs/packages/package-list.txt`
-- CI customization: `configs/scripts/ci-os-customization.sh`
-- Desktop settings: `configs/desktop/`
+### Configuration Directories
+- **Wine setup**: `configs/wine/` - Wine prefixes and compatibility settings  
+- **WinApps config**: `configs/winapps/` - Windows app integration settings
+- **Proton helpers**: `configs/proton/` - Proton version management and helpers
+- **GitHub Actions**: `.github/workflows/` - CI/CD pipeline definitions
 
 ## Known Limitations
 
-- Cubic installation only works on Ubuntu/Debian systems
-- PostgreSQL functions require service to be running
-- CI Server setup requires valid GitHub credentials
-- VM testing requires VirtualBox installation
-- Some scripts have hardcoded paths that may need adjustment
-- ISO building requires GUI interaction with Cubic - cannot be fully automated via CLI
+- Container builds require podman/docker and may need elevated privileges
+- Wine applications require X11 forwarding or Wayland compatibility for GUI apps
+- NVIDIA variant requires NVIDIA Container Toolkit for GPU acceleration
+- WinApps integration requires host system configuration for seamless operation
+- Some Windows applications may have compatibility issues despite Wine/Proton
+- Immutable system means traditional package management is limited to containers
 
 ## Troubleshooting
 
-- If library functions fail, ensure `source scripts/lib/common.sh` is run first
-- Missing directories can be created: `mkdir -p iso/base iso/output cubic-project`
-- Permission issues: Most scripts are executable, non-executable ones noted in validation output
-- Network access: Limited in some environments - external downloads and repository clones may fail
-- PostgreSQL "not running" errors are expected when service isn't started
-- Script validation shows hardcoded paths - ignore missing file warnings that don't match your environment
+- Container build failures: Check base image availability and network connectivity
+- Wine issues: Verify Windows dependencies and compatibility layers
+- WinApps problems: Check host system integration and menu configuration  
+- NVIDIA issues: Ensure NVIDIA drivers and container toolkit are properly installed
+- Permission errors: Use `podman unshare` for rootless container debugging
+- Missing directories: Create manually: `mkdir -p configs/wine configs/winapps configs/proton`

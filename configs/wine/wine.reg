@@ -1,0 +1,20 @@
+# Wine Configuration for CI-OS
+# Default Wine settings for Windows application compatibility
+
+# Wine registry settings for optimal compatibility
+REGEDIT4
+
+[HKEY_CURRENT_USER\Software\Wine\DllOverrides]
+"mscoree"="disabled"
+"mshtml"="disabled"
+"winemenubuilder.exe"="disabled"
+
+[HKEY_CURRENT_USER\Software\Wine\Direct3D]
+"renderer"="vulkan"
+"VideoMemorySize"="2048"
+
+[HKEY_CURRENT_USER\Software\Wine\Graphics]
+"WindowsVersion"="win10"
+
+[HKEY_CURRENT_USER\Software\Wine\WineBrowser]
+"Browsers"="xdg-open"
