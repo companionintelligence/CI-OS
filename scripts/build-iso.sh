@@ -9,6 +9,7 @@ REGISTRY="localhost"
 IMAGE_NAME="ci-os"
 VERSION="v01-dev"
 FEDORA_VERSION="41"
+BUILD_DATE=$(date +%Y%m%d)
 
 # Colors for output
 RED='\033[0;31m'
@@ -193,7 +194,7 @@ while [[ $# -gt 0 ]]; do
             PUSH=true
             shift
             ;;
-        --help)
+        --help|-h)
             show_help
             exit 0
             ;;
