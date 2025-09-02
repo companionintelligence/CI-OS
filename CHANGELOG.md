@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Containerfile (v0)**: New Bazzite-based container approach for modern Linux gaming/development
+- **Wine/Proton Integration**: Complete Windows application support with Wine stack and Proton tools
+- **WinApps Support**: Seamless Windows app integration using KVM/libvirt backend
+- **ujust Automation**: First-boot helper commands for Wine, Proton, and WinApps setup  
+- **Dual Architecture**: Container-based approach alongside traditional Ubuntu/Cubic approach
+- **Build Automation**: Container build scripts and comprehensive documentation
 - Initial project structure and documentation
 - Cubic customization plan and build scripts
 - CI OS branding and visual assets
