@@ -26,7 +26,7 @@ CI-OS v01 creates bootable installer ISOs based on Bazzite with pre-configured W
 - **Size**: ~4GB ISO
 - **Includes**: Wine, Proton, WinApps, virtualization stack
 
-### NVIDIA CI-OS  
+### NVIDIA CI-OS Addons
 - **Base**: Bazzite NVIDIA Fedora 41 (KDE)
 - **Target**: Systems with NVIDIA GPUs
 - **Size**: ~4.2GB ISO
