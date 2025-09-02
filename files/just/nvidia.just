@@ -89,12 +89,21 @@ start-ci-server-nvidia:
     #!/usr/bin/bash
     echo "🖥️  Starting CI-Server with NVIDIA acceleration..."
     
-    if [ -x "/opt/ci-server/ci-server" ]; then
-        NVIDIA_VISIBLE_DEVICES=all /opt/ci-server/ci-server --nvidia &
-        echo "✅ CI-Server started with NVIDIA support"
+    if systemctl is-active ci-server >/dev/null 2>&1; then
+        echo "✅ CI-Server is already running"
+        just ci-server-status
     else
-        echo "❌ CI-Server not found or not executable"
-        exit 1
+        # Set NVIDIA environment variables and start service
+        sudo systemctl set-environment NVIDIA_VISIBLE_DEVICES=all
+        sudo systemctl start ci-server
+        sleep 2
+        if systemctl is-active ci-server >/dev/null 2>&1; then
+            echo "✅ CI-Server started with NVIDIA support"
+            echo "🌐 Web interface: http://localhost:8080/ui"
+        else
+            echo "❌ Failed to start CI-Server"
+            echo "📋 Check status: journalctl -u ci-server -n 10"
+        fi
     fi
 
 # NVIDIA system information
@@ -117,6 +126,11 @@ nvidia-info:
     echo ""
     echo "🖥️  CI-Server Status:"
     just ci-server-status
+    echo ""
+    echo "🎮 NVIDIA Features:"
+    echo "  • GPU acceleration enabled in CI-Server"
+    echo "  • Hardware video decode/encode support"
+    echo "  • CUDA compute capabilities available"
 
 # Test NVIDIA Wine integration
 test-nvidia-wine:

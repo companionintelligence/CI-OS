@@ -83,40 +83,60 @@ setup-winapps:
     echo "✅ WinApps environment prepared!"
     echo "📖 See documentation for Windows VM setup instructions"
 
-# CI-Server management
+# CI-Server management commands that work with systemd service
 start-ci-server:
     #!/usr/bin/bash
     echo "🖥️  Starting CI-Server..."
     
-    if [ -x "/opt/ci-server/ci-server" ]; then
-        /opt/ci-server/ci-server &
-        echo "✅ CI-Server started successfully"
+    if systemctl is-active ci-server >/dev/null 2>&1; then
+        echo "✅ CI-Server is already running"
+        just ci-server-status
     else
-        echo "❌ CI-Server not found or not executable"
-        exit 1
+        sudo systemctl start ci-server
+        sleep 2
+        if systemctl is-active ci-server >/dev/null 2>&1; then
+            echo "✅ CI-Server started successfully"
+            echo "🌐 Web interface: http://localhost:8080/ui"
+        else
+            echo "❌ Failed to start CI-Server"
+            echo "📋 Check status: journalctl -u ci-server -n 10"
+        fi
     fi
 
 stop-ci-server:
     #!/usr/bin/bash
     echo "🛑 Stopping CI-Server..."
-    pkill -f ci-server
-    echo "✅ CI-Server stopped"
+    
+    if systemctl is-active ci-server >/dev/null 2>&1; then
+        sudo systemctl stop ci-server
+        echo "✅ CI-Server stopped"
+    else
+        echo "ℹ️  CI-Server is not running"
+    fi
 
 restart-ci-server:
     #!/usr/bin/bash
     echo "🔄 Restarting CI-Server..."
-    just stop-ci-server
+    sudo systemctl restart ci-server
     sleep 2
-    just start-ci-server
+    just ci-server-status
 
 ci-server-status:
     #!/usr/bin/bash
     echo "📊 CI-Server Status:"
-    if pgrep -f ci-server > /dev/null; then
-        echo "✅ CI-Server is running"
-        echo "Process ID: $(pgrep -f ci-server)"
+    echo "==================="
+    
+    if systemctl is-active ci-server >/dev/null 2>&1; then
+        echo "✅ Status: Running"
+        echo "🔗 Service: $(systemctl is-enabled ci-server 2>/dev/null)"
+        echo "🌐 Interface: http://localhost:8080/ui"
+        echo "📊 Process: $(systemctl show ci-server --property=MainPID --value)"
+        echo "⏱️  Uptime: $(systemctl show ci-server --property=ActiveEnterTimestamp --value | cut -d' ' -f2-3)"
     else
-        echo "❌ CI-Server is not running"
+        echo "❌ Status: Not running"
+        echo "🔗 Service: $(systemctl is-enabled ci-server 2>/dev/null || echo 'disabled')"
+        echo "❓ Last logs:"
+        journalctl -u ci-server -n 5 --no-pager --output=cat 2>/dev/null || echo "  No logs available"
     fi
 
 # System information
@@ -132,6 +152,11 @@ ci-os-info:
     echo ""
     echo "🖥️  CI-Server Status:"
     just ci-server-status
+    echo ""
+    echo "🎮 To get started:"
+    echo "  • Web interface: http://localhost:8080/ui"
+    echo "  • Manage service: ujust start-ci-server / ujust stop-ci-server"
+    echo "  • View logs: journalctl -u ci-server -f"
 
 # Run Windows apps with Wine
 run-wine TARGET:

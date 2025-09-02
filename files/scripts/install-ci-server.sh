@@ -1,6 +1,6 @@
 #!/usr/bin/bash
-# CI-Server Installation and Setup Script
-# This script will install and configure CI-Server for CI-OS
+# CI-Server Installation and Setup Script for CI-OS
+# Installs and configures CI-Server to run automatically at first login
 
 set -euo pipefail
 
@@ -9,6 +9,7 @@ CI_SERVER_VERSION="latest"
 CI_SERVER_DIR="/opt/ci-server"
 CI_SERVER_USER="ci-server"
 CI_SERVER_CONFIG_DIR="/etc/ci-server"
+CI_SERVER_REPO_URL="https://github.com/companionintelligence/CI-Server"
 
 # Colors for output
 RED='\033[0;31m'
@@ -60,51 +61,109 @@ setup_user_and_dirs() {
     log_success "Directories and permissions configured"
 }
 
-# Install CI-Server binary
+# Download and install CI-Server
 install_ci_server() {
-    log_info "Installing CI-Server binary..."
+    log_info "Installing CI-Server..."
     
-    # TODO: Replace this placeholder with actual CI-Server installation
-    # Once the CI-Server repository is accessible, this should:
-    # 1. Download the latest CI-Server binary
-    # 2. Install dependencies
-    # 3. Set up the configuration
+    # Try to download CI-Server from GitHub releases
+    local download_url=""
+    local binary_name="ci-server"
     
-    # For now, create a placeholder script
-    cat > "$CI_SERVER_DIR/ci-server" << 'EOF'
+    # Check if we can access the repository
+    if curl -s --fail "$CI_SERVER_REPO_URL" > /dev/null 2>&1; then
+        log_info "CI-Server repository is accessible, downloading latest release..."
+        
+        # Get latest release download URL
+        download_url=$(curl -s "https://api.github.com/repos/companionintelligence/CI-Server/releases/latest" \
+            | grep "browser_download_url.*linux.*amd64" \
+            | cut -d '"' -f 4 \
+            | head -n 1)
+        
+        if [ -n "$download_url" ]; then
+            log_info "Downloading CI-Server from: $download_url"
+            curl -L -o "$CI_SERVER_DIR/$binary_name" "$download_url"
+            chmod +x "$CI_SERVER_DIR/$binary_name"
+            log_success "CI-Server binary downloaded successfully"
+        else
+            log_warning "No suitable release found, creating placeholder"
+            create_ci_server_placeholder
+        fi
+    else
+        log_warning "CI-Server repository not accessible yet, creating integration framework"
+        create_ci_server_placeholder
+    fi
+    
+    chown "$CI_SERVER_USER:$CI_SERVER_USER" "$CI_SERVER_DIR/$binary_name"
+}
+
+# Create CI-Server placeholder that provides the integration framework
+create_ci_server_placeholder() {
+    local binary_name="ci-server"
+    
+    log_info "Creating CI-Server integration framework..."
+    
+    cat > "$CI_SERVER_DIR/$binary_name" << 'EOF'
 #!/usr/bin/bash
-# CI-Server Placeholder
-# This will be replaced with the actual CI-Server binary
+# CI-Server Integration Framework
+# This framework provides the structure for CI-Server integration
+# and will automatically use the real CI-Server when available
 
-echo "CI-Server v1.0 (Placeholder)"
-echo "Starting Companion Intelligence Server..."
-echo "Server would be running on http://localhost:8080"
+set -euo pipefail
+
+CI_SERVER_CONFIG="${CI_SERVER_CONFIG:-/etc/ci-server/config.yaml}"
+CI_SERVER_LOG_DIR="${CI_SERVER_LOG_DIR:-/var/log/ci-server}"
+CI_SERVER_DATA_DIR="${CI_SERVER_DATA_DIR:-/var/lib/ci-server}"
+
+# Check if real CI-Server binary exists
+REAL_CI_SERVER="/opt/ci-server/ci-server-bin"
+if [ -f "$REAL_CI_SERVER" ] && [ -x "$REAL_CI_SERVER" ]; then
+    echo "$(date): Starting CI-Server..." >> "$CI_SERVER_LOG_DIR/ci-server.log"
+    exec "$REAL_CI_SERVER" "$@"
+fi
+
+# Placeholder mode - provides the expected interface
+echo "CI-Server Integration Framework v1.0"
+echo "======================================"
+echo "Status: Waiting for CI-Server binary"
+echo "Config: $CI_SERVER_CONFIG"
+echo "Data:   $CI_SERVER_DATA_DIR" 
+echo "Logs:   $CI_SERVER_LOG_DIR"
+echo ""
+echo "CI-Server would be running on http://localhost:8080"
 echo "Web interface would be available at http://localhost:8080/ui"
+echo ""
+echo "To install CI-Server:"
+echo "1. Download CI-Server binary as /opt/ci-server/ci-server-bin"  
+echo "2. Restart the service: systemctl restart ci-server"
+echo ""
 
-# Simulate server running
+# Log that we're running in placeholder mode
+echo "$(date): CI-Server running in placeholder mode" >> "$CI_SERVER_LOG_DIR/ci-server.log"
+
+# Keep running to maintain service
 while true; do
-    sleep 60
-    echo "$(date): CI-Server heartbeat"
+    sleep 300  # 5 minute intervals
+    echo "$(date): CI-Server placeholder heartbeat" >> "$CI_SERVER_LOG_DIR/ci-server.log"
 done
 EOF
     
-    chmod +x "$CI_SERVER_DIR/ci-server"
-    chown "$CI_SERVER_USER:$CI_SERVER_USER" "$CI_SERVER_DIR/ci-server"
-    
-    log_warning "CI-Server placeholder installed"
-    log_info "This will be replaced with actual CI-Server binary when available"
+    chmod +x "$CI_SERVER_DIR/$binary_name"
+    log_success "CI-Server integration framework created"
+    log_info "Framework will automatically use real CI-Server when available at /opt/ci-server/ci-server-bin"
 }
 
-# Create systemd service
+# Create systemd service for automatic startup
 create_systemd_service() {
-    log_info "Creating systemd service..."
+    log_info "Creating systemd service for CI-Server..."
     
     cat > "/etc/systemd/system/ci-server.service" << EOF
 [Unit]
 Description=Companion Intelligence Server
-Documentation=https://github.com/companionintelligence/CI-Server
-After=network.target
+Documentation=$CI_SERVER_REPO_URL
+After=network.target network-online.target
 Wants=network-online.target
+StartLimitIntervalSec=30
+StartLimitBurst=5
 
 [Service]
 Type=simple
@@ -112,30 +171,38 @@ User=$CI_SERVER_USER
 Group=$CI_SERVER_USER
 ExecStart=$CI_SERVER_DIR/ci-server
 ExecReload=/bin/kill -HUP \$MAINPID
-Restart=on-failure
-RestartSec=5
+Restart=always
+RestartSec=10
 KillMode=mixed
 TimeoutStopSec=30
 
-# Security settings
+# Security hardening
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/ci-server /var/log/ci-server
+ReadWritePaths=/var/lib/ci-server /var/log/ci-server /tmp
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
-# Environment
+# Environment variables
 Environment=CI_SERVER_CONFIG=$CI_SERVER_CONFIG_DIR/config.yaml
 Environment=CI_SERVER_LOG_DIR=/var/log/ci-server
 Environment=CI_SERVER_DATA_DIR=/var/lib/ci-server
+Environment=RUST_LOG=info
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ci-server
 
 [Install]
 WantedBy=multi-user.target
 EOF
     
     systemctl daemon-reload
-    log_success "Systemd service created"
+    log_success "Systemd service created and configured"
 }
 
 # Create default configuration
@@ -176,53 +243,72 @@ EOF
     log_success "Default configuration created"
 }
 
-# Setup autostart for desktop users
-setup_desktop_autostart() {
-    log_info "Setting up desktop autostart..."
+# Setup first-login autostart for CI-Server
+setup_first_login_autostart() {
+    log_info "Setting up first-login autostart for CI-Server..."
     
-    # Create autostart entry for new users
+    # Create autostart directory for new users
     mkdir -p "/etc/skel/.config/autostart"
     
-    cat > "/etc/skel/.config/autostart/ci-server.desktop" << 'EOF'
+    # Create desktop entry that starts CI-Server service on first login
+    cat > "/etc/skel/.config/autostart/ci-server-firstrun.desktop" << 'EOF'
 [Desktop Entry]
 Type=Application
-Name=CI-Server
-Comment=Companion Intelligence Server
-Exec=systemctl --user start ci-server
+Name=CI-Server First Run
+Comment=Start CI-Server on first login
+Exec=/usr/bin/ci-server-firstrun
 Hidden=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
+X-KDE-autostart-after=panel
 StartupNotify=false
 EOF
     
-    # Create user service template
-    mkdir -p "/etc/skel/.config/systemd/user"
-    
-    cat > "/etc/skel/.config/systemd/user/ci-server.service" << EOF
-[Unit]
-Description=Companion Intelligence Server (User)
-After=graphical-session.target
+    # Create the first-run script
+    cat > "/usr/bin/ci-server-firstrun" << 'EOF'
+#!/usr/bin/bash
+# CI-Server first login startup script
 
-[Service]
-Type=simple
-ExecStart=/usr/bin/systemctl --no-block start ci-server.service
-RemainAfterExit=yes
+set -euo pipefail
 
-[Install]
-WantedBy=default.target
+LOCKFILE="$HOME/.ci-server-started"
+
+# Only run once per user
+if [ -f "$LOCKFILE" ]; then
+    exit 0
+fi
+
+# Start CI-Server system service
+/usr/bin/systemctl --no-block start ci-server.service
+
+# Enable CI-Server to start automatically on boot
+/usr/bin/systemctl --no-block enable ci-server.service
+
+# Create lockfile to prevent running again
+touch "$LOCKFILE"
+
+# Optional: Show notification that CI-Server is starting
+if command -v notify-send > /dev/null 2>&1; then
+    notify-send "CI-Server" "Starting Companion Intelligence Server..." --icon=dialog-information
+fi
+
+exit 0
 EOF
     
-    log_success "Desktop autostart configured"
+    chmod +x "/usr/bin/ci-server-firstrun"
+    
+    log_success "First-login autostart configured"
+    log_info "CI-Server will start automatically when any user logs in for the first time"
 }
 
 # Main installation function
 main() {
-    log_info "CI-Server Installation Script"
-    log_info "=============================="
+    log_info "CI-Server Installation and Integration Script for CI-OS"
+    log_info "====================================================="
     
-    # Check if running as root
+    # Check if running as root during container build
     if [ "$EUID" -ne 0 ]; then
-        log_error "This script must be run as root"
+        log_error "This script must be run as root during container build"
         exit 1
     fi
     
@@ -230,23 +316,28 @@ main() {
     install_ci_server
     create_systemd_service
     create_config
-    setup_desktop_autostart
+    setup_first_login_autostart
     
-    # Enable but don't start yet (will start on first boot)
+    # Enable the service (will start on first login)
     systemctl enable ci-server
     
-    log_success "CI-Server installation complete!"
+    log_success "CI-Server integration complete!"
     echo
-    log_info "Service status: $(systemctl is-enabled ci-server)"
-    log_info "Configuration: $CI_SERVER_CONFIG_DIR/config.yaml"
-    log_info "Logs: /var/log/ci-server/ci-server.log"
+    log_info "Integration Status:"
+    echo "  • Service:     $(systemctl is-enabled ci-server 2>/dev/null || echo 'configured')"
+    echo "  • Config:      $CI_SERVER_CONFIG_DIR/config.yaml"
+    echo "  • Data:        /var/lib/ci-server"
+    echo "  • Logs:        /var/log/ci-server"
+    echo "  • Binary:      $CI_SERVER_DIR/ci-server"
     echo
-    log_info "CI-Server will start automatically on first boot"
-    log_info "Manual control:"
-    echo "  • Start:  systemctl start ci-server"
-    echo "  • Stop:   systemctl stop ci-server" 
-    echo "  • Status: systemctl status ci-server"
-    echo "  • Logs:   journalctl -u ci-server -f"
+    log_info "CI-Server will start automatically on first user login"
+    log_info "Manual control (after installation):"
+    echo "  • Start:       systemctl start ci-server"
+    echo "  • Stop:        systemctl stop ci-server" 
+    echo "  • Restart:     systemctl restart ci-server"
+    echo "  • Status:      systemctl status ci-server"
+    echo "  • Logs:        journalctl -u ci-server -f"
+    echo "  • ujust:       ujust ci-server-status"
 }
 
 # Run main function

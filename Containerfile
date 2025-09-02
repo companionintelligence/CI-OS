@@ -12,6 +12,9 @@ LABEL org.opencontainers.image.version="${CI_OS_VERSION}"
 # Copy customization files
 COPY files/ /
 
+# Install ujust commands
+COPY files/just/ci-os.just /usr/share/ublue-os/justfiles/60-ci-os.just
+
 # Install additional packages for Windows app compatibility
 RUN rpm-ostree install \
     wine \
