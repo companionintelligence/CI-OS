@@ -1,0 +1,27 @@
+# Build artifacts
+*.iso
+*.img
+*.log
+build/
+cubic-project/
+iso/
+
+# Container build
+.dockerignore
+*.tar
+
+# Development
+.vscode/
+.idea/
+*~
+*.swp
+*.tmp
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*

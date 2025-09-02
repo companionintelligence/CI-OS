@@ -4,6 +4,8 @@
 
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
+> **🚀 New: Containerfile (v0)** - We now offer a modern container-based approach using Bazzite with Wine/Proton/WinApps support alongside our traditional Ubuntu-based ISO approach.
+
 ## COPYRIGHT COMPANION INTELLIGENCE - LIFESCOPE INC
 
 ## DO NOT DISTRIBUTE
@@ -50,7 +52,53 @@ platforms, and gaming support.
 
 ## 🚀 Quick Start
 
-### CI Server Development Setup
+### **New: Containerfile (v0) - Bazzite + Windows Apps**
+
+For users who want a modern, container-based approach with Wine, Proton, and WinApps support:
+
+#### Build & Deploy
+
+```bash
+# Build the container image
+docker build -t ci-os-bazzite:dev -f Containerfile .
+
+# Or use podman
+podman build -t ci-os-bazzite:dev -f Containerfile .
+```
+
+#### Rebase to the Container Image
+
+```bash
+# Rebase existing Fedora/Universal Blue system
+rpm-ostree rebase ostree-unverified-registry:localhost/ci-os-bazzite:dev
+systemctl reboot
+```
+
+#### First-Time Setup (after reboot)
+
+```bash
+# Set up Wine environment
+ujust setup-wine
+
+# Configure Proton tools
+ujust setup-proton-tools
+
+# Set up WinApps (requires Windows ISO)
+ujust setup-winapps WIN_ISO=/path/to/Win11.iso VIRTIO_ISO=/path/to/virtio-win.iso
+```
+
+**What you get with Containerfile (v0):**
+- ✅ **Bazzite Base**: Gaming-optimized Fedora with Steam/Proton pre-configured
+- ✅ **Wine Stack**: Full Wine installation with winetricks
+- ✅ **32-bit Support**: Complete 32-bit runtime libraries for compatibility
+- ✅ **Proton Tools**: protontricks for Steam game management
+- ✅ **WinApps**: Run Windows apps seamlessly with VM backend
+- ✅ **Virtualization**: KVM/QEMU with libvirt for WinApps VMs
+- ✅ **RDP Support**: Remote desktop clients for WinApps integration
+
+---
+
+### Traditional: CI Server Development Setup
 
 For setting up the CI Server development environment, use our automated
 setup scripts:
@@ -147,30 +195,68 @@ sudo ./scripts/ci-server-setup-ubuntu-amd.sh
 
 ```text
 ci-os/
-├── assets/                     # Branding and visual assets
-│   ├── logos/                  # CI OS logos and branding
-│   ├── icons/                  # System and application icons
-│   ├── wallpapers/            # Desktop wallpapers
-│   └── branding/              # Brand guidelines
-├── cubic-project/             # Cubic workspace (created during build)
-├── scripts/                   # Installation and setup scripts
+├── Containerfile                # New: Bazzite-based container approach (v0)
+├── files/                       # Container build files
+│   └── just/                    # ujust helper scripts for container approach
+│       ├── win-wine-proton.just # Wine and Proton setup automation
+│       └── winapps.just         # WinApps VM provisioning
+├── assets/                      # Branding and visual assets (traditional)
+│   ├── logos/                   # CI OS logos and branding
+│   ├── icons/                   # System and application icons
+│   ├── wallpapers/             # Desktop wallpapers
+│   └── branding/               # Brand guidelines
+├── cubic-project/              # Cubic workspace (created during traditional build)
+├── scripts/                    # Installation and setup scripts (traditional)
 │   ├── ci-server-setup-ubuntu-amd.sh    # AMD GPU setup
 │   ├── ci-server-linux-dev-setup.sh     # Development environment
 │   └── setup-gaming.sh                  # Gaming optimization
-├── configs/                   # Configuration files
-│   ├── packages/              # Package lists and selections
-│   ├── preseed/               # Automated installation configs
-│   ├── boot/                  # GRUB and boot configuration
-│   └── scripts/               # Cubic customization scripts
-├── docs/                      # Documentation
-│   ├── cubic-customization-plan.md      # Build instructions
+├── configs/                    # Configuration files (traditional)
+│   ├── packages/               # Package lists and selections
+│   ├── preseed/                # Automated installation configs
+│   ├── boot/                   # GRUB and boot configuration
+│   └── scripts/                # Cubic customization scripts
+├── docs/                       # Documentation
+│   ├── cubic-customization-plan.md      # Traditional build instructions
 │   └── installation-guide.md            # User installation guide
-└── iso/                       # ISO storage
-    ├── base/                  # Source Ubuntu ISOs
-    └── output/                # Generated CI OS ISOs
+└── iso/                        # ISO storage (traditional approach)
+    ├── base/                   # Source Ubuntu ISOs
+    └── output/                 # Generated CI OS ISOs
 ```
 
+### Two Approaches
+
+**🐧 Traditional Ubuntu/Cubic Approach**: Perfect for custom ISO creation and traditional Linux distribution building.
+
+**📦 Modern Container/Bazzite Approach**: Ideal for gaming workloads, Windows app compatibility, and users already on Fedora/Universal Blue systems.
+
 ## 🔧 Building from Source
+
+### Container Approach (Containerfile v0)
+
+The modern container-based approach using Bazzite:
+
+```bash
+# Build locally
+docker build -t ci-os-bazzite:latest -f Containerfile .
+
+# Build for GitHub Container Registry  
+docker build -t ghcr.io/companionintelligence/ci-os-bazzite:latest -f Containerfile .
+docker push ghcr.io/companionintelligence/ci-os-bazzite:latest
+
+# Deploy on target system
+rpm-ostree rebase ostree-unverified-registry:ghcr.io/companionintelligence/ci-os-bazzite:latest
+systemctl reboot
+```
+
+**Customizing the Container Build:**
+
+- **Base Image**: Change `BASE_IMAGE` arg to use `:latest`, specific version tags, or nvidia variants
+- **WinApps Version**: Pin `WINAPPS_REF` to a specific commit for reproducible builds  
+- **Package Selection**: Modify the rpm-ostree install list for your hardware/needs
+
+### Traditional Ubuntu/Cubic Approach
+
+The traditional ISO-building approach:
 
 ### 1. Install Cubic
 
