@@ -1,9 +1,0 @@
-{
-  "contextMessages": [],
-  "contextFiles": [
-    {
-      "path": "scripts/build-ci-os.sh",
-      "readOnly": false
-    }
-  ]
-}
