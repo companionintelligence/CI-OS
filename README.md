@@ -1,4 +1,4 @@
-# CI OS : Custom Linux Distribution for AI Companions and Development
+# CI OS : Linux for AI
 
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
