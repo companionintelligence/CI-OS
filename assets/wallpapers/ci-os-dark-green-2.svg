@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <defs>
+    <linearGradient id="main-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#1a6b3a;stop-opacity:1" />
+      <stop offset="25%" style="stop-color:#0a4f3c;stop-opacity:1" />
+      <stop offset="75%" style="stop-color:#066c80;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#033d4a;stop-opacity:1" />
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="30%" r="40%">
+      <stop offset="0%" style="stop-color:#4ade80;stop-opacity:0.2" />
+      <stop offset="100%" style="stop-color:#066c80;stop-opacity:0" />
+    </radialGradient>
+  </defs>
+  
+  <!-- Main background -->
+  <rect width="1920" height="1080" fill="url(#main-bg)"/>
+  
+  <!-- Glowing effect at top -->
+  <rect width="1920" height="1080" fill="url(#glow)"/>
+  
+  <!-- Abstract geometric shapes -->
+  <g opacity="0.15">
+    <!-- Large triangular shapes -->
+    <polygon points="0,0 400,0 200,400" fill="#72ddd4"/>
+    <polygon points="1920,0 1520,0 1720,400" fill="#00a9a7"/>
+    <polygon points="960,200 1200,600 720,600" fill="#4ade80"/>
+    
+    <!-- Bottom geometric elements -->
+    <polygon points="0,1080 300,800 0,800" fill="#72ddd4"/>
+    <polygon points="1920,1080 1620,800 1920,800" fill="#00a9a7"/>
+  </g>
+  
+  <!-- Hexagonal pattern overlay -->
+  <defs>
+    <polygon id="hex" points="30,0 90,0 120,52 90,104 30,104 0,52" fill="none" stroke="#72ddd4" stroke-width="0.5" opacity="0.1"/>
+  </defs>
+  <g>
+    <!-- Hexagon grid pattern -->
+    <use href="#hex" transform="translate(100,100)"/>
+    <use href="#hex" transform="translate(220,100)"/>
+    <use href="#hex" transform="translate(340,100)"/>
+    <use href="#hex" transform="translate(160,178)"/>
+    <use href="#hex" transform="translate(280,178)"/>
+    <use href="#hex" transform="translate(400,178)"/>
+    <!-- Add more hexagons as needed -->
+  </g>
+  
+  <!-- Floating particles/dots -->
+  <g opacity="0.4">
+    <circle cx="150" cy="300" r="3" fill="#72ddd4">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="3s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="1700" cy="200" r="4" fill="#00a9a7">
+      <animate attributeName="opacity" values="0.3;0.7;0.3" dur="4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="800" cy="150" r="2" fill="#4ade80">
+      <animate attributeName="opacity" values="0.5;0.9;0.5" dur="2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="1200" cy="900" r="3" fill="#72ddd4">
+      <animate attributeName="opacity" values="0.2;0.6;0.2" dur="3.5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="400" cy="800" r="2" fill="#00a9a7">
+      <animate attributeName="opacity" values="0.4;0.8;0.4" dur="2.5s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+  
+  <!-- Minimal CI-OS branding -->
+  <g transform="translate(1700,950)" opacity="0.7">
+    <text x="0" y="0" font-family="sans-serif" font-size="18" font-weight="bold" fill="#72ddd4">CI-OS</text>
+    <text x="0" y="25" font-family="sans-serif" font-size="12" font-weight="300" fill="#4ade80">v1.0 Sage</text>
+  </g>
+</svg>

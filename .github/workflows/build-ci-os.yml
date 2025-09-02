@@ -1,0 +1,92 @@
+name: Build CI-OS
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ci-os
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Containerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+
+    - name: Generate ISO build summary
+      run: |
+        echo "## CI-OS Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Image Details" >> $GITHUB_STEP_SUMMARY
+        echo "- **Base**: Bazzite (Universal Blue)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Theme**: Dark Green" >> $GITHUB_STEP_SUMMARY
+        echo "- **Desktop**: KDE Plasma" >> $GITHUB_STEP_SUMMARY
+        echo "- **Version**: 1.0 (Sage)" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Features" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ CI-OS branding and logos" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Dark green themed interface" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Custom wallpapers" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ Plymouth boot splash" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ KDE customizations" >> $GITHUB_STEP_SUMMARY
+        echo "- ✅ System branding updates" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Container Images" >> $GITHUB_STEP_SUMMARY
+        echo "Built container images:"
+        echo '${{ steps.meta.outputs.tags }}' | sed 's/^/- `/' | sed 's/$/`/' >> $GITHUB_STEP_SUMMARY
+
+  generate-iso:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Generate ISO from container image
+      run: |
+        echo "ISO generation would happen here using tools like:"
+        echo "- lorax/livemedia-creator for Fedora-based ISOs"
+        echo "- podman/buildah for container-to-ISO conversion"
+        echo "This step would generate a bootable CI-OS ISO from the container image"
+
+    - name: Upload ISO artifact
+      run: |
+        echo "ISO artifact upload would happen here"
+        echo "The generated CI-OS ISO would be uploaded as a build artifact"
