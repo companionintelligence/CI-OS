@@ -51,7 +51,8 @@ message_sprite = Sprite();
 message_sprite.SetPosition(10, 10, 10000);
 
 fun message_callback(text) {
-    my_image = Image.Text(text, CI_LIGHT_GREEN.red, CI_LIGHT_GREEN.green, CI_LIGHT_GREEN.blue);
+    # Light green color for messages: #72ddd4 = RGB(114, 221, 212)
+    my_image = Image.Text(text, 0.447, 0.867, 0.831);
     message_sprite.SetImage(my_image);
 }
 

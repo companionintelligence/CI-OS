@@ -116,13 +116,16 @@ apply-ci-theme:
     kwriteconfig5 --file kdeglobals --group KDE --key LookAndFeelPackage "org.kde.breezedark.desktop"
     
     # Set wallpaper if available
-    if [ -f "/usr/share/wallpapers/ci-os-wallpaper.png" ]; then
-        kwriteconfig5 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key Image "/usr/share/wallpapers/ci-os-wallpaper.png"
+    if [ -f "/usr/share/wallpapers/ci-os-wallpaper.svg" ] || [ -f "/usr/share/wallpapers/ci-os-wallpaper.png" ]; then
+        WALLPAPER_PATH=$(ls /usr/share/wallpapers/ci-os-wallpaper.* 2>/dev/null | head -1)
+        if [ -n "$WALLPAPER_PATH" ]; then
+            kwriteconfig5 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key Image "$WALLPAPER_PATH"
+        fi
     fi
     
     # Restart Plasma shell to apply changes
     echo "Restarting Plasma shell to apply theme..."
-    killall plasmashell && kstart5 plasmashell &
+    kquitapp5 plasmashell && kstart5 plasmashell 2>/dev/null || true
     
     echo "✅ CI-OS theme applied!"
     echo "   If the theme doesn't apply completely, log out and log back in."
