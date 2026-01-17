@@ -69,10 +69,38 @@ gsettings set org.gnome.desktop.background picture-uri-dark "file:///usr/share/b
 
 # Install Python packages
 pip3 install --upgrade pip
-pip3 install docker-compose ansible
+pip3 install docker-compose ansible flask
 
 # Install Node.js packages
 npm install -g pm2 yarn pnpm
+
+# Install headless WiFi setup system
+echo "=== Installing Headless Setup System ==="
+
+# Install required packages for headless setup
+apt-get install -y \
+    python3-flask \
+    dnsmasq \
+    iptables \
+    network-manager \
+    wireless-tools \
+    iw
+
+# Copy and install headless setup system
+if [ -d "/tmp/headless-setup" ]; then
+    cd /tmp/headless-setup
+    ./install.sh
+    
+    # Verify installation
+    if [ -f /usr/local/bin/ci-os-headless-setup.sh ]; then
+        echo "✓ Headless setup installed successfully"
+        systemctl enable ci-os-headless-setup.service
+    else
+        echo "✗ Headless setup installation failed"
+    fi
+else
+    echo "⚠ Headless setup directory not found, skipping"
+fi
 
 # Clean up
 apt-get autoremove -y

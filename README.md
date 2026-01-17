@@ -48,7 +48,32 @@ platforms, and gaming support.
 - **System Monitoring**: Built-in monitoring and logging
 - **Automatic Updates**: Security update automation
 
+### 📡 Headless First-Time Setup
+
+- **WiFi Captive Portal**: Configure WiFi without keyboard/mouse/display
+- **Automatic Hotspot**: Creates "CI-OS-Setup" WiFi network on first boot
+- **Cloud Pairing**: Link device to your account via pairing code
+- **Cross-Platform**: Works with phones, tablets, and laptops
+- **Zero-Touch Setup**: IoT-style configuration experience
+
 ## 🚀 Quick Start
+
+### Headless Setup (No Display Required)
+
+Perfect for devices without keyboard, mouse, or display:
+
+1. **Power on your CI OS device**
+2. **Wait 1-2 minutes** for the setup WiFi to appear
+3. **On your phone or laptop:**
+   - Connect to WiFi network: **CI-OS-Setup**
+   - Captive portal opens automatically
+   - If not, visit any website (e.g., http://example.com)
+4. **Enter setup information:**
+   - Pairing code from [setup.ci.computer](https://setup.ci.computer)
+   - Your WiFi network name and password
+5. **Complete setup** - Device connects to your WiFi automatically
+
+See [Headless Setup Documentation](scripts/headless-setup/README.md) for details.
 
 ### CI Server Development Setup
 

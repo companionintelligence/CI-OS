@@ -1,0 +1,28 @@
+[Unit]
+Description=CI OS Headless Setup Service
+Documentation=https://github.com/companionintelligence/ci-os
+After=network-online.target NetworkManager.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ci-os-headless-setup.sh
+Restart=no
+User=root
+StandardOutput=journal
+StandardError=journal
+
+# Only run if setup is not complete
+ConditionPathExists=!/var/lib/ci-os/setup-complete
+
+# Environment
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Security settings
+PrivateTmp=yes
+NoNewPrivileges=false
+ProtectSystem=full
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target
