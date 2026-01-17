@@ -1,0 +1,8 @@
+[Plymouth Theme]
+Name=CI-OS
+Description=CI-OS boot splash with dark green theme
+ModuleName=script
+
+[script]
+ImageDir=/usr/share/plymouth/themes/ci-os
+ScriptFile=/usr/share/plymouth/themes/ci-os/ci-os.script

@@ -1,0 +1,58 @@
+# CI-OS Plymouth boot splash script
+# Dark green theme with animated logo
+
+# Colors - Dark Green Theme
+CI_DARK_GREEN = Color(0.024, 0.424, 0.502);    # #066c80
+CI_MEDIUM_GREEN = Color(0.0, 0.663, 0.655);    # #00a9a7
+CI_LIGHT_GREEN = Color(0.447, 0.867, 0.831);   # #72ddd4
+CI_BLACK = Color(0.0, 0.0, 0.0);
+CI_WHITE = Color(1.0, 1.0, 1.0);
+
+# Set background to dark green
+Window.SetBackgroundTopColor(CI_BLACK);
+Window.SetBackgroundBottomColor(CI_DARK_GREEN);
+
+# Logo
+logo.image = Image("logo.png");
+logo.sprite = Sprite(logo.image);
+logo.opacity = 1.0;
+
+# Center logo
+logo.x = Window.GetWidth() / 2 - logo.image.GetWidth() / 2;
+logo.y = Window.GetHeight() / 2 - logo.image.GetHeight() / 2 - 50;
+logo.sprite.SetPosition(logo.x, logo.y, 100);
+
+# Progress indicator
+progress_box.image = Image("progress_box.png");
+progress_box.sprite = Sprite(progress_box.image);
+progress_box.x = Window.GetWidth() / 2 - progress_box.image.GetWidth() / 2;
+progress_box.y = Window.GetHeight() * 0.75;
+progress_box.sprite.SetPosition(progress_box.x, progress_box.y, 1);
+
+progress_bar.original_image = Image("progress_bar.png");
+progress_bar.sprite = Sprite();
+progress_bar.x = Window.GetWidth() / 2 - progress_box.image.GetWidth() / 2;
+progress_bar.y = Window.GetHeight() * 0.75;
+progress_bar.sprite.SetPosition(progress_bar.x, progress_bar.y, 2);
+
+# Animation on boot progress
+fun progress_callback(duration, progress) {
+    if (progress_bar.original_image.GetWidth() > 0) {
+        new_width = progress_box.image.GetWidth() * progress;
+        progress_bar.image = progress_bar.original_image.Scale(new_width, progress_bar.original_image.GetHeight());
+        progress_bar.sprite.SetImage(progress_bar.image);
+    }
+}
+
+Plymouth.SetBootProgressFunction(progress_callback);
+
+# Message display
+message_sprite = Sprite();
+message_sprite.SetPosition(10, 10, 10000);
+
+fun message_callback(text) {
+    my_image = Image.Text(text, CI_LIGHT_GREEN.red, CI_LIGHT_GREEN.green, CI_LIGHT_GREEN.blue);
+    message_sprite.SetImage(my_image);
+}
+
+Plymouth.SetMessageFunction(message_callback);

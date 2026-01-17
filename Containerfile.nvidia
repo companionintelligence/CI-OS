@@ -1,0 +1,37 @@
+ARG FEDORA_MAJOR_VERSION=41
+
+FROM ghcr.io/ublue-os/bazzite-nvidia:${FEDORA_MAJOR_VERSION}
+
+# CI-OS metadata
+LABEL org.opencontainers.image.title="CI-OS NVIDIA"
+LABEL org.opencontainers.image.description="Companion Intelligence OS - Bazzite NVIDIA with Windows Apps Support and Dark Green Theme"
+LABEL org.opencontainers.image.vendor="Companion Intelligence"
+
+# Copy customization files
+COPY files /
+
+# Install additional packages for Windows compatibility
+RUN rpm-ostree install \
+    wine \
+    winetricks \
+    protontricks \
+    qemu-kvm \
+    libvirt \
+    virt-manager \
+    && \
+    # Create symlinks for proper integration
+    mkdir -p /usr/share/ublue-os/just && \
+    ln -sf /usr/share/ublue-os/just/60-ci-os.just /usr/share/ublue-os/just/60-ci-os.just || true && \
+    # Set permissions
+    chmod +x /usr/share/ublue-os/scripts/*.sh 2>/dev/null || true && \
+    # Clean up
+    ostree container commit
+
+# Apply KDE Plasma configuration for dark green theme
+RUN mkdir -p /etc/xdg/kdeglobals.d && \
+    echo "[General]" > /etc/xdg/kdeglobals.d/ci-os-theme.conf && \
+    echo "ColorScheme=CI-OS-Dark" >> /etc/xdg/kdeglobals.d/ci-os-theme.conf && \
+    echo "" >> /etc/xdg/kdeglobals.d/ci-os-theme.conf && \
+    echo "[KDE]" >> /etc/xdg/kdeglobals.d/ci-os-theme.conf && \
+    echo "LookAndFeelPackage=org.kde.breezedark.desktop" >> /etc/xdg/kdeglobals.d/ci-os-theme.conf && \
+    ostree container commit
