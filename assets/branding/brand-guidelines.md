@@ -7,20 +7,31 @@
 - Clear space: Minimum 20px around logo
 
 ## Color Palette
-### Primary Colors
-- **CI Blue**: #2563EB (Primary brand color)
-- **CI Dark Blue**: #1E40AF (Dark variant)
-- **CI Light Blue**: #60A5FA (Accent color)
+### Primary Colors - Dark Green Theme
+- **CI Primary Dark Green**: #066c80 (Backgrounds, window frames, selection)
+- **CI Medium Green**: #00a9a7 (Highlights, links, secondary elements)
+- **CI Light Green**: #72ddd4 (Accents, text highlights, branding text)
 
 ### Secondary Colors
 - **White**: #FFFFFF (Text on dark backgrounds)
 - **Light Gray**: #E5E7EB (Secondary text)
 - **Dark Gray**: #374151 (Body text)
 
+### Legacy Colors (Reference Only)
+- **CI Blue**: #2563EB (Legacy primary brand color)
+- **CI Dark Blue**: #1E40AF (Legacy dark variant)
+- **CI Light Blue**: #60A5FA (Legacy accent color)
+
 ## Typography
 - **Primary**: Ubuntu (system font)
 - **Monospace**: Ubuntu Mono (terminal/code)
 - **Fallback**: Arial, sans-serif
+
+## KDE Plasma Theme
+- **Color Scheme**: CI-OS Dark (dark green theme)
+- **Location**: `/usr/share/color-schemes/CI-OS-Dark.colors`
+- **Application**: Automatically applied on first boot
+- **Manual Application**: Run `ujust apply-ci-theme`
 
 ## Logo Variations
 - Use SVG format for scalability

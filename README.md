@@ -10,13 +10,31 @@
 
 ## PRIVATE AND CONFIDENTIAL
 
-CI OS is a specialized Ubuntu-based Linux distribution optimized for
-continuous integration, software development, and gaming workloads.
-Built using [Cubic](https://github.com/PJ-Singh-001/Cubic), it provides
-a pre-configured environment with essential development tools, CI/CD
-platforms, and gaming support.
+CI OS is a specialized Bazzite-based Linux distribution optimized for
+continuous integration, software development, and gaming workloads with
+Windows application compatibility. Built on [Bazzite](https://bazzite.gg/)
+(Fedora-based immutable gaming OS with KDE Plasma), it provides a
+pre-configured environment with Wine, Proton, WinApps, and a beautiful
+dark green theme throughout the system.
 
 ## ✨ Features
+
+### 🎨 Visual Identity
+- **Dark Green Theme**: Beautiful CI-OS Dark color scheme throughout
+- **KDE Plasma Desktop**: Polished, gaming-optimized interface
+- **CI Branding**: Custom logos, wallpapers, and boot screens
+- **Color Scheme**: 
+  - Primary Dark Green: #066c80
+  - Medium Green: #00a9a7
+  - Light Green: #72ddd4
+
+### 🍷 Windows Compatibility
+
+- **Wine Integration**: Pre-configured Wine environment with 32-bit libraries
+- **Proton Support**: Steam Proton compatibility tools included
+- **Protontricks**: Per-game Proton configuration
+- **WinApps Ready**: QEMU/KVM stack for seamless Windows VM apps
+- **Winetricks**: Easy installation of Windows components
 
 ### 🛠️ Development Environment
 
@@ -49,6 +67,59 @@ platforms, and gaming support.
 - **Automatic Updates**: Security update automation
 
 ## 🚀 Quick Start
+
+### First-Time Setup
+
+After installing CI-OS, run the first-time setup:
+
+```bash
+# Run the interactive CI-OS setup
+ujust setup-ci-os
+
+# This will configure:
+# - Wine environment with common Windows components
+# - Proton compatibility tools
+# - CI-OS dark green theme
+# - KDE Plasma customizations
+```
+
+### Available Commands
+
+CI-OS includes helpful `ujust` commands for easy management:
+
+```bash
+# Display system information
+ujust ci-os-info
+
+# Set up Wine for Windows applications
+ujust setup-wine
+
+# Configure Proton for Steam games
+ujust setup-proton
+
+# Install WinApps for seamless Windows VM apps
+ujust setup-winapps
+
+# Apply or reapply the dark green theme
+ujust apply-ci-theme
+
+# NVIDIA-specific optimizations (NVIDIA variant only)
+ujust setup-ci-os-nvidia
+ujust nvidia-info
+```
+
+### Running Windows Applications
+
+```bash
+# Run a Windows application with Wine
+wine application.exe
+
+# Use Winetricks to install Windows components
+winetricks dotnet48 vcrun2019
+
+# Configure Proton for a Steam game
+protontricks <steam-app-id> <winetricks-command>
+```
 
 ### CI Server Development Setup
 
@@ -105,130 +176,173 @@ cd /path/to/ci-server
 
 #### Prerequisites
 
-- 4GB+ RAM (8GB+ recommended)
-- 25GB+ disk space
+- **RAM**: 8GB+ (16GB recommended for Windows VM apps)
+- **Storage**: 40GB+ disk space (more for Windows VMs)
+- **USB Drive**: For installation media
+- **Internet**: Required for installation and updates
+- **GPU**: AMD or NVIDIA (NVIDIA variant available for NVIDIA GPUs)
 - USB drive for installation
 - Internet connection
 
 #### Download
 
-1. Download the latest CI OS ISO from [Releases](../../releases)
-2. Verify checksums for integrity
-3. Create bootable USB using tools like:
-   - [Rufus](https://rufus.ie/) (Windows)
-   - [Etcher](https://www.balena.io/etcher/) (Cross-platform)
-   - `dd` command (Linux/macOS)
+CI-OS is available in two variants:
 
-### Installation
+1. **CI-OS Regular**: Standard Bazzite base with Windows apps support
+2. **CI-OS NVIDIA**: Includes NVIDIA drivers and GPU acceleration
+
+Download the latest ISO from [Releases](../../releases) and verify checksums.
+
+#### Create Installation Media
 
 ```bash
-# Standard installation - follow GUI wizard
-# OR automated installation with defaults
-# Default user: cios / password: ci0s2024!
+# Linux/macOS
+sudo dd if=CI-OS-v01-regular-41.iso of=/dev/sdX bs=4M status=progress
+
+# Or use a GUI tool:
+# - Rufus (Windows)
+# - Etcher (Cross-platform)
+# - Fedora Media Writer
 ```
+
+#### Installation
+
+1. Boot from USB drive
+2. Follow the Anaconda installer wizard
+3. Select your language, timezone, and keyboard layout
+4. Configure disk partitioning (automatic recommended)
+5. Create your user account
+6. Complete installation and reboot
 
 ### Post-Installation Setup
 
 ```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
+# Run first-time CI-OS setup
+ujust setup-ci-os
 
-# Run development environment setup
-sudo ./scripts/ci-server-linux-dev-setup.sh
+# This configures Wine, Proton, and applies the dark green theme
+```
 
-# Optional: Gaming setup
-sudo ./scripts/setup-gaming.sh
+#### Optional: WinApps Setup
 
-# Optional: AMD GPU optimization
-sudo ./scripts/ci-server-setup-ubuntu-amd.sh
+For seamless Windows application integration via VM:
+
+```bash
+ujust setup-winapps
+# Follow the prompts to configure your Windows VM
+```
+
+#### NVIDIA Users
+
+If you installed the NVIDIA variant:
+
+```bash
+# Apply NVIDIA-specific optimizations
+ujust setup-ci-os-nvidia
+
+# Check GPU status
+ujust nvidia-info
 ```
 
 ## 📁 Project Structure
 
 ```text
 ci-os/
-├── assets/                     # Branding and visual assets
-│   ├── logos/                  # CI OS logos and branding
-│   ├── icons/                  # System and application icons
-│   ├── wallpapers/            # Desktop wallpapers
-│   └── branding/              # Brand guidelines
-├── cubic-project/             # Cubic workspace (created during build)
-├── scripts/                   # Installation and setup scripts
+├── .github/
+│   └── workflows/
+│       └── build-iso.yml          # GitHub Actions ISO build workflow
+├── assets/                        # Branding and visual assets
+│   ├── logos/                     # CI OS logos and branding
+│   ├── wallpapers/                # Desktop wallpapers
+│   └── branding/                  # Brand guidelines with color scheme
+├── files/                         # OS customization files
+│   ├── etc/
+│   │   ├── default/grub.d/        # GRUB bootloader configuration
+│   │   └── sddm.conf.d/           # Login manager theme
+│   └── usr/share/
+│       ├── color-schemes/         # KDE Plasma CI-OS Dark theme
+│       ├── pixmaps/               # Logos and boot graphics
+│       ├── plymouth/themes/       # Boot splash screen
+│       ├── ublue-os/just/         # ujust command definitions
+│       └── wallpapers/            # System wallpapers
+├── scripts/                       # Installation and setup scripts
 │   ├── ci-server-setup-ubuntu-amd.sh    # AMD GPU setup
 │   ├── ci-server-linux-dev-setup.sh     # Development environment
 │   └── setup-gaming.sh                  # Gaming optimization
-├── configs/                   # Configuration files
-│   ├── packages/              # Package lists and selections
-│   ├── preseed/               # Automated installation configs
-│   ├── boot/                  # GRUB and boot configuration
-│   └── scripts/               # Cubic customization scripts
-├── docs/                      # Documentation
-│   ├── cubic-customization-plan.md      # Build instructions
-│   └── installation-guide.md            # User installation guide
-└── iso/                       # ISO storage
-    ├── base/                  # Source Ubuntu ISOs
-    └── output/                # Generated CI OS ISOs
+├── configs/                       # Legacy configuration files
+├── docs/                          # Documentation
+├── Containerfile                  # Regular variant build definition
+├── Containerfile.nvidia           # NVIDIA variant build definition
+└── README.md                      # This file
 ```
 
 ## 🔧 Building from Source
 
-### 1. Install Cubic
+CI-OS uses container-based builds with GitHub Actions. ISOs are automatically
+built weekly and on every push to main.
 
-**Ubuntu/Derivatives:**
+### Prerequisites
 
-```bash
-sudo apt-key adv --keyserver keyserver.ubuntu.com \
-  --recv-keys B7579F80E494ED3406A59DF9081525E2B4F1283B
-sudo apt-add-repository universe
-sudo apt-add-repository ppa:cubic-wizard/release
-sudo apt update
-sudo apt install --no-install-recommends cubic
-```
+- Linux system with Docker/Podman
+- 20GB+ free disk space
+- Internet connection
 
-**Debian/Derivatives:**
+### Local Build (Advanced)
 
 ```bash
-echo "deb https://ppa.launchpadcontent.net/cubic-wizard/release/ubuntu/ \
-  noble main" | sudo tee \
-  /etc/apt/sources.list.d/cubic-wizard-release.list
-curl -S "https://keyserver.ubuntu.com/pks/lookup?op=get&search=\
-0x081525e2b4f1283b" | sudo gpg --batch --yes --dearmor \
-  --output /etc/apt/trusted.gpg.d/cubic-wizard-ubuntu-release.gpg
-sudo apt update
-sudo apt install --no-install-recommends cubic
+# Clone the repository
+git clone https://github.com/companionintelligence/CI-OS.git
+cd CI-OS
+
+# Build regular variant
+podman build -f Containerfile -t ci-os:latest .
+
+# Build NVIDIA variant
+podman build -f Containerfile.nvidia -t ci-os-nvidia:latest .
+
+# Tag and push (maintainers only)
+podman tag ci-os:latest ghcr.io/companionintelligence/ci-os/ci-os:v01-latest
+podman push ghcr.io/companionintelligence/ci-os/ci-os:v01-latest
 ```
 
-### 2. Download Base ISO
+### ISO Generation
 
-Download Ubuntu 24.04 LTS Desktop ISO and place in `iso/base/`
+ISOs are built automatically via GitHub Actions using the
+[build-container-installer](https://github.com/jasonn3/build-container-installer)
+action. See `.github/workflows/build-iso.yml` for details.
 
-### 3. Build Process
+To trigger a manual build:
 
-1. Launch Cubic
-2. Create new project in `cubic-project/`
-3. Select base Ubuntu ISO
-4. Follow the [Cubic Customization Plan](docs/cubic-customization-plan.md)
-5. Apply configurations from `configs/`
-6. Copy assets from `assets/`
-7. Execute customization scripts
-8. Generate CI OS ISO
+1. Go to the **Actions** tab in GitHub
+2. Select **Build and Publish CI-OS ISOs**
+3. Click **Run workflow**
 
-### 4. Testing
+### Customization
 
-```bash
-# Test in virtual machine
-# Validate all features work
-# Check performance benchmarks
-```
+To customize CI-OS:
+
+1. Edit files in the `files/` directory
+2. Modify `Containerfile` or `Containerfile.nvidia`
+3. Update color scheme in `files/usr/share/color-schemes/CI-OS-Dark.colors`
+4. Commit and push changes
+5. GitHub Actions will build new ISOs automatically
+
+### Legacy Build Instructions (Cubic)
+
+The original Ubuntu-based build using Cubic is now deprecated.
+See `docs/cubic-customization-plan.md` for historical reference.
 
 ## 📚 Documentation
 
-- **[Installation Guide](docs/installation-guide.md)** - Complete
-  installation instructions
-- **[Cubic Customization Plan](docs/cubic-customization-plan.md)** -
-  Detailed build process
+- **[Files Directory](files/README.md)** - Customization files documentation
 - **[Brand Guidelines](assets/branding/brand-guidelines.md)** - Visual
-  identity standards
+  identity and dark green color scheme
+- **[Build Workflow](.github/workflows/build-iso.yml)** - Automated ISO build
+  configuration
+- **[Installation Guide](docs/installation-guide.md)** - Complete
+  installation instructions (legacy)
+- **[Cubic Customization Plan](docs/cubic-customization-plan.md)** -
+  Legacy Ubuntu build process (deprecated)
 
 ## 🤝 Contributing
 
@@ -242,9 +356,10 @@ We welcome contributions! Please see our contributing guidelines:
 
 ### Areas for Contribution
 
-- Package selection optimization
-- Performance improvements
-- Additional hardware support
+- Windows application compatibility improvements
+- KDE Plasma theme enhancements
+- Additional ujust commands
+- WinApps integration improvements
 - Documentation updates
 - Bug fixes and security patches
 
@@ -258,45 +373,51 @@ We welcome contributions! Please see our contributing guidelines:
 
 ### Version 1.0 (Current)
 
-- ✅ Base Ubuntu 24.04 LTS
-- ✅ Development tools integration
-- ✅ Gaming support
-- ✅ CI/CD tools
+- ✅ Bazzite Fedora 41 base
+- ✅ KDE Plasma desktop with dark green theme
+- ✅ Wine and Proton integration
+- ✅ Windows compatibility tools
+- ✅ ujust commands for easy setup
+- ✅ NVIDIA variant support
 
 ### Version 1.1 (Planned)
 
-- [ ] Kubernetes tools integration
-- [ ] Additional language support (Go, Rust)
-- [ ] Enhanced security features
-- [ ] Performance optimizations
+- [ ] Enhanced WinApps integration
+- [ ] Additional Windows compatibility layers
+- [ ] Performance optimizations for Wine/Proton
+- [ ] Improved theme customization options
+- [ ] More pre-configured Windows app profiles
 
 ### Version 2.0 (Future)
 
-- [ ] Custom package manager
-- [ ] Cloud-native tooling
-- [ ] Advanced virtualization
-- [ ] Enterprise features
+- [ ] One-click Windows app installation
+- [ ] Advanced GPU passthrough for VMs
+- [ ] Multi-monitor gaming optimizations
+- [ ] Enhanced development tool integration
 
 ## 📄 License
 
-CI OS is based on Ubuntu and inherits its licensing terms. Custom scripts
-and configurations are licensed under MIT License.
+CI OS is based on Bazzite and Fedora, inheriting their licensing terms.
+Custom scripts, themes, and configurations are proprietary to Companion
+Intelligence - Lifescope Inc.
 
 ## 🙏 Acknowledgments
 
-- **[Cubic Project](https://github.com/PJ-Singh-001/Cubic)** - Ubuntu
-  customization tool
-- **Ubuntu Team** - Base operating system
-- **Community Contributors** - Testing and feedback
+- **[Bazzite Project](https://bazzite.gg/)** - Gaming-optimized immutable OS
+- **[Universal Blue](https://universal-blue.org/)** - Cloud-native OS toolkit
+- **[Fedora Project](https://fedoraproject.org/)** - Base operating system
+- **[KDE Project](https://kde.org/)** - Plasma desktop environment
+- **Wine/Proton Teams** - Windows compatibility layers
 
 ## 📊 Statistics
 
-- **Base Size**: ~4.5GB ISO
-- **Installation Time**: ~15-20 minutes
-- **Boot Time**: <30 seconds
-- **Memory Usage**: ~1.5GB idle
+- **Base Size**: ~6-8GB ISO (varies by variant)
+- **Installation Time**: ~20-30 minutes
+- **Boot Time**: <20 seconds (SSD)
+- **Memory Usage**: ~2GB idle (KDE Plasma)
 - **Supported Architectures**: x86_64 (AMD64)
+- **Base OS**: Fedora 41 (Bazzite/Kinoite)
 
 ---
 
-## Made with ❤️ for developers, by developers
+## Made with ❤️ by Companion Intelligence
