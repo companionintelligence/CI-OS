@@ -1,0 +1,64 @@
+# CI OS Preseed Configuration
+# This file provides automated installation answers
+
+# Localization
+d-i debian-installer/locale string en_US.UTF-8
+d-i localechooser/supported-locales multiselect en_US.UTF-8
+
+# Keyboard selection
+d-i console-setup/ask_detect boolean false
+d-i keyboard-configuration/xkb-keymap select us
+
+# Network configuration
+d-i netcfg/choose_interface select auto
+d-i netcfg/get_hostname string ci-os
+d-i netcfg/get_domain string local
+
+# Mirror settings
+d-i mirror/country string manual
+d-i mirror/http/hostname string archive.ubuntu.com
+d-i mirror/http/directory string /ubuntu
+d-i mirror/http/proxy string
+
+# Account setup
+d-i passwd/user-fullname string CI OS User
+d-i passwd/username string cios
+d-i passwd/user-password password ci0s2024!
+d-i passwd/user-password-again password ci0s2024!
+d-i user-setup/allow-password-weak boolean true
+d-i user-setup/encrypt-home boolean false
+
+# Clock and time zone setup
+d-i clock-setup/utc boolean true
+d-i time/zone string UTC
+d-i clock-setup/ntp boolean true
+
+# Partitioning
+d-i partman-auto/method string regular
+d-i partman-auto/choose_recipe select atomic
+d-i partman-partitioning/confirm_write_new_label boolean true
+d-i partman/choose_partition select finish
+d-i partman/confirm boolean true
+d-i partman/confirm_nooverwrite boolean true
+
+# Base system installation
+d-i base-installer/kernel/image string linux-generic
+
+# Package selection
+tasksel tasksel/first multiselect ubuntu-desktop
+d-i pkgsel/include string openssh-server build-essential curl wget git
+d-i pkgsel/upgrade select full-upgrade
+d-i pkgsel/update-policy select none
+
+# Boot loader installation
+d-i grub-installer/only_debian boolean true
+d-i grub-installer/with_other_os boolean true
+d-i grub-installer/bootdev string default
+
+# Finishing up
+d-i finish-install/reboot_in_progress note
+
+# Custom commands
+d-i preseed/late_command string \
+    in-target wget -O /tmp/ci-os-setup.sh https://raw.githubusercontent.com/your-repo/ci-os/main/scripts/ci-server-setup-ubuntu-amd.sh; \
+    in-target chmod +x /tmp/ci-os-setup.sh

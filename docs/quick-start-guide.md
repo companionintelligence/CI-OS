@@ -1,263 +1,212 @@
-# CI-OS v01 Quick Start Guide
+# CI OS Quick Start Guide
 
-Get up and running with CI-OS in 10 minutes! This guide covers the essentials for a fast start.
+## 🚀 Getting Started with CI OS
 
-## 🚀 Quick Installation
-
-### 1. Download CI-OS ISO
-
-Choose your variant:
-- **Regular**: [CI-OS-v01-regular-41.iso](https://github.com/companionintelligence/CI-OS/releases) - For most users
-- **NVIDIA**: [CI-OS-v01-nvidia-41.iso](https://github.com/companionintelligence/CI-OS/releases) - For NVIDIA GPU users
-
-### 2. Create Bootable USB
-
-**Windows**: Use [Rufus](https://rufus.ie/) with DD Image mode  
-**Linux**: `sudo dd if=CI-OS-v01-regular-41.iso of=/dev/sdX bs=4M status=progress`  
-**macOS**: Use [Fedora Media Writer](https://getfedora.org/en/workstation/download/)
-
-### 3. Install CI-OS
-
-1. Boot from USB drive
-2. Double-click "Install to Hard Drive"
-3. Follow installation wizard (20-30 minutes)
-4. Reboot and remove USB
-
-## ⚡ Essential Setup (5 minutes)
+Welcome to CI OS! This quick start guide will help you get up and running with your new development-focused Ubuntu distribution.
 
 ### First Boot
 
-```bash
-# Run complete setup wizard
-ujust setup-ci-os
+1. **Initial Setup**
+   - Default username: `cios`
+   - Default password: `ci0s2024!`
+   - Change password after first login: `passwd`
 
-# For NVIDIA systems
-ujust setup-ci-os-nvidia
+2. **System Update**
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   ```
+
+### Essential Commands
+
+#### Development Environment
+```bash
+# Check installed development tools
+git --version
+docker --version
+node --version
+python3 --version
+
+# Start Docker service
+sudo systemctl start docker
+sudo systemctl enable docker
+
+# Add user to docker group (logout/login required)
+sudo usermod -aG docker $USER
 ```
 
-This configures Wine, Proton, and WinApps automatically!
-
-### Verify Installation
-
+#### Gaming Setup
 ```bash
-# Check system status
-ujust ci-os-info
+# Run gaming optimization script
+sudo /usr/local/bin/setup-gaming.sh
 
-# Test Wine
-wine --version
-
-# Test Proton (requires Steam)
-ujust test-proton
+# Launch Steam
+steam
 ```
 
-## 🍷 Running Windows Apps
-
-### Method 1: Direct Wine
-
+#### System Monitoring
 ```bash
-# Run any Windows .exe file
-ujust run-wine notepad.exe
-ujust run-wine /path/to/installer.exe
+# Check system resources
+htop
 
-# Configure Wine
-ujust configure-wine
+# Monitor network
+iftop
+
+# Check disk usage
+df -h
 ```
 
-### Method 2: WinApps (VM-based)
+### Pre-installed Software
 
+#### Development Tools
+- **Git**: Version control system
+- **Docker**: Container platform
+- **Node.js**: JavaScript runtime
+- **Python 3.12**: Programming language
+- **Visual Studio Code**: Code editor
+- **PostgreSQL**: Database server
+
+#### Gaming
+- **Steam**: Game platform
+- **GameMode**: Performance optimization
+- **MangoHud**: Performance overlay
+
+#### System Tools
+- **SSH Server**: Remote access
+- **UFW**: Firewall management
+- **Fail2ban**: Intrusion prevention
+- **PM2**: Process manager
+
+### Quick Configuration
+
+#### SSH Access
 ```bash
-# Set up Windows VM integration
-ujust setup-winapps
+# Enable SSH
+sudo systemctl enable ssh
+sudo systemctl start ssh
 
-# Configure connection
-ujust configure-winapps
-
-# Install Windows apps
-ujust winapps-install cmd
-ujust winapps-install explorer
+# Check SSH status
+sudo systemctl status ssh
 ```
 
-## 🎮 Gaming Quick Start
-
-### Steam Setup
-
+#### Firewall
 ```bash
-# Install Steam
-flatpak install flathub com.valvesoftware.Steam
+# Check firewall status
+sudo ufw status
 
-# Configure Proton
-ujust setup-proton
-
-# Apply gaming optimizations
-ujust optimize-proton-gaming
+# Allow specific ports
+sudo ufw allow 3000  # Node.js dev server
+sudo ufw allow 5432  # PostgreSQL
 ```
 
-### Non-Steam Games
-
+#### Docker Setup
 ```bash
-# Install Lutris
-flatpak install flathub net.lutris.Lutris
+# Test Docker installation
+docker run hello-world
 
-# Set up Proton for Lutris
-ujust proton-lutris
+# Start a development container
+docker run -it ubuntu:latest bash
 ```
 
-## 🔧 Essential Commands
+### Development Workflow
 
-### System Information
+#### Web Development
 ```bash
-ujust ci-os-info              # System overview
-ujust nvidia-info            # NVIDIA status (NVIDIA variant)
+# Create new project
+mkdir my-project && cd my-project
+npm init -y
+
+# Install dependencies
+npm install express
+
+# Start development server with PM2
+pm2 start app.js --name "my-app"
+pm2 monit
 ```
 
-### Wine Management
+#### Database Development
 ```bash
-ujust setup-wine              # Initial Wine setup
-ujust test-wine               # Test Wine functionality
-ujust wine-install vcrun2019  # Install Windows components
-ujust wine-reset              # Reset Wine environment
+# Start PostgreSQL
+sudo systemctl start postgresql
+
+# Connect to database
+sudo -u postgres psql
+
+# Create development database
+createdb myapp_dev
 ```
 
 ### Gaming Optimization
+
+#### Steam Setup
+1. Launch Steam from applications menu
+2. Log in with your Steam account
+3. Enable Proton for Windows games:
+   - Steam → Settings → Steam Play
+   - Check "Enable Steam Play for all other titles"
+
+#### Performance Monitoring
 ```bash
-ujust optimize-proton-gaming  # Gaming performance tweaks
-ujust nvidia-monitor          # GPU monitoring (NVIDIA)
-ujust proton-games            # List Steam games
+# Launch game with performance overlay
+mangohud steam
+
+# Use GameMode for better performance
+gamemoderun steam
 ```
 
-### WinApps Management
+### Troubleshooting
+
+#### Common Issues
+
+**Docker Permission Denied**
 ```bash
-ujust setup-winapps           # VM infrastructure setup
-ujust test-winapps            # Test connectivity
-ujust list-winapps            # Show installed apps
+sudo usermod -aG docker $USER
+# Logout and login again
 ```
 
-## 📦 Installing Software
-
-### Via Software Center (Discover)
-- Open "Discover" from application menu
-- Browse Flatpaks and native packages
-- Install with one click
-
-### Via Command Line
+**Steam Won't Start**
 ```bash
-# Flatpak applications
-flatpak install flathub org.mozilla.firefox
-flatpak install flathub org.libreoffice.LibreOffice
-flatpak install flathub com.visualstudio.code
-
-# System packages (requires reboot)
-rpm-ostree install htop neofetch
-systemctl reboot
+# Install additional 32-bit libraries
+sudo apt install steam-devices
 ```
 
-## 🔍 Troubleshooting Quick Fixes
-
-### Wine Issues
+**Graphics Issues**
 ```bash
-# Reset and reconfigure Wine
-ujust wine-reset
-ujust setup-wine
+# Check graphics driver
+lspci -k | grep -A 2 -i "VGA"
+
+# Install NVIDIA drivers (if needed)
+sudo ubuntu-drivers autoinstall
 ```
 
-### NVIDIA Issues (NVIDIA variant)
-```bash
-# Apply NVIDIA optimizations
-ujust optimize-nvidia-gaming
+### Support Resources
 
-# Check GPU status
-ujust nvidia-info
+- **Documentation**: `/usr/share/doc/ci-os/`
+- **Log Files**: `/var/log/`
+- **System Info**: `sudo dmidecode -t system`
 
-# Troubleshoot problems
-ujust nvidia-troubleshoot
-```
+### Next Steps
 
-### Performance Issues
-```bash
-# Check system resources
-ujust ci-os-info
+1. **Customize Environment**
+   - Install additional development tools
+   - Configure shell (zsh, oh-my-zsh)
+   - Set up development configurations
 
-# Apply gaming optimizations
-ujust optimize-proton-gaming
-```
+2. **Explore Gaming**
+   - Install games from Steam
+   - Configure graphics settings
+   - Join gaming communities
 
-### Update System
-```bash
-# Update all packages
-rpm-ostree upgrade
-systemctl reboot
-```
+3. **Set Up Projects**
+   - Clone repositories
+   - Configure CI/CD pipelines
+   - Set up development databases
 
-## 🎯 Common Use Cases
+### Getting Help
 
-### Office Work
-```bash
-# Install LibreOffice
-flatpak install flathub org.libreoffice.LibreOffice
-
-# Run Windows Office via Wine
-ujust wine-install vcrun2019 dotnet48
-ujust run-wine /path/to/office-installer.exe
-```
-
-### Gaming Setup
-```bash
-# Complete gaming stack
-flatpak install flathub com.valvesoftware.Steam
-flatpak install flathub net.lutris.Lutris
-ujust setup-proton
-ujust optimize-proton-gaming
-```
-
-### Development Environment
-```bash
-# Development tools
-flatpak install flathub com.visualstudio.code
-flatpak install flathub com.jetbrains.IntelliJ-IDEA-Community
-rpm-ostree install git nodejs npm python3-pip
-systemctl reboot
-```
-
-### Media Production
-```bash
-# Creative applications
-flatpak install flathub org.blender.Blender
-flatpak install flathub org.kde.kdenlive
-flatpak install flathub org.gimp.GIMP
-
-# Windows creative apps via Wine
-ujust wine-install vcrun2019 d3dx9
-ujust run-wine /path/to/creative-app.exe
-```
-
-## 📚 Next Steps
-
-### Learn More
-- [Complete Installation Guide](installation-guide.md) - Detailed installation
-- [Build Guide](iso-build-guide.md) - Building custom ISOs
-- [Main README](../README.md) - Full feature documentation
-
-### Get Support
-- 🐛 [Report Issues](https://github.com/companionintelligence/CI-OS/issues)
-- 💬 [Bazzite Community](https://bazzite.gg/)
-- 📖 [Wine Documentation](https://www.winehq.org/documentation)
-
-### Advanced Topics
-- Dual-booting with Windows
-- Custom kernel configurations
-- Building custom variants
-- VM and container management
-
-## 🎉 Welcome to CI-OS!
-
-You're now ready to enjoy:
-- 🎮 **Gaming**: Steam, Lutris, and Windows games
-- 💼 **Productivity**: Wine and native Linux applications  
-- 🖥️ **Virtualization**: Seamless Windows VM integration
-- 🚀 **Performance**: NVIDIA optimizations and gaming kernel
-
-**Tip**: Run `just --list` to see all available commands anytime!
+- Check `/usr/share/doc/ci-os/` for detailed documentation
+- Visit GitHub repository for issues and discussions
+- Community forums and support channels
 
 ---
 
-**Happy computing!** 🎮🍷💻
+🎉 **Welcome to CI OS!** You're now ready to develop, game, and create with your optimized Ubuntu environment.
