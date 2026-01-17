@@ -1,0 +1,32 @@
+[Unit]
+Description=CI-OS Device Provisioning and Connectivity Manager
+Documentation=https://github.com/companionintelligence/CI-OS
+After=NetworkManager.service
+Wants=NetworkManager.service
+Before=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/provisioning_manager.py
+Restart=always
+RestartSec=10
+User=root
+Environment=PYTHONUNBUFFERED=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=provisioning-manager
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/log /run/provisioning /etc/provisioning /etc/NetworkManager
+
+# Resource limits
+MemoryLimit=256M
+CPUQuota=50%
+
+[Install]
+WantedBy=multi-user.target

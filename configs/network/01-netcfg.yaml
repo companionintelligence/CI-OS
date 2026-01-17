@@ -1,0 +1,43 @@
+# CI-OS Network Configuration for Ubuntu 24.04 LTS
+# This configuration uses NetworkManager as the renderer to enable
+# dynamic network management via D-Bus for headless Wi-Fi provisioning.
+#
+# Key features:
+# - Ethernet priority with automatic DHCP
+# - Wi-Fi interface managed by NetworkManager
+# - 'optional: true' prevents boot blocking when network is unavailable
+# - Enables programmatic control of AP/Station mode switching
+
+network:
+  version: 2
+  renderer: NetworkManager
+  
+  ethernets:
+    # Wired Ethernet interface (adjust name as needed for your hardware)
+    # Common names: enp3s0, eth0, eno1, etc.
+    enp3s0:
+      dhcp4: true
+      dhcp6: true
+      optional: true  # Critical: prevents systemd-networkd-wait-online from blocking boot
+    
+    # Fallback pattern for other Ethernet interfaces
+    eth0:
+      dhcp4: true
+      dhcp6: true
+      optional: true
+  
+  wifis:
+    # Wireless interface (adjust name as needed for your hardware)
+    # Common names: wlan0, wlp2s0, etc.
+    wlan0:
+      dhcp4: true
+      dhcp6: true
+      optional: true  # Critical: prevents boot blocking if Wi-Fi is not configured
+      access-points: {}  # Empty; NetworkManager will manage connections
+    
+    # Fallback pattern for other Wi-Fi interfaces
+    wlp2s0:
+      dhcp4: true
+      dhcp6: true
+      optional: true
+      access-points: {}

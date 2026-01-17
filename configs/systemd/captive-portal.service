@@ -1,0 +1,32 @@
+[Unit]
+Description=CI-OS Captive Portal Web Server
+Documentation=https://github.com/companionintelligence/CI-OS
+After=device-provisioning.service
+BindsTo=device-provisioning.service
+PartOf=device-provisioning.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/bin/captive_portal.py
+Restart=always
+RestartSec=5
+User=root
+Environment=PYTHONUNBUFFERED=1
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=captive-portal
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/log /run/provisioning /etc/provisioning
+
+# Resource limits
+MemoryLimit=128M
+CPUQuota=25%
+
+[Install]
+WantedBy=multi-user.target
