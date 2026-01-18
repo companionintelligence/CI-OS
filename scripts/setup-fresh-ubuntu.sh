@@ -211,6 +211,245 @@ note_bashrc() {
     log_info "Note: User $ACTUAL_USER should start a new shell or run 'source ~/.bashrc' to use new tools"
 }
 
+# Get script directory and project root
+get_script_paths() {
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+    DEFAULT_ICON="$PROJECT_ROOT/LogoMark_Color_StartIcon.svg"
+    DEFAULT_WALLPAPER="$PROJECT_ROOT/background.png"
+}
+
+# Prompt for icon path with default
+prompt_icon_path() {
+    get_script_paths
+    
+    echo
+    log_info "Custom Start Menu Icon Configuration"
+    echo "Default icon: $DEFAULT_ICON"
+    read -p "Enter path to custom start menu icon (SVG or PNG) [Press Enter for default]: " ICON_PATH
+    
+    # Use default if empty
+    if [[ -z "$ICON_PATH" ]]; then
+        ICON_PATH="$DEFAULT_ICON"
+    fi
+    
+    # Expand ~ and resolve relative paths
+    ICON_PATH="${ICON_PATH/#\~/$HOME}"
+    if [[ ! "$ICON_PATH" =~ ^/ ]]; then
+        # Resolve relative to current directory or script directory
+        if [[ -f "$ICON_PATH" ]]; then
+            ICON_PATH="$(cd "$(dirname "$ICON_PATH")" 2>/dev/null && pwd)/$(basename "$ICON_PATH")"
+        elif [[ -f "$SCRIPT_DIR/$ICON_PATH" ]]; then
+            ICON_PATH="$SCRIPT_DIR/$ICON_PATH"
+        elif [[ -f "$PROJECT_ROOT/$ICON_PATH" ]]; then
+            ICON_PATH="$PROJECT_ROOT/$ICON_PATH"
+        fi
+    fi
+    
+    # Validate file exists
+    if [[ ! -f "$ICON_PATH" ]]; then
+        log_error "Icon file not found: $ICON_PATH"
+        log_warning "Skipping icon customization"
+        ICON_PATH=""
+        return 1
+    fi
+    
+    # Validate file format
+    local ext="${ICON_PATH##*.}"
+    if [[ ! "$ext" =~ ^(svg|SVG|png|PNG)$ ]]; then
+        log_warning "Icon file should be SVG or PNG format. Proceeding anyway..."
+    fi
+    
+    log_success "Using icon: $ICON_PATH"
+    CUSTOM_ICON_PATH="$ICON_PATH"
+    return 0
+}
+
+# Prompt for wallpaper path with default
+prompt_wallpaper_path() {
+    get_script_paths
+    
+    echo
+    log_info "Custom Desktop Wallpaper Configuration"
+    echo "Default wallpaper: $DEFAULT_WALLPAPER"
+    read -p "Enter path to custom desktop wallpaper (PNG, JPG, or JPEG) [Press Enter for default]: " WALLPAPER_PATH
+    
+    # Use default if empty
+    if [[ -z "$WALLPAPER_PATH" ]]; then
+        WALLPAPER_PATH="$DEFAULT_WALLPAPER"
+    fi
+    
+    # Expand ~ and resolve relative paths
+    WALLPAPER_PATH="${WALLPAPER_PATH/#\~/$HOME}"
+    if [[ ! "$WALLPAPER_PATH" =~ ^/ ]]; then
+        # Resolve relative to current directory or script directory
+        if [[ -f "$WALLPAPER_PATH" ]]; then
+            WALLPAPER_PATH="$(cd "$(dirname "$WALLPAPER_PATH")" 2>/dev/null && pwd)/$(basename "$WALLPAPER_PATH")"
+        elif [[ -f "$SCRIPT_DIR/$WALLPAPER_PATH" ]]; then
+            WALLPAPER_PATH="$SCRIPT_DIR/$WALLPAPER_PATH"
+        elif [[ -f "$PROJECT_ROOT/$WALLPAPER_PATH" ]]; then
+            WALLPAPER_PATH="$PROJECT_ROOT/$WALLPAPER_PATH"
+        fi
+    fi
+    
+    # Validate file exists
+    if [[ ! -f "$WALLPAPER_PATH" ]]; then
+        log_error "Wallpaper file not found: $WALLPAPER_PATH"
+        log_warning "Skipping wallpaper customization"
+        WALLPAPER_PATH=""
+        return 1
+    fi
+    
+    # Validate file format
+    local ext="${WALLPAPER_PATH##*.}"
+    if [[ ! "$ext" =~ ^(png|PNG|jpg|JPG|jpeg|JPEG)$ ]]; then
+        log_warning "Wallpaper file should be PNG, JPG, or JPEG format. Proceeding anyway..."
+    fi
+    
+    log_success "Using wallpaper: $WALLPAPER_PATH"
+    CUSTOM_WALLPAPER_PATH="$WALLPAPER_PATH"
+    return 0
+}
+
+# Replace Ubuntu icons with custom icon
+replace_ubuntu_icons() {
+    if [[ -z "${CUSTOM_ICON_PATH:-}" ]] || [[ ! -f "$CUSTOM_ICON_PATH" ]]; then
+        log_warning "No custom icon specified, skipping icon replacement"
+        return 0
+    fi
+    
+    log_info "Replacing Ubuntu icons with custom icon..."
+    
+    local icon_ext="${CUSTOM_ICON_PATH##*.}"
+    local icon_name="ci-os-logo"
+    
+    # Create backup directory
+    local backup_dir="/usr/share/icons/ubuntu-backup-$(date +%Y%m%d-%H%M%S)"
+    mkdir -p "$backup_dir"
+    
+    # Activities button icon (GNOME Shell start menu)
+    local activities_icon="/usr/share/icons/Yaru/scalable/actions/view-app-grid-symbolic.svg"
+    if [[ -f "$activities_icon" ]]; then
+        # Backup original
+        mkdir -p "$backup_dir/Yaru/scalable/actions"
+        cp "$activities_icon" "$backup_dir/Yaru/scalable/actions/view-app-grid-symbolic.svg.bak" 2>/dev/null || true
+        
+        # Copy custom icon (SVG preferred for Activities button)
+        if [[ "$icon_ext" =~ ^(svg|SVG)$ ]]; then
+            cp "$CUSTOM_ICON_PATH" "$activities_icon"
+        else
+            # For PNG, create an SVG wrapper that references the PNG
+            log_info "PNG format detected. Creating SVG wrapper for Activities button..."
+            # Copy PNG to a location we can reference
+            local png_dest="/usr/share/pixmaps/ci-os-activities-icon.png"
+            cp "$CUSTOM_ICON_PATH" "$png_dest"
+            # Create SVG wrapper
+            cat > "$activities_icon" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="24" height="24" viewBox="0 0 24 24">
+  <image xlink:href="file://$png_dest" width="24" height="24"/>
+</svg>
+EOF
+        fi
+        chmod 644 "$activities_icon"
+        log_success "Replaced Activities button icon"
+    fi
+    
+    # System pixmaps
+    mkdir -p /usr/share/pixmaps
+    if [[ "$icon_ext" =~ ^(svg|SVG)$ ]]; then
+        cp "$CUSTOM_ICON_PATH" "/usr/share/pixmaps/${icon_name}.svg"
+        # Also create PNG versions for compatibility
+        if command -v convert >/dev/null 2>&1; then
+            convert "$CUSTOM_ICON_PATH" -resize 64x64 "/usr/share/pixmaps/${icon_name}.png" 2>/dev/null || true
+        fi
+    else
+        cp "$CUSTOM_ICON_PATH" "/usr/share/pixmaps/${icon_name}.png"
+    fi
+    log_success "Added icon to system pixmaps"
+    
+    # Application icons in hicolor theme
+    local icon_sizes=(16 22 24 32 48 64 128 256 scalable)
+    for size in "${icon_sizes[@]}"; do
+        local icon_dir="/usr/share/icons/hicolor/${size}x${size}/apps"
+        if [[ "$size" == "scalable" ]]; then
+            icon_dir="/usr/share/icons/hicolor/scalable/apps"
+        fi
+        mkdir -p "$icon_dir"
+        
+        if [[ "$icon_ext" =~ ^(svg|SVG)$ ]] && [[ "$size" == "scalable" ]]; then
+            cp "$CUSTOM_ICON_PATH" "${icon_dir}/${icon_name}.svg"
+        elif [[ ! "$icon_ext" =~ ^(svg|SVG)$ ]] && [[ "$size" != "scalable" ]]; then
+            if command -v convert >/dev/null 2>&1 && [[ "$size" != "scalable" ]]; then
+                convert "$CUSTOM_ICON_PATH" -resize "${size}x${size}" "${icon_dir}/${icon_name}.png" 2>/dev/null || true
+            else
+                cp "$CUSTOM_ICON_PATH" "${icon_dir}/${icon_name}.png" 2>/dev/null || true
+            fi
+        fi
+    done
+    log_success "Added icon to hicolor theme"
+    
+    # Update icon cache
+    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+        gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || true
+        gtk-update-icon-cache -f /usr/share/icons/Yaru 2>/dev/null || true
+        log_success "Updated icon cache"
+    fi
+    
+    log_success "Icon replacement completed. Backup saved to: $backup_dir"
+    log_warning "Note: You may need to log out and log back in for all icon changes to take effect"
+}
+
+# Set custom wallpaper
+set_custom_wallpaper() {
+    if [[ -z "${CUSTOM_WALLPAPER_PATH:-}" ]] || [[ ! -f "$CUSTOM_WALLPAPER_PATH" ]]; then
+        log_warning "No custom wallpaper specified, skipping wallpaper setup"
+        return 0
+    fi
+    
+    log_info "Setting custom desktop wallpaper..."
+    
+    # Copy wallpaper to system backgrounds directory
+    local wallpaper_name="ci-os-wallpaper"
+    local wallpaper_ext="${CUSTOM_WALLPAPER_PATH##*.}"
+    local dest_wallpaper="/usr/share/backgrounds/${wallpaper_name}.${wallpaper_ext}"
+    
+    cp "$CUSTOM_WALLPAPER_PATH" "$dest_wallpaper"
+    chmod 644 "$dest_wallpaper"
+    log_success "Copied wallpaper to system directory"
+    
+    # Set wallpaper for all users using gsettings (requires desktop environment)
+    if command -v gsettings >/dev/null 2>&1; then
+        # Set for the actual user
+        sudo -u "$ACTUAL_USER" bash <<EOF || true
+export DISPLAY=:0
+export XAUTHORITY=\$HOME/.Xauthority
+gsettings set org.gnome.desktop.background picture-uri "file://$dest_wallpaper" 2>/dev/null || true
+gsettings set org.gnome.desktop.background picture-uri-dark "file://$dest_wallpaper" 2>/dev/null || true
+EOF
+        
+        # Also set system-wide defaults for new users
+        mkdir -p /etc/dconf/db/local.d
+        cat > /etc/dconf/db/local.d/00-wallpaper <<EOF
+[org/gnome/desktop/background]
+picture-uri='file://$dest_wallpaper'
+picture-uri-dark='file://$dest_wallpaper'
+EOF
+        
+        # Update dconf database
+        if command -v dconf >/dev/null 2>&1; then
+            dconf update 2>/dev/null || true
+        fi
+        
+        log_success "Wallpaper configured for all users"
+    else
+        log_warning "gsettings not available. Wallpaper copied but not set as default."
+        log_info "You can set it manually from Settings > Appearance > Background"
+    fi
+    
+    log_success "Wallpaper setup completed"
+}
+
 # Create CI user and add to docker group
 create_ci_user() {
     log_info "Creating CI user and adding to docker group..."
@@ -323,6 +562,10 @@ main() {
     check_root
     detect_user
     
+    # Prompt for custom icon and wallpaper
+    prompt_icon_path || CUSTOM_ICON_PATH=""
+    prompt_wallpaper_path || CUSTOM_WALLPAPER_PATH=""
+    
     log_info "Starting installation process..."
     echo
     
@@ -343,6 +586,15 @@ main() {
     pull_ollama_models
     install_cloudflared
     
+    # Customize branding (icons and wallpaper)
+    if [[ -n "${CUSTOM_ICON_PATH:-}" ]]; then
+        replace_ubuntu_icons
+    fi
+    
+    if [[ -n "${CUSTOM_WALLPAPER_PATH:-}" ]]; then
+        set_custom_wallpaper
+    fi
+    
     echo
     log_success "Setup completed successfully!"
     echo
@@ -351,6 +603,12 @@ main() {
     echo "  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group"
     echo "  • Start Ollama service: systemctl start ollama"
     echo "  • Verify installations: docker --version, node --version, bun --version, ollama --version, gh --version"
+    if [[ -n "${CUSTOM_ICON_PATH:-}" ]]; then
+        echo "  • Custom icon applied - log out and log back in to see changes"
+    fi
+    if [[ -n "${CUSTOM_WALLPAPER_PATH:-}" ]]; then
+        echo "  • Custom wallpaper applied"
+    fi
     echo "  • Note: 'Create deploy read key' step was not specified - please add this manually if needed"
 }
 
