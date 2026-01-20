@@ -367,8 +367,8 @@ if ! grep -q "asdf.sh" ~/.bashrc; then
     echo '. "\$(brew --prefix asdf)/libexec/asdf.sh"' >> ~/.bashrc
 fi
 
-# Source asdf for this session
-. "\$(brew --prefix asdf)/libexec/asdf.sh" 2>/dev/null || true
+# Source bashrc to load asdf
+source ~/.bashrc 2>/dev/null || true
 
 # Add Node.js plugin (if not already added)
 asdf plugin add nodejs 2>/dev/null || true
@@ -378,9 +378,6 @@ if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
     asdf install nodejs 22.15.1
 fi
 
-# Set Node.js version
-asdf global nodejs 22.15.1
-
 # Install yarn globally (if not already installed)
 if ! command -v yarn &>/dev/null; then
     npm install --global yarn
@@ -388,6 +385,44 @@ fi
 EOF
     
     log_success "asdf and Node.js installed"
+}
+
+# Set global Node.js version
+set_global_nodejs() {
+    log_info "Setting global Node.js version to 22.15.1 for user $ACTUAL_USER..."
+    
+    # Check if Node.js 22.15.1 is already set as global
+    sudo -u "$ACTUAL_USER" bash <<EOF
+# Source brew environment
+eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
+
+# Source bashrc to load asdf
+source ~/.bashrc 2>/dev/null || true
+
+# Check if asdf is available
+if ! command -v asdf &>/dev/null; then
+    echo "asdf not found, skipping global Node.js version setting"
+    exit 0
+fi
+
+# Check if Node.js 22.15.1 is installed
+if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
+    echo "Node.js 22.15.1 is not installed, skipping global version setting"
+    exit 0
+fi
+
+# Check current global version
+CURRENT_GLOBAL=\$(asdf current nodejs 2>/dev/null | grep -oP '22\.15\.1' || echo "")
+if [[ "\$CURRENT_GLOBAL" == "22.15.1" ]]; then
+    echo "Node.js 22.15.1 is already set as global version"
+    exit 0
+fi
+
+# Set global Node.js version
+asdf set global nodejs 22.15.1
+EOF
+    
+    log_success "Global Node.js version set to 22.15.1"
 }
 
 # Install Bun
@@ -1004,6 +1039,7 @@ main() {
     install_uv
     install_homebrew
     install_asdf_nodejs
+    set_global_nodejs
     install_bun
     note_bashrc
     create_ci_user
