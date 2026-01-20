@@ -472,6 +472,9 @@ EOF
         chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
     fi
     
+    # Source bashrc to load Bun
+    sudo -u "$ACTUAL_USER" bash -c "source ~/.bashrc" 2>/dev/null || true
+    
     log_success "Bun installed"
 }
 
