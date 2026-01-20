@@ -2,10 +2,11 @@
 
 ## Prerequisites
 
-- Ubuntu Server (or Debian-based Linux)
+- Ubuntu Server (or Debian-based Linux) with kernel 5.10+
 - Root/sudo access
-- WiFi adapter (wlan0)
+- WiFi adapter (Mediatek MT7925 or compatible)
 - Required packages will be installed automatically via dependencies
+- See [WIFI_CHIP_INFO.md](WIFI_CHIP_INFO.md) for hardware specifications
 
 ## Step 1: Transfer Files to Linux Machine
 
@@ -77,6 +78,11 @@ sudo cat /etc/setup-device/pairing_code.json | grep -o '"code": "[^"]*"' | cut -
 # Or view full JSON
 sudo cat /etc/setup-device/pairing_code.json
 ```
+
+**For Testing/Development**: The whitelisted test code `abc-123` is always accepted (case-insensitive).
+- Useful for demos and development
+- No expiry
+- Can be used in place of the device-generated code
 
 ## Step 7: Connect to Setup Hotspot
 

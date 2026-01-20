@@ -1,0 +1,16 @@
+[Unit]
+Description=Setup Device Network Monitor
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/setup-device/setup-complete
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/setup-network-monitor.sh
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

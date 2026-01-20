@@ -5,8 +5,19 @@ set -e
 
 echo "Setting up headless device configuration..."
 
-# Reload systemd daemon
+# Reload systemd daemon first
 systemctl daemon-reload
+
+# Enable all services for boot-time startup
+# These commands ensure services start automatically on next boot
+systemctl enable hostapd-setup.service 2>/dev/null || true
+systemctl enable dnsmasq-setup.service 2>/dev/null || true
+systemctl enable nginx.service 2>/dev/null || true
+systemctl enable setup-backend.service 2>/dev/null || true
+systemctl enable setup-network-monitor.service 2>/dev/null || true
+
+# Make network monitor script executable
+chmod 755 /usr/local/bin/setup-network-monitor.sh 2>/dev/null || true
 
 # Create required directories
 mkdir -p /var/lib/setup-device
@@ -46,12 +57,12 @@ fi
 
 # Set permissions
 chmod 600 /etc/setup-device/pairing_code.json 2>/dev/null || true
-chmod 644 /etc/hostapd/hostapd-setup.conf
-chmod 644 /etc/dnsmasq.d/setup-portal.conf
-chmod 644 /etc/nginx/sites-available/setup-portal
-chmod 644 /etc/netplan/50-setup-mode.yaml
-chmod 644 /etc/setup-device/device.conf
-chmod 755 /opt/setup-backend/setup_service.py
+chmod 600 /etc/setup-device/device.conf 2>/dev/null || true
+chmod 644 /etc/hostapd/hostapd-setup.conf 2>/dev/null || true
+chmod 644 /etc/dnsmasq.d/setup-portal.conf 2>/dev/null || true
+chmod 644 /etc/nginx/sites-available/setup-portal 2>/dev/null || true
+chmod 600 /etc/netplan/50-setup-mode.yaml 2>/dev/null || true
+chmod 755 /opt/setup-backend/setup_service.py 2>/dev/null || true
 
 # Enable nginx site
 if [ -f /etc/nginx/sites-available/setup-portal ]; then
@@ -66,11 +77,25 @@ if [ -f /etc/netplan/50-setup-mode.yaml ]; then
     netplan apply || echo "Warning: netplan apply failed"
 fi
 
-# Enable all services for boot-time startup
-systemctl enable hostapd-setup.service || true
-systemctl enable dnsmasq-setup.service || true
-systemctl enable nginx.service || true
-systemctl enable setup-backend.service || true
+# Add setup.ci.computer to /etc/hosts
+echo "Configuring hosts mapping..."
+if ! grep -q "setup.ci.computer" /etc/hosts; then
+    echo "192.168.99.1 setup.ci.computer" | sudo tee -a /etc/hosts > /dev/null
+fi
+
+# Generate self-signed certificate for HTTPS
+CERT_DIR="/etc/nginx/ssl"
+CERT_FILE="$CERT_DIR/setup-device.crt"
+KEY_FILE="$CERT_DIR/setup-device.key"
+
+if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
+    echo "Generating self-signed SSL certificate..."
+    mkdir -p "$CERT_DIR"
+    openssl req -x509 -newkey rsa:2048 -keyout "$KEY_FILE" -out "$CERT_FILE" -days 3650 -nodes \
+        -subj "/C=US/ST=State/L=City/O=Companion/CN=setup.ci.computer" 2>/dev/null || echo "Warning: SSL cert generation failed"
+    chmod 600 "$KEY_FILE"
+    chmod 644 "$CERT_FILE"
+fi
 
 # Start backend first (it will ensure pairing code exists)
 echo "Starting backend service..."

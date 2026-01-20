@@ -73,6 +73,54 @@
             margin-bottom: 20px;
         }
         
+        .ssid-controls {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+        
+        .ssid-controls > div {
+            flex: 1;
+        }
+        
+        .scan-btn {
+            padding: 0 16px;
+            height: 44px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-weight: 500;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .scan-btn:hover {
+            background-color: var(--primary-hover);
+        }
+        
+        .scan-btn:active {
+            transform: scale(0.98);
+        }
+        
+        .scan-btn.loading {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+        
+        .network-count {
+            font-size: 12px;
+            color: var(--text-color);
+            opacity: 0.6;
+            margin-top: 4px;
+            display: block;
+        }
+        
         label {
             display: block;
             margin-bottom: 8px;
@@ -82,6 +130,7 @@
         
         input[type="text"],
         input[type="password"],
+        select,
         input[type="submit"] {
             width: 100%;
             padding: 12px;
@@ -94,8 +143,23 @@
             appearance: none;
         }
         
+        select {
+            cursor: pointer;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23000' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 12px center;
+            padding-right: 36px;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+            select {
+                background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23e0e0e0' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            }
+        }
+        
         input[type="text"]:focus,
-        input[type="password"]:focus {
+        input[type="password"]:focus,
+        select:focus {
             outline: none;
             border-color: var(--primary-color);
             box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
@@ -178,23 +242,37 @@
                     id="pairing_code" 
                     name="pairing_code" 
                     class="pairing-code-input"
-                    placeholder="XXX-XXX" 
-                    pattern="[A-Z0-9]{3}-[A-Z0-9]{3}"
-                    maxlength="7"
+                    placeholder="abc-123" 
+                    pattern="[A-Za-z0-9\s\-]*"
                     required
                     autocomplete="off"
+                    onchange="this.value = this.value.toUpperCase()"
+                    oninput="this.value = this.value.toUpperCase()"
                 >
-                <div class="pairing-code-hint">Format: XXX-XXX (letters and numbers)</div>
+                <div class="pairing-code-hint">Format: ABC-123, ABC123, or ABC 123 (accepts lowercase)</div>
             </div>
             
             <div class="form-group">
                 <label for="ssid">WiFi Network (SSID)</label>
+                <div class="ssid-controls">
+                    <div>
+                        <select id="ssid" name="ssid" required>
+                            <option value="">Select a network...</option>
+                            <option value="__custom__">Enter network manually...</option>
+                        </select>
+                    </div>
+                    <button type="button" class="scan-btn" id="scan-btn" onclick="scanNetworks()">Scan</button>
+                </div>
+                <div class="network-count" id="network-count"></div>
+            </div>
+            
+            <div class="form-group" id="custom-ssid-group" style="display: none;">
+                <label for="custom_ssid">Network Name</label>
                 <input 
                     type="text" 
-                    id="ssid" 
-                    name="ssid" 
+                    id="custom_ssid" 
+                    name="custom_ssid" 
                     placeholder="Enter WiFi network name"
-                    required
                     autocomplete="off"
                 >
             </div>
@@ -213,5 +291,178 @@
             <input type="submit" value="Configure Device">
         </form>
     </div>
-</body>
-</html>
+    
+    <script>
+        // Configuration
+        const HEALTH_CHECK_INTERVAL = 5000;  // Check health every 5 seconds
+        const SCAN_RETRY_INTERVAL = 8000;   // Retry scan every 8 seconds
+        const MAX_RETRIES = 5;
+        
+        // State
+        let scanRetryCount = 0;
+        let healthCheckInterval = null;
+        let scanRetryInterval = null;
+        let lastScanSuccess = false;
+        
+        // Handle SSID dropdown changes
+        const ssidSelect = document.getElementById('ssid');
+        const customSsidGroup = document.getElementById('custom-ssid-group');
+        const customSsidInput = document.getElementById('custom_ssid');
+        
+        ssidSelect.addEventListener('change', function() {
+            if (this.value === '__custom__') {
+                customSsidGroup.style.display = 'block';
+                customSsidInput.focus();
+                // Update form submission to use custom SSID
+                ssidSelect.name = 'ssid_dropdown';
+                customSsidInput.name = 'ssid';
+            } else {
+                customSsidGroup.style.display = 'none';
+                ssidSelect.name = 'ssid';
+                customSsidInput.name = 'custom_ssid';
+            }
+        });
+        
+        // Check backend health
+        async function checkHealth() {
+            try {
+                const response = await fetch('/api/health');
+                if (response.ok) {
+                    // Backend is healthy, try scanning if we haven't succeeded yet
+                    if (!lastScanSuccess) {
+                        scanNetworksWithRetry();
+                    }
+                    return true;
+                }
+            } catch (error) {
+                console.log('Health check failed:', error.message);
+            }
+            return false;
+        }
+        
+        // Scan with automatic retry on failure
+        async function scanNetworksWithRetry() {
+            if (scanRetryCount >= MAX_RETRIES) {
+                return; // Stop retrying after max attempts
+            }
+            
+            const scanBtn = document.getElementById('scan-btn');
+            const networkCount = document.getElementById('network-count');
+            
+            try {
+                const response = await fetch('/api/scan-networks');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.networks && Array.isArray(data.networks)) {
+                    // Sort networks by signal strength
+                    data.networks.sort((a, b) => (b.signal || 0) - (a.signal || 0));
+                    
+                    // Get current options and keep the first two (Select/Custom)
+                    const defaultOptions = Array.from(ssidSelect.options).slice(0, 2);
+                    ssidSelect.innerHTML = '';
+                    
+                    // Re-add default options
+                    defaultOptions.forEach(opt => {
+                        ssidSelect.appendChild(opt);
+                    });
+                    
+                    // Add scanned networks
+                    const networkNames = new Set();
+                    data.networks.forEach(network => {
+                        if (network.ssid && !networkNames.has(network.ssid)) {
+                            networkNames.add(network.ssid);
+                            const option = document.createElement('option');
+                            option.value = network.ssid;
+                            const signalStr = network.signal ? ` (${network.signal}%)` : '';
+                            option.textContent = network.ssid + signalStr;
+                            ssidSelect.appendChild(option);
+                        }
+                    });
+                    
+                    networkCount.textContent = `Found ${networkNames.size} network${networkNames.size !== 1 ? 's' : ''}`;
+                    lastScanSuccess = true;
+                    scanRetryCount = 0;
+                    
+                    // Stop retry interval once successful
+                    if (scanRetryInterval) {
+                        clearInterval(scanRetryInterval);
+                        scanRetryInterval = null;
+                    }
+                } else {
+                    throw new Error('No networks in response');
+                }
+            } catch (error) {
+                console.log('Scan attempt', scanRetryCount + 1, 'failed:', error.message);
+                scanRetryCount++;
+                
+                if (scanRetryCount < MAX_RETRIES) {
+                    networkCount.textContent = 'Scanning...';
+                } else {
+                    networkCount.textContent = 'Unable to scan networks - try manual entry';
+                }
+            }
+        }
+        
+        // Manual scan button click
+        async function scanNetworks() {
+            const scanBtn = document.getElementById('scan-btn');
+            const networkCount = document.getElementById('network-count');
+            
+            if (scanBtn.classList.contains('loading')) return;
+            
+            scanBtn.classList.add('loading');
+            scanBtn.disabled = true;
+            scanBtn.textContent = 'Scanning...';
+            networkCount.textContent = '';
+            scanRetryCount = 0;
+            lastScanSuccess = false;
+            
+            await scanNetworksWithRetry();
+        }
+        
+        // Start periodic health checks and auto-retry
+        function startHealthMonitoring() {
+            // Initial scan attempt
+            scanNetworksWithRetry();
+            
+            // Health check every 5 seconds
+            healthCheckInterval = setInterval(checkHealth, HEALTH_CHECK_INTERVAL);
+            
+            // Auto-retry scan every 8 seconds if not successful
+            scanRetryInterval = setInterval(function() {
+                if (!lastScanSuccess && scanRetryCount < MAX_RETRIES) {
+                    scanNetworksWithRetry();
+                }
+            }, SCAN_RETRY_INTERVAL);
+        }
+        
+        // Stop monitoring (e.g., on form submit)
+        function stopHealthMonitoring() {
+            if (healthCheckInterval) {
+                clearInterval(healthCheckInterval);
+                healthCheckInterval = null;
+            }
+            if (scanRetryInterval) {
+                clearInterval(scanRetryInterval);
+                scanRetryInterval = null;
+            }
+        }
+        
+        // Start monitoring on page load
+        window.addEventListener('load', function() {
+            startHealthMonitoring();
+            
+            // Stop monitoring if form is submitted
+            document.querySelector('form').addEventListener('submit', function() {
+                stopHealthMonitoring();
+            });
+        });
+        
+        // Stop monitoring when leaving page
+        window.addEventListener('beforeunload', stopHealthMonitoring);
+    </script>

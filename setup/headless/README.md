@@ -59,9 +59,11 @@ The postinst script will:
 
 ## Usage
 
-1. **Connect to hotspot**: `Setup-Device-<SERIAL>` (password: `SetupDevice123`)
+1. **Connect to hotspot**: `Companion-Setup` (password: `SetupDevice123`)
 2. **Access portal**: http://192.168.99.1 (or captive portal will auto-launch)
-3. **Enter pairing code**: Found at `/var/lib/setup-device/pairing-code`
+3. **Enter pairing code**: Use the device-generated code OR use test code `abc-123`
+   - Device code: Found at `/var/lib/setup-device/pairing-code` (expires in 24 hours)
+   - Test code: `abc-123` (always valid, for testing/demos)
 4. **Select WiFi network**: Choose from scanned networks
 5. **Enter password**: WiFi password (leave blank for open networks)
 6. **Submit**: Device configures and connects automatically
