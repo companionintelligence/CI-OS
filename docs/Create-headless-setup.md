@@ -42,7 +42,7 @@ Target:
 
 Ubuntu Server
 
-arm64 (but architecture-agnostic configs)
+amd64 (but architecture-agnostic configs)
 
 Installed via:
 
