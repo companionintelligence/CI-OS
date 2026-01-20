@@ -234,6 +234,19 @@ clone_ci_server() {
     log_success "CI-Server repository cloned"
 }
 
+# Clone CI-OS-Hub repo
+clone_ci_os_hub() {
+    if dir_exists_and_not_empty "$ACTUAL_HOME/devel/companion/CI-OS-Hub"; then
+        log_info "CI-OS-Hub repository already exists, skipping clone..."
+        return 0
+    fi
+    
+    log_info "Cloning CI-OS-Hub repository..."
+    # Clone as the actual user
+    sudo -u "$ACTUAL_USER" git clone https://github.com/companionintelligence/CI-OS-Hub.git "$ACTUAL_HOME/devel/companion/CI-OS-Hub"
+    log_success "CI-OS-Hub repository cloned"
+}
+
 # Install UV
 install_uv() {
     if sudo -u "$ACTUAL_USER" bash -c "command -v uv" &>/dev/null; then
@@ -1036,6 +1049,7 @@ main() {
     add_user_to_docker_group
     create_directories
     clone_ci_server
+    clone_ci_os_hub
     install_uv
     install_homebrew
     install_asdf_nodejs

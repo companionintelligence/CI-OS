@@ -1,3 +1,5 @@
+These scripts are used on an old version of CI OS and should not be considered valid to run without review.
+
 # CI-OS Scripts
 
 This directory contains setup and utility scripts for the CI-OS development environment and the CI Server application.
