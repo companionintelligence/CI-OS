@@ -11,12 +11,6 @@ log() {
 
 log "Starting hotspot setup sequence..."
 
-# Check if setup is complete
-if [ -f /var/lib/setup-device/setup-complete ]; then
-    log "Setup already complete. Exiting."
-    exit 0
-fi
-
 # Step 1: Copy config files (ensure they're present)
 log "Ensuring config files are in place..."
 mkdir -p /etc/hostapd /etc/dnsmasq.d

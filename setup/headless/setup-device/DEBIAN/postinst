@@ -102,14 +102,8 @@ echo "Starting backend service..."
 systemctl start setup-backend.service || echo "Warning: setup-backend.service start failed"
 sleep 2
 
-# Start hotspot stack (only if setup not complete)
-if [ ! -f /var/lib/setup-device/setup-complete ]; then
-    echo "Starting hotspot services..."
-    systemctl start hostapd-setup.service || echo "Warning: hostapd-setup.service start failed"
-    sleep 2
-    systemctl start dnsmasq-setup.service || echo "Warning: dnsmasq-setup.service start failed"
-    sleep 1
-fi
+# Start hotspot stack (network monitor will start it if no connectivity)
+echo "Hotspot services will start automatically if no internet connectivity is detected"
 
 # Start nginx
 systemctl start nginx.service || echo "Warning: nginx.service start failed"
@@ -119,13 +113,11 @@ echo "Verifying service status..."
 systemctl is-active --quiet setup-backend.service && echo "✓ setup-backend.service is active" || echo "✗ setup-backend.service is not active"
 systemctl is-enabled --quiet setup-backend.service && echo "✓ setup-backend.service is enabled" || echo "✗ setup-backend.service is not enabled"
 
-if [ ! -f /var/lib/setup-device/setup-complete ]; then
-    systemctl is-active --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is active" || echo "✗ hostapd-setup.service is not active"
-    systemctl is-enabled --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is enabled" || echo "✗ hostapd-setup.service is not enabled"
-    
-    systemctl is-active --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.service is active" || echo "✗ dnsmasq-setup.service is not active"
-    systemctl is-enabled --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.service is enabled" || echo "✗ dnsmasq-setup.service is not enabled"
-fi
+systemctl is-active --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is active" || echo "✗ hostapd-setup.service is not active (will start if no connectivity)"
+systemctl is-enabled --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is enabled" || echo "✗ hostapd-setup.service is not enabled"
+
+systemctl is-active --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.service is active" || echo "✗ dnsmasq-setup.service is not active (will start if no connectivity)"
+systemctl is-enabled --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.service is enabled" || echo "✗ dnsmasq-setup.service is not enabled"
 
 systemctl is-active --quiet nginx.service && echo "✓ nginx.service is active" || echo "✗ nginx.service is not active"
 systemctl is-enabled --quiet nginx.service && echo "✓ nginx.service is enabled" || echo "✗ nginx.service is not enabled"

@@ -71,9 +71,8 @@ def generate_pairing_code():
     code = f"{code1}-{code2}"
     
     generated_at = datetime.now()
-    # Pairing code never expires while in setup mode
-    # It only becomes invalid after setup-complete is written
-    expires_at = generated_at + timedelta(days=365)  # Functional expiry for logging
+    # Pairing code has long expiry (365 days) - setup can be run multiple times
+    expires_at = generated_at + timedelta(days=365)
     
     pairing_data = {
         'code': code,
@@ -91,13 +90,9 @@ def ensure_pairing_code():
             with open(PAIRING_CODE_JSON, 'r') as f:
                 pairing_data = json.load(f)
             
-            # Always use existing code during setup mode
-            # Code only becomes invalid after setup-complete is written
-            if SETUP_COMPLETE_FILE.exists():
-                logger.info("Setup already complete, generating new code anyway")
-            else:
-                logger.info("Using existing pairing code")
-                return pairing_data['code']
+            # Use existing pairing code if valid
+            logger.info("Using existing pairing code")
+            return pairing_data['code']
         
         # Generate new code
         pairing_data = generate_pairing_code()
@@ -272,6 +267,36 @@ def stop_hotspot_services():
         logger.error(f"Error stopping hotspot services: {e}")
         return False
 
+def remove_setup_netplan_config():
+    """Remove netplan static IP config to allow NetworkManager to take over"""
+    try:
+        netplan_file = Path('/etc/netplan/50-setup-mode.yaml')
+        if netplan_file.exists():
+            logger.info("Removing setup-mode netplan configuration...")
+            netplan_file.unlink()
+            
+            # Apply netplan changes
+            result = subprocess.run(
+                ['netplan', 'apply'],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode != 0:
+                logger.warning(f"netplan apply warning: {result.stderr}")
+            else:
+                logger.info("Netplan configuration removed and applied")
+            
+            return True
+        else:
+            logger.info("No setup-mode netplan config found (already removed)")
+            return True
+            
+    except Exception as e:
+        logger.error(f"Error removing netplan config: {e}")
+        return False
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
@@ -342,16 +367,20 @@ def configure():
         except Exception as e:
             logger.error(f"Failed to save credentials: {e}")
         
-        # Write setup-complete flag
+        # Write setup-complete flag (for tracking/logging, does not gate services)
         SETUP_COMPLETE_FILE.touch()
         os.chmod(str(SETUP_COMPLETE_FILE), 0o600)
         
-        # Stop hotspot services after delay
+        # Stop hotspot services
         time.sleep(2)
         stop_hotspot_services()
         
-        # Trigger NetworkManager to connect
+        # Remove netplan static IP config to allow NetworkManager to manage the interface
         time.sleep(1)
+        remove_setup_netplan_config()
+        
+        # Trigger NetworkManager to connect
+        time.sleep(2)
         connect_to_wifi(ssid)
         
         logger.info("WiFi configuration completed successfully")

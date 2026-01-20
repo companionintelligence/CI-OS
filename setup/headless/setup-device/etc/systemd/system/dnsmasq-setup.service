@@ -2,7 +2,6 @@
 Description=DNSmasq for setup portal DHCP and DNS
 After=hostapd-setup.service network-online.target
 Requires=hostapd-setup.service
-ConditionPathExists=!/var/lib/setup-device/setup-complete
 
 [Service]
 Type=simple

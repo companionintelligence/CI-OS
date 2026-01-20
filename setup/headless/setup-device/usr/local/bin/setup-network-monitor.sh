@@ -1,8 +1,7 @@
 #!/bin/bash
 # Network connectivity monitor for setup-device
-# Automatically starts hotspot if no internet connectivity is detected
+# Automatically starts hotspot if no internet connectivity is detected (wired or wireless)
 
-SETUP_COMPLETE="/var/lib/setup-device/setup-complete"
 CHECK_INTERVAL=3   # Check every 3 seconds (aggressive)
 FAILURE_THRESHOLD=2  # Start hotspot after 2 failed connectivity checks (~6 seconds)
 
@@ -64,13 +63,6 @@ log "Setup network monitor started"
 
 # Main monitoring loop
 while true; do
-    # Check if setup is complete (exit if it is)
-    if [ -f "$SETUP_COMPLETE" ]; then
-        log "Setup complete. Stopping monitor and hotspot services."
-        systemctl stop hostapd-setup.service dnsmasq-setup.service 2>/dev/null
-        exit 0
-    fi
-    
     # Check connectivity
     if check_connectivity; then
         # Connected - reset failure count and stop hotspot if running

@@ -2,7 +2,6 @@
 Description=HostAP daemon for setup mode hotspot
 After=network-online.target
 Wants=network-online.target
-ConditionPathExists=!/var/lib/setup-device/setup-complete
 
 [Service]
 Type=simple
