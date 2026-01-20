@@ -459,7 +459,7 @@ install_bun() {
     
     # Install Bun as the actual user using the official installer
     sudo -u "$ACTUAL_USER" bash <<EOF
-curl -fsSL https://bun.sh/install | bash
+curl -fsSL https://bun.com/install | bash
 EOF
     
     # Add Bun to PATH in user's bashrc if not already there
