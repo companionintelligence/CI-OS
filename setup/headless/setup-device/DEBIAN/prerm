@@ -1,0 +1,19 @@
+#!/bin/bash
+set -e
+
+# Pre-removal script for setup-device package
+
+echo "Stopping setup-device services..."
+
+# Stop all services gracefully
+systemctl stop setup-backend.service || true
+systemctl stop dnsmasq-setup.service || true
+systemctl stop hostapd-setup.service || true
+# Note: nginx may be used by other services, so we don't stop it
+
+# Disable services from boot-time startup
+systemctl disable setup-backend.service || true
+systemctl disable dnsmasq-setup.service || true
+systemctl disable hostapd-setup.service || true
+
+echo "Services stopped and disabled."

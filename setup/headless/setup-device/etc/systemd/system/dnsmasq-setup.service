@@ -1,0 +1,16 @@
+[Unit]
+Description=DNSmasq for setup portal DHCP and DNS
+After=hostapd-setup.service network-online.target
+Requires=hostapd-setup.service
+ConditionPathExists=!/var/lib/setup-device/setup-complete
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/dnsmasq --no-daemon -C /etc/dnsmasq.d/setup-portal.conf
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

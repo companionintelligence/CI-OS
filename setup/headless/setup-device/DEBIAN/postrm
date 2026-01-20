@@ -1,0 +1,44 @@
+#!/bin/bash
+set -e
+
+# Post-removal script for setup-device package
+
+echo "Cleaning up setup-device files..."
+
+# Remove nginx site
+rm -f /etc/nginx/sites-enabled/setup-portal
+
+# Remove systemd service files
+rm -f /etc/systemd/system/hostapd-setup.service
+rm -f /etc/systemd/system/dnsmasq-setup.service
+rm -f /etc/systemd/system/setup-backend.service
+
+# Remove configuration files
+rm -f /etc/hostapd/hostapd-setup.conf
+rm -f /etc/dnsmasq.d/setup-portal.conf
+rm -f /etc/netplan/50-setup-mode.yaml
+rm -f /etc/setup-device/device.conf
+rm -f /etc/setup-device/pairing_code.json
+
+# Restore wlan0 to DHCP (remove static config)
+# Create a minimal netplan config to restore DHCP
+if [ -f /etc/netplan/50-setup-mode.yaml ]; then
+    # Backup existing netplan if it exists
+    if [ -f /etc/netplan/50-setup-mode.yaml ]; then
+        rm -f /etc/netplan/50-setup-mode.yaml
+    fi
+    
+    # Apply netplan to restore DHCP
+    netplan apply || true
+fi
+
+# Reload systemd
+systemctl daemon-reload
+
+# Remove application directories (optional - user may want to keep data)
+# Uncomment if you want complete removal:
+# rm -rf /opt/setup-backend
+# rm -rf /var/www/setup-portal
+# rm -rf /var/lib/setup-device
+
+echo "Cleanup complete."

@@ -1,0 +1,16 @@
+[Unit]
+Description=HostAP daemon for setup mode hotspot
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/setup-device/setup-complete
+
+[Service]
+Type=simple
+ExecStart=/usr/sbin/hostapd /etc/hostapd/hostapd-setup.conf
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

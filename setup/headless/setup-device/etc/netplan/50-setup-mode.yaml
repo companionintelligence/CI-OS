@@ -1,0 +1,21 @@
+# Netplan configuration for setup mode
+# Static IP for wlan0 in setup mode
+# Wired Ethernet remains DHCP if present
+
+network:
+  version: 2
+  renderer: networkd
+  
+  ethernets:
+    # Wired Ethernet - keep DHCP
+    eth0:
+      dhcp4: true
+      optional: true
+  
+  wifis:
+    # WiFi interface - static IP for setup mode
+    wlan0:
+      addresses:
+        - 192.168.99.1/24
+      # No default route - prevents WAN access
+      # No gateway specified

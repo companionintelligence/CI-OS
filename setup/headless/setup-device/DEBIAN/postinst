@@ -1,0 +1,108 @@
+#!/bin/bash
+set -e
+
+# Post-installation script for setup-device package
+
+echo "Setting up headless device configuration..."
+
+# Reload systemd daemon
+systemctl daemon-reload
+
+# Create required directories
+mkdir -p /var/lib/setup-device
+mkdir -p /var/log
+
+# Generate pairing code if missing (backend will regenerate if expired)
+PAIRING_CODE_JSON="/etc/setup-device/pairing_code.json"
+if [ ! -f "$PAIRING_CODE_JSON" ] || [ ! -s "$PAIRING_CODE_JSON" ]; then
+    echo "Generating initial pairing code..."
+    python3 << 'EOF'
+import json
+import random
+import string
+from datetime import datetime, timedelta
+
+chars = string.ascii_uppercase + string.digits
+code1 = ''.join(random.choice(chars) for _ in range(3))
+code2 = ''.join(random.choice(chars) for _ in range(3))
+code = f"{code1}-{code2}"
+
+generated_at = datetime.now()
+expires_at = generated_at + timedelta(hours=24)
+
+pairing_data = {
+    'code': code,
+    'generated_at': generated_at.isoformat(),
+    'expires_at': expires_at.isoformat()
+}
+
+with open('/etc/setup-device/pairing_code.json', 'w') as f:
+    json.dump(pairing_data, f, indent=2)
+
+print(f"Generated pairing code: {code}")
+EOF
+    chmod 600 "$PAIRING_CODE_JSON"
+fi
+
+# Set permissions
+chmod 600 /etc/setup-device/pairing_code.json 2>/dev/null || true
+chmod 644 /etc/hostapd/hostapd-setup.conf
+chmod 644 /etc/dnsmasq.d/setup-portal.conf
+chmod 644 /etc/nginx/sites-available/setup-portal
+chmod 644 /etc/netplan/50-setup-mode.yaml
+chmod 644 /etc/setup-device/device.conf
+chmod 755 /opt/setup-backend/setup_service.py
+
+# Enable nginx site
+if [ -f /etc/nginx/sites-available/setup-portal ]; then
+    ln -sf /etc/nginx/sites-available/setup-portal /etc/nginx/sites-enabled/setup-portal
+    # Remove default site if it exists
+    rm -f /etc/nginx/sites-enabled/default
+fi
+
+# Apply netplan configuration
+if [ -f /etc/netplan/50-setup-mode.yaml ]; then
+    echo "Applying netplan configuration..."
+    netplan apply || echo "Warning: netplan apply failed"
+fi
+
+# Enable all services for boot-time startup
+systemctl enable hostapd-setup.service || true
+systemctl enable dnsmasq-setup.service || true
+systemctl enable nginx.service || true
+systemctl enable setup-backend.service || true
+
+# Start backend first (it will ensure pairing code exists)
+echo "Starting backend service..."
+systemctl start setup-backend.service || echo "Warning: setup-backend.service start failed"
+sleep 2
+
+# Start hotspot stack (only if setup not complete)
+if [ ! -f /var/lib/setup-device/setup-complete ]; then
+    echo "Starting hotspot services..."
+    systemctl start hostapd-setup.service || echo "Warning: hostapd-setup.service start failed"
+    sleep 2
+    systemctl start dnsmasq-setup.service || echo "Warning: dnsmasq-setup.service start failed"
+    sleep 1
+fi
+
+# Start nginx
+systemctl start nginx.service || echo "Warning: nginx.service start failed"
+
+# Verify services are active and enabled
+echo "Verifying service status..."
+systemctl is-active --quiet setup-backend.service && echo "✓ setup-backend.service is active" || echo "✗ setup-backend.service is not active"
+systemctl is-enabled --quiet setup-backend.service && echo "✓ setup-backend.service is enabled" || echo "✗ setup-backend.service is not enabled"
+
+if [ ! -f /var/lib/setup-device/setup-complete ]; then
+    systemctl is-active --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is active" || echo "✗ hostapd-setup.service is not active"
+    systemctl is-enabled --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is enabled" || echo "✗ hostapd-setup.service is not enabled"
+    
+    systemctl is-active --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.service is active" || echo "✗ dnsmasq-setup.service is not active"
+    systemctl is-enabled --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.service is enabled" || echo "✗ dnsmasq-setup.service is not enabled"
+fi
+
+systemctl is-active --quiet nginx.service && echo "✓ nginx.service is active" || echo "✗ nginx.service is not active"
+systemctl is-enabled --quiet nginx.service && echo "✓ nginx.service is enabled" || echo "✗ nginx.service is not enabled"
+
+echo "Setup device installation complete."
