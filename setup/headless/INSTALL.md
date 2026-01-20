@@ -37,12 +37,12 @@ chmod +x build.sh
 ./build.sh
 ```
 
-This will create: `setup-device_1.0.0_arm64.deb`
+This will create: `setup-device_1.0.0_amd64.deb`
 
 ## Step 4: Install the Package
 
 ```bash
-sudo dpkg -i setup-device_1.0.0_arm64.deb
+sudo dpkg -i setup-device_1.0.0_amd64.deb
 ```
 
 If there are dependency issues, fix them:

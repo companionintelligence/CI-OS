@@ -43,12 +43,12 @@ cd setup/headless
 ./build.sh
 ```
 
-This creates: `setup-device_<version>_arm64.deb`
+This creates: `setup-device_<version>_amd64.deb`
 
 ## Installation
 
 ```bash
-sudo dpkg -i setup-device_<version>_arm64.deb
+sudo dpkg -i setup-device_<version>_amd64.deb
 ```
 
 The postinst script will:
