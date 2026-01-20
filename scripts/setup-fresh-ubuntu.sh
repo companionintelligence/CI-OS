@@ -110,6 +110,18 @@ update_apt() {
     log_success "apt package lists updated"
 }
 
+# Install make (requires root)
+install_make() {
+    if command_exists make; then
+        log_info "make is already installed, skipping..."
+        return 0
+    fi
+    
+    log_info "Installing make..."
+    sudo apt install -y make
+    log_success "make installed"
+}
+
 # Install Docker (requires root for package installation and repository configuration)
 install_docker() {
     # Check if Docker is already installed
@@ -165,7 +177,34 @@ EOF
     apt update
     apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
     
+    # Ensure docker group exists (usually created by Docker installation, but ensure it exists)
+    if ! getent group docker >/dev/null 2>&1; then
+        log_info "Creating docker group..."
+        groupadd docker
+        log_success "Docker group created"
+    fi
+    
     log_success "Docker installed"
+}
+
+# Add actual user to docker group (requires root for user management)
+add_user_to_docker_group() {
+    # Ensure docker group exists
+    if ! getent group docker >/dev/null 2>&1; then
+        log_info "Creating docker group..."
+        groupadd docker
+        log_success "Docker group created"
+    fi
+    
+    # Add actual user to docker group (if not already in group)
+    if ! user_in_group "$ACTUAL_USER" "docker"; then
+        log_info "Adding user $ACTUAL_USER to docker group..."
+        usermod -aG docker "$ACTUAL_USER"
+        log_success "User $ACTUAL_USER added to docker group"
+        log_warning "Note: User $ACTUAL_USER will need to log out and back in (or use 'newgrp docker') for docker group changes to take effect"
+    else
+        log_info "User $ACTUAL_USER is already in docker group, skipping..."
+    fi
 }
 
 # Create directories (requires root for chown operation)
@@ -208,6 +247,36 @@ install_uv() {
     log_success "UV installed"
 }
 
+# Configure passwordless sudo for user (required for Homebrew noninteractive installation)
+configure_passwordless_sudo() {
+    log_info "Configuring passwordless sudo for user $ACTUAL_USER..."
+    
+    # Ensure user is in sudo group (required for sudo access)
+    if ! user_in_group "$ACTUAL_USER" "sudo"; then
+        log_info "Adding user $ACTUAL_USER to sudo group..."
+        usermod -aG sudo "$ACTUAL_USER"
+        log_success "User $ACTUAL_USER added to sudo group"
+    else
+        log_info "User $ACTUAL_USER is already in sudo group"
+    fi
+    
+    # Check if user already has passwordless sudo
+    if sudo -u "$ACTUAL_USER" sudo -n true 2>/dev/null; then
+        log_info "User $ACTUAL_USER already has passwordless sudo access"
+        return 0
+    fi
+    
+    # Create sudoers.d file for passwordless sudo
+    local sudoers_file="/etc/sudoers.d/${ACTUAL_USER}-passwordless"
+    if [[ ! -f "$sudoers_file" ]]; then
+        echo "${ACTUAL_USER} ALL=(ALL) NOPASSWD: ALL" > "$sudoers_file"
+        chmod 0440 "$sudoers_file"
+        log_success "Configured passwordless sudo for $ACTUAL_USER"
+    else
+        log_info "Passwordless sudo already configured for $ACTUAL_USER"
+    fi
+}
+
 # Install Homebrew
 install_homebrew() {
     if sudo -u "$ACTUAL_USER" bash -c "command -v brew" &>/dev/null; then
@@ -224,16 +293,38 @@ install_homebrew() {
     
     log_info "Installing Homebrew for user $ACTUAL_USER..."
     
-    # Install build-essential first
-    if ! package_installed build-essential; then
-        apt-get install -y build-essential
-    fi
+    # Configure passwordless sudo first (required for noninteractive Homebrew installation)
+    configure_passwordless_sudo
     
-    # Install Homebrew as the actual user
+    # Install Homebrew dependencies
+    log_info "Installing Homebrew dependencies..."
+    local deps=("build-essential" "git" "file" "procps")
+    for dep in "${deps[@]}"; do
+        if ! package_installed "$dep"; then
+            apt-get install -y "$dep"
+        fi
+    done
+    
+    # Install Homebrew as the actual user with proper environment
+    log_info "Running Homebrew installer..."
     sudo -u "$ACTUAL_USER" bash <<EOF
 export NONINTERACTIVE=1
+export CI=1
 /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 EOF
+    
+    # Verify Homebrew installation
+    if ! sudo -u "$ACTUAL_USER" bash -c "command -v brew" &>/dev/null; then
+        # Try to source brew environment and check again
+        if [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
+            sudo -u "$ACTUAL_USER" bash -c "eval \"\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\" && command -v brew" &>/dev/null || {
+                log_warning "Homebrew installed but not in PATH yet. Will be available after shell restart."
+            }
+        else
+            log_error "Homebrew installation may have failed. Please check the output above."
+            return 1
+        fi
+    fi
     
     # Finalize homebrew and set path variable in user's bashrc
     RC="$ACTUAL_HOME/.bashrc"
@@ -294,9 +385,6 @@ asdf global nodejs 22.15.1
 if ! command -v yarn &>/dev/null; then
     npm install --global yarn
 fi
-
-# Enable corepack
-corepack enable 2>/dev/null || true
 EOF
     
     log_success "asdf and Node.js installed"
@@ -815,6 +903,48 @@ install_cloudflared() {
     log_success "cloudflared installed"
 }
 
+# Enable corepack (requires Node.js to be installed and proper permissions)
+enable_corepack() {
+    log_info "Enabling corepack for user $ACTUAL_USER..."
+    
+    # Check if Node.js is available
+    if ! sudo -u "$ACTUAL_USER" bash -c "command -v node" &>/dev/null; then
+        log_warning "Node.js not found. Skipping corepack enable. It will be enabled when Node.js is available."
+        return 0
+    fi
+    
+    # Enable corepack as the actual user with proper environment
+    # Corepack may need sudo permissions to create symlinks in system directories
+    sudo -u "$ACTUAL_USER" bash <<EOF
+# Source brew environment if available
+eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
+
+# Source asdf if available
+if [[ -f "\$(brew --prefix asdf)/libexec/asdf.sh" ]]; then
+    . "\$(brew --prefix asdf)/libexec/asdf.sh" 2>/dev/null || true
+fi
+
+# Enable corepack with sudo if needed
+if command -v corepack &>/dev/null; then
+    # Try enabling without sudo first
+    if corepack enable 2>/dev/null; then
+        echo "Corepack enabled successfully"
+    else
+        # If that fails, try with sudo (user should have passwordless sudo)
+        if sudo corepack enable 2>/dev/null; then
+            echo "Corepack enabled with sudo"
+        else
+            echo "Warning: Failed to enable corepack. You may need to run 'corepack enable' manually after logging out and back in."
+        fi
+    fi
+else
+    echo "Warning: corepack command not found. Node.js may not be properly installed or in PATH."
+fi
+EOF
+    
+    log_success "Corepack enable attempted (check output above for status)"
+}
+
 # Install VS Code (requires root for snap installation)
 install_vscode() {
     if command_exists code; then
@@ -866,7 +996,9 @@ main() {
     
     install_curl
     update_apt
+    install_make
     install_docker
+    add_user_to_docker_group
     create_directories
     clone_ci_server
     install_uv
@@ -881,6 +1013,7 @@ main() {
     pull_ollama_models
     install_cloudflared
     install_vscode
+    enable_corepack
     
     # Customize branding (icons and wallpaper)
     if [[ -n "${CUSTOM_ICON_PATH:-}" ]]; then
@@ -895,7 +1028,7 @@ main() {
     log_success "Setup completed successfully!"
     echo
     log_info "Next steps:"
-    echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools"
+    echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools and activate docker group"
     echo "  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group"
     echo "  • Start Ollama service: systemctl start ollama"
     echo "  • Verify installations: docker --version, node --version, bun --version, ollama --version, gh --version"
