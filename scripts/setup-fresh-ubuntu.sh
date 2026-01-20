@@ -815,6 +815,18 @@ install_cloudflared() {
     log_success "cloudflared installed"
 }
 
+# Install VS Code (requires root for snap installation)
+install_vscode() {
+    if command_exists code; then
+        log_info "VS Code is already installed, skipping installation..."
+        return 0
+    fi
+    
+    log_info "Installing VS Code..."
+    snap install code --classic
+    log_success "VS Code installed"
+}
+
 # Main function
 main() {
     log_info "Fresh Ubuntu Setup Script for CI-OS"
@@ -868,6 +880,7 @@ main() {
     configure_ollama
     pull_ollama_models
     install_cloudflared
+    install_vscode
     
     # Customize branding (icons and wallpaper)
     if [[ -n "${CUSTOM_ICON_PATH:-}" ]]; then
