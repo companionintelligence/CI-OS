@@ -202,6 +202,24 @@ def scan_wifi_networks():
         logger.error(f"WiFi scan error: {e}")
         return []
 
+def get_wifi_interface():
+    """Detect the WiFi interface (handles wlan0, wlp*, etc)"""
+    try:
+        result = subprocess.run(
+            ['nmcli', '-t', '-f', 'DEVICE,TYPE', 'device'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        for line in result.stdout.strip().split('\n'):
+            parts = line.split(':')
+            if len(parts) >= 2 and parts[1].strip() == 'wifi':
+                return parts[0]  # Return first WiFi device found
+        return 'wlan0'  # Fallback
+    except Exception as e:
+        logger.error(f"Error detecting WiFi interface: {e}")
+        return 'wlan0'  # Fallback
+
 def create_wifi_connection(ssid, password):
     """Create NetworkManager connection for WiFi"""
     try:
@@ -209,9 +227,13 @@ def create_wifi_connection(ssid, password):
         subprocess.run(['nmcli', 'connection', 'delete', ssid], 
                       capture_output=True, timeout=5)
         
-        # Create new connection
+        # Detect the actual WiFi interface on this system
+        wifi_ifname = get_wifi_interface()
+        logger.info(f"Using WiFi interface: {wifi_ifname}")
+        
+        # Create new connection - explicitly specify the WiFi interface
         cmd = ['nmcli', 'connection', 'add', 'type', 'wifi', 
-               'con-name', ssid, 'ifname', 'wlan0', 'ssid', ssid]
+               'con-name', ssid, 'ifname', wifi_ifname, 'ssid', ssid]
         
         if password:
             cmd.extend(['wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', password])
@@ -367,9 +389,9 @@ def configure():
         except Exception as e:
             logger.error(f"Failed to save credentials: {e}")
         
-        # Write setup-complete flag (for tracking/logging, does not gate services)
-        SETUP_COMPLETE_FILE.touch()
-        os.chmod(str(SETUP_COMPLETE_FILE), 0o600)
+        # NOTE: We do NOT create setup-complete flag - it should not gate hotspot operations
+        # The network monitor runs independently and starts hotspot if no connectivity detected
+        # Setup is complete when WiFi connection is active, not when the flag is written
         
         # Stop hotspot services
         time.sleep(2)

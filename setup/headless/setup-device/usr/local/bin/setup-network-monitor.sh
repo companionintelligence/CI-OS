@@ -13,53 +13,62 @@ log() {
 }
 
 check_connectivity() {
-    # Check for default route and attempt a lightweight external reachability test
+    # Check for INTERNET connectivity, not just any connection
+    # A device may have connections (Docker, loopback, etc) but no internet
+    
+    # Primary: Does the device have a default route to the internet?
     if ip route | grep -q "^default"; then
-        # Try pinging a public IP (no DNS dependency)
+        # Has default route - check if it actually works
+        # Try pinging 8.8.8.8 (Google DNS)
         if ping -c1 -W1 8.8.8.8 >/dev/null 2>&1; then
-            return 0
+            return 0  # Has internet connectivity via ping
         fi
-
-        # If ping fails, consult NetworkManager state as a fallback
-        if systemctl is-active --quiet NetworkManager; then
-            local nm_state
-            nm_state=$(nmcli -t -f STATE general 2>/dev/null || echo "unknown")
-            if [ "$nm_state" = "connected" ] || [ "$nm_state" = "connecting" ]; then
-                return 0
-            fi
-            # Also consider any device explicitly marked 'connected'
-            if nmcli -t -f DEVICE,STATE device 2>/dev/null | grep -q ':connected$'; then
-                return 0
+        
+        # Ping failed - check if there's an actual route to external network
+        # Extract gateway from default route
+        local gateway=$(ip route | grep "^default" | awk '{print $3}' | head -1)
+        if [ -n "$gateway" ]; then
+            # Try to ping the gateway itself
+            if ping -c1 -W1 "$gateway" >/dev/null 2>&1; then
+                return 0  # Can reach gateway, likely has internet
             fi
         fi
     fi
-
-    # If there is a local global IPv4 address but no default route, treat as no connectivity
-    if ip -4 addr show scope global | grep -q 'inet '; then
-        return 1
-    fi
-
+    
+    # No internet connectivity detected
     return 1
 }
 
 start_hotspot() {
     if [ "$hotspot_active" = false ]; then
         log "No connectivity detected. Starting hotspot via startup script..."
-        /usr/local/bin/setup-device-hotspot-start.sh
-        hotspot_active=true
+        if /usr/local/bin/setup-device-hotspot-start.sh >/dev/null 2>&1; then
+            log "Hotspot started successfully"
+            hotspot_active=true
+        else
+            log "Failed to start hotspot - will retry"
+        fi
     fi
 }
 
 stop_hotspot() {
     if [ "$hotspot_active" = true ]; then
         log "Connectivity restored. Stopping hotspot services..."
-        systemctl stop hostapd-setup.service dnsmasq-setup.service 2>/dev/null
+        systemctl stop hostapd-setup.service 2>/dev/null || true
+        systemctl stop dnsmasq-setup.service 2>/dev/null || true
         hotspot_active=false
         fail_count=0
     fi
 }
 
-log "Setup network monitor started"
+log "Setup network monitor started (checking every ${CHECK_INTERVAL}s, threshold=${FAILURE_THRESHOLD})"
+
+# Initial connectivity check
+if check_connectivity; then
+    log "Initial check: Internet connectivity detected - hotspot will start if connectivity is lost"
+else
+    log "Initial check: No connectivity detected - will start hotspot after threshold"
+fi
 
 # Main monitoring loop
 while true; do
@@ -67,7 +76,7 @@ while true; do
     if check_connectivity; then
         # Connected - reset failure count and stop hotspot if running
         if [ $fail_count -gt 0 ]; then
-            log "Connectivity restored ($fail_count failed checks before recovery)"
+            log "Connectivity restored after $fail_count failed checks"
             fail_count=0
         fi
         stop_hotspot
@@ -77,6 +86,9 @@ while true; do
         
         if [ $fail_count -eq 1 ]; then
             log "Lost connectivity (check $fail_count/$FAILURE_THRESHOLD)"
+        elif [ $((fail_count % 10)) -eq 0 ]; then
+            # Log periodically so we know monitor is still running
+            log "Still no connectivity (check $fail_count/$FAILURE_THRESHOLD)"
         fi
         
         # Start hotspot after threshold reached

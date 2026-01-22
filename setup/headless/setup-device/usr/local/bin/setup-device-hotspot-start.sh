@@ -19,16 +19,17 @@ cp -f /home/companion/devel/companion/CI-OS/setup/headless/setup-device/etc/dnsm
 
 # Step 2: Reset WiFi interface (disconnect from any existing connection)
 log "Resetting WiFi interface wlp192s0..."
-sudo ip link set wlp192s0 down 2>/dev/null || log "Warning: Could not bring interface down"
+# Commands run as root by systemd service; avoid internal sudo to prevent extra PAM sessions
+ip link set wlp192s0 down 2>/dev/null || log "Warning: Could not bring interface down"
 sleep 1
-sudo ip addr flush dev wlp192s0 2>/dev/null || log "Warning: Could not flush addresses"
+ip addr flush dev wlp192s0 2>/dev/null || log "Warning: Could not flush addresses"
 sleep 1
-sudo ip link set wlp192s0 up 2>/dev/null || log "Warning: Could not bring interface up"
+ip link set wlp192s0 up 2>/dev/null || log "Warning: Could not bring interface up"
 sleep 1
 
 # Step 3: Assign static IP
 log "Assigning static IP 192.168.99.1/24..."
-sudo ip addr add 192.168.99.1/24 dev wlp192s0 2>/dev/null || log "Warning: Could not assign IP (may already exist)"
+ip addr add 192.168.99.1/24 dev wlp192s0 2>/dev/null || log "Warning: Could not assign IP (may already exist)"
 
 # Step 4: Start hostapd
 log "Starting hostapd-setup.service..."

@@ -5,11 +5,31 @@ set -e
 
 echo "Setting up headless device configuration..."
 
-# Reload systemd daemon first
+# Reload systemd daemon first to recognize new service definitions
 systemctl daemon-reload
+
+# Stop any existing services from old installation (clean state)
+echo "Stopping old services from any previous installation..."
+systemctl stop setup-backend.service 2>/dev/null || true
+systemctl stop setup-network-monitor.service 2>/dev/null || true
+systemctl stop hostapd-setup.service 2>/dev/null || true
+systemctl stop dnsmasq-setup.service 2>/dev/null || true
+sleep 1
+
+# Kill any lingering processes
+pkill -f "setup_service.py" 2>/dev/null || true
+pkill -f "setup-network-monitor.sh" 2>/dev/null || true
+pkill -f "hostapd" 2>/dev/null || true
+pkill -f "dnsmasq" 2>/dev/null || true
+sleep 1
+
+# Remove any stale setup-complete flag to allow hotspot to start on first boot if no connectivity
+echo "Resetting setup state for fresh start..."
+rm -f /var/lib/setup-device/setup-complete
 
 # Enable all services for boot-time startup
 # These commands ensure services start automatically on next boot
+echo "Enabling services for boot-time startup..."
 systemctl enable hostapd-setup.service 2>/dev/null || true
 systemctl enable dnsmasq-setup.service 2>/dev/null || true
 systemctl enable nginx.service 2>/dev/null || true
@@ -102,16 +122,22 @@ echo "Starting backend service..."
 systemctl start setup-backend.service || echo "Warning: setup-backend.service start failed"
 sleep 2
 
-# Start hotspot stack (network monitor will start it if no connectivity)
-echo "Hotspot services will start automatically if no internet connectivity is detected"
+# Start network monitor (this is critical - it manages hotspot startup)
+echo "Starting network monitor service..."
+systemctl start setup-network-monitor.service || echo "Warning: setup-network-monitor.service start failed"
+sleep 1
 
 # Start nginx
 systemctl start nginx.service || echo "Warning: nginx.service start failed"
 
 # Verify services are active and enabled
+echo ""
 echo "Verifying service status..."
 systemctl is-active --quiet setup-backend.service && echo "✓ setup-backend.service is active" || echo "✗ setup-backend.service is not active"
 systemctl is-enabled --quiet setup-backend.service && echo "✓ setup-backend.service is enabled" || echo "✗ setup-backend.service is not enabled"
+
+systemctl is-active --quiet setup-network-monitor.service && echo "✓ setup-network-monitor.service is active" || echo "✗ setup-network-monitor.service is not active"
+systemctl is-enabled --quiet setup-network-monitor.service && echo "✓ setup-network-monitor.service is enabled" || echo "✗ setup-network-monitor.service is not enabled"
 
 systemctl is-active --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is active" || echo "✗ hostapd-setup.service is not active (will start if no connectivity)"
 systemctl is-enabled --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is enabled" || echo "✗ hostapd-setup.service is not enabled"
@@ -122,4 +148,6 @@ systemctl is-enabled --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.se
 systemctl is-active --quiet nginx.service && echo "✓ nginx.service is active" || echo "✗ nginx.service is not active"
 systemctl is-enabled --quiet nginx.service && echo "✓ nginx.service is enabled" || echo "✗ nginx.service is not enabled"
 
+echo ""
 echo "Setup device installation complete."
+echo "Network monitor is active and will start hotspot automatically if device is disconnected."

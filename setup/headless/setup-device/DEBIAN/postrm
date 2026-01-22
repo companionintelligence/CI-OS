@@ -5,13 +5,17 @@ set -e
 
 echo "Cleaning up setup-device files..."
 
+# Reload systemd to recognize service removal
+systemctl daemon-reload || true
+
 # Remove nginx site
 rm -f /etc/nginx/sites-enabled/setup-portal
 
 # Remove systemd service files
+rm -f /etc/systemd/system/setup-backend.service
+rm -f /etc/systemd/system/setup-network-monitor.service
 rm -f /etc/systemd/system/hostapd-setup.service
 rm -f /etc/systemd/system/dnsmasq-setup.service
-rm -f /etc/systemd/system/setup-backend.service
 
 # Remove configuration files
 rm -f /etc/hostapd/hostapd-setup.conf
@@ -20,20 +24,16 @@ rm -f /etc/netplan/50-setup-mode.yaml
 rm -f /etc/setup-device/device.conf
 rm -f /etc/setup-device/pairing_code.json
 
-# Restore wlan0 to DHCP (remove static config)
-# Create a minimal netplan config to restore DHCP
+# Restore wlan0 to DHCP (remove static config if setup was active)
 if [ -f /etc/netplan/50-setup-mode.yaml ]; then
-    # Backup existing netplan if it exists
-    if [ -f /etc/netplan/50-setup-mode.yaml ]; then
-        rm -f /etc/netplan/50-setup-mode.yaml
-    fi
-    
-    # Apply netplan to restore DHCP
-    netplan apply || true
+    rm -f /etc/netplan/50-setup-mode.yaml
 fi
 
-# Reload systemd
-systemctl daemon-reload
+# Apply netplan to restore DHCP
+netplan apply 2>/dev/null || true
+
+# Reload systemd after removing service files
+systemctl daemon-reload || true
 
 # Remove application directories (optional - user may want to keep data)
 # Uncomment if you want complete removal:
