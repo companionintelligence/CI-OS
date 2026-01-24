@@ -16,6 +16,8 @@ import logging
 from datetime import datetime, timedelta
 from pathlib import Path
 from flask import Flask, request, jsonify
+import urllib.request
+import urllib.error
 
 # Configuration paths
 CONFIG_DIR = Path('/etc/setup-device')
@@ -25,6 +27,63 @@ LOG_FILE = '/var/log/setup-backend.log'
 PAIRING_CODE_JSON = CONFIG_DIR / 'pairing_code.json'
 SETUP_COMPLETE_FILE = DATA_DIR / 'setup-complete'
 CREDENTIALS_JSON = DATA_DIR / 'credentials.json'
+
+# Cloud API config - can be set via environment `CI_CLOUD_API_URL`
+# or via `/etc/setup-device/device.conf` value `CI_CLOUD_API_URL`.
+def _read_conf_value(key):
+    conf_file = CONFIG_DIR / 'device.conf'
+    if not conf_file.exists():
+        return None
+    try:
+        with open(conf_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith('#'):
+                    continue
+                if '=' in line:
+                    k, v = line.split('=', 1)
+                    if k.strip() == key:
+                        return v.strip()
+    except Exception:
+        return None
+    return None
+
+CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://app-staging.ci.computer/api'
+
+def _cloud_pairing_url():
+    return CI_CLOUD_API_URL.rstrip('/') + '/devices/pair'
+
+def cloud_pair_device(pairing_code, timeout=10):
+    """Attempt to POST the pairing code to the cloud pairing endpoint.
+    Returns tuple (success: bool, response_text_or_error)
+    """
+    url = _cloud_pairing_url()
+    data = json.dumps({'pairing_code': pairing_code}).encode('utf-8')
+    headers = {'Content-Type': 'application/json'}
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode('utf-8', errors='replace')
+            logger.info(f"Cloud pairing response: {resp.status} {body}")
+            try:
+                parsed = json.loads(body)
+            except Exception:
+                parsed = body
+            return True, parsed
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode('utf-8', errors='replace')
+        except Exception:
+            body = str(e)
+        logger.warning(f"Cloud pairing HTTP error: {e.code} {body}")
+        try:
+            parsed = json.loads(body)
+        except Exception:
+            parsed = body
+        return False, parsed
+    except Exception as e:
+        logger.warning(f"Cloud pairing failed: {e}")
+        return False, str(e)
 
 # Ensure directories exist
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -406,6 +465,62 @@ def configure():
         connect_to_wifi(ssid)
         
         logger.info("WiFi configuration completed successfully")
+        # Attempt to pair device with cloud service if configured
+        try:
+            success, resp = cloud_pair_device(pairing_code)
+            if success and isinstance(resp, dict) and resp.get('device_id'):
+                device_id = str(resp.get('device_id'))
+                logger.info(f"Device paired with cloud successfully, device_id={device_id}")
+
+                # Write/update .env in the user's CI-OS-Hub repo
+                hub_dir = os.path.expanduser('~/devel/companion/CI-OS-Hub')
+                env_file = os.path.join(hub_dir, '.env')
+                try:
+                    # Read existing lines, update DEVICE_ID or append
+                    existing = {}
+                    if os.path.exists(env_file):
+                        with open(env_file, 'r') as f:
+                            for line in f:
+                                if '=' in line and not line.strip().startswith('#'):
+                                    k, v = line.strip().split('=', 1)
+                                    existing[k] = v
+                    existing['DEVICE_ID'] = device_id
+                    with open(env_file, 'w') as f:
+                        for k, v in existing.items():
+                            f.write(f"{k}={v}\n")
+                    os.chmod(env_file, 0o600)
+                except Exception as e:
+                    logger.warning(f"Failed to write .env for Hub: {e}")
+
+                # Start the Hub process using bun run start:staging
+                try:
+                    # Use subprocess.Popen so the Hub runs independently
+                    proc = subprocess.Popen(
+                        ['bun', 'run', 'start:staging'],
+                        cwd=hub_dir,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        start_new_session=True
+                    )
+                    logger.info(f"Started CI-OS-Hub process (pid={proc.pid})")
+                except Exception as e:
+                    logger.warning(f"Failed to start CI-OS-Hub: {e}")
+            else:
+                logger.warning(f"Device cloud pairing failed or no device_id: {resp}")
+                # Disconnect from network and restart hotspot services so setup restarts
+                try:
+                    logger.info('Disconnecting from network and restarting hotspot services')
+                    # Try to disable networking briefly
+                    subprocess.run(['nmcli', 'networking', 'off'], timeout=5)
+                except Exception:
+                    pass
+                try:
+                    subprocess.run(['systemctl', 'start', 'hostapd-setup.service'], timeout=5)
+                    subprocess.run(['systemctl', 'start', 'dnsmasq-setup.service'], timeout=5)
+                except Exception as e:
+                    logger.warning(f"Failed to start hotspot services: {e}")
+        except Exception as e:
+            logger.warning(f"Exception while attempting cloud pairing: {e}")
         
         # Return HTML response for form submissions, JSON for API calls
         if request.is_json:

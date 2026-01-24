@@ -11,13 +11,10 @@ systemctl daemon-reload || true
 # Remove nginx site
 rm -f /etc/nginx/sites-enabled/setup-portal
 
-# Remove systemd service files
-rm -f /etc/systemd/system/setup-backend.service
-rm -f /etc/systemd/system/setup-network-monitor.service
-rm -f /etc/systemd/system/hostapd-setup.service
-rm -f /etc/systemd/system/dnsmasq-setup.service
+# NOTE: Do NOT remove systemd service files here - dpkg handles package files.
+# Removing them breaks upgrades. See: https://wiki.debian.org/MaintainerScripts
 
-# Remove configuration files
+# Remove configuration files (kept for user reference on uninstall)
 rm -f /etc/hostapd/hostapd-setup.conf
 rm -f /etc/dnsmasq.d/setup-portal.conf
 rm -f /etc/netplan/50-setup-mode.yaml
@@ -32,7 +29,7 @@ fi
 # Apply netplan to restore DHCP
 netplan apply 2>/dev/null || true
 
-# Reload systemd after removing service files
+# Reload systemd after dpkg unpacks any new service definitions
 systemctl daemon-reload || true
 
 # Remove application directories (optional - user may want to keep data)

@@ -6,7 +6,20 @@ set -e
 echo "Setting up headless device configuration..."
 
 # Reload systemd daemon first to recognize new service definitions
+echo "Reloading systemd daemon..."
 systemctl daemon-reload
+
+# Verify systemd unit files exist and are readable
+echo "Verifying systemd unit files..."
+if [ ! -f /etc/systemd/system/setup-backend.service ]; then
+    echo "ERROR: /etc/systemd/system/setup-backend.service not found!"
+    exit 1
+fi
+if [ ! -f /etc/systemd/system/setup-network-monitor.service ]; then
+    echo "ERROR: /etc/systemd/system/setup-network-monitor.service not found!"
+    exit 1
+fi
+echo "✓ Unit files verified"
 
 # Stop any existing services from old installation (clean state)
 echo "Stopping old services from any previous installation..."
@@ -27,6 +40,11 @@ sleep 1
 echo "Resetting setup state for fresh start..."
 rm -f /var/lib/setup-device/setup-complete
 
+# Reload systemd again after stopping services (sometimes needed)
+echo "Reloading systemd daemon again..."
+systemctl daemon-reload
+sleep 1
+
 # Enable all services for boot-time startup
 # These commands ensure services start automatically on next boot
 echo "Enabling services for boot-time startup..."
@@ -35,6 +53,11 @@ systemctl enable dnsmasq-setup.service 2>/dev/null || true
 systemctl enable nginx.service 2>/dev/null || true
 systemctl enable setup-backend.service 2>/dev/null || true
 systemctl enable setup-network-monitor.service 2>/dev/null || true
+
+# Final daemon-reload before starting services
+echo "Final systemd daemon reload..."
+systemctl daemon-reload
+sleep 1
 
 # Make network monitor script executable
 chmod 755 /usr/local/bin/setup-network-monitor.sh 2>/dev/null || true
@@ -119,16 +142,38 @@ fi
 
 # Start backend first (it will ensure pairing code exists)
 echo "Starting backend service..."
-systemctl start setup-backend.service || echo "Warning: setup-backend.service start failed"
+if systemctl start setup-backend.service; then
+    echo "✓ Backend service started successfully"
+else
+    echo "ERROR: Failed to start setup-backend.service"
+    echo "Debug info:"
+    systemctl status setup-backend.service 2>&1 || true
+    journalctl -u setup-backend.service -n 20 --no-pager 2>&1 || true
+    exit 1
+fi
 sleep 2
 
 # Start network monitor (this is critical - it manages hotspot startup)
 echo "Starting network monitor service..."
-systemctl start setup-network-monitor.service || echo "Warning: setup-network-monitor.service start failed"
+if systemctl start setup-network-monitor.service; then
+    echo "✓ Network monitor service started successfully"
+else
+    echo "ERROR: Failed to start setup-network-monitor.service"
+    echo "Debug info:"
+    systemctl status setup-network-monitor.service 2>&1 || true
+    journalctl -u setup-network-monitor.service -n 20 --no-pager 2>&1 || true
+    exit 1
+fi
 sleep 1
 
 # Start nginx
-systemctl start nginx.service || echo "Warning: nginx.service start failed"
+echo "Starting nginx service..."
+if systemctl start nginx.service; then
+    echo "✓ Nginx service started successfully"
+else
+    echo "ERROR: Failed to start nginx.service"
+    exit 1
+fi
 
 # Verify services are active and enabled
 echo ""
