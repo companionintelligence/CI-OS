@@ -131,7 +131,8 @@
         input[type="text"],
         input[type="password"],
         select,
-        input[type="submit"] {
+        input[type="submit"],
+        button[type="submit"] {
             width: 100%;
             padding: 12px;
             border: 1px solid var(--border-color);
@@ -180,21 +181,60 @@
             margin-top: 4px;
         }
         
-        input[type="submit"] {
+        input[type="submit"],
+        button[type="submit"] {
             background-color: var(--primary-color);
             color: white;
             border: none;
             font-weight: 500;
             cursor: pointer;
             margin-top: 10px;
+            position: relative;
+            min-height: 44px;
+            font-family: inherit;
         }
         
-        input[type="submit"]:hover {
+        input[type="submit"]:hover:not(:disabled),
+        button[type="submit"]:hover:not(:disabled) {
             background-color: var(--primary-hover);
         }
         
-        input[type="submit"]:active {
+        input[type="submit"]:active:not(:disabled),
+        button[type="submit"]:active:not(:disabled) {
             transform: scale(0.98);
+        }
+        
+        input[type="submit"]:disabled,
+        button[type="submit"]:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+        }
+        
+        .submit-loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .success-message {
+            background-color: #44ff44;
+            color: #000000;
+            padding: 16px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            text-align: center;
+            font-weight: 500;
         }
         
         .error {
@@ -288,7 +328,12 @@
                 >
             </div>
             
-            <input type="submit" value="Configure Device">
+            <div id="error-message" class="error" style="display: none;"></div>
+            <div id="success-message" class="success-message" style="display: none;">
+                ✓ Device configured successfully! Closing...
+            </div>
+            
+            <button type="submit" id="submit-btn" class="submit-button">Configure Device</button>
         </form>
     </div>
     
@@ -453,14 +498,85 @@
             }
         }
         
+        // Handle form submission with AJAX
+        const form = document.querySelector('form');
+        const submitBtn = document.getElementById('submit-btn');
+        const errorMessage = document.getElementById('error-message');
+        const successMessage = document.getElementById('success-message');
+        
+        form.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            // Stop monitoring
+            stopHealthMonitoring();
+            
+            // Hide previous messages
+            errorMessage.style.display = 'none';
+            successMessage.style.display = 'none';
+            
+            // Disable submit button and show loading
+            submitBtn.disabled = true;
+            const originalText = submitBtn.textContent;
+            submitBtn.innerHTML = '<span class="submit-loading"></span>Configuring...';
+            
+            // Get form data
+            const formData = new FormData(form);
+            
+            try {
+                const response = await fetch('/api/configure', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.ok) {
+                    // Success - show message and close captive portal
+                    successMessage.style.display = 'block';
+                    
+                    // Scroll to top to show success message
+                    window.scrollTo(0, 0);
+                    
+                    // Close captive portal after a short delay
+                    // Different methods for different platforms
+                    setTimeout(function() {
+                        // Method 1: Redirect to success URL (works on iOS)
+                        window.location.href = 'http://captive.apple.com/hotspot-detect.html';
+                        
+                        // Method 2: Try to close window (works in some browsers)
+                        setTimeout(function() {
+                            if (window.close) {
+                                window.close();
+                            }
+                        }, 500);
+                        
+                        // Method 3: Redirect to a known success page
+                        setTimeout(function() {
+                            window.location.href = 'http://www.msftconnecttest.com/redirect';
+                        }, 1000);
+                    }, 1500);
+                } else {
+                    // Error - show error message
+                    const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                    errorMessage.textContent = errorData.error || 'Configuration failed. Please try again.';
+                    errorMessage.style.display = 'block';
+                    
+                    // Re-enable submit button
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = originalText;
+                }
+            } catch (error) {
+                // Network or other error
+                errorMessage.textContent = 'Network error. Please check your connection and try again.';
+                errorMessage.style.display = 'block';
+                
+                // Re-enable submit button
+                submitBtn.disabled = false;
+                submitBtn.textContent = originalText;
+            }
+        });
+        
         // Start monitoring on page load
         window.addEventListener('load', function() {
             startHealthMonitoring();
-            
-            // Stop monitoring if form is submitted
-            document.querySelector('form').addEventListener('submit', function() {
-                stopHealthMonitoring();
-            });
         });
         
         // Stop monitoring when leaving page

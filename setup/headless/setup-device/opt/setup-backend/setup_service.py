@@ -150,8 +150,9 @@ def get_pairing_info_from_cloud(pairing_code, timeout=10):
                 if isinstance(parsed, dict):
                     device_id = parsed.get('device_id')
                     api_key = parsed.get('api_key')
+                    cloud_pairing_code = parsed.get('pairing_code', '')
                     if device_id and api_key:
-                        logger.info(f"Retrieved device_id: {device_id}, api_key: {api_key[:8]}...")
+                        logger.info(f"Retrieved device_id: {device_id}, api_key: {api_key[:8]}..., pairing_code: {cloud_pairing_code}")
                         return True, parsed
                     else:
                         logger.warning(f"Missing device_id or api_key in response: {parsed}")
@@ -481,6 +482,34 @@ def connect_to_wifi(ssid):
         logger.error(f"Error connecting to WiFi: {e}")
         return False
 
+def disconnect_from_wifi():
+    """Disconnect from current WiFi connection"""
+    try:
+        # Get the WiFi interface
+        wifi_ifname = get_wifi_interface()
+        logger.info(f"Disconnecting WiFi interface: {wifi_ifname}")
+        
+        # Disconnect the active connection
+        result = subprocess.run(
+            ['nmcli', 'device', 'disconnect', wifi_ifname],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            logger.warning(f"Failed to disconnect WiFi: {result.stderr}")
+            # Try alternative method - down the interface
+            subprocess.run(['ip', 'link', 'set', wifi_ifname, 'down'], timeout=5)
+        else:
+            logger.info(f"Disconnected from WiFi: {wifi_ifname}")
+        
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error disconnecting from WiFi: {e}")
+        return False
+
 def stop_hotspot_services():
     """Stop hotspot services after successful configuration"""
     try:
@@ -640,14 +669,52 @@ def configure():
                     logger.warning(f"Failed to get pairing info from cloud: {pairing_info}")
                     logger.warning("Cloud registration aborted - could not retrieve pairing info")
                 else:
-                    # Extract device_id and api_key from response
+                    # Extract device_id, api_key, and pairing_code from response
                     cloud_device_id = pairing_info.get('device_id')
                     api_key = pairing_info.get('api_key')
+                    cloud_pairing_code = pairing_info.get('pairing_code', '')
                     
                     if not cloud_device_id or not api_key:
                         logger.warning(f"Missing device_id or api_key in cloud response: {pairing_info}")
                     else:
-                        logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}...")
+                        # Validate pairing code matches
+                        user_code_normalized = normalize_pairing_code(pairing_code)
+                        cloud_code_normalized = normalize_pairing_code(cloud_pairing_code)
+                        
+                        if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
+                            logger.warning(f"Pairing code mismatch! User entered: {pairing_code}, Cloud returned: {cloud_pairing_code}")
+                            logger.info("Disconnecting from WiFi to restart hotspot setup process...")
+                            
+                            # Disconnect from WiFi - this will trigger network monitor to restart hotspot
+                            disconnect_from_wifi()
+                            
+                            # Return error response
+                            if request.is_json:
+                                return jsonify({
+                                    'error': 'Pairing code does not match. Please try again.',
+                                    'status': 'pairing_mismatch'
+                                }), 400
+                            else:
+                                return '''
+                                <!DOCTYPE html>
+                                <html>
+                                <head>
+                                    <meta charset="UTF-8">
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                    <title>Setup Error</title>
+                                    <style>
+                                        body { font-family: sans-serif; text-align: center; padding: 50px; }
+                                        .error { color: #ff4444; font-size: 18px; margin-bottom: 20px; }
+                                    </style>
+                                </head>
+                                <body>
+                                    <div class="error">✗ Pairing code does not match</div>
+                                    <p>Please reconnect to the setup network and try again.</p>
+                                </body>
+                                </html>
+                                ''', 400
+                        
+                        logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}..., pairing_code matches")
                         
                         # Step 2: Save cloud credentials for later use
                         save_cloud_credentials(cloud_device_id, api_key)
