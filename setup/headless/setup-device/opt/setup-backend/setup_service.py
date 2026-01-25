@@ -279,38 +279,41 @@ def normalize_pairing_code(code):
     return re.sub(r'[^A-Z0-9]', '', code.upper())
 
 def generate_pairing_code():
-    """Generate new pairing code (XXX-XXX format, A-Z0-9)"""
+    """Generate new pairing code (6 characters, A-Z0-9)"""
     import random
     import string
     
     chars = string.ascii_uppercase + string.digits
     code1 = ''.join(random.choice(chars) for _ in range(3))
     code2 = ''.join(random.choice(chars) for _ in range(3))
-    code = f"{code1}-{code2}"
+    code = f"{code1}{code2}"  # No dash, just 6 characters
     
     generated_at = datetime.now()
-    # Pairing code has long expiry (365 days) - setup can be run multiple times
-    expires_at = generated_at + timedelta(days=365)
     
     pairing_data = {
         'code': code,
-        'generated_at': generated_at.isoformat(),
-        'expires_at': expires_at.isoformat()
+        'generated_at': generated_at.isoformat()
     }
     
     return pairing_data
 
 def ensure_pairing_code():
-    """Ensure pairing code exists and is valid, regenerate if expired"""
+    """Ensure pairing code exists and is valid"""
     try:
         # Load existing code if present
         if PAIRING_CODE_JSON.exists():
-            with open(PAIRING_CODE_JSON, 'r') as f:
-                pairing_data = json.load(f)
-            
-            # Use existing pairing code if valid
-            logger.info("Using existing pairing code")
-            return pairing_data['code']
+            try:
+                with open(PAIRING_CODE_JSON, 'r') as f:
+                    pairing_data = json.load(f)
+                
+                # Check if code exists and is valid
+                if 'code' in pairing_data and pairing_data['code']:
+                    logger.info("Using existing pairing code")
+                    return pairing_data['code']
+                else:
+                    logger.warning("Pairing code file exists but has no valid code, regenerating...")
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                logger.warning(f"Invalid pairing code file format: {e}, regenerating...")
         
         # Generate new code
         pairing_data = generate_pairing_code()
@@ -326,8 +329,13 @@ def ensure_pairing_code():
     except Exception as e:
         logger.error(f"Failed to ensure pairing code: {e}", exc_info=True)
         # Generate fallback code
-        pairing_data = generate_pairing_code()
-        return pairing_data['code']
+        try:
+            pairing_data = generate_pairing_code()
+            return pairing_data['code']
+        except Exception as fallback_error:
+            logger.error(f"Failed to generate fallback pairing code: {fallback_error}")
+            # Return a test code as last resort
+            return "ABC123"
 
 def load_pairing_code():
     """Load pairing code from JSON file"""
@@ -341,11 +349,11 @@ def load_pairing_code():
     return None
 
 def validate_pairing_code(code):
-    """Validate pairing code format and expiry"""
+    """Validate pairing code format (pairing codes don't expire)"""
     normalized = normalize_pairing_code(code)
     
     # Whitelist test pairing code for development/testing
-    TEST_CODE = "ABC123"  # Will match "abc-123", "ABC-123", etc.
+    TEST_CODE = "ABC123"  # Will match "abc123", "ABC123", etc.
     if normalized == TEST_CODE:
         logger.info(f"Test pairing code accepted: {code}")
         return True
@@ -362,18 +370,7 @@ def validate_pairing_code(code):
         logger.warning(f"Pairing code mismatch")
         return False
     
-    # Check expiry from JSON
-    try:
-        with open(PAIRING_CODE_JSON, 'r') as f:
-            pairing_data = json.load(f)
-        expires_at = datetime.fromisoformat(pairing_data.get('expires_at', ''))
-        if datetime.now() > expires_at:
-            logger.warning("Pairing code expired")
-            return False
-    except Exception as e:
-        logger.error(f"Failed to check pairing code expiry: {e}")
-        return False
-    
+    # Pairing codes don't expire - no expiry check needed
     return True
 
 def scan_wifi_networks():
