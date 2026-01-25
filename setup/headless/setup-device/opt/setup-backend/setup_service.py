@@ -138,7 +138,9 @@ def check_internet_connectivity(timeout=5):
 
 def get_pairing_info_from_cloud(pairing_code, timeout=10):
     """GET request to /api/devices/pair?pairing_code=XXX to get device_id and api_key"""
-    encoded_code = urllib.parse.quote(pairing_code)
+    # Normalize to uppercase for database consistency (removes dashes/spaces)
+    normalized_code = normalize_pairing_code(pairing_code)
+    encoded_code = urllib.parse.quote(normalized_code)
     url = _cloud_pairing_url() + f'?pairing_code={encoded_code}'
     try:
         req = urllib.request.Request(url, method='GET')
@@ -180,8 +182,11 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key, timeout=10):
     """POST request to /api/devices/pair to upsert device_id where pairing_code matches"""
     url = _cloud_pairing_url()
     
+    # Normalize to uppercase for database consistency (removes dashes/spaces)
+    normalized_code = normalize_pairing_code(pairing_code)
+    
     payload = {
-        'pairing_code': pairing_code,
+        'pairing_code': normalized_code,
         'device_id': device_id
     }
     
@@ -637,51 +642,121 @@ def configure():
         time.sleep(1)
         remove_setup_netplan_config()
         
-        # Trigger NetworkManager to connect
-        time.sleep(2)
-        if not connect_to_wifi(ssid):
-            logger.warning("Failed to connect to WiFi, but continuing...")
+        # Step 1: Connect to WiFi first
+        logger.info(f"Connecting to WiFi network: {ssid}")
+        wifi_connected = False
+        max_wifi_wait = 30  # Wait up to 30 seconds for WiFi connection
+        for i in range(max_wifi_wait):
+            if connect_to_wifi(ssid):
+                wifi_connected = True
+                logger.info("WiFi connection established")
+                break
+            logger.info(f"Waiting for WiFi connection... ({i+1}/{max_wifi_wait})")
+            time.sleep(1)
         
-        logger.info("WiFi configuration completed successfully")
+        if not wifi_connected:
+            logger.error("Failed to connect to WiFi network")
+            return jsonify({'error': 'Failed to connect to WiFi network. Please check your credentials and try again.'}), 500
         
-        # Cloud device registration process
-        # Wait for internet connectivity to be established
+        logger.info("WiFi connection successful")
+        
+        # Step 2: Wait for internet connectivity to be established
         logger.info("Waiting for internet connectivity before cloud registration...")
-        max_wait = 30  # Wait up to 30 seconds for internet
+        max_wait = 45  # Wait up to 45 seconds for internet (longer since WiFi just connected)
         internet_available = False
         for i in range(max_wait):
-            if check_internet_connectivity(timeout=2):
+            if check_internet_connectivity(timeout=3):
                 internet_available = True
+                logger.info("Internet connectivity confirmed")
                 break
+            if (i + 1) % 5 == 0:  # Log every 5 seconds
+                logger.info(f"Waiting for internet connectivity... ({i+1}/{max_wait})")
             time.sleep(1)
         
         if not internet_available:
             logger.warning("Internet connectivity not available after WiFi connection. Cloud registration skipped.")
-        else:
-            logger.info("Internet connectivity confirmed. Starting cloud device registration...")
+            # WiFi is connected but no internet - this is OK, return success
+            # The device will work on local network, cloud registration can happen later
+            if request.is_json:
+                return jsonify({
+                    'status': 'success',
+                    'message': 'WiFi configured successfully. Internet connectivity not yet available.',
+                    'internet_available': False
+                })
+            else:
+                return '''
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Setup Complete</title>
+                    <style>
+                        body { font-family: sans-serif; text-align: center; padding: 50px; }
+                        .success { color: green; font-size: 24px; margin-bottom: 20px; }
+                        .info { color: #666; font-size: 14px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="success">✓ WiFi configured successfully!</div>
+                    <p class="info">Device is connected to WiFi. Internet connectivity will be available shortly.</p>
+                </body>
+                </html>
+                ''', 200
+        
+        # Step 3: Now that we have internet, validate pairing code with cloud
+        logger.info("Internet connectivity confirmed. Starting cloud device registration...")
+        
+        try:
+            # Normalize pairing code to uppercase before cloud validation
+            normalized_pairing_code = normalize_pairing_code(pairing_code)
+            logger.info(f"Getting pairing info from cloud for pairing code: {normalized_pairing_code} (normalized from: {pairing_code})")
+            success, pairing_info = get_pairing_info_from_cloud(normalized_pairing_code)
             
-            try:
-                # Step 1: GET request to retrieve device_id and api_key from cloud
-                logger.info(f"Getting pairing info from cloud for pairing code: {pairing_code}")
-                success, pairing_info = get_pairing_info_from_cloud(pairing_code)
+            if not success:
+                logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
+                # Disconnect from WiFi to restart hotspot
+                logger.info("Disconnecting from WiFi to restart setup process...")
+                disconnect_from_wifi()
                 
-                if not success:
-                    logger.warning(f"Failed to get pairing info from cloud: {pairing_info}")
-                    logger.warning("Cloud registration aborted - could not retrieve pairing info")
+                error_msg = 'Failed to validate pairing code with cloud service. Please reconnect to setup network and try again.'
+                if request.is_json:
+                    return jsonify({'error': error_msg, 'status': 'cloud_error'}), 500
                 else:
-                    # Extract device_id, api_key, and pairing_code from response
-                    cloud_device_id = pairing_info.get('device_id')
-                    api_key = pairing_info.get('api_key')
-                    cloud_pairing_code = pairing_info.get('pairing_code', '')
+                    return f'''
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>Setup Error</title>
+                        <style>
+                            body {{ font-family: sans-serif; text-align: center; padding: 50px; }}
+                            .error {{ color: #ff4444; font-size: 18px; margin-bottom: 20px; }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class="error">✗ {error_msg}</div>
+                        <p>Please reconnect to the setup network and try again.</p>
+                    </body>
+                    </html>
+                    ''', 500
+            else:
+                # Extract device_id, api_key, and pairing_code from response
+                cloud_device_id = pairing_info.get('device_id')
+                api_key = pairing_info.get('api_key')
+                cloud_pairing_code = pairing_info.get('pairing_code', '')
+                
+                if not cloud_device_id or not api_key:
+                    logger.warning(f"Missing device_id or api_key in cloud response: {pairing_info}")
+                else:
+                    # Validate pairing code matches (case-insensitive comparison)
+                    user_code_normalized = normalize_pairing_code(pairing_code)
+                    cloud_code_normalized = normalize_pairing_code(cloud_pairing_code)
                     
-                    if not cloud_device_id or not api_key:
-                        logger.warning(f"Missing device_id or api_key in cloud response: {pairing_info}")
-                    else:
-                        # Validate pairing code matches
-                        user_code_normalized = normalize_pairing_code(pairing_code)
-                        cloud_code_normalized = normalize_pairing_code(cloud_pairing_code)
-                        
-                        if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
+                    logger.info(f"Comparing pairing codes - User: {user_code_normalized}, Cloud: {cloud_code_normalized}")
+                    
+                    if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
                             logger.warning(f"Pairing code mismatch! User entered: {pairing_code}, Cloud returned: {cloud_pairing_code}")
                             logger.info("Disconnecting from WiFi to restart hotspot setup process...")
                             
@@ -713,33 +788,33 @@ def configure():
                                 </body>
                                 </html>
                                 ''', 400
+                    
+                    logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}..., pairing_code matches")
+                    
+                    # Step 2: Save cloud credentials for later use
+                    save_cloud_credentials(cloud_device_id, api_key)
+                    
+                    # Step 3: Get the actual device ID from local machine
+                    local_device_id = get_device_id()
+                    logger.info(f"Local device ID: {local_device_id}")
+                    
+                    # Step 4: POST to update device_id in cloud (upsert where pairing_code matches)
+                    logger.info("Updating device_id in cloud...")
+                    update_success, update_resp = update_device_id_in_cloud(
+                        pairing_code=normalized_pairing_code,
+                        device_id=local_device_id,
+                        api_key=api_key
+                    )
+                    
+                    if update_success:
+                        logger.info(f"Device ID updated successfully in cloud: {update_resp}")
+                        # Update saved credentials with local device_id
+                        save_cloud_credentials(local_device_id, api_key)
+                    else:
+                        logger.warning(f"Device ID update failed: {update_resp}")
                         
-                        logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}..., pairing_code matches")
-                        
-                        # Step 2: Save cloud credentials for later use
-                        save_cloud_credentials(cloud_device_id, api_key)
-                        
-                        # Step 3: Get the actual device ID from local machine
-                        local_device_id = get_device_id()
-                        logger.info(f"Local device ID: {local_device_id}")
-                        
-                        # Step 4: POST to update device_id in cloud (upsert where pairing_code matches)
-                        logger.info("Updating device_id in cloud...")
-                        update_success, update_resp = update_device_id_in_cloud(
-                            pairing_code=pairing_code,
-                            device_id=local_device_id,
-                            api_key=api_key
-                        )
-                        
-                        if update_success:
-                            logger.info(f"Device ID updated successfully in cloud: {update_resp}")
-                            # Update saved credentials with local device_id
-                            save_cloud_credentials(local_device_id, api_key)
-                        else:
-                            logger.warning(f"Device ID update failed: {update_resp}")
-                        
-            except Exception as e:
-                logger.error(f"Exception during cloud registration: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Exception during cloud registration: {e}", exc_info=True)
         
         # Return HTML response for form submissions, JSON for API calls
         if request.is_json:

@@ -168,7 +168,6 @@
         
         .pairing-code-input {
             text-transform: uppercase;
-            letter-spacing: 2px;
             text-align: center;
             font-family: monospace;
             font-size: 18px;
@@ -282,14 +281,14 @@
                     id="pairing_code" 
                     name="pairing_code" 
                     class="pairing-code-input"
-                    placeholder="abc-123" 
-                    pattern="[A-Za-z0-9\s\-]*"
+                    placeholder="Enter your pairing code" 
+                    pattern="[A-Za-z0-9]*"
                     required
                     autocomplete="off"
-                    onchange="this.value = this.value.toUpperCase()"
-                    oninput="this.value = this.value.toUpperCase()"
+                    onchange="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '')"
+                    oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '')"
                 >
-                <div class="pairing-code-hint">Format: ABC-123, ABC123, or ABC 123 (accepts lowercase)</div>
+                <div class="pairing-code-hint">Enter your pairing code</div>
             </div>
             
             <div class="form-group">
