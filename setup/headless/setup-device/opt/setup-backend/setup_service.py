@@ -302,14 +302,27 @@ def ensure_pairing_code():
                 with open(PAIRING_CODE_JSON, 'r') as f:
                     pairing_data = json.load(f)
                 
-                # Migrate old pairing code files: remove generated_at if present
-                if 'generated_at' in pairing_data:
-                    logger.info("Migrating pairing code file: removing generated_at field")
-                    pairing_data.pop('generated_at', None)
-                    # Rewrite file without old field
+                # Migrate old pairing code files: remove all old fields (expires_at, expired_at, generated_at)
+                # Handle both empty strings and actual values
+                fields_to_remove = ['expires_at', 'expired_at', 'generated_at']
+                removed_fields = []
+                
+                for field in fields_to_remove:
+                    if field in pairing_data:
+                        # Remove field even if it's an empty string
+                        removed_fields.append(field)
+                        pairing_data.pop(field, None)
+                
+                if removed_fields:
+                    logger.info(f"Migrating pairing code file: removing old fields: {', '.join(removed_fields)}")
+                    # Ensure we only keep the 'code' field
+                    cleaned_data = {'code': pairing_data.get('code', '')}
+                    # Rewrite file with only the code field
                     with open(PAIRING_CODE_JSON, 'w') as f:
-                        json.dump(pairing_data, f, indent=2)
+                        json.dump(cleaned_data, f, indent=2)
                     os.chmod(PAIRING_CODE_JSON, 0o600)
+                    # Update pairing_data for validation below
+                    pairing_data = cleaned_data
                 
                 # Check if code exists and is valid
                 if 'code' in pairing_data and pairing_data['code']:
