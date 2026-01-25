@@ -17,7 +17,7 @@ This system provides a captive portal-based WiFi configuration interface for hea
 - ✅ CDC-compliant captive portal (Apple/Google/Microsoft detection)
 - ✅ Works without JavaScript (form submission works without JS)
 - ✅ Automatic boot-time activation via systemd
-- ✅ Pairing code authentication (XXX-XXX format, 24-hour expiry)
+- ✅ Pairing code authentication (6-character format)
 - ✅ Mobile-first responsive design with dark mode support
 - ✅ Secure credential storage (root-only permissions)
 
@@ -155,7 +155,7 @@ curl http://localhost:5000/health
 1. **Connect to hotspot**: `Companion-Setup` (password: `SetupDevice123`)
 2. **Access portal**: http://192.168.99.1 (or captive portal will auto-launch)
 3. **Enter pairing code**: Use the device-generated code OR use test code `abc-123`
-   - Device code: Found in `/etc/setup-device/pairing_code.json` (expires in 24 hours)
+   - Device code: Found in `/etc/setup-device/pairing_code.json`
    - Test code: `abc-123` (always valid, for testing/demos)
 4. **Select WiFi network**: Choose from scanned networks
 5. **Enter password**: WiFi password (leave blank for open networks)

@@ -50,7 +50,6 @@ def _read_conf_value(key):
     return None
 
 CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://setup.companionintel.com'
-DEFAULT_API_KEY = '69bb0152-6ff0-4228-a1c9-43db0a543fb1'
 
 def _cloud_pairing_url():
     """Get the cloud pairing endpoint URL"""
@@ -138,7 +137,7 @@ def check_internet_connectivity(timeout=5):
 
 def get_pairing_info_from_cloud(pairing_code, timeout=10):
     """GET request to /api/devices/pair?pairing_code=XXX to get device_id and api_key"""
-    # Normalize to uppercase for database consistency (removes dashes/spaces)
+    # Normalize to uppercase (removes non-alphanumeric characters)
     normalized_code = normalize_pairing_code(pairing_code)
     encoded_code = urllib.parse.quote(normalized_code)
     url = _cloud_pairing_url() + f'?pairing_code={encoded_code}'
@@ -187,7 +186,7 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key, timeout=10):
     """POST request to /api/devices/pair to upsert device_id where pairing_code matches"""
     url = _cloud_pairing_url()
     
-    # Normalize to uppercase for database consistency (removes dashes/spaces)
+    # Normalize to uppercase (removes non-alphanumeric characters)
     normalized_code = normalize_pairing_code(pairing_code)
     
     payload = {
@@ -227,7 +226,7 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key, timeout=10):
         return False, str(e)
 
 def save_cloud_credentials(device_id, api_key):
-    """Save device_id and api_key for later use"""
+    """Save device_id and api_key for later use (API key comes from GET response)"""
     try:
         credentials_file = DATA_DIR / 'cloud_credentials.json'
         credentials = {
@@ -238,7 +237,7 @@ def save_cloud_credentials(device_id, api_key):
         with open(credentials_file, 'w') as f:
             json.dump(credentials, f, indent=2)
         os.chmod(credentials_file, 0o600)
-        logger.info(f"Saved cloud credentials: device_id={device_id}, api_key={api_key[:8]}...")
+        logger.info(f"[CREDENTIALS] Saved: device_id={device_id}, api_key={api_key[:8]}...")
         return True
     except Exception as e:
         logger.error(f"Failed to save cloud credentials: {e}")
@@ -275,7 +274,7 @@ signal.signal(signal.SIGTERM, signal_handler)
 signal.signal(signal.SIGINT, signal_handler)
 
 def normalize_pairing_code(code):
-    """Normalize pairing code: remove hyphens, uppercase"""
+    """Normalize pairing code: remove non-alphanumeric characters, convert to uppercase"""
     return re.sub(r'[^A-Z0-9]', '', code.upper())
 
 def generate_pairing_code():
@@ -303,19 +302,11 @@ def ensure_pairing_code():
                 with open(PAIRING_CODE_JSON, 'r') as f:
                     pairing_data = json.load(f)
                 
-                # Migrate old format: remove expires_at and generated_at if present
-                needs_migration = False
-                if 'expires_at' in pairing_data:
-                    logger.info("Migrating pairing code file: removing expires_at field")
-                    pairing_data.pop('expires_at', None)
-                    needs_migration = True
+                # Migrate old pairing code files: remove generated_at if present
                 if 'generated_at' in pairing_data:
                     logger.info("Migrating pairing code file: removing generated_at field")
                     pairing_data.pop('generated_at', None)
-                    needs_migration = True
-                
-                if needs_migration:
-                    # Rewrite file without old fields
+                    # Rewrite file without old field
                     with open(PAIRING_CODE_JSON, 'w') as f:
                         json.dump(pairing_data, f, indent=2)
                     os.chmod(PAIRING_CODE_JSON, 0o600)
@@ -327,7 +318,7 @@ def ensure_pairing_code():
                 else:
                     logger.warning("Pairing code file exists but has no valid code, regenerating...")
             except (json.JSONDecodeError, KeyError, ValueError) as e:
-                logger.warning(f"Invalid pairing code file format: {e}, regenerating...")
+                logger.warning(f"Invalid pairing code file: {e}, regenerating...")
         
         # Generate new code
         pairing_data = generate_pairing_code()
@@ -363,11 +354,11 @@ def load_pairing_code():
     return None
 
 def validate_pairing_code(code):
-    """Validate pairing code format (pairing codes don't expire)"""
+    """Validate pairing code matches stored code (pairing codes don't expire)"""
     normalized = normalize_pairing_code(code)
     
     # Whitelist test pairing code for development/testing
-    TEST_CODE = "ABC123"  # Will match "abc123", "ABC123", etc.
+    TEST_CODE = "ABC123"
     if normalized == TEST_CODE:
         logger.info(f"Test pairing code accepted: {code}")
         return True
@@ -384,7 +375,6 @@ def validate_pairing_code(code):
         logger.warning(f"Pairing code mismatch")
         return False
     
-    # Pairing codes don't expire - no expiry check needed
     return True
 
 def scan_wifi_networks():
@@ -657,7 +647,7 @@ def configure():
         if not ssid:
             return jsonify({'error': 'SSID required'}), 400
         
-        # Basic validation: pairing code should be 6 characters after normalization
+        # Validate pairing code is 6 characters (after normalizing user input)
         normalized_code = normalize_pairing_code(pairing_code)
         if len(normalized_code) != 6:
             return jsonify({'error': 'Pairing code must be 6 characters'}), 400
@@ -853,7 +843,8 @@ def configure():
                     
                     logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}..., pairing_code matches")
                     
-                    # Step 2: Save cloud credentials for later use
+                    # Step 2: Save API key from GET response for later use
+                    logger.info(f"[CREDENTIALS] Saving API key from cloud response for later use")
                     save_cloud_credentials(cloud_device_id, api_key)
                     
                     # Step 3: Get the actual device ID from local machine
@@ -870,8 +861,7 @@ def configure():
                     
                     if update_success:
                         logger.info(f"Device ID updated successfully in cloud: {update_resp}")
-                        # Update saved credentials with local device_id
-                        save_cloud_credentials(local_device_id, api_key)
+                        # API key already saved from GET response, no need to save again
                     else:
                         logger.warning(f"Device ID update failed: {update_resp}")
                         

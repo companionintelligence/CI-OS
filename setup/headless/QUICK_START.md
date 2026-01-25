@@ -62,7 +62,6 @@ The setup hotspot will disappear once connection succeeds.
 # View the generated code (on the device):
 sudo cat /etc/setup-device/pairing_code.json
 ```
-- Expires after 24 hours
 - Different each boot
 - More secure than test code
 

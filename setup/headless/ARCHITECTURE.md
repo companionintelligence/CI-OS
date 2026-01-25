@@ -128,10 +128,9 @@
                       │
                       ▼
          ┌────────────────────────┐
-         │ Check Expiry           │
-         │ (Device code only)     │
+         │ Validate Code          │
          │ ✓ Valid → Continue    │
-         │ ✗ Expired → Fail      │
+         │ ✗ Invalid → Fail      │
          └────────────┬───────────┘
                       │
                       ▼
@@ -336,7 +335,7 @@ User Submits: T+45s (example)
 │ • Generated on first boot              │
 │ • Stored in /etc/setup-device/         │
 │   pairing_code.json                   │
-│ • Expires: 24 hours                    │
+│ • No expiry                             │
 │ • Regenerated on each boot             │
 │ • Different each time                  │
 │ • More secure                          │
