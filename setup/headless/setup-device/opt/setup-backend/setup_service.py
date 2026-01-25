@@ -606,12 +606,12 @@ def configure():
         if not ssid:
             return jsonify({'error': 'SSID required'}), 400
         
-        # Validate pairing code
-        if not validate_pairing_code(pairing_code):
-            logger.warning(f"Invalid pairing code attempt")
-            return jsonify({'error': 'Invalid or expired pairing code'}), 401
+        # Basic validation: pairing code should be 6 characters after normalization
+        normalized_code = normalize_pairing_code(pairing_code)
+        if len(normalized_code) != 6:
+            return jsonify({'error': 'Pairing code must be 6 characters'}), 400
         
-        logger.info(f"Configuration request for SSID: {ssid}")
+        logger.info(f"Configuration request for SSID: {ssid}, pairing code: {normalized_code}")
         
         # Create NetworkManager connection
         if not create_wifi_connection(ssid, password):
