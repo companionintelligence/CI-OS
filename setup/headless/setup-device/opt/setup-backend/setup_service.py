@@ -142,11 +142,15 @@ def get_pairing_info_from_cloud(pairing_code, timeout=10):
     normalized_code = normalize_pairing_code(pairing_code)
     encoded_code = urllib.parse.quote(normalized_code)
     url = _cloud_pairing_url() + f'?pairing_code={encoded_code}'
+    logger.info(f"[CLOUD GET] Request URL: {url}")
+    logger.info(f"[CLOUD GET] Pairing code (normalized): {normalized_code}")
     try:
         req = urllib.request.Request(url, method='GET')
+        logger.info(f"[CLOUD GET] Sending GET request to cloud API...")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode('utf-8', errors='replace')
-            logger.info(f"Cloud pairing GET response: {resp.status} {body}")
+            logger.info(f"[CLOUD GET] Response status: {resp.status}")
+            logger.info(f"[CLOUD GET] Response body: {body}")
             try:
                 parsed = json.loads(body)
                 if isinstance(parsed, dict):
@@ -168,7 +172,8 @@ def get_pairing_info_from_cloud(pairing_code, timeout=10):
             body = e.read().decode('utf-8', errors='replace')
         except Exception:
             body = str(e)
-        logger.warning(f"Cloud pairing GET HTTP error: {e.code} {body}")
+        logger.error(f"[CLOUD GET] HTTP Error {e.code}: {body}")
+        logger.error(f"[CLOUD GET] Request URL was: {url}")
         try:
             parsed = json.loads(body)
             return False, parsed
@@ -468,6 +473,7 @@ def create_wifi_connection(ssid, password):
 
 def connect_to_wifi(ssid):
     """Activate NetworkManager connection"""
+    logger.info(f"[WIFI CONNECT] Attempting to connect to SSID: {ssid}")
     try:
         result = subprocess.run(
             ['nmcli', 'connection', 'up', ssid],
@@ -477,14 +483,26 @@ def connect_to_wifi(ssid):
         )
         
         if result.returncode != 0:
-            logger.error(f"Failed to activate connection: {result.stderr}")
+            logger.error(f"[WIFI CONNECT] Failed to activate connection to {ssid}")
+            logger.error(f"[WIFI CONNECT] Return code: {result.returncode}")
+            logger.error(f"[WIFI CONNECT] stderr: {result.stderr}")
+            logger.error(f"[WIFI CONNECT] stdout: {result.stdout}")
             return False
         
-        logger.info(f"Connected to WiFi: {ssid}")
+        logger.info(f"[WIFI CONNECT] Successfully connected to WiFi: {ssid}")
+        # Verify connection status
+        verify_result = subprocess.run(
+            ['nmcli', '-t', '-f', 'NAME,DEVICE,TYPE,STATE', 'connection', 'show', '--active'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if verify_result.returncode == 0:
+            logger.info(f"[WIFI CONNECT] Active connections: {verify_result.stdout.strip()}")
         return True
         
     except Exception as e:
-        logger.error(f"Error connecting to WiFi: {e}")
+        logger.error(f"[WIFI CONNECT] Exception connecting to WiFi {ssid}: {e}", exc_info=True)
         return False
 
 def disconnect_from_wifi():
@@ -492,7 +510,17 @@ def disconnect_from_wifi():
     try:
         # Get the WiFi interface
         wifi_ifname = get_wifi_interface()
-        logger.info(f"Disconnecting WiFi interface: {wifi_ifname}")
+        logger.info(f"[WIFI DISCONNECT] Disconnecting WiFi interface: {wifi_ifname}")
+        
+        # Check current connection status before disconnecting
+        status_result = subprocess.run(
+            ['nmcli', '-t', '-f', 'DEVICE,STATE', 'device', 'status'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if status_result.returncode == 0:
+            logger.info(f"[WIFI DISCONNECT] Device status before disconnect: {status_result.stdout.strip()}")
         
         # Disconnect the active connection
         result = subprocess.run(
@@ -503,16 +531,28 @@ def disconnect_from_wifi():
         )
         
         if result.returncode != 0:
-            logger.warning(f"Failed to disconnect WiFi: {result.stderr}")
+            logger.warning(f"[WIFI DISCONNECT] Failed to disconnect WiFi: {result.stderr}")
+            logger.warning(f"[WIFI DISCONNECT] stdout: {result.stdout}")
             # Try alternative method - down the interface
+            logger.info(f"[WIFI DISCONNECT] Attempting alternative disconnect method...")
             subprocess.run(['ip', 'link', 'set', wifi_ifname, 'down'], timeout=5)
         else:
-            logger.info(f"Disconnected from WiFi: {wifi_ifname}")
+            logger.info(f"[WIFI DISCONNECT] Successfully disconnected from WiFi: {wifi_ifname}")
+        
+        # Verify disconnection
+        verify_result = subprocess.run(
+            ['nmcli', '-t', '-f', 'DEVICE,STATE', 'device', 'status'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if verify_result.returncode == 0:
+            logger.info(f"[WIFI DISCONNECT] Device status after disconnect: {verify_result.stdout.strip()}")
         
         return True
         
     except Exception as e:
-        logger.error(f"Error disconnecting from WiFi: {e}")
+        logger.error(f"[WIFI DISCONNECT] Exception disconnecting WiFi: {e}", exc_info=True)
         return False
 
 def stop_hotspot_services():
@@ -611,11 +651,17 @@ def configure():
         if len(normalized_code) != 6:
             return jsonify({'error': 'Pairing code must be 6 characters'}), 400
         
-        logger.info(f"Configuration request for SSID: {ssid}, pairing code: {normalized_code}")
+        logger.info(f"[CONFIGURE] Starting WiFi configuration")
+        logger.info(f"[CONFIGURE] SSID: {ssid}")
+        logger.info(f"[CONFIGURE] Pairing code (normalized): {normalized_code}")
+        logger.info(f"[CONFIGURE] Password provided: {'Yes' if password else 'No (open network)'}")
         
         # Create NetworkManager connection
+        logger.info(f"[CONFIGURE] Creating NetworkManager connection for {ssid}...")
         if not create_wifi_connection(ssid, password):
+            logger.error(f"[CONFIGURE] Failed to create WiFi connection for {ssid}")
             return jsonify({'error': 'Failed to create WiFi connection'}), 500
+        logger.info(f"[CONFIGURE] NetworkManager connection created successfully")
         
         # Persist credentials securely (root-only, JSON format)
         try:
@@ -754,23 +800,28 @@ def configure():
                     user_code_normalized = normalize_pairing_code(pairing_code)
                     cloud_code_normalized = normalize_pairing_code(cloud_pairing_code)
                     
-                    logger.info(f"Comparing pairing codes - User: {user_code_normalized}, Cloud: {cloud_code_normalized}")
+                    logger.info(f"[PAIRING VALIDATION] Comparing pairing codes")
+                    logger.info(f"[PAIRING VALIDATION] User entered (original): {pairing_code}")
+                    logger.info(f"[PAIRING VALIDATION] User entered (normalized): {user_code_normalized}")
+                    logger.info(f"[PAIRING VALIDATION] Cloud returned (original): {cloud_pairing_code}")
+                    logger.info(f"[PAIRING VALIDATION] Cloud returned (normalized): {cloud_code_normalized}")
                     
                     if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
-                            logger.warning(f"Pairing code mismatch! User entered: {pairing_code}, Cloud returned: {cloud_pairing_code}")
-                            logger.info("Disconnecting from WiFi to restart hotspot setup process...")
-                            
-                            # Disconnect from WiFi - this will trigger network monitor to restart hotspot
-                            disconnect_from_wifi()
-                            
-                            # Return error response
-                            if request.is_json:
-                                return jsonify({
-                                    'error': 'Pairing code does not match. Please try again.',
-                                    'status': 'pairing_mismatch'
-                                }), 400
-                            else:
-                                return '''
+                        logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
+                        logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
+                        logger.info("[PAIRING VALIDATION] Disconnecting from WiFi to restart hotspot setup process...")
+                        
+                        # Disconnect from WiFi - this will trigger network monitor to restart hotspot
+                        disconnect_from_wifi()
+                        
+                        # Return error response
+                        if request.is_json:
+                            return jsonify({
+                                'error': 'Pairing code does not match. Please try again.',
+                                'status': 'pairing_mismatch'
+                            }), 400
+                        else:
+                            return '''
                                 <!DOCTYPE html>
                                 <html>
                                 <head>
