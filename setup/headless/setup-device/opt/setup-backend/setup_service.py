@@ -288,11 +288,8 @@ def generate_pairing_code():
     code2 = ''.join(random.choice(chars) for _ in range(3))
     code = f"{code1}{code2}"  # No dash, just 6 characters
     
-    generated_at = datetime.now()
-    
     pairing_data = {
-        'code': code,
-        'generated_at': generated_at.isoformat()
+        'code': code
     }
     
     return pairing_data
@@ -305,6 +302,23 @@ def ensure_pairing_code():
             try:
                 with open(PAIRING_CODE_JSON, 'r') as f:
                     pairing_data = json.load(f)
+                
+                # Migrate old format: remove expires_at and generated_at if present
+                needs_migration = False
+                if 'expires_at' in pairing_data:
+                    logger.info("Migrating pairing code file: removing expires_at field")
+                    pairing_data.pop('expires_at', None)
+                    needs_migration = True
+                if 'generated_at' in pairing_data:
+                    logger.info("Migrating pairing code file: removing generated_at field")
+                    pairing_data.pop('generated_at', None)
+                    needs_migration = True
+                
+                if needs_migration:
+                    # Rewrite file without old fields
+                    with open(PAIRING_CODE_JSON, 'w') as f:
+                        json.dump(pairing_data, f, indent=2)
+                    os.chmod(PAIRING_CODE_JSON, 0o600)
                 
                 # Check if code exists and is valid
                 if 'code' in pairing_data and pairing_data['code']:

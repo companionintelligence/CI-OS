@@ -66,7 +66,7 @@ chmod 755 /usr/local/bin/setup-network-monitor.sh 2>/dev/null || true
 mkdir -p /var/lib/setup-device
 mkdir -p /var/log
 
-# Generate pairing code if missing (backend will regenerate if expired)
+# Generate pairing code if missing (backend will regenerate if needed)
 PAIRING_CODE_JSON="/etc/setup-device/pairing_code.json"
 if [ ! -f "$PAIRING_CODE_JSON" ] || [ ! -s "$PAIRING_CODE_JSON" ]; then
     echo "Generating initial pairing code..."
@@ -74,20 +74,14 @@ if [ ! -f "$PAIRING_CODE_JSON" ] || [ ! -s "$PAIRING_CODE_JSON" ]; then
 import json
 import random
 import string
-from datetime import datetime, timedelta
 
 chars = string.ascii_uppercase + string.digits
 code1 = ''.join(random.choice(chars) for _ in range(3))
 code2 = ''.join(random.choice(chars) for _ in range(3))
-code = f"{code1}-{code2}"
-
-generated_at = datetime.now()
-expires_at = generated_at + timedelta(hours=24)
+code = f"{code1}{code2}"  # 6 characters, no dash
 
 pairing_data = {
-    'code': code,
-    'generated_at': generated_at.isoformat(),
-    'expires_at': expires_at.isoformat()
+    'code': code
 }
 
 with open('/etc/setup-device/pairing_code.json', 'w') as f:
