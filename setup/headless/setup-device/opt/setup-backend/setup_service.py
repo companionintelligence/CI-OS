@@ -18,6 +18,7 @@ from pathlib import Path
 from flask import Flask, request, jsonify
 import urllib.request
 import urllib.error
+import urllib.parse
 
 # Configuration paths
 CONFIG_DIR = Path('/etc/setup-device')
@@ -48,42 +49,189 @@ def _read_conf_value(key):
         return None
     return None
 
-CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://app-staging.ci.computer/api'
+CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://setup.companionintel.com'
+DEFAULT_API_KEY = '69bb0152-6ff0-4228-a1c9-43db0a543fb1'
 
 def _cloud_pairing_url():
-    return CI_CLOUD_API_URL.rstrip('/') + '/devices/pair'
+    """Get the cloud pairing endpoint URL"""
+    base_url = CI_CLOUD_API_URL.rstrip('/')
+    # Remove /api suffix if present, we'll add it back
+    if base_url.endswith('/api'):
+        base_url = base_url[:-4]
+    return base_url + '/api/devices/pair'
 
-def cloud_pair_device(pairing_code, timeout=10):
-    """Attempt to POST the pairing code to the cloud pairing endpoint.
-    Returns tuple (success: bool, response_text_or_error)
-    """
-    url = _cloud_pairing_url()
-    data = json.dumps({'pairing_code': pairing_code}).encode('utf-8')
-    headers = {'Content-Type': 'application/json'}
-    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+def get_device_id():
+    """Get a unique device identifier (serial number or hardware ID)"""
+    # Try multiple methods to get a unique device identifier
+    methods = [
+        # Try to get system serial number
+        (['dmidecode', '-s', 'system-serial-number'], 'system-serial'),
+        # Try to get product UUID
+        (['dmidecode', '-s', 'system-uuid'], 'system-uuid'),
+        # Try to get machine-id (fallback)
+        (['cat', '/etc/machine-id'], 'machine-id'),
+    ]
+    
+    for cmd, method_name in methods:
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=5,
+                stderr=subprocess.DEVNULL
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                device_id = result.stdout.strip()
+                if device_id and device_id != 'Not Specified' and device_id != 'To be filled by O.E.M.':
+                    logger.info(f"Device ID obtained via {method_name}: {device_id}")
+                    return device_id
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
+            logger.debug(f"Failed to get device ID via {method_name}: {e}")
+            continue
+    
+    # Final fallback: use machine-id from systemd
     try:
+        with open('/etc/machine-id', 'r') as f:
+            device_id = f.read().strip()
+            logger.info(f"Using machine-id as device ID: {device_id}")
+            return device_id
+    except Exception as e:
+        logger.error(f"Failed to get machine-id: {e}")
+        # Last resort: generate a hash from hostname
+        import hashlib
+        hostname = subprocess.run(['hostname'], capture_output=True, text=True).stdout.strip()
+        device_id = hashlib.sha256(hostname.encode()).hexdigest()[:16]
+        logger.warning(f"Using hostname hash as device ID: {device_id}")
+        return device_id
+
+def check_internet_connectivity(timeout=5):
+    """Check if device has internet connectivity"""
+    try:
+        # Try pinging a public DNS server
+        result = subprocess.run(
+            ['ping', '-c', '1', '-W', str(timeout), '8.8.8.8'],
+            capture_output=True,
+            timeout=timeout + 1
+        )
+        if result.returncode == 0:
+            logger.info("Internet connectivity check: OK")
+            return True
+    except Exception as e:
+        logger.debug(f"Internet connectivity check failed: {e}")
+    
+    # Also check if we can resolve DNS
+    try:
+        result = subprocess.run(
+            ['nslookup', 'google.com'],
+            capture_output=True,
+            timeout=timeout
+        )
+        if result.returncode == 0:
+            logger.info("Internet connectivity check: OK (DNS resolution)")
+            return True
+    except Exception:
+        pass
+    
+    logger.warning("Internet connectivity check: FAILED")
+    return False
+
+def get_pairing_info_from_cloud(pairing_code, timeout=10):
+    """GET request to /api/devices/pair?pairing_code=XXX to get device_id and api_key"""
+    encoded_code = urllib.parse.quote(pairing_code)
+    url = _cloud_pairing_url() + f'?pairing_code={encoded_code}'
+    try:
+        req = urllib.request.Request(url, method='GET')
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode('utf-8', errors='replace')
-            logger.info(f"Cloud pairing response: {resp.status} {body}")
+            logger.info(f"Cloud pairing GET response: {resp.status} {body}")
             try:
                 parsed = json.loads(body)
-            except Exception:
-                parsed = body
-            return True, parsed
+                if isinstance(parsed, dict):
+                    device_id = parsed.get('device_id')
+                    api_key = parsed.get('api_key')
+                    if device_id and api_key:
+                        logger.info(f"Retrieved device_id: {device_id}, api_key: {api_key[:8]}...")
+                        return True, parsed
+                    else:
+                        logger.warning(f"Missing device_id or api_key in response: {parsed}")
+                        return False, parsed
+                return False, parsed
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid JSON response: {body}")
+                return False, body
     except urllib.error.HTTPError as e:
         try:
             body = e.read().decode('utf-8', errors='replace')
         except Exception:
             body = str(e)
-        logger.warning(f"Cloud pairing HTTP error: {e.code} {body}")
+        logger.warning(f"Cloud pairing GET HTTP error: {e.code} {body}")
         try:
             parsed = json.loads(body)
+            return False, parsed
         except Exception:
-            parsed = body
-        return False, parsed
+            return False, body
     except Exception as e:
-        logger.warning(f"Cloud pairing failed: {e}")
+        logger.warning(f"Cloud pairing GET failed: {e}")
         return False, str(e)
+
+def update_device_id_in_cloud(pairing_code, device_id, api_key, timeout=10):
+    """POST request to /api/devices/pair to upsert device_id where pairing_code matches"""
+    url = _cloud_pairing_url()
+    
+    payload = {
+        'pairing_code': pairing_code,
+        'device_id': device_id
+    }
+    
+    data = json.dumps(payload).encode('utf-8')
+    headers = {
+        'Content-Type': 'application/json',
+        'X-API-Key': api_key  # Use api_key from GET response for authentication
+    }
+    
+    try:
+        req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            body = resp.read().decode('utf-8', errors='replace')
+            logger.info(f"Device ID update response: {resp.status} {body}")
+            try:
+                parsed = json.loads(body)
+                return True, parsed
+            except Exception:
+                return True, body
+    except urllib.error.HTTPError as e:
+        try:
+            body = e.read().decode('utf-8', errors='replace')
+        except Exception:
+            body = str(e)
+        logger.warning(f"Device ID update HTTP error: {e.code} {body}")
+        try:
+            parsed = json.loads(body)
+            return False, parsed
+        except Exception:
+            return False, body
+    except Exception as e:
+        logger.warning(f"Device ID update failed: {e}")
+        return False, str(e)
+
+def save_cloud_credentials(device_id, api_key):
+    """Save device_id and api_key for later use"""
+    try:
+        credentials_file = DATA_DIR / 'cloud_credentials.json'
+        credentials = {
+            'device_id': device_id,
+            'api_key': api_key,
+            'saved_at': datetime.now().isoformat()
+        }
+        with open(credentials_file, 'w') as f:
+            json.dump(credentials, f, indent=2)
+        os.chmod(credentials_file, 0o600)
+        logger.info(f"Saved cloud credentials: device_id={device_id}, api_key={api_key[:8]}...")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to save cloud credentials: {e}")
+        return False
 
 # Ensure directories exist
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -462,65 +610,69 @@ def configure():
         
         # Trigger NetworkManager to connect
         time.sleep(2)
-        connect_to_wifi(ssid)
+        if not connect_to_wifi(ssid):
+            logger.warning("Failed to connect to WiFi, but continuing...")
         
         logger.info("WiFi configuration completed successfully")
-        # Attempt to pair device with cloud service if configured
-        try:
-            success, resp = cloud_pair_device(pairing_code)
-            if success and isinstance(resp, dict) and resp.get('device_id'):
-                device_id = str(resp.get('device_id'))
-                logger.info(f"Device paired with cloud successfully, device_id={device_id}")
-
-                # Write/update .env in the user's CI-OS-Hub repo
-                hub_dir = os.path.expanduser('~/devel/companion/CI-OS-Hub')
-                env_file = os.path.join(hub_dir, '.env')
-                try:
-                    # Read existing lines, update DEVICE_ID or append
-                    existing = {}
-                    if os.path.exists(env_file):
-                        with open(env_file, 'r') as f:
-                            for line in f:
-                                if '=' in line and not line.strip().startswith('#'):
-                                    k, v = line.strip().split('=', 1)
-                                    existing[k] = v
-                    existing['DEVICE_ID'] = device_id
-                    with open(env_file, 'w') as f:
-                        for k, v in existing.items():
-                            f.write(f"{k}={v}\n")
-                    os.chmod(env_file, 0o600)
-                except Exception as e:
-                    logger.warning(f"Failed to write .env for Hub: {e}")
-
-                # Start the Hub process using bun run start:staging
-                try:
-                    # Use subprocess.Popen so the Hub runs independently
-                    proc = subprocess.Popen(
-                        ['bun', 'run', 'start:staging'],
-                        cwd=hub_dir,
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True
-                    )
-                    logger.info(f"Started CI-OS-Hub process (pid={proc.pid})")
-                except Exception as e:
-                    logger.warning(f"Failed to start CI-OS-Hub: {e}")
-            else:
-                logger.warning(f"Device cloud pairing failed or no device_id: {resp}")
-                # Disconnect from network and restart hotspot services so setup restarts
-                try:
-                    logger.info('Disconnecting from network and restarting hotspot services')
-                    # Try to disable networking briefly
-                    subprocess.run(['nmcli', 'networking', 'off'], timeout=5)
-                except Exception:
-                    pass
-                try:
-                    subprocess.run(['systemctl', 'start', 'hostapd-setup.service'], timeout=5)
-                    subprocess.run(['systemctl', 'start', 'dnsmasq-setup.service'], timeout=5)
-                except Exception as e:
-                    logger.warning(f"Failed to start hotspot services: {e}")
-        except Exception as e:
-            logger.warning(f"Exception while attempting cloud pairing: {e}")
+        
+        # Cloud device registration process
+        # Wait for internet connectivity to be established
+        logger.info("Waiting for internet connectivity before cloud registration...")
+        max_wait = 30  # Wait up to 30 seconds for internet
+        internet_available = False
+        for i in range(max_wait):
+            if check_internet_connectivity(timeout=2):
+                internet_available = True
+                break
+            time.sleep(1)
+        
+        if not internet_available:
+            logger.warning("Internet connectivity not available after WiFi connection. Cloud registration skipped.")
+        else:
+            logger.info("Internet connectivity confirmed. Starting cloud device registration...")
+            
+            try:
+                # Step 1: GET request to retrieve device_id and api_key from cloud
+                logger.info(f"Getting pairing info from cloud for pairing code: {pairing_code}")
+                success, pairing_info = get_pairing_info_from_cloud(pairing_code)
+                
+                if not success:
+                    logger.warning(f"Failed to get pairing info from cloud: {pairing_info}")
+                    logger.warning("Cloud registration aborted - could not retrieve pairing info")
+                else:
+                    # Extract device_id and api_key from response
+                    cloud_device_id = pairing_info.get('device_id')
+                    api_key = pairing_info.get('api_key')
+                    
+                    if not cloud_device_id or not api_key:
+                        logger.warning(f"Missing device_id or api_key in cloud response: {pairing_info}")
+                    else:
+                        logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}...")
+                        
+                        # Step 2: Save cloud credentials for later use
+                        save_cloud_credentials(cloud_device_id, api_key)
+                        
+                        # Step 3: Get the actual device ID from local machine
+                        local_device_id = get_device_id()
+                        logger.info(f"Local device ID: {local_device_id}")
+                        
+                        # Step 4: POST to update device_id in cloud (upsert where pairing_code matches)
+                        logger.info("Updating device_id in cloud...")
+                        update_success, update_resp = update_device_id_in_cloud(
+                            pairing_code=pairing_code,
+                            device_id=local_device_id,
+                            api_key=api_key
+                        )
+                        
+                        if update_success:
+                            logger.info(f"Device ID updated successfully in cloud: {update_resp}")
+                            # Update saved credentials with local device_id
+                            save_cloud_credentials(local_device_id, api_key)
+                        else:
+                            logger.warning(f"Device ID update failed: {update_resp}")
+                        
+            except Exception as e:
+                logger.error(f"Exception during cloud registration: {e}", exc_info=True)
         
         # Return HTML response for form submissions, JSON for API calls
         if request.is_json:
