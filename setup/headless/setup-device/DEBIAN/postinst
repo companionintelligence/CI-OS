@@ -65,35 +65,6 @@ chmod 755 /usr/local/bin/setup-network-monitor.sh 2>/dev/null || true
 # Create required directories
 mkdir -p /var/lib/setup-device
 mkdir -p /var/log
-
-# Generate pairing code if missing (backend will regenerate if needed)
-PAIRING_CODE_JSON="/etc/setup-device/pairing_code.json"
-if [ ! -f "$PAIRING_CODE_JSON" ] || [ ! -s "$PAIRING_CODE_JSON" ]; then
-    echo "Generating initial pairing code..."
-    python3 << 'EOF'
-import json
-import random
-import string
-
-chars = string.ascii_uppercase + string.digits
-code1 = ''.join(random.choice(chars) for _ in range(3))
-code2 = ''.join(random.choice(chars) for _ in range(3))
-code = f"{code1}{code2}"  # 6 characters, no dash
-
-pairing_data = {
-    'code': code
-}
-
-with open('/etc/setup-device/pairing_code.json', 'w') as f:
-    json.dump(pairing_data, f, indent=2)
-
-print(f"Generated pairing code: {code}")
-EOF
-    chmod 600 "$PAIRING_CODE_JSON"
-fi
-
-# Set permissions
-chmod 600 /etc/setup-device/pairing_code.json 2>/dev/null || true
 chmod 600 /etc/setup-device/device.conf 2>/dev/null || true
 chmod 644 /etc/hostapd/hostapd-setup.conf 2>/dev/null || true
 chmod 644 /etc/dnsmasq.d/setup-portal.conf 2>/dev/null || true
@@ -134,7 +105,7 @@ if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
     chmod 644 "$CERT_FILE"
 fi
 
-# Start backend first (it will ensure pairing code exists)
+# Start backend service
 echo "Starting backend service..."
 if systemctl start setup-backend.service; then
     echo "✓ Backend service started successfully"

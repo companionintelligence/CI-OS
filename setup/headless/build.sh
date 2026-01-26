@@ -28,7 +28,6 @@ REQUIRED_FILES=(
     "etc/nginx/sites-available/setup-portal"
     "etc/netplan/50-setup-mode.yaml"
     "etc/setup-device/device.conf"
-    "etc/setup-device/pairing_code.json"
     "etc/systemd/system/hostapd-setup.service"
     "etc/systemd/system/dnsmasq-setup.service"
     "etc/systemd/system/setup-backend.service"

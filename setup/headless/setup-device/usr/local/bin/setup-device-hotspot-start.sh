@@ -20,12 +20,17 @@ cp -f /home/companion/devel/companion/CI-OS/setup/headless/setup-device/etc/dnsm
 # Step 2: Reset WiFi interface (disconnect from any existing connection)
 log "Resetting WiFi interface wlp192s0..."
 # Commands run as root by systemd service; avoid internal sudo to prevent extra PAM sessions
+# Stop any running hostapd/dnsmasq processes from previous attempts
+systemctl stop hostapd-setup.service 2>/dev/null || true
+systemctl stop dnsmasq-setup.service 2>/dev/null || true
+sleep 1
+
 ip link set wlp192s0 down 2>/dev/null || log "Warning: Could not bring interface down"
 sleep 1
 ip addr flush dev wlp192s0 2>/dev/null || log "Warning: Could not flush addresses"
 sleep 1
 ip link set wlp192s0 up 2>/dev/null || log "Warning: Could not bring interface up"
-sleep 1
+sleep 2
 
 # Step 3: Assign static IP
 log "Assigning static IP 192.168.99.1/24..."
@@ -46,8 +51,19 @@ if systemctl is-active --quiet hostapd-setup.service; then
     log "✓ hostapd-setup.service started successfully"
 else
     log "✗ hostapd-setup.service failed to start - checking logs"
-    journalctl -u hostapd-setup.service -n 5 | systemd-cat -t setup-hotspot-start -p warning
+    journalctl -u hostapd-setup.service -n 10 --no-pager | systemd-cat -t setup-hotspot-start -p warning
 fi
+
+if systemctl is-active --quiet dnsmasq-setup.service; then
+    log "✓ dnsmasq-setup.service started successfully"
+else
+    log "✗ dnsmasq-setup.service failed to start - checking logs"
+    journalctl -u dnsmasq-setup.service -n 5 --no-pager | systemd-cat -t setup-hotspot-start -p warning
+fi
+
+# Wait briefly for hostapd to stabilize and broadcast SSID
+sleep 3
+log "Hotspot setup complete - Companion-Setup network should be available"
 
 if systemctl is-active --quiet dnsmasq-setup.service; then
     log "✓ dnsmasq-setup.service started successfully"

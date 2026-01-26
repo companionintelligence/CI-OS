@@ -1,6 +1,6 @@
 [Unit]
 Description=DNSmasq for setup portal DHCP and DNS
-After=hostapd-setup.service network-online.target
+After=hostapd-setup.service network.target
 Requires=hostapd-setup.service
 
 [Service]

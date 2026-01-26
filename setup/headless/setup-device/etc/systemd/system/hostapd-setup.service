@@ -1,7 +1,8 @@
 [Unit]
 Description=HostAP daemon for setup mode hotspot
-After=network-online.target
-Wants=network-online.target
+After=network.target
+Before=dnsmasq-setup.service
+Wants=network.target
 
 [Service]
 Type=simple

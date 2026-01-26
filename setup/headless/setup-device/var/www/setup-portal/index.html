@@ -356,16 +356,37 @@
         const customSsidInput = document.getElementById('custom_ssid');
         
         ssidSelect.addEventListener('change', function() {
+            const pwdInput = document.getElementById('password');
+
             if (this.value === '__custom__') {
                 customSsidGroup.style.display = 'block';
                 customSsidInput.focus();
                 // Update form submission to use custom SSID
                 ssidSelect.name = 'ssid_dropdown';
                 customSsidInput.name = 'ssid';
+                // For manual entry we don't know security; leave password optional
+                pwdInput.removeAttribute('required');
+                pwdInput.placeholder = 'Enter password (leave blank for open networks)';
             } else {
                 customSsidGroup.style.display = 'none';
                 ssidSelect.name = 'ssid';
                 customSsidInput.name = 'custom_ssid';
+
+                // Determine security from the selected option's data attribute
+                const selectedOption = ssidSelect.options[ssidSelect.selectedIndex];
+                const security = (selectedOption && selectedOption.getAttribute('data-security')) || 'none';
+
+                // Normalize security string for checks
+                const secUpper = (security || '').toString().toUpperCase();
+
+                // If network is open/none, do not require password. Otherwise require it.
+                if (secUpper === 'NONE' || secUpper === '' || secUpper === 'OPEN') {
+                    pwdInput.removeAttribute('required');
+                    pwdInput.placeholder = 'Open network — leave password blank';
+                } else {
+                    pwdInput.setAttribute('required', 'required');
+                    pwdInput.placeholder = 'Enter password for secured network';
+                }
             }
         });
         
@@ -417,13 +438,15 @@
                         ssidSelect.appendChild(opt);
                     });
                     
-                    // Add scanned networks
+                    // Add scanned networks (attach security metadata)
                     const networkNames = new Set();
                     data.networks.forEach(network => {
                         if (network.ssid && !networkNames.has(network.ssid)) {
                             networkNames.add(network.ssid);
                             const option = document.createElement('option');
                             option.value = network.ssid;
+                            // Store security so UI can decide whether password is required
+                            option.setAttribute('data-security', network.security || 'none');
                             const signalStr = network.signal ? ` (${network.signal}%)` : '';
                             option.textContent = network.ssid + signalStr;
                             ssidSelect.appendChild(option);
