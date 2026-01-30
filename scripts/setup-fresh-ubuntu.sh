@@ -221,31 +221,6 @@ create_directories() {
     log_success "Directories created at $ACTUAL_HOME/devel/companion"
 }
 
-# Clone CI server repo
-clone_ci_server() {
-    if dir_exists_and_not_empty "$ACTUAL_HOME/devel/companion/CI-Server"; then
-        log_info "CI-Server repository already exists, skipping clone..."
-        return 0
-    fi
-    
-    log_info "Cloning CI-Server repository..."
-    # Clone as the actual user
-    sudo -u "$ACTUAL_USER" git clone https://github.com/companionintelligence/CI-Server "$ACTUAL_HOME/devel/companion/CI-Server"
-    log_success "CI-Server repository cloned"
-}
-
-# Clone CI-OS-Hub repo
-clone_ci_os_hub() {
-    if dir_exists_and_not_empty "$ACTUAL_HOME/devel/companion/CI-OS-Hub"; then
-        log_info "CI-OS-Hub repository already exists, skipping clone..."
-        return 0
-    fi
-    
-    log_info "Cloning CI-OS-Hub repository..."
-    # Clone as the actual user
-    sudo -u "$ACTUAL_USER" git clone https://github.com/companionintelligence/CI-OS-Hub.git "$ACTUAL_HOME/devel/companion/CI-OS-Hub"
-    log_success "CI-OS-Hub repository cloned"
-}
 
 # Install UV
 install_uv() {
@@ -384,16 +359,16 @@ fi
 source ~/.bashrc 2>/dev/null || true
 
 # Add Node.js plugin (if not already added)
-asdf plugin add nodejs 2>/dev/null || true
+sudo asdf plugin add nodejs 2>/dev/null || true
 
 # Install Node.js (if not already installed)
-if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
-    asdf install nodejs 22.15.1
+if ! sudo asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
+    sudo asdf install nodejs 22.15.1
 fi
 
 # Install yarn globally (if not already installed)
 if ! command -v yarn &>/dev/null; then
-    npm install --global yarn
+    sudo npm install --global yarn
 fi
 EOF
     
@@ -419,20 +394,20 @@ if ! command -v asdf &>/dev/null; then
 fi
 
 # Check if Node.js 22.15.1 is installed
-if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
+if ! sudo asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
     echo "Node.js 22.15.1 is not installed, skipping global version setting"
     exit 0
 fi
 
 # Check current global version
-CURRENT_GLOBAL=\$(asdf current nodejs 2>/dev/null | grep -oP '22\.15\.1' || echo "")
+CURRENT_GLOBAL=\$(sudo asdf current nodejs 2>/dev/null | grep -oP '22\.15\.1' || echo "")
 if [[ "\$CURRENT_GLOBAL" == "22.15.1" ]]; then
     echo "Node.js 22.15.1 is already set as global version"
     exit 0
 fi
 
 # Set global Node.js version
-asdf set global nodejs 22.15.1
+sudo asdf set global nodejs 22.15.1
 EOF
     
     log_success "Global Node.js version set to 22.15.1"
@@ -1051,8 +1026,6 @@ main() {
     install_docker
     add_user_to_docker_group
     create_directories
-    clone_ci_server
-    clone_ci_os_hub
     install_uv
     install_homebrew
     install_asdf_nodejs
