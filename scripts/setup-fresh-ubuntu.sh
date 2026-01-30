@@ -207,21 +207,6 @@ add_user_to_docker_group() {
     fi
 }
 
-# Create directories (requires root for chown operation)
-create_directories() {
-    if [[ -d "$ACTUAL_HOME/devel/companion" ]]; then
-        log_info "Development directories already exist, skipping creation..."
-        return 0
-    fi
-    
-    log_info "Creating development directories..."
-    # Create in the actual user's home directory (requires root for chown)
-    mkdir -p "$ACTUAL_HOME/devel/companion"
-    chown -R "$ACTUAL_USER:$ACTUAL_USER" "$ACTUAL_HOME/devel"
-    log_success "Directories created at $ACTUAL_HOME/devel/companion"
-}
-
-
 # Install UV
 install_uv() {
     if sudo -u "$ACTUAL_USER" bash -c "command -v uv" &>/dev/null; then
@@ -462,308 +447,6 @@ note_bashrc() {
 get_script_paths() {
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-    DEFAULT_ICON="$PROJECT_ROOT/LogoMark_Color_StartIcon.svg"
-    DEFAULT_WALLPAPER="$PROJECT_ROOT/background.png"
-}
-
-# Prompt for icon path with default
-prompt_icon_path() {
-    get_script_paths
-    
-    echo
-    log_info "Custom Start Menu Icon Configuration"
-    echo "Default icon: $DEFAULT_ICON"
-    read -p "Enter path to custom start menu icon (SVG or PNG) [Press Enter for default]: " ICON_PATH
-    
-    # Use default if empty
-    if [[ -z "$ICON_PATH" ]]; then
-        ICON_PATH="$DEFAULT_ICON"
-    fi
-    
-    # Expand ~ and resolve relative paths
-    ICON_PATH="${ICON_PATH/#\~/$HOME}"
-    if [[ ! "$ICON_PATH" =~ ^/ ]]; then
-        # Resolve relative to current directory or script directory
-        if [[ -f "$ICON_PATH" ]]; then
-            ICON_PATH="$(cd "$(dirname "$ICON_PATH")" 2>/dev/null && pwd)/$(basename "$ICON_PATH")"
-        elif [[ -f "$SCRIPT_DIR/$ICON_PATH" ]]; then
-            ICON_PATH="$SCRIPT_DIR/$ICON_PATH"
-        elif [[ -f "$PROJECT_ROOT/$ICON_PATH" ]]; then
-            ICON_PATH="$PROJECT_ROOT/$ICON_PATH"
-        fi
-    fi
-    
-    # Validate file exists
-    if [[ ! -f "$ICON_PATH" ]]; then
-        log_error "Icon file not found: $ICON_PATH"
-        log_warning "Skipping icon customization"
-        ICON_PATH=""
-        return 1
-    fi
-    
-    # Validate file format
-    local ext="${ICON_PATH##*.}"
-    if [[ ! "$ext" =~ ^(svg|SVG|png|PNG)$ ]]; then
-        log_warning "Icon file should be SVG or PNG format. Proceeding anyway..."
-    fi
-    
-    log_success "Using icon: $ICON_PATH"
-    CUSTOM_ICON_PATH="$ICON_PATH"
-    return 0
-}
-
-# Prompt for wallpaper path with default
-prompt_wallpaper_path() {
-    get_script_paths
-    
-    echo
-    log_info "Custom Desktop Wallpaper Configuration"
-    echo "Default wallpaper: $DEFAULT_WALLPAPER"
-    read -p "Enter path to custom desktop wallpaper (PNG, JPG, or JPEG) [Press Enter for default]: " WALLPAPER_PATH
-    
-    # Use default if empty
-    if [[ -z "$WALLPAPER_PATH" ]]; then
-        WALLPAPER_PATH="$DEFAULT_WALLPAPER"
-    fi
-    
-    # Expand ~ and resolve relative paths
-    WALLPAPER_PATH="${WALLPAPER_PATH/#\~/$HOME}"
-    if [[ ! "$WALLPAPER_PATH" =~ ^/ ]]; then
-        # Resolve relative to current directory or script directory
-        if [[ -f "$WALLPAPER_PATH" ]]; then
-            WALLPAPER_PATH="$(cd "$(dirname "$WALLPAPER_PATH")" 2>/dev/null && pwd)/$(basename "$WALLPAPER_PATH")"
-        elif [[ -f "$SCRIPT_DIR/$WALLPAPER_PATH" ]]; then
-            WALLPAPER_PATH="$SCRIPT_DIR/$WALLPAPER_PATH"
-        elif [[ -f "$PROJECT_ROOT/$WALLPAPER_PATH" ]]; then
-            WALLPAPER_PATH="$PROJECT_ROOT/$WALLPAPER_PATH"
-        fi
-    fi
-    
-    # Validate file exists
-    if [[ ! -f "$WALLPAPER_PATH" ]]; then
-        log_error "Wallpaper file not found: $WALLPAPER_PATH"
-        log_warning "Skipping wallpaper customization"
-        WALLPAPER_PATH=""
-        return 1
-    fi
-    
-    # Validate file format
-    local ext="${WALLPAPER_PATH##*.}"
-    if [[ ! "$ext" =~ ^(png|PNG|jpg|JPG|jpeg|JPEG)$ ]]; then
-        log_warning "Wallpaper file should be PNG, JPG, or JPEG format. Proceeding anyway..."
-    fi
-    
-    log_success "Using wallpaper: $WALLPAPER_PATH"
-    CUSTOM_WALLPAPER_PATH="$WALLPAPER_PATH"
-    return 0
-}
-
-# Replace Ubuntu icons with custom icon (requires root for system directory operations)
-replace_ubuntu_icons() {
-    # Verify we have root privileges for system directory operations
-    if [[ $EUID -ne 0 ]]; then
-        log_error "Icon replacement requires root privileges. Please run with sudo."
-        return 1
-    fi
-    
-    if [[ -z "${CUSTOM_ICON_PATH:-}" ]] || [[ ! -f "$CUSTOM_ICON_PATH" ]]; then
-        log_warning "No custom icon specified, skipping icon replacement"
-        return 0
-    fi
-    
-    # Check if icon was already replaced (check if backup directory exists)
-    local backup_check_dir="/usr/share/icons/ubuntu-backup-*"
-    if ls -d $backup_check_dir &>/dev/null; then
-        log_info "Icon replacement appears to have been done before (backup found), skipping..."
-        log_info "To re-run icon replacement, remove backup directories in /usr/share/icons/ubuntu-backup-*"
-        return 0
-    fi
-    
-    log_info "Replacing Ubuntu icons with custom icon (requires root privileges)..."
-    
-    local icon_ext="${CUSTOM_ICON_PATH##*.}"
-    local icon_name="ci-os-logo"
-    
-    # Create backup directory (requires root)
-    local backup_dir="/usr/share/icons/ubuntu-backup-$(date +%Y%m%d-%H%M%S)"
-    if ! mkdir -p "$backup_dir" 2>/dev/null; then
-        log_error "Failed to create backup directory. Insufficient privileges?"
-        return 1
-    fi
-    
-    # Activities button icon (GNOME Shell start menu) - requires root
-    local activities_icon="/usr/share/icons/Yaru/scalable/actions/view-app-grid-symbolic.svg"
-    if [[ -f "$activities_icon" ]]; then
-        # Backup original (requires root)
-        mkdir -p "$backup_dir/Yaru/scalable/actions"
-        if ! cp "$activities_icon" "$backup_dir/Yaru/scalable/actions/view-app-grid-symbolic.svg.bak" 2>/dev/null; then
-            log_warning "Could not backup original icon, but continuing..."
-        fi
-        
-        # Copy custom icon (SVG preferred for Activities button) - requires root
-        if [[ "$icon_ext" =~ ^(svg|SVG)$ ]]; then
-            if ! cp "$CUSTOM_ICON_PATH" "$activities_icon" 2>/dev/null; then
-                log_error "Failed to copy icon to $activities_icon. Check permissions."
-                return 1
-            fi
-        else
-            # For PNG, create an SVG wrapper that references the PNG - requires root
-            log_info "PNG format detected. Creating SVG wrapper for Activities button..."
-            # Copy PNG to a location we can reference (requires root)
-            local png_dest="/usr/share/pixmaps/ci-os-activities-icon.png"
-            if ! cp "$CUSTOM_ICON_PATH" "$png_dest" 2>/dev/null; then
-                log_error "Failed to copy PNG icon. Check permissions."
-                return 1
-            fi
-            # Create SVG wrapper (requires root)
-            if ! cat > "$activities_icon" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="24" height="24" viewBox="0 0 24 24">
-  <image xlink:href="file://$png_dest" width="24" height="24"/>
-</svg>
-EOF
-            then
-                log_error "Failed to create SVG wrapper. Check permissions."
-                return 1
-            fi
-        fi
-        chmod 644 "$activities_icon"
-        log_success "Replaced Activities button icon"
-    else
-        log_warning "Activities icon file not found: $activities_icon"
-    fi
-    
-    # System pixmaps (requires root)
-    if ! mkdir -p /usr/share/pixmaps 2>/dev/null; then
-        log_error "Failed to create /usr/share/pixmaps directory. Insufficient privileges?"
-        return 1
-    fi
-    
-    if [[ "$icon_ext" =~ ^(svg|SVG)$ ]]; then
-        if ! cp "$CUSTOM_ICON_PATH" "/usr/share/pixmaps/${icon_name}.svg" 2>/dev/null; then
-            log_error "Failed to copy icon to pixmaps. Check permissions."
-            return 1
-        fi
-        # Also create PNG versions for compatibility
-        if command -v convert >/dev/null 2>&1; then
-            convert "$CUSTOM_ICON_PATH" -resize 64x64 "/usr/share/pixmaps/${icon_name}.png" 2>/dev/null || true
-        fi
-    else
-        if ! cp "$CUSTOM_ICON_PATH" "/usr/share/pixmaps/${icon_name}.png" 2>/dev/null; then
-            log_error "Failed to copy icon to pixmaps. Check permissions."
-            return 1
-        fi
-    fi
-    log_success "Added icon to system pixmaps"
-    
-    # Application icons in hicolor theme (requires root)
-    local icon_sizes=(16 22 24 32 48 64 128 256 scalable)
-    for size in "${icon_sizes[@]}"; do
-        local icon_dir="/usr/share/icons/hicolor/${size}x${size}/apps"
-        if [[ "$size" == "scalable" ]]; then
-            icon_dir="/usr/share/icons/hicolor/scalable/apps"
-        fi
-        if ! mkdir -p "$icon_dir" 2>/dev/null; then
-            log_warning "Failed to create icon directory: $icon_dir"
-            continue
-        fi
-        
-        if [[ "$icon_ext" =~ ^(svg|SVG)$ ]] && [[ "$size" == "scalable" ]]; then
-            cp "$CUSTOM_ICON_PATH" "${icon_dir}/${icon_name}.svg" 2>/dev/null || true
-        elif [[ ! "$icon_ext" =~ ^(svg|SVG)$ ]] && [[ "$size" != "scalable" ]]; then
-            if command -v convert >/dev/null 2>&1 && [[ "$size" != "scalable" ]]; then
-                convert "$CUSTOM_ICON_PATH" -resize "${size}x${size}" "${icon_dir}/${icon_name}.png" 2>/dev/null || true
-            else
-                cp "$CUSTOM_ICON_PATH" "${icon_dir}/${icon_name}.png" 2>/dev/null || true
-            fi
-        fi
-    done
-    log_success "Added icon to hicolor theme"
-    
-    # Update icon cache (requires root)
-    if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-        gtk-update-icon-cache -f /usr/share/icons/hicolor 2>/dev/null || log_warning "Failed to update hicolor icon cache"
-        gtk-update-icon-cache -f /usr/share/icons/Yaru 2>/dev/null || log_warning "Failed to update Yaru icon cache"
-        log_success "Updated icon cache"
-    fi
-    
-    log_success "Icon replacement completed. Backup saved to: $backup_dir"
-    log_warning "Note: You may need to log out and log back in for all icon changes to take effect"
-}
-
-# Set custom wallpaper (requires root for system directory and dconf operations)
-set_custom_wallpaper() {
-    # Verify we have root privileges for system directory operations
-    if [[ $EUID -ne 0 ]]; then
-        log_error "Wallpaper setup requires root privileges. Please run with sudo."
-        return 1
-    fi
-    
-    if [[ -z "${CUSTOM_WALLPAPER_PATH:-}" ]] || [[ ! -f "$CUSTOM_WALLPAPER_PATH" ]]; then
-        log_warning "No custom wallpaper specified, skipping wallpaper setup"
-        return 0
-    fi
-    
-    # Check if wallpaper is already set
-    local wallpaper_name="ci-os-wallpaper"
-    local wallpaper_ext="${CUSTOM_WALLPAPER_PATH##*.}"
-    local dest_wallpaper="/usr/share/backgrounds/${wallpaper_name}.${wallpaper_ext}"
-    
-    log_info "Setting custom desktop wallpaper (requires root privileges)..."
-    
-    # Ensure backgrounds directory exists (requires root)
-    if ! mkdir -p /usr/share/backgrounds 2>/dev/null; then
-        log_error "Failed to create /usr/share/backgrounds directory. Insufficient privileges?"
-        return 1
-    fi
-    
-    # Copy wallpaper to system backgrounds directory (requires root)
-    if [[ ! -f "$dest_wallpaper" ]]; then
-        if ! cp "$CUSTOM_WALLPAPER_PATH" "$dest_wallpaper" 2>/dev/null; then
-            log_error "Failed to copy wallpaper to $dest_wallpaper. Check permissions."
-            return 1
-        fi
-        chmod 644 "$dest_wallpaper"
-        log_success "Copied wallpaper to system directory"
-    else
-        log_info "Custom wallpaper already exists in system directory, skipping copy..."
-    fi
-    
-    # Set wallpaper for all users using gsettings (requires desktop environment)
-    if command -v gsettings >/dev/null 2>&1; then
-        # Set for the actual user (runs as user, not root)
-        sudo -u "$ACTUAL_USER" bash <<EOF || true
-export DISPLAY=:0
-export XAUTHORITY=\$HOME/.Xauthority
-gsettings set org.gnome.desktop.background picture-uri "file://$dest_wallpaper" 2>/dev/null || true
-gsettings set org.gnome.desktop.background picture-uri-dark "file://$dest_wallpaper" 2>/dev/null || true
-EOF
-        
-        # Also set system-wide defaults for new users (requires root)
-        if ! mkdir -p /etc/dconf/db/local.d 2>/dev/null; then
-            log_warning "Failed to create dconf directory. System-wide wallpaper may not be set."
-        else
-            if ! cat > /etc/dconf/db/local.d/00-wallpaper <<EOF
-[org/gnome/desktop/background]
-picture-uri='file://$dest_wallpaper'
-picture-uri-dark='file://$dest_wallpaper'
-EOF
-            then
-                log_warning "Failed to write dconf configuration. Check permissions."
-            else
-                # Update dconf database (requires root)
-                if command -v dconf >/dev/null 2>&1; then
-                    dconf update 2>/dev/null || log_warning "Failed to update dconf database"
-                fi
-                log_success "Wallpaper configured for all users"
-            fi
-        fi
-    else
-        log_warning "gsettings not available. Wallpaper copied but not set as default."
-        log_info "You can set it manually from Settings > Appearance > Background"
-    fi
-    
-    log_success "Wallpaper setup completed"
 }
 
 # Create CI user and add to docker group (requires root for user management)
@@ -990,8 +673,8 @@ main() {
     echo
     
     # Ensure we're running as root (required for all system operations)
-    # This includes: package installation, system directory modifications, 
-    # icon/wallpaper replacement, service configuration, user management
+    # This includes: package installation, system directory modifications,
+    # service configuration, user management
     check_root
     
     # Double-check root privileges are available
@@ -999,7 +682,6 @@ main() {
         log_error "Script must be run as root. Use: sudo $0"
         log_error "This script requires root privileges for:"
         log_error "  - Installing system packages (apt)"
-        log_error "  - Modifying system directories (/usr/share/icons, /usr/share/backgrounds)"
         log_error "  - Configuring system services (systemctl)"
         log_error "  - Managing users and groups"
         exit 1
@@ -1010,13 +692,6 @@ main() {
     log_info "✓ Running with root privileges (EUID: $EUID)"
     log_info "✓ All system operations will run with root privileges"
     log_info "✓ User-specific operations will run as user: $ACTUAL_USER"
-    log_info "✓ Icon and wallpaper replacement will use system directories"
-    echo
-    
-    # Prompt for custom icon and wallpaper
-    prompt_icon_path || CUSTOM_ICON_PATH=""
-    prompt_wallpaper_path || CUSTOM_WALLPAPER_PATH=""
-    
     log_info "Starting installation process..."
     echo
     
@@ -1025,7 +700,6 @@ main() {
     install_make
     install_docker
     add_user_to_docker_group
-    create_directories
     install_uv
     install_homebrew
     install_asdf_nodejs
@@ -1041,15 +715,6 @@ main() {
     install_vscode
     enable_corepack
     
-    # Customize branding (icons and wallpaper)
-    if [[ -n "${CUSTOM_ICON_PATH:-}" ]]; then
-        replace_ubuntu_icons
-    fi
-    
-    if [[ -n "${CUSTOM_WALLPAPER_PATH:-}" ]]; then
-        set_custom_wallpaper
-    fi
-    
     echo
     log_success "Setup completed successfully!"
     echo
@@ -1058,12 +723,6 @@ main() {
     echo "  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group"
     echo "  • Start Ollama service: systemctl start ollama"
     echo "  • Verify installations: docker --version, node --version, bun --version, ollama --version, gh --version"
-    if [[ -n "${CUSTOM_ICON_PATH:-}" ]]; then
-        echo "  • Custom icon applied - log out and log back in to see changes"
-    fi
-    if [[ -n "${CUSTOM_WALLPAPER_PATH:-}" ]]; then
-        echo "  • Custom wallpaper applied"
-    fi
     echo "  • Note: 'Create deploy read key' step was not specified - please add this manually if needed"
 }
 
