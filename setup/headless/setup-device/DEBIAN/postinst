@@ -110,11 +110,11 @@ echo "Starting backend service..."
 if systemctl start setup-backend.service; then
     echo "✓ Backend service started successfully"
 else
-    echo "ERROR: Failed to start setup-backend.service"
+    echo "WARNING: Failed to start setup-backend.service - continuing installation"
     echo "Debug info:"
     systemctl status setup-backend.service 2>&1 || true
     journalctl -u setup-backend.service -n 20 --no-pager 2>&1 || true
-    exit 1
+    # Do NOT exit here - allow installation to continue so the hotspot can be brought up
 fi
 sleep 2
 
@@ -123,11 +123,15 @@ echo "Starting network monitor service..."
 if systemctl start setup-network-monitor.service; then
     echo "✓ Network monitor service started successfully"
 else
-    echo "ERROR: Failed to start setup-network-monitor.service"
+    echo "WARNING: Failed to start setup-network-monitor.service - attempting hotspot fallback"
     echo "Debug info:"
     systemctl status setup-network-monitor.service 2>&1 || true
     journalctl -u setup-network-monitor.service -n 20 --no-pager 2>&1 || true
-    exit 1
+
+    # As a fallback, try to start hotspot services directly so device is reachable
+    echo "Attempting to start hostapd/dnsmasq services directly as fallback..."
+    systemctl start hostapd-setup.service 2>/dev/null || echo "Warning: hostapd-setup.service failed to start"
+    systemctl start dnsmasq-setup.service 2>/dev/null || echo "Warning: dnsmasq-setup.service failed to start"
 fi
 sleep 1
 

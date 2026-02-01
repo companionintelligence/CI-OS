@@ -25,7 +25,7 @@ CONFIG_DIR = Path('/etc/setup-device')
 DATA_DIR = Path('/var/lib/setup-device')
 LOG_FILE = '/var/log/setup-backend.log'
 
-PAIRING_CODE_JSON = CONFIG_DIR / 'pairing_code.json'
+USER_PAIRING_CODE_JSON = DATA_DIR / 'user_pairing_code.json'
 SETUP_COMPLETE_FILE = DATA_DIR / 'setup-complete'
 CREDENTIALS_JSON = DATA_DIR / 'credentials.json'
 
@@ -277,118 +277,21 @@ def normalize_pairing_code(code):
     """Normalize pairing code: remove non-alphanumeric characters, convert to uppercase"""
     return re.sub(r'[^A-Z0-9]', '', code.upper())
 
-def generate_pairing_code():
-    """Generate new pairing code (6 characters, A-Z0-9)"""
-    import random
-    import string
-    
-    chars = string.ascii_uppercase + string.digits
-    code1 = ''.join(random.choice(chars) for _ in range(3))
-    code2 = ''.join(random.choice(chars) for _ in range(3))
-    code = f"{code1}{code2}"  # No dash, just 6 characters
-    
-    pairing_data = {
-        'code': code
-    }
-    
-    return pairing_data
-
-def ensure_pairing_code():
-    """Ensure pairing code exists and is valid"""
+def save_user_pairing_code(code):
+    """Save the user-entered pairing code to file"""
     try:
-        # Load existing code if present
-        if PAIRING_CODE_JSON.exists():
-            try:
-                with open(PAIRING_CODE_JSON, 'r') as f:
-                    pairing_data = json.load(f)
-                
-                # Migrate old pairing code files: remove all old fields (expires_at, expired_at, generated_at)
-                # Handle both empty strings and actual values
-                fields_to_remove = ['expires_at', 'expired_at', 'generated_at']
-                removed_fields = []
-                
-                for field in fields_to_remove:
-                    if field in pairing_data:
-                        # Remove field even if it's an empty string
-                        removed_fields.append(field)
-                        pairing_data.pop(field, None)
-                
-                if removed_fields:
-                    logger.info(f"Migrating pairing code file: removing old fields: {', '.join(removed_fields)}")
-                    # Ensure we only keep the 'code' field
-                    cleaned_data = {'code': pairing_data.get('code', '')}
-                    # Rewrite file with only the code field
-                    with open(PAIRING_CODE_JSON, 'w') as f:
-                        json.dump(cleaned_data, f, indent=2)
-                    os.chmod(PAIRING_CODE_JSON, 0o600)
-                    # Update pairing_data for validation below
-                    pairing_data = cleaned_data
-                
-                # Check if code exists and is valid
-                if 'code' in pairing_data and pairing_data['code']:
-                    logger.info("Using existing pairing code")
-                    return pairing_data['code']
-                else:
-                    logger.warning("Pairing code file exists but has no valid code, regenerating...")
-            except (json.JSONDecodeError, KeyError, ValueError) as e:
-                logger.warning(f"Invalid pairing code file: {e}, regenerating...")
-        
-        # Generate new code
-        pairing_data = generate_pairing_code()
-        with open(PAIRING_CODE_JSON, 'w') as f:
+        pairing_data = {
+            'code': normalize_pairing_code(code),
+            'entered_at': datetime.now().isoformat()
+        }
+        with open(USER_PAIRING_CODE_JSON, 'w') as f:
             json.dump(pairing_data, f, indent=2)
-        
-        # Set root-only permissions
-        os.chmod(PAIRING_CODE_JSON, 0o600)
-        
-        logger.info(f"Generated new pairing code: {pairing_data['code']}")
-        return pairing_data['code']
-        
-    except Exception as e:
-        logger.error(f"Failed to ensure pairing code: {e}", exc_info=True)
-        # Generate fallback code
-        try:
-            pairing_data = generate_pairing_code()
-            return pairing_data['code']
-        except Exception as fallback_error:
-            logger.error(f"Failed to generate fallback pairing code: {fallback_error}")
-            # Return a test code as last resort
-            return "ABC123"
-
-def load_pairing_code():
-    """Load pairing code from JSON file"""
-    try:
-        if PAIRING_CODE_JSON.exists():
-            with open(PAIRING_CODE_JSON, 'r') as f:
-                pairing_data = json.load(f)
-            return pairing_data.get('code', '')
-    except Exception as e:
-        logger.error(f"Failed to load pairing code: {e}")
-    return None
-
-def validate_pairing_code(code):
-    """Validate pairing code matches stored code (pairing codes don't expire)"""
-    normalized = normalize_pairing_code(code)
-    
-    # Whitelist test pairing code for development/testing
-    TEST_CODE = "ABC123"
-    if normalized == TEST_CODE:
-        logger.info(f"Test pairing code accepted: {code}")
+        os.chmod(USER_PAIRING_CODE_JSON, 0o600)
+        logger.info(f"Saved user pairing code")
         return True
-    
-    stored_code = load_pairing_code()
-    
-    if not stored_code:
-        logger.warning("No pairing code found")
+    except Exception as e:
+        logger.error(f"Failed to save user pairing code: {e}")
         return False
-    
-    stored_normalized = normalize_pairing_code(stored_code)
-    
-    if normalized != stored_normalized:
-        logger.warning(f"Pairing code mismatch")
-        return False
-    
-    return True
 
 def scan_wifi_networks():
     """Scan for available WiFi networks using nmcli"""
@@ -614,6 +517,40 @@ def remove_setup_netplan_config():
         logger.error(f"Error removing netplan config: {e}")
         return False
 
+def trigger_hub_pull():
+    """Trigger CI-OS-Hub pull and startup (run in background)"""
+    try:
+        # Find the pull-and-run-ci-os-hub.sh script
+        pull_script = Path('/home/companion/Development/CI-OS/scripts/pull-and-run-ci-os-hub.sh')
+        
+        # Look in common locations
+        if not pull_script.exists():
+            pull_script = Path('/opt/ci-os/scripts/pull-and-run-ci-os-hub.sh')
+        
+        if not pull_script.exists():
+            pull_script = Path('/usr/local/bin/pull-and-run-ci-os-hub.sh')
+        
+        if not pull_script.exists():
+            logger.warning(f"CI-OS-Hub pull script not found at expected locations")
+            return False
+        
+        logger.info(f"Running CI-OS-Hub pull script: {pull_script}")
+        
+        # Run in background so the HTTP response returns immediately
+        subprocess.Popen(
+            [str(pull_script)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True  # Detach from parent process
+        )
+        
+        logger.info("CI-OS-Hub pull triggered in background")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to trigger CI-OS-Hub pull: {e}")
+        return False
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
@@ -623,11 +560,10 @@ def health():
 def status():
     """Get setup status"""
     setup_complete = SETUP_COMPLETE_FILE.exists()
-    pairing_code = load_pairing_code()
     
     return jsonify({
         'setup_complete': setup_complete,
-        'pairing_code_available': pairing_code is not None
+        'message': 'Waiting for user pairing code and WiFi credentials'
     })
 
 @app.route('/api/scan-networks', methods=['GET'])
@@ -639,7 +575,7 @@ def scan_networks():
 
 @app.route('/api/configure', methods=['POST'])
 def configure():
-    """Configure WiFi connection"""
+    """Configure WiFi connection and validate pairing code"""
     try:
         # Accept both JSON and form-encoded data
         if request.is_json:
@@ -660,17 +596,105 @@ def configure():
         if not ssid:
             return jsonify({'error': 'SSID required'}), 400
         
-        # Validate pairing code is 6 characters (after normalizing user input)
+        # Normalize and validate pairing code
         normalized_code = normalize_pairing_code(pairing_code)
-        if len(normalized_code) != 6:
-            return jsonify({'error': 'Pairing code must be 6 characters'}), 400
+        if len(normalized_code) < 4:
+            return jsonify({'error': 'Pairing code must be at least 4 characters'}), 400
         
-        logger.info(f"[CONFIGURE] Starting WiFi configuration")
+        logger.info(f"[CONFIGURE] Starting setup flow")
         logger.info(f"[CONFIGURE] SSID: {ssid}")
         logger.info(f"[CONFIGURE] Pairing code (normalized): {normalized_code}")
         logger.info(f"[CONFIGURE] Password provided: {'Yes' if password else 'No (open network)'}")
         
-        # Create NetworkManager connection
+        # Step 1: Check internet connectivity first
+        logger.info("[CONFIGURE] Checking internet connectivity...")
+        max_wait = 15
+        internet_available = False
+        for i in range(max_wait):
+            if check_internet_connectivity(timeout=3):
+                internet_available = True
+                logger.info("[CONFIGURE] Internet connectivity confirmed")
+                break
+            if (i + 1) % 3 == 0:
+                logger.info(f"[CONFIGURE] Waiting for internet... ({i+1}/{max_wait})")
+            time.sleep(1)
+        
+        if not internet_available:
+            logger.error("[CONFIGURE] No internet connectivity - cannot validate pairing code with cloud")
+            return jsonify({
+                'error': 'No internet connectivity. Please connect to a network with internet access.',
+                'status': 'no_internet'
+            }), 500
+        
+        logger.info("[CONFIGURE] Internet available - querying cloud for device with pairing code...")
+        
+        # Step 2: Query cloud for device with this pairing code
+        try:
+            success, pairing_info = get_pairing_info_from_cloud(normalized_code)
+            
+            if not success:
+                logger.error(f"[CONFIGURE] Failed to get device info from cloud: {pairing_info}")
+                return jsonify({
+                    'error': 'Pairing code not found or invalid',
+                    'status': 'invalid_pairing_code'
+                }), 400
+            
+            device_id_from_cloud = pairing_info.get('device_id')
+            api_key = pairing_info.get('api_key')
+            device_status = pairing_info.get('status', '')
+            
+            logger.info(f"[CONFIGURE] Cloud response - device_id: {device_id_from_cloud}, status: {device_status}")
+            
+            # Check if status is "inactive"
+            if device_status.lower() != 'inactive':
+                logger.error(f"[CONFIGURE] Device status is '{device_status}', not 'inactive'. Cannot proceed.")
+                return jsonify({
+                    'error': f'Device status is {device_status}. Expected inactive.',
+                    'status': 'invalid_device_status'
+                }), 400
+            
+            if not api_key:
+                logger.error("[CONFIGURE] No API key received from cloud")
+                return jsonify({
+                    'error': 'Invalid device configuration',
+                    'status': 'no_api_key'
+                }), 500
+            
+            logger.info("[CONFIGURE] Device found and inactive. Proceeding with setup...")
+            
+            # Step 3: Save user pairing code for reference
+            save_user_pairing_code(pairing_code)
+            
+            # Step 4: Save API key from cloud response
+            logger.info("[CONFIGURE] Saving cloud credentials...")
+            local_device_id = get_device_id()
+            save_cloud_credentials(local_device_id, api_key)
+            
+            # Step 5: Update device_id in cloud
+            logger.info("[CONFIGURE] Updating device ID in cloud...")
+            update_success, update_resp = update_device_id_in_cloud(
+                pairing_code=normalized_code,
+                device_id=local_device_id,
+                api_key=api_key
+            )
+            
+            if not update_success:
+                logger.warning(f"[CONFIGURE] Device ID update failed: {update_resp}")
+                return jsonify({
+                    'error': 'Failed to update device in cloud',
+                    'status': 'update_failed'
+                }), 500
+            
+            logger.info("[CONFIGURE] Device ID updated successfully in cloud")
+            
+        except Exception as e:
+            logger.error(f"[CONFIGURE] Exception during cloud validation: {e}", exc_info=True)
+            return jsonify({
+                'error': 'Cloud validation error',
+                'status': 'cloud_error'
+            }), 500
+        
+        # Step 6: Now proceed with WiFi configuration
         logger.info(f"[CONFIGURE] Creating NetworkManager connection for {ssid}...")
         if not create_wifi_connection(ssid, password):
             logger.error(f"[CONFIGURE] Failed to create WiFi connection for {ssid}")
@@ -688,11 +712,7 @@ def configure():
                 json.dump(credentials, f, indent=2)
             os.chmod(CREDENTIALS_JSON, 0o600)
         except Exception as e:
-            logger.error(f"Failed to save credentials: {e}")
-        
-        # NOTE: We do NOT create setup-complete flag - it should not gate hotspot operations
-        # The network monitor runs independently and starts hotspot if no connectivity detected
-        # Setup is complete when WiFi connection is active, not when the flag is written
+            logger.error(f"Failed to save WiFi credentials: {e}")
         
         # Stop hotspot services
         time.sleep(2)
@@ -702,193 +722,35 @@ def configure():
         time.sleep(1)
         remove_setup_netplan_config()
         
-        # Step 1: Connect to WiFi first
-        logger.info(f"Connecting to WiFi network: {ssid}")
+        # Step 7: Connect to WiFi
+        logger.info(f"[CONFIGURE] Connecting to WiFi network: {ssid}")
         wifi_connected = False
         max_wifi_wait = 30  # Wait up to 30 seconds for WiFi connection
         for i in range(max_wifi_wait):
             if connect_to_wifi(ssid):
                 wifi_connected = True
-                logger.info("WiFi connection established")
+                logger.info("[CONFIGURE] WiFi connection established")
                 break
-            logger.info(f"Waiting for WiFi connection... ({i+1}/{max_wifi_wait})")
+            logger.info(f"[CONFIGURE] Waiting for WiFi connection... ({i+1}/{max_wifi_wait})")
             time.sleep(1)
         
         if not wifi_connected:
-            logger.error("Failed to connect to WiFi network")
+            logger.error("[CONFIGURE] Failed to connect to WiFi network")
             return jsonify({'error': 'Failed to connect to WiFi network. Please check your credentials and try again.'}), 500
         
-        logger.info("WiFi connection successful")
+        logger.info("[CONFIGURE] WiFi connection successful")
         
-        # Step 2: Wait for internet connectivity to be established
-        logger.info("Waiting for internet connectivity before cloud registration...")
-        max_wait = 45  # Wait up to 45 seconds for internet (longer since WiFi just connected)
-        internet_available = False
-        for i in range(max_wait):
-            if check_internet_connectivity(timeout=3):
-                internet_available = True
-                logger.info("Internet connectivity confirmed")
-                break
-            if (i + 1) % 5 == 0:  # Log every 5 seconds
-                logger.info(f"Waiting for internet connectivity... ({i+1}/{max_wait})")
-            time.sleep(1)
+        # Step 8: Trigger CI-OS-Hub pull
+        logger.info("[CONFIGURE] Triggering CI-OS-Hub pull...")
+        trigger_hub_pull()
         
-        if not internet_available:
-            logger.warning("Internet connectivity not available after WiFi connection. Cloud registration skipped.")
-            # WiFi is connected but no internet - this is OK, return success
-            # The device will work on local network, cloud registration can happen later
-            if request.is_json:
-                return jsonify({
-                    'status': 'success',
-                    'message': 'WiFi configured successfully. Internet connectivity not yet available.',
-                    'internet_available': False
-                })
-            else:
-                return '''
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <meta charset="UTF-8">
-                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                    <title>Setup Complete</title>
-                    <style>
-                        body { font-family: sans-serif; text-align: center; padding: 50px; }
-                        .success { color: green; font-size: 24px; margin-bottom: 20px; }
-                        .info { color: #666; font-size: 14px; }
-                    </style>
-                </head>
-                <body>
-                    <div class="success">✓ WiFi configured successfully!</div>
-                    <p class="info">Device is connected to WiFi. Internet connectivity will be available shortly.</p>
-                </body>
-                </html>
-                ''', 200
-        
-        # Step 3: Now that we have internet, validate pairing code with cloud
-        logger.info("Internet connectivity confirmed. Starting cloud device registration...")
-        
-        try:
-            # Normalize pairing code to uppercase before cloud validation
-            normalized_pairing_code = normalize_pairing_code(pairing_code)
-            logger.info(f"Getting pairing info from cloud for pairing code: {normalized_pairing_code} (normalized from: {pairing_code})")
-            success, pairing_info = get_pairing_info_from_cloud(normalized_pairing_code)
-            
-            if not success:
-                logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
-                # Disconnect from WiFi to restart hotspot
-                logger.info("Disconnecting from WiFi to restart setup process...")
-                disconnect_from_wifi()
-                
-                error_msg = 'Failed to validate pairing code with cloud service. Please reconnect to setup network and try again.'
-                if request.is_json:
-                    return jsonify({'error': error_msg, 'status': 'cloud_error'}), 500
-                else:
-                    return f'''
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta charset="UTF-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <title>Setup Error</title>
-                        <style>
-                            body {{ font-family: sans-serif; text-align: center; padding: 50px; }}
-                            .error {{ color: #ff4444; font-size: 18px; margin-bottom: 20px; }}
-                        </style>
-                    </head>
-                    <body>
-                        <div class="error">✗ {error_msg}</div>
-                        <p>Please reconnect to the setup network and try again.</p>
-                    </body>
-                    </html>
-                    ''', 500
-            else:
-                # Extract device_id, api_key, and pairing_code from response
-                cloud_device_id = pairing_info.get('device_id')
-                api_key = pairing_info.get('api_key')
-                cloud_pairing_code = pairing_info.get('pairing_code', '')
-                
-                if not cloud_device_id or not api_key:
-                    logger.warning(f"Missing device_id or api_key in cloud response: {pairing_info}")
-                else:
-                    # Validate pairing code matches (case-insensitive comparison)
-                    user_code_normalized = normalize_pairing_code(pairing_code)
-                    cloud_code_normalized = normalize_pairing_code(cloud_pairing_code)
-                    
-                    logger.info(f"[PAIRING VALIDATION] Comparing pairing codes")
-                    logger.info(f"[PAIRING VALIDATION] User entered (original): {pairing_code}")
-                    logger.info(f"[PAIRING VALIDATION] User entered (normalized): {user_code_normalized}")
-                    logger.info(f"[PAIRING VALIDATION] Cloud returned (original): {cloud_pairing_code}")
-                    logger.info(f"[PAIRING VALIDATION] Cloud returned (normalized): {cloud_code_normalized}")
-                    
-                    if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
-                        logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
-                        logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
-                        logger.info("[PAIRING VALIDATION] Disconnecting from WiFi to restart hotspot setup process...")
-                        
-                        # Disconnect from WiFi - this will trigger network monitor to restart hotspot
-                        disconnect_from_wifi()
-                        
-                        # Return error response
-                        if request.is_json:
-                            return jsonify({
-                                'error': 'Pairing code does not match. Please try again.',
-                                'status': 'pairing_mismatch'
-                            }), 400
-                        else:
-                            return '''
-                                <!DOCTYPE html>
-                                <html>
-                                <head>
-                                    <meta charset="UTF-8">
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                    <title>Setup Error</title>
-                                    <style>
-                                        body { font-family: sans-serif; text-align: center; padding: 50px; }
-                                        .error { color: #ff4444; font-size: 18px; margin-bottom: 20px; }
-                                    </style>
-                                </head>
-                                <body>
-                                    <div class="error">✗ Pairing code does not match</div>
-                                    <p>Please reconnect to the setup network and try again.</p>
-                                </body>
-                                </html>
-                                ''', 400
-                    
-                    logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}..., pairing_code matches")
-                    
-                    # Step 2: Save API key from GET response for later use
-                    logger.info(f"[CREDENTIALS] Saving API key from cloud response for later use")
-                    save_cloud_credentials(cloud_device_id, api_key)
-                    
-                    # Step 3: Get the actual device ID from local machine
-                    local_device_id = get_device_id()
-                    logger.info(f"Local device ID: {local_device_id}")
-                    
-                    # Step 4: POST to update device_id in cloud (upsert where pairing_code matches)
-                    logger.info("Updating device_id in cloud...")
-                    update_success, update_resp = update_device_id_in_cloud(
-                        pairing_code=normalized_pairing_code,
-                        device_id=local_device_id,
-                        api_key=api_key
-                    )
-                    
-                    if update_success:
-                        logger.info(f"Device ID updated successfully in cloud: {update_resp}")
-                        # API key already saved from GET response, no need to save again
-                    else:
-                        logger.warning(f"Device ID update failed: {update_resp}")
-                        
-        except Exception as e:
-            logger.error(f"Exception during cloud registration: {e}", exc_info=True)
-        
-        # Return HTML response for form submissions, JSON for API calls
+        # Return success response
         if request.is_json:
             return jsonify({
                 'status': 'success',
-                'message': 'WiFi configured successfully'
+                'message': 'Device configured successfully'
             })
         else:
-            # Return HTML success page for form submissions
             return '''
             <!DOCTYPE html>
             <html>
@@ -903,24 +765,22 @@ def configure():
             </head>
             <body>
                 <div class="success">✓ Device configured successfully!</div>
-                <p>The device will connect to the network shortly.</p>
+                <p>The device is now set up and pulling CI-OS-Hub.</p>
             </body>
             </html>
             ''', 200
         
     except Exception as e:
-        logger.error(f"Configuration error: {e}", exc_info=True)
+        logger.error(f"[CONFIGURE] Configuration error: {e}", exc_info=True)
         return jsonify({'error': 'Internal server error'}), 500
 
 def main():
     """Main entry point - daemon-safe"""
     logger.info("Starting setup-backend service")
     
-    # Ensure pairing code exists on first boot
-    ensure_pairing_code()
-    
-    logger.info(f"Pairing code file: {PAIRING_CODE_JSON}")
+    logger.info(f"User pairing code file: {USER_PAIRING_CODE_JSON}")
     logger.info(f"Setup complete file: {SETUP_COMPLETE_FILE}")
+    logger.info("Waiting for user to submit pairing code and WiFi credentials...")
     
     # Run Flask app
     # Use waitress or similar for production, but for now Flask dev server
