@@ -112,11 +112,22 @@ run_verification() {
   local device_id
   local get_code get_status get_body post_status post_body i
 
-  # GET: check device exists
-  get_body=$(curl -sS -w "\n%{http_code}" "${pair_url}?pairing_code=${code}" 2>/dev/null || true)
+  # GET: check device exists (log response body/snippet for troubleshooting)
+  local get_url
+  get_url="${pair_url}?pairing_code=${code}"
+  get_body=$(curl -sS -w "\n%{http_code}" "${get_url}" 2>/dev/null || true)
   get_status=$(echo "${get_body}" | tail -n1)
+  local get_body_json
+  get_body_json=$(echo "${get_body}" | sed '$d' || true)
+  log "GET ${get_url} returned ${get_status}"
+  if [[ -n "${get_body_json}" ]]; then
+    # Log a short snippet (first 1000 chars) to avoid huge logs
+    local snippet
+    snippet=$(echo "${get_body_json}" | tr '\n' ' ' | head -c 1000)
+    log "GET response snippet: ${snippet}"
+  fi
   if [[ "${get_status}" != "200" ]]; then
-    log_err "GET ${pair_url} returned ${get_status}; pairing code invalid or not found"
+    log_err "GET ${get_url} returned ${get_status}; pairing code invalid or not found"
     return 1
   fi
 
@@ -132,7 +143,12 @@ run_verification() {
     if [[ "${post_status}" == "200" ]]; then
       break
     fi
-    log_err "POST ${pair_url} attempt ${i}/${PAIR_RETRIES} returned ${post_status}"
+    # Log status and snippet for debugging
+    local post_body_json
+    post_body_json=$(echo "${post_body}" | sed '$d' || true)
+    local post_snippet
+    post_snippet=$(echo "${post_body_json}" | tr '\n' ' ' | head -c 1000)
+    log_err "POST ${pair_url} attempt ${i}/${PAIR_RETRIES} returned ${post_status}; response snippet: ${post_snippet}"
     if [[ "${i}" -eq "${PAIR_RETRIES}" ]]; then
       return 1
     fi

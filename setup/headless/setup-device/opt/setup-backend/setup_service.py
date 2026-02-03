@@ -417,6 +417,8 @@ def create_wifi_connection(ssid, password, security=None):
                 logger.info(f"Detected security for {ssid}: {security}")
 
         is_wep = security and 'WEP' in security.upper()
+        is_open = not security or security.lower() == 'none'
+        
         cmd = ['nmcli', 'connection', 'add', 'type', 'wifi',
                'con-name', ssid, 'ifname', wifi_ifname, 'ssid', ssid]
 
@@ -426,8 +428,15 @@ def create_wifi_connection(ssid, password, security=None):
                 logger.info(f"Creating connection with WEP key for {ssid}")
             else:
                 cmd.extend(['wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', password])
+                logger.info(f"Creating connection with WPA-PSK for {ssid}")
         else:
-            cmd.extend(['wifi-sec.key-mgmt', 'none'])
+            # For open networks (no password), do NOT add any security parameters
+            # NetworkManager will automatically detect the network as open
+            if is_open:
+                logger.info(f"Creating connection for open network {ssid}")
+            else:
+                # Network appears to have security but no password provided - try WPA first, NetworkManager will handle
+                logger.info(f"Creating connection for {ssid} (no password for secured network)")
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
@@ -435,7 +444,8 @@ def create_wifi_connection(ssid, password, security=None):
             logger.error(f"Failed to create connection: {result.stderr}")
             return False
 
-        logger.info(f"Created WiFi connection: {ssid} (security={'WEP' if is_wep else 'WPA/open'})")
+        security_desc = 'WEP' if is_wep else ('Open' if is_open else 'WPA/WPA2')
+        logger.info(f"Created WiFi connection: {ssid} (security={security_desc})")
         return True
 
     except Exception as e:

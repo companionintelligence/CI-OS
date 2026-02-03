@@ -97,9 +97,22 @@ if ! command -v jq &>/dev/null; then
 fi
 
 mkdir -p "${HUB_INSTALL_DIR}"
-echo "${body}" | jq -r '.files["docker-compose.json"]' > "${HUB_INSTALL_DIR}/docker-compose.json"
-echo "${body}" | jq -r '.files["config.json"]'   > "${HUB_INSTALL_DIR}/config.json"
-log "Wrote docker-compose.json and config.json to ${HUB_INSTALL_DIR}"
+
+# Extract docker-compose.json and fix stop_grace_period format
+# Docker Compose requires stop_grace_period to be a string (e.g., "120s", "2m")
+# but the API may return it as an integer. Convert any numeric stop_grace_period
+# values to strings with "s" suffix.
+docker_compose_raw=$(echo "${body}" | jq -r '.files["docker-compose.json"]')
+docker_compose_fixed=$(echo "${docker_compose_raw}" | jq '
+  .services |= with_entries(
+    .value.stop_grace_period |= 
+      if type == "number" then "\(.)s" else . end
+  )
+')
+echo "${docker_compose_fixed}" > "${HUB_INSTALL_DIR}/docker-compose.json"
+
+echo "${body}" | jq -r '.files["config.json"]' > "${HUB_INSTALL_DIR}/config.json"
+log "Wrote docker-compose.json (with fixed stop_grace_period) and config.json to ${HUB_INSTALL_DIR}"
 
 # Registry auth: optional. If REGISTRY_USERNAME/PASSWORD are set (env or device.conf), use them for docker login.
 # If not set, skip login and try pull anyway (registry may allow anonymous pull).
