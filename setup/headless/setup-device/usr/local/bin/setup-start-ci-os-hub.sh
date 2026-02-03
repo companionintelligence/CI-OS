@@ -101,13 +101,17 @@ echo "${body}" | jq -r '.files["docker-compose.json"]' > "${HUB_INSTALL_DIR}/doc
 echo "${body}" | jq -r '.files["config.json"]'   > "${HUB_INSTALL_DIR}/config.json"
 log "Wrote docker-compose.json and config.json to ${HUB_INSTALL_DIR}"
 
-if [[ -z "${REGISTRY_USERNAME:-}" || -z "${REGISTRY_PASSWORD:-}" ]]; then
-  log_err "REGISTRY_USERNAME and REGISTRY_PASSWORD required for docker pull (set in env or ${CONFIG_FILE})"
-  exit 1
+# Registry auth: optional. If REGISTRY_USERNAME/PASSWORD are set (env or device.conf), use them for docker login.
+# If not set, skip login and try pull anyway (registry may allow anonymous pull).
+if [[ -n "${REGISTRY_USERNAME:-}" && -n "${REGISTRY_PASSWORD:-}" ]]; then
+  log "Logging into registry ${REGISTRY_HOST}"
+  if ! echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY_HOST}" --username "${REGISTRY_USERNAME}" --password-stdin 2>/dev/null; then
+    log_err "docker login failed for ${REGISTRY_HOST}"
+    exit 1
+  fi
+else
+  log "No REGISTRY_USERNAME/PASSWORD set; attempting pull without login (anonymous pull if registry allows)"
 fi
-
-log "Logging into registry ${REGISTRY_HOST}"
-echo "${REGISTRY_PASSWORD}" | docker login "${REGISTRY_HOST}" --username "${REGISTRY_USERNAME}" --password-stdin 2>/dev/null || true
 
 mkdir -p "${INTERNAL}"/{media,state,repos,apps,logs,user-config,app-data,backups,cache}
 env_file="${HUB_INSTALL_DIR}/.env"

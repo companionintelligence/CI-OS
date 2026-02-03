@@ -1,0 +1,26 @@
+{
+  "urn": "ci-cloud:ci-os-hub",
+  "name": "CI OS Hub",
+  "description": "CI OS Hub is the dashboard for your Companion Intelligence device: browse and install apps from the store, manage your device, and connect to CI Cloud.",
+  "short_desc": "Companion Intelligence OS Hub - app dashboard and device management",
+  "author": "Companion Intelligence",
+  "version": "latest",
+  "tipi_version": 3,
+  "available": true,
+  "supported_architectures": [
+    "arm64",
+    "amd64"
+  ],
+  "categories": [
+    "utilities",
+    "productivity"
+  ],
+  "port": 5002,
+  "id": "ci-os-hub",
+  "slug": "ci-os-hub",
+  "source": "https://github.com/companionintelligence/CI-OS-Hub",
+  "$schema": "https://schemas.runtipi.io/v2/app-info.json",
+  "min_tipi_version": "v4.5.0",
+  "website": "https://companionintel.com",
+  "exposable": true
+}

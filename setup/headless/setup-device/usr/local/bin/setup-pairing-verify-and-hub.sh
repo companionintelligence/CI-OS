@@ -14,11 +14,14 @@ set -euo pipefail
 DATA_DIR="${DATA_DIR:-/var/lib/setup-device}"
 USER_PAIRING_CODE_JSON="${DATA_DIR}/user_pairing_code.json"
 CREDENTIALS_JSON="${DATA_DIR}/cloud_credentials.json"
+CACHED_DEVICE_ID_FILE="${DATA_DIR}/cached_device_id"
 CONFIG_FILE="${CONFIG_FILE:-/etc/setup-device/device.conf}"
 PAIR_RETRIES=3
 POLL_INTERVAL=10
 CONNECTIVITY_WAIT_MAX=120
 CONNECTIVITY_CHECK_INTERVAL=5
+# After verification failure, wait this long before retrying same code (avoids hammering cloud every 10s)
+FAILURE_BACKOFF=60
 
 log() {
   echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | systemd-cat -t setup-pairing-verify-hub -p info
@@ -47,25 +50,39 @@ get_base_url() {
 }
 
 get_device_id() {
+  # Use cached value if present (avoids repeated dmidecode/sudo every poll)
+  if [[ -f "${CACHED_DEVICE_ID_FILE:-}" && -s "${CACHED_DEVICE_ID_FILE}" ]]; then
+    cat "${CACHED_DEVICE_ID_FILE}"
+    return
+  fi
   local id
   id=$(sudo dmidecode -s system-serial-number 2>/dev/null || true)
   if [[ -n "${id:-}" && "${id}" != "Not Specified" && "${id}" != "To be filled by O.E.M." ]]; then
+    mkdir -p "${DATA_DIR}"
+    printf '%s' "${id}" > "${CACHED_DEVICE_ID_FILE}"
     echo "${id}"
     return
   fi
   id=$(sudo dmidecode -s system-uuid 2>/dev/null || true)
   if [[ -n "${id:-}" && "${id}" != "Not Specified" ]]; then
+    mkdir -p "${DATA_DIR}"
+    printf '%s' "${id}" > "${CACHED_DEVICE_ID_FILE}"
     echo "${id}"
     return
   fi
   if [[ -f /etc/machine-id ]]; then
     id=$(cat /etc/machine-id 2>/dev/null || true)
     if [[ -n "${id:-}" ]]; then
+      mkdir -p "${DATA_DIR}"
+      printf '%s' "${id}" > "${CACHED_DEVICE_ID_FILE}"
       echo "${id}"
       return
     fi
   fi
-  echo "unknown-device-$(hostname)"
+  id="unknown-device-$(hostname)"
+  mkdir -p "${DATA_DIR}"
+  printf '%s' "${id}" > "${CACHED_DEVICE_ID_FILE}"
+  echo "${id}"
 }
 
 normalize_code() {
@@ -129,6 +146,10 @@ run_verification() {
   api_key=$(echo "${body_json}" | jq -r '.apiKey // .api_key // empty' 2>/dev/null || true)
   if [[ -z "${api_key:-}" ]]; then
     log_err "POST response did not contain apiKey"
+    # Log first 200 chars of response for debugging (e.g. wrong API version or proxy)
+    local snippet
+    snippet=$(echo "${body_json}" | tr '\n' ' ' | head -c 200)
+    log_err "POST response snippet: ${snippet}"
     return 1
   fi
 
@@ -159,22 +180,40 @@ run_verification() {
 main() {
   log "Setup pairing verify and Hub daemon started (polling ${USER_PAIRING_CODE_JSON} every ${POLL_INTERVAL}s)"
   mkdir -p "${DATA_DIR}"
+  local last_code_tried=""
+  local last_failure_ts=0
 
   while true; do
     if [[ -f "${USER_PAIRING_CODE_JSON}" ]]; then
       code=$(jq -r '.code // empty' "${USER_PAIRING_CODE_JSON}" 2>/dev/null || true)
       code=$(normalize_code "${code}")
       if [[ -n "${code}" && "${#code}" -ge 4 ]]; then
-        base_url=$(get_base_url)
-        log "Pairing code found; waiting for connectivity before verification (base_url=${base_url})"
-        if wait_for_connectivity; then
-          if run_verification "${code}" "${base_url}"; then
-            log "Verification and Hub start completed"
+        # Only run verification when code changed or FAILURE_BACKOFF seconds since last failure
+        local now_ts
+        now_ts=$(date +%s 2>/dev/null || echo 0)
+        if [[ "${code}" != "${last_code_tried}" ]] || [[ $((now_ts - last_failure_ts)) -ge "${FAILURE_BACKOFF}" ]]; then
+          base_url=$(get_base_url)
+          if [[ "${code}" != "${last_code_tried}" ]]; then
+            log "Pairing code found; waiting for connectivity before verification (base_url=${base_url})"
+          fi
+          if wait_for_connectivity; then
+            if run_verification "${code}" "${base_url}"; then
+              log "Verification and Hub start completed"
+              last_code_tried=""
+              last_failure_ts=0
+            else
+              log "Verification or Hub start failed; will retry in ${FAILURE_BACKOFF}s or when pairing code changes"
+              last_code_tried="${code}"
+              last_failure_ts=$(date +%s 2>/dev/null || echo 0)
+            fi
           else
-            log "Verification or Hub start failed; will retry when pairing code changes"
+            last_code_tried="${code}"
+            last_failure_ts=$(date +%s 2>/dev/null || echo 0)
           fi
         fi
       fi
+    else
+      last_code_tried=""
     fi
     sleep "${POLL_INTERVAL}"
   done
