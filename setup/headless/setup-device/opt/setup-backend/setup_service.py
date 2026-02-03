@@ -356,35 +356,88 @@ def get_wifi_interface():
         logger.error(f"Error detecting WiFi interface: {e}")
         return 'wlan0'  # Fallback
 
-def create_wifi_connection(ssid, password):
-    """Create NetworkManager connection for WiFi"""
+
+def get_security_for_ssid(ssid):
+    """
+    Run a WiFi scan and return the SECURITY value for the given SSID (e.g. 'WEP', 'WPA2').
+    Returns None if SSID not found or scan fails. Used to choose WEP vs WPA key format.
+    """
     try:
-        # Delete existing connection if it exists
-        subprocess.run(['nmcli', 'connection', 'delete', ssid], 
+        # Rescan so we have fresh results (interface may have just left hotspot mode)
+        subprocess.run(
+            ['nmcli', 'device', 'wifi', 'rescan'],
+            capture_output=True,
+            timeout=15
+        )
+        time.sleep(2)
+    except Exception:
+        pass
+    try:
+        result = subprocess.run(
+            ['nmcli', '-t', '-f', 'SSID,SIGNAL,SECURITY', 'device', 'wifi', 'list'],
+            capture_output=True,
+            text=True,
+            timeout=25
+        )
+        if result.returncode != 0:
+            return None
+        for line in result.stdout.strip().split('\n'):
+            if not line:
+                continue
+            # Format: SSID:SIGNAL:SECURITY (SSID may contain colons in theory)
+            parts = line.split(':')
+            if len(parts) >= 3 and parts[0] == ssid:
+                return (parts[-1] or '').strip()
+            # If SSID contains ':', match by joining first N-2 parts
+            if len(parts) >= 3 and ':'.join(parts[:-2]) == ssid:
+                return (parts[-1] or '').strip()
+        return None
+    except Exception as e:
+        logger.debug(f"get_security_for_ssid failed: {e}")
+        return None
+
+
+def create_wifi_connection(ssid, password, security=None):
+    """
+    Create NetworkManager connection for WiFi.
+    Supports WPA/WPA2 (wpa-psk), WEP (wep-key0), and open networks.
+    security: optional string from scan (e.g. 'WEP', 'WPA2'); if None, detected from scan.
+    """
+    try:
+        # Delete existing connection if it exists so we apply the correct key type
+        subprocess.run(['nmcli', 'connection', 'delete', ssid],
                       capture_output=True, timeout=5)
-        
-        # Detect the actual WiFi interface on this system
+
         wifi_ifname = get_wifi_interface()
         logger.info(f"Using WiFi interface: {wifi_ifname}")
-        
-        # Create new connection - explicitly specify the WiFi interface
-        cmd = ['nmcli', 'connection', 'add', 'type', 'wifi', 
+
+        if security is None:
+            security = get_security_for_ssid(ssid)
+            if security:
+                logger.info(f"Detected security for {ssid}: {security}")
+
+        is_wep = security and 'WEP' in security.upper()
+        cmd = ['nmcli', 'connection', 'add', 'type', 'wifi',
                'con-name', ssid, 'ifname', wifi_ifname, 'ssid', ssid]
-        
+
         if password:
-            cmd.extend(['wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', password])
+            if is_wep:
+                cmd.extend(['wifi-sec.key-mgmt', 'none', 'wifi-sec.wep-key0', password])
+                logger.info(f"Creating connection with WEP key for {ssid}")
+            else:
+                cmd.extend(['wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', password])
         else:
             cmd.extend(['wifi-sec.key-mgmt', 'none'])
-        
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
+
         if result.returncode != 0:
             logger.error(f"Failed to create connection: {result.stderr}")
             return False
-        
-        logger.info(f"Created WiFi connection: {ssid}")
+
+        logger.info(f"Created WiFi connection: {ssid} (security={'WEP' if is_wep else 'WPA/open'})")
         return True
-        
+
     except Exception as e:
         logger.error(f"Error creating WiFi connection: {e}")
         return False
@@ -588,7 +641,7 @@ def _apply_wifi_and_connect(ssid, password):
         time.sleep(1)
         logger.info("[CONFIGURE-BG] Removing setup netplan config...")
         remove_setup_netplan_config()
-        time.sleep(1)
+        time.sleep(3)  # Allow interface to leave AP mode and be ready for scan/connect
         logger.info(f"[CONFIGURE-BG] Creating NetworkManager connection for {ssid}...")
         if not create_wifi_connection(ssid, password):
             logger.error(f"[CONFIGURE-BG] Failed to create WiFi connection for {ssid}")
@@ -599,6 +652,15 @@ def _apply_wifi_and_connect(ssid, password):
                 logger.info("[CONFIGURE-BG] WiFi connection established; daemon will verify pairing and start Hub.")
                 return
             time.sleep(1)
+        # Fallback: if WPA connection failed (e.g. network is WEP and scan didn't find it), retry with WEP
+        if password:
+            logger.info("[CONFIGURE-BG] Retrying with WEP security...")
+            if create_wifi_connection(ssid, password, security='WEP'):
+                for i in range(20):
+                    if connect_to_wifi(ssid):
+                        logger.info("[CONFIGURE-BG] WiFi connection established (WEP); daemon will verify pairing and start Hub.")
+                        return
+                    time.sleep(1)
         logger.warning("[CONFIGURE-BG] WiFi connection did not establish within 30s; daemon will retry when connectivity appears.")
     except Exception as e:
         logger.error(f"[CONFIGURE-BG] Background WiFi apply failed: {e}", exc_info=True)
