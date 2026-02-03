@@ -13,6 +13,7 @@ import re
 import time
 import signal
 import logging
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
 from flask import Flask, request, jsonify
@@ -573,9 +574,43 @@ def scan_networks():
     networks = scan_wifi_networks()
     return jsonify({'networks': networks})
 
+def _apply_wifi_and_connect(ssid, password):
+    """
+    Background task: stop hotspot, remove setup netplan, create WiFi connection, connect.
+    Called after the configure endpoint has returned success so the user is ejected from
+    the captive portal. Pairing verification and Hub start are handled by the daemon
+    once the device has connectivity.
+    """
+    try:
+        time.sleep(2)  # Give client time to receive the HTTP response
+        logger.info("[CONFIGURE-BG] Stopping hotspot services...")
+        stop_hotspot_services()
+        time.sleep(1)
+        logger.info("[CONFIGURE-BG] Removing setup netplan config...")
+        remove_setup_netplan_config()
+        time.sleep(1)
+        logger.info(f"[CONFIGURE-BG] Creating NetworkManager connection for {ssid}...")
+        if not create_wifi_connection(ssid, password):
+            logger.error(f"[CONFIGURE-BG] Failed to create WiFi connection for {ssid}")
+            return
+        logger.info(f"[CONFIGURE-BG] Connecting to WiFi: {ssid}")
+        for i in range(30):
+            if connect_to_wifi(ssid):
+                logger.info("[CONFIGURE-BG] WiFi connection established; daemon will verify pairing and start Hub.")
+                return
+            time.sleep(1)
+        logger.warning("[CONFIGURE-BG] WiFi connection did not establish within 30s; daemon will retry when connectivity appears.")
+    except Exception as e:
+        logger.error(f"[CONFIGURE-BG] Background WiFi apply failed: {e}", exc_info=True)
+
+
 @app.route('/api/configure', methods=['POST'])
 def configure():
-    """Configure WiFi connection and validate pairing code"""
+    """
+    Save pairing code and WiFi credentials, return success immediately so the user
+    is ejected from the captive portal. WiFi connection and pairing/Hub steps run
+    in the background (backend thread) and via the daemon (setup-pairing-verify-hub).
+    """
     try:
         # Accept both JSON and form-encoded data
         if request.is_json:
@@ -601,46 +636,18 @@ def configure():
         if len(normalized_code) < 4:
             return jsonify({'error': 'Pairing code must be at least 4 characters'}), 400
         
-        logger.info(f"[CONFIGURE] Starting setup flow")
-        logger.info(f"[CONFIGURE] SSID: {ssid}")
-        logger.info(f"[CONFIGURE] Pairing code (normalized): {normalized_code}")
-        logger.info(f"[CONFIGURE] Password provided: {'Yes' if password else 'No (open network)'}")
+        logger.info(f"[CONFIGURE] Saving pairing code and WiFi credentials (eject user, then connect in background)")
+        logger.info(f"[CONFIGURE] SSID: {ssid}, pairing code (normalized): {normalized_code}")
         
-        # Save user pairing code so daemon (setup-pairing-verify-and-hub) can run GET/POST and start Hub
-        save_user_pairing_code(pairing_code)
+        # 1. Save pairing code so daemon can run GET/POST and start Hub once device has connectivity
+        if not save_user_pairing_code(pairing_code):
+            return jsonify({'error': 'Failed to save pairing code'}), 500
         
-        # Check internet connectivity before WiFi connect
-        logger.info("[CONFIGURE] Checking internet connectivity...")
-        max_wait = 15
-        internet_available = False
-        for i in range(max_wait):
-            if check_internet_connectivity(timeout=3):
-                internet_available = True
-                logger.info("[CONFIGURE] Internet connectivity confirmed")
-                break
-            if (i + 1) % 3 == 0:
-                logger.info(f"[CONFIGURE] Waiting for internet... ({i+1}/{max_wait})")
-            time.sleep(1)
-        
-        if not internet_available:
-            logger.error("[CONFIGURE] No internet connectivity - cannot connect to WiFi")
-            return jsonify({
-                'error': 'No internet connectivity. Please connect to a network with internet access.',
-                'status': 'no_internet'
-            }), 500
-        
-        # Proceed with WiFi configuration (daemon handles cloud verification and Hub start)
-        logger.info(f"[CONFIGURE] Creating NetworkManager connection for {ssid}...")
-        if not create_wifi_connection(ssid, password):
-            logger.error(f"[CONFIGURE] Failed to create WiFi connection for {ssid}")
-            return jsonify({'error': 'Failed to create WiFi connection'}), 500
-        logger.info(f"[CONFIGURE] NetworkManager connection created successfully")
-        
-        # Persist credentials securely (root-only, JSON format)
+        # 2. Save WiFi credentials (used by background task to connect)
         try:
             credentials = {
                 'ssid': ssid,
-                'password': password,
+                'password': password or '',
                 'configured_at': datetime.now().isoformat()
             }
             with open(CREDENTIALS_JSON, 'w') as f:
@@ -648,40 +655,21 @@ def configure():
             os.chmod(CREDENTIALS_JSON, 0o600)
         except Exception as e:
             logger.error(f"Failed to save WiFi credentials: {e}")
+            return jsonify({'error': 'Failed to save WiFi credentials'}), 500
         
-        # Stop hotspot services
-        time.sleep(2)
-        stop_hotspot_services()
+        # 3. Return success immediately so user sees success and can leave captive WiFi
+        # 4. Apply WiFi connection in background (stop hotspot, netplan, create connection, connect)
+        thread = threading.Thread(
+            target=_apply_wifi_and_connect,
+            args=(ssid, password or ''),
+            daemon=True
+        )
+        thread.start()
         
-        # Remove netplan static IP config to allow NetworkManager to manage the interface
-        time.sleep(1)
-        remove_setup_netplan_config()
-        
-        # Step 7: Connect to WiFi
-        logger.info(f"[CONFIGURE] Connecting to WiFi network: {ssid}")
-        wifi_connected = False
-        max_wifi_wait = 30  # Wait up to 30 seconds for WiFi connection
-        for i in range(max_wifi_wait):
-            if connect_to_wifi(ssid):
-                wifi_connected = True
-                logger.info("[CONFIGURE] WiFi connection established")
-                break
-            logger.info(f"[CONFIGURE] Waiting for WiFi connection... ({i+1}/{max_wifi_wait})")
-            time.sleep(1)
-        
-        if not wifi_connected:
-            logger.error("[CONFIGURE] Failed to connect to WiFi network")
-            return jsonify({'error': 'Failed to connect to WiFi network. Please check your credentials and try again.'}), 500
-        
-        logger.info("[CONFIGURE] WiFi connection successful")
-        
-        # Daemon (setup-pairing-verify-hub) will pick up user_pairing_code.json and run verification + Hub start
-        
-        # Return success response
         if request.is_json:
             return jsonify({
                 'status': 'success',
-                'message': 'Device configured successfully'
+                'message': 'Device configured. The device will connect to your WiFi and complete setup. You can disconnect from this network.'
             })
         else:
             return '''
@@ -697,8 +685,8 @@ def configure():
                 </style>
             </head>
             <body>
-                <div class="success">✓ Device configured successfully!</div>
-                <p>The device is now set up. Pairing verification and CI-OS-Hub will start automatically.</p>
+                <div class="success">✓ Device configured!</div>
+                <p>The device will connect to your WiFi and complete setup. You can disconnect from this network.</p>
             </body>
             </html>
             ''', 200

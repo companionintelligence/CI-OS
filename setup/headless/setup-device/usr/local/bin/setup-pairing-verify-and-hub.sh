@@ -17,6 +17,8 @@ CREDENTIALS_JSON="${DATA_DIR}/cloud_credentials.json"
 CONFIG_FILE="${CONFIG_FILE:-/etc/setup-device/device.conf}"
 PAIR_RETRIES=3
 POLL_INTERVAL=10
+CONNECTIVITY_WAIT_MAX=120
+CONNECTIVITY_CHECK_INTERVAL=5
 
 log() {
   echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | systemd-cat -t setup-pairing-verify-hub -p info
@@ -68,6 +70,22 @@ get_device_id() {
 
 normalize_code() {
   echo "$1" | tr -dc 'A-Za-z0-9' | tr '[:lower:]' '[:upper:]'
+}
+
+# Wait for internet connectivity (device may be switching from captive hotspot to user WiFi).
+# Returns 0 when connectivity is available, 1 if timeout.
+wait_for_connectivity() {
+  local waited=0
+  while [[ "${waited}" -lt "${CONNECTIVITY_WAIT_MAX}" ]]; do
+    if ping -c1 -W2 8.8.8.8 >/dev/null 2>&1; then
+      log "Connectivity available (waited ${waited}s)"
+      return 0
+    fi
+    sleep "${CONNECTIVITY_CHECK_INTERVAL}"
+    waited=$((waited + CONNECTIVITY_CHECK_INTERVAL))
+  done
+  log_err "No connectivity after ${CONNECTIVITY_WAIT_MAX}s; will retry on next poll"
+  return 1
 }
 
 run_verification() {
@@ -148,11 +166,13 @@ main() {
       code=$(normalize_code "${code}")
       if [[ -n "${code}" && "${#code}" -ge 4 ]]; then
         base_url=$(get_base_url)
-        log "Pairing code found; running verification (base_url=${base_url})"
-        if run_verification "${code}" "${base_url}"; then
-          log "Verification and Hub start completed"
-        else
-          log "Verification or Hub start failed; will retry when pairing code changes"
+        log "Pairing code found; waiting for connectivity before verification (base_url=${base_url})"
+        if wait_for_connectivity; then
+          if run_verification "${code}" "${base_url}"; then
+            log "Verification and Hub start completed"
+          else
+            log "Verification or Hub start failed; will retry when pairing code changes"
+          fi
         fi
       fi
     fi
