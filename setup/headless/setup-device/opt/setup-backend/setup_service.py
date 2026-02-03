@@ -606,7 +606,10 @@ def configure():
         logger.info(f"[CONFIGURE] Pairing code (normalized): {normalized_code}")
         logger.info(f"[CONFIGURE] Password provided: {'Yes' if password else 'No (open network)'}")
         
-        # Step 1: Check internet connectivity first
+        # Save user pairing code so daemon (setup-pairing-verify-and-hub) can run GET/POST and start Hub
+        save_user_pairing_code(pairing_code)
+        
+        # Check internet connectivity before WiFi connect
         logger.info("[CONFIGURE] Checking internet connectivity...")
         max_wait = 15
         internet_available = False
@@ -620,81 +623,13 @@ def configure():
             time.sleep(1)
         
         if not internet_available:
-            logger.error("[CONFIGURE] No internet connectivity - cannot validate pairing code with cloud")
+            logger.error("[CONFIGURE] No internet connectivity - cannot connect to WiFi")
             return jsonify({
                 'error': 'No internet connectivity. Please connect to a network with internet access.',
                 'status': 'no_internet'
             }), 500
         
-        logger.info("[CONFIGURE] Internet available - querying cloud for device with pairing code...")
-        
-        # Step 2: Query cloud for device with this pairing code
-        try:
-            success, pairing_info = get_pairing_info_from_cloud(normalized_code)
-            
-            if not success:
-                logger.error(f"[CONFIGURE] Failed to get device info from cloud: {pairing_info}")
-                return jsonify({
-                    'error': 'Pairing code not found or invalid',
-                    'status': 'invalid_pairing_code'
-                }), 400
-            
-            device_id_from_cloud = pairing_info.get('device_id')
-            api_key = pairing_info.get('api_key')
-            device_status = pairing_info.get('status', '')
-            
-            logger.info(f"[CONFIGURE] Cloud response - device_id: {device_id_from_cloud}, status: {device_status}")
-            
-            # Check if status is "inactive"
-            if device_status.lower() != 'inactive':
-                logger.error(f"[CONFIGURE] Device status is '{device_status}', not 'inactive'. Cannot proceed.")
-                return jsonify({
-                    'error': f'Device status is {device_status}. Expected inactive.',
-                    'status': 'invalid_device_status'
-                }), 400
-            
-            if not api_key:
-                logger.error("[CONFIGURE] No API key received from cloud")
-                return jsonify({
-                    'error': 'Invalid device configuration',
-                    'status': 'no_api_key'
-                }), 500
-            
-            logger.info("[CONFIGURE] Device found and inactive. Proceeding with setup...")
-            
-            # Step 3: Save user pairing code for reference
-            save_user_pairing_code(pairing_code)
-            
-            # Step 4: Save API key from cloud response
-            logger.info("[CONFIGURE] Saving cloud credentials...")
-            local_device_id = get_device_id()
-            save_cloud_credentials(local_device_id, api_key)
-            
-            # Step 5: Update device_id in cloud
-            logger.info("[CONFIGURE] Updating device ID in cloud...")
-            update_success, update_resp = update_device_id_in_cloud(
-                pairing_code=normalized_code,
-                device_id=local_device_id,
-                api_key=api_key
-            )
-            
-            if not update_success:
-                logger.warning(f"[CONFIGURE] Device ID update failed: {update_resp}")
-                return jsonify({
-                    'error': 'Failed to update device in cloud',
-                    'status': 'update_failed'
-                }), 500
-            
-            logger.info("[CONFIGURE] Device ID updated successfully in cloud")
-            
-        except Exception as e:
-            logger.error(f"[CONFIGURE] Exception during cloud validation: {e}", exc_info=True)
-            return jsonify({
-                'error': 'Cloud validation error',
-                'status': 'cloud_error'
-            }), 500
-        
-        # Step 6: Now proceed with WiFi configuration
+        # Proceed with WiFi configuration (daemon handles cloud verification and Hub start)
         logger.info(f"[CONFIGURE] Creating NetworkManager connection for {ssid}...")
         if not create_wifi_connection(ssid, password):
             logger.error(f"[CONFIGURE] Failed to create WiFi connection for {ssid}")
@@ -740,9 +675,7 @@ def configure():
         
         logger.info("[CONFIGURE] WiFi connection successful")
         
-        # Step 8: Trigger CI-OS-Hub pull
-        logger.info("[CONFIGURE] Triggering CI-OS-Hub pull...")
-        trigger_hub_pull()
+        # Daemon (setup-pairing-verify-hub) will pick up user_pairing_code.json and run verification + Hub start
         
         # Return success response
         if request.is_json:
@@ -765,7 +698,7 @@ def configure():
             </head>
             <body>
                 <div class="success">✓ Device configured successfully!</div>
-                <p>The device is now set up and pulling CI-OS-Hub.</p>
+                <p>The device is now set up. Pairing verification and CI-OS-Hub will start automatically.</p>
             </body>
             </html>
             ''', 200

@@ -31,7 +31,13 @@ REQUIRED_FILES=(
     "etc/systemd/system/hostapd-setup.service"
     "etc/systemd/system/dnsmasq-setup.service"
     "etc/systemd/system/setup-backend.service"
+    "etc/systemd/system/setup-network-monitor.service"
+    "etc/systemd/system/setup-pairing-verify-hub.service"
     "opt/setup-backend/setup_service.py"
+    "usr/local/bin/setup-device-hotspot-start.sh"
+    "usr/local/bin/setup-network-monitor.sh"
+    "usr/local/bin/setup-pairing-verify-and-hub.sh"
+    "usr/local/bin/setup-start-ci-os-hub.sh"
     "var/www/setup-portal/index.html"
 )
 

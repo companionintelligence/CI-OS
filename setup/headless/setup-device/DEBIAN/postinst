@@ -19,12 +19,17 @@ if [ ! -f /etc/systemd/system/setup-network-monitor.service ]; then
     echo "ERROR: /etc/systemd/system/setup-network-monitor.service not found!"
     exit 1
 fi
+if [ ! -f /etc/systemd/system/setup-pairing-verify-hub.service ]; then
+    echo "ERROR: /etc/systemd/system/setup-pairing-verify-hub.service not found!"
+    exit 1
+fi
 echo "✓ Unit files verified"
 
 # Stop any existing services from old installation (clean state)
 echo "Stopping old services from any previous installation..."
 systemctl stop setup-backend.service 2>/dev/null || true
 systemctl stop setup-network-monitor.service 2>/dev/null || true
+systemctl stop setup-pairing-verify-hub.service 2>/dev/null || true
 systemctl stop hostapd-setup.service 2>/dev/null || true
 systemctl stop dnsmasq-setup.service 2>/dev/null || true
 sleep 1
@@ -53,17 +58,22 @@ systemctl enable dnsmasq-setup.service 2>/dev/null || true
 systemctl enable nginx.service 2>/dev/null || true
 systemctl enable setup-backend.service 2>/dev/null || true
 systemctl enable setup-network-monitor.service 2>/dev/null || true
+systemctl enable setup-pairing-verify-hub.service 2>/dev/null || true
 
 # Final daemon-reload before starting services
 echo "Final systemd daemon reload..."
 systemctl daemon-reload
 sleep 1
 
-# Make network monitor script executable
+# Make scripts executable
 chmod 755 /usr/local/bin/setup-network-monitor.sh 2>/dev/null || true
+chmod 755 /usr/local/bin/setup-pairing-verify-and-hub.sh 2>/dev/null || true
+chmod 755 /usr/local/bin/setup-start-ci-os-hub.sh 2>/dev/null || true
 
 # Create required directories
 mkdir -p /var/lib/setup-device
+mkdir -p /var/lib/ci-os-hub-install
+mkdir -p /var/lib/ci-os-hub
 mkdir -p /var/log
 chmod 600 /etc/setup-device/device.conf 2>/dev/null || true
 chmod 644 /etc/hostapd/hostapd-setup.conf 2>/dev/null || true
@@ -118,6 +128,16 @@ else
 fi
 sleep 2
 
+# Start pairing verify and Hub daemon (watches for pairing code, runs verification, starts CI-OS-Hub)
+echo "Starting setup-pairing-verify-hub service..."
+if systemctl start setup-pairing-verify-hub.service; then
+    echo "✓ setup-pairing-verify-hub.service started successfully"
+else
+    echo "WARNING: Failed to start setup-pairing-verify-hub.service - continuing"
+    systemctl status setup-pairing-verify-hub.service 2>&1 || true
+fi
+sleep 1
+
 # Start network monitor (this is critical - it manages hotspot startup)
 echo "Starting network monitor service..."
 if systemctl start setup-network-monitor.service; then
@@ -161,6 +181,9 @@ systemctl is-enabled --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.se
 
 systemctl is-active --quiet nginx.service && echo "✓ nginx.service is active" || echo "✗ nginx.service is not active"
 systemctl is-enabled --quiet nginx.service && echo "✓ nginx.service is enabled" || echo "✗ nginx.service is not enabled"
+
+systemctl is-active --quiet setup-pairing-verify-hub.service && echo "✓ setup-pairing-verify-hub.service is active" || echo "✗ setup-pairing-verify-hub.service is not active"
+systemctl is-enabled --quiet setup-pairing-verify-hub.service && echo "✓ setup-pairing-verify-hub.service is enabled" || echo "✗ setup-pairing-verify-hub.service is not enabled"
 
 echo ""
 echo "Setup device installation complete."

@@ -1,0 +1,19 @@
+[Unit]
+Description=Setup Pairing Verify and CI-OS-Hub Start
+After=setup-backend.service network-online.target
+Wants=setup-backend.service network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/setup-pairing-verify-and-hub.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
