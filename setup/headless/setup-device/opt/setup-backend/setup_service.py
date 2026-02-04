@@ -30,6 +30,10 @@ USER_PAIRING_CODE_JSON = DATA_DIR / 'user_pairing_code.json'
 SETUP_COMPLETE_FILE = DATA_DIR / 'setup-complete'
 CREDENTIALS_JSON = DATA_DIR / 'credentials.json'
 
+# CI-OS-Hub app install (after pairing)
+HUB_APP_DIR = Path('/var/lib/ci-os-hub/app')
+HUB_ENV_FILE = Path('/var/lib/ci-os-hub/.env')
+
 # Cloud API config - can be set via environment `CI_CLOUD_API_URL`
 # or via `/etc/setup-device/device.conf` value `CI_CLOUD_API_URL`.
 def _read_conf_value(key):
@@ -242,6 +246,84 @@ def save_cloud_credentials(device_id, api_key):
         return True
     except Exception as e:
         logger.error(f"Failed to save cloud credentials: {e}")
+        return False
+
+
+def _install_url():
+    """Base URL for store install (no trailing slash)."""
+    base = (os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://setup.companionintel.com').rstrip('/')
+    if base.endswith('/api'):
+        base = base[:-4]
+    return f"{base}/api/store/ci-os-hub/install"
+
+
+def install_and_start_ci_os_hub(device_id, api_key):
+    """
+    Fetch compose + config from store install, write to HUB_APP_DIR,
+    docker login if image is from our registry, then docker compose up -d.
+    Runs the whole app (one container from our registry).
+    """
+    try:
+        url = _install_url()
+        logger.info(f"[CI-OS-HUB] Fetching install from {url}")
+        req = urllib.request.Request(url, headers={
+            'x-device-id': device_id,
+            'x-api-key': api_key,
+        })
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+        files = data.get('files') or {}
+        compose_str = files.get('docker-compose.json')
+        config_str = files.get('config.json')
+        if not compose_str:
+            logger.error("[CI-OS-HUB] No docker-compose.json in install response")
+            return False
+        compose = json.loads(compose_str)
+        # Docker Compose expects services to be a dict (name -> config), not array
+        services = compose.get('services') or []
+        if isinstance(services, list):
+            compose['services'] = { (s.get('name') or f'svc_{i}'): {k: v for k, v in s.items() if k != 'name'} for i, s in enumerate(services) }
+            services = compose['services']
+        first_svc = next(iter(services.values()), {}) if isinstance(services, dict) and services else {}
+        image = first_svc.get('image', '')
+        # Our registry hosts (device_id / api_key login)
+        registry_hosts = ('setup.companionintel.com', 'app.ci.computer', 'setup.companionintelligence.com')
+        registry_host = None
+        for h in registry_hosts:
+            if image.startswith(h + '/') or image.startswith(h + ':'):
+                registry_host = h
+                break
+        if registry_host:
+            logger.info(f"[CI-OS-HUB] Logging into registry {registry_host}")
+            try:
+                proc = subprocess.run(
+                    ['docker', 'login', registry_host, '--username', device_id, '--password-stdin'],
+                    input=api_key.encode(),
+                    capture_output=True,
+                    timeout=15,
+                )
+                if proc.returncode != 0:
+                    logger.warning(f"[CI-OS-HUB] docker login failed: {proc.stderr.decode()}")
+            except Exception as e:
+                logger.warning(f"[CI-OS-HUB] docker login error: {e}")
+        HUB_APP_DIR.mkdir(parents=True, exist_ok=True)
+        (HUB_APP_DIR / 'docker-compose.json').write_text(json.dumps(compose, indent=2), encoding='utf-8')
+        if config_str:
+            (HUB_APP_DIR / 'config.json').write_text(config_str, encoding='utf-8')
+        # Write .env so the Hub container gets device_id and api_key
+        HUB_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+        HUB_ENV_FILE.write_text(f"DEVICE_ID={device_id}\nCI_HUB_API_KEY={api_key}\n", encoding='utf-8')
+        logger.info("[CI-OS-HUB] Running docker compose up -d")
+        subprocess.run(
+            ['docker', 'compose', '-f', str(HUB_APP_DIR / 'docker-compose.json'), '--env-file', str(HUB_ENV_FILE), 'up', '-d'],
+            cwd=str(HUB_APP_DIR),
+            timeout=300,
+            check=False,
+        )
+        logger.info("[CI-OS-HUB] Install and start completed")
+        return True
+    except Exception as e:
+        logger.error(f"[CI-OS-HUB] Install/start failed: {e}", exc_info=True)
         return False
 
 # Ensure directories exist
@@ -726,18 +808,206 @@ def configure():
                 json.dump(credentials, f, indent=2)
             os.chmod(CREDENTIALS_JSON, 0o600)
         except Exception as e:
-            logger.error(f"Failed to save WiFi credentials: {e}")
-            return jsonify({'error': 'Failed to save WiFi credentials'}), 500
+            logger.error(f"Failed to save credentials: {e}")
         
-        # 3. Return success immediately so user sees success and can leave captive WiFi
-        # 4. Apply WiFi connection in background (stop hotspot, netplan, create connection, connect)
-        thread = threading.Thread(
-            target=_apply_wifi_and_connect,
-            args=(ssid, password or ''),
-            daemon=True
-        )
-        thread.start()
+        # NOTE: We do NOT create setup-complete flag - it should not gate hotspot operations
+        # The network monitor runs independently and starts hotspot if no connectivity detected
+        # Setup is complete when WiFi connection is active, not when the flag is written
         
+        # Stop hotspot services
+        time.sleep(2)
+        stop_hotspot_services()
+        
+        # Remove netplan static IP config to allow NetworkManager to manage the interface
+        time.sleep(1)
+        remove_setup_netplan_config()
+        
+        # Step 1: Connect to WiFi first
+        logger.info(f"Connecting to WiFi network: {ssid}")
+        wifi_connected = False
+        max_wifi_wait = 30  # Wait up to 30 seconds for WiFi connection
+        for i in range(max_wifi_wait):
+            if connect_to_wifi(ssid):
+                wifi_connected = True
+                logger.info("WiFi connection established")
+                break
+            logger.info(f"Waiting for WiFi connection... ({i+1}/{max_wifi_wait})")
+            time.sleep(1)
+        
+        if not wifi_connected:
+            logger.error("Failed to connect to WiFi network")
+            return jsonify({'error': 'Failed to connect to WiFi network. Please check your credentials and try again.'}), 500
+        
+        logger.info("WiFi connection successful")
+        
+        # Step 2: Wait for internet connectivity to be established
+        logger.info("Waiting for internet connectivity before cloud registration...")
+        max_wait = 45  # Wait up to 45 seconds for internet (longer since WiFi just connected)
+        internet_available = False
+        for i in range(max_wait):
+            if check_internet_connectivity(timeout=3):
+                internet_available = True
+                logger.info("Internet connectivity confirmed")
+                break
+            if (i + 1) % 5 == 0:  # Log every 5 seconds
+                logger.info(f"Waiting for internet connectivity... ({i+1}/{max_wait})")
+            time.sleep(1)
+        
+        if not internet_available:
+            logger.warning("Internet connectivity not available after WiFi connection. Cloud registration skipped.")
+            # WiFi is connected but no internet - this is OK, return success
+            # The device will work on local network, cloud registration can happen later
+            if request.is_json:
+                return jsonify({
+                    'status': 'success',
+                    'message': 'WiFi configured successfully. Internet connectivity not yet available.',
+                    'internet_available': False
+                })
+            else:
+                return '''
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Setup Complete</title>
+                    <style>
+                        body { font-family: sans-serif; text-align: center; padding: 50px; }
+                        .success { color: green; font-size: 24px; margin-bottom: 20px; }
+                        .info { color: #666; font-size: 14px; }
+                    </style>
+                </head>
+                <body>
+                    <div class="success">✓ WiFi configured successfully!</div>
+                    <p class="info">Device is connected to WiFi. Internet connectivity will be available shortly.</p>
+                </body>
+                </html>
+                ''', 200
+        
+        # Step 3: Now that we have internet, validate pairing code with cloud
+        logger.info("Internet connectivity confirmed. Starting cloud device registration...")
+        
+        try:
+            # Normalize pairing code to uppercase before cloud validation
+            normalized_pairing_code = normalize_pairing_code(pairing_code)
+            logger.info(f"Getting pairing info from cloud for pairing code: {normalized_pairing_code} (normalized from: {pairing_code})")
+            success, pairing_info = get_pairing_info_from_cloud(normalized_pairing_code)
+            
+            if not success:
+                logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
+                # Disconnect from WiFi to restart hotspot
+                logger.info("Disconnecting from WiFi to restart setup process...")
+                disconnect_from_wifi()
+                
+                error_msg = 'Failed to validate pairing code with cloud service. Please reconnect to setup network and try again.'
+                if request.is_json:
+                    return jsonify({'error': error_msg, 'status': 'cloud_error'}), 500
+                else:
+                    return f'''
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                        <title>Setup Error</title>
+                        <style>
+                            body {{ font-family: sans-serif; text-align: center; padding: 50px; }}
+                            .error {{ color: #ff4444; font-size: 18px; margin-bottom: 20px; }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class="error">✗ {error_msg}</div>
+                        <p>Please reconnect to the setup network and try again.</p>
+                    </body>
+                    </html>
+                    ''', 500
+            else:
+                # Extract device_id, api_key, and pairing_code from response
+                cloud_device_id = pairing_info.get('device_id')
+                api_key = pairing_info.get('api_key')
+                cloud_pairing_code = pairing_info.get('pairing_code', '')
+                
+                if not cloud_device_id or not api_key:
+                    logger.warning(f"Missing device_id or api_key in cloud response: {pairing_info}")
+                else:
+                    # Validate pairing code matches (case-insensitive comparison)
+                    user_code_normalized = normalize_pairing_code(pairing_code)
+                    cloud_code_normalized = normalize_pairing_code(cloud_pairing_code)
+                    
+                    logger.info(f"[PAIRING VALIDATION] Comparing pairing codes")
+                    logger.info(f"[PAIRING VALIDATION] User entered (original): {pairing_code}")
+                    logger.info(f"[PAIRING VALIDATION] User entered (normalized): {user_code_normalized}")
+                    logger.info(f"[PAIRING VALIDATION] Cloud returned (original): {cloud_pairing_code}")
+                    logger.info(f"[PAIRING VALIDATION] Cloud returned (normalized): {cloud_code_normalized}")
+                    
+                    if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
+                        logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
+                        logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
+                        logger.info("[PAIRING VALIDATION] Disconnecting from WiFi to restart hotspot setup process...")
+                        
+                        # Disconnect from WiFi - this will trigger network monitor to restart hotspot
+                        disconnect_from_wifi()
+                        
+                        # Return error response
+                        if request.is_json:
+                            return jsonify({
+                                'error': 'Pairing code does not match. Please try again.',
+                                'status': 'pairing_mismatch'
+                            }), 400
+                        else:
+                            return '''
+                                <!DOCTYPE html>
+                                <html>
+                                <head>
+                                    <meta charset="UTF-8">
+                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                    <title>Setup Error</title>
+                                    <style>
+                                        body { font-family: sans-serif; text-align: center; padding: 50px; }
+                                        .error { color: #ff4444; font-size: 18px; margin-bottom: 20px; }
+                                    </style>
+                                </head>
+                                <body>
+                                    <div class="error">✗ Pairing code does not match</div>
+                                    <p>Please reconnect to the setup network and try again.</p>
+                                </body>
+                                </html>
+                                ''', 400
+                    
+                    logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}..., pairing_code matches")
+                    
+                    # Step 2: Save API key from GET response for later use
+                    logger.info(f"[CREDENTIALS] Saving API key from cloud response for later use")
+                    save_cloud_credentials(cloud_device_id, api_key)
+                    
+                    # Step 3: Get the actual device ID from local machine
+                    local_device_id = get_device_id()
+                    logger.info(f"Local device ID: {local_device_id}")
+                    
+                    # Step 4: POST to update device_id in cloud (upsert where pairing_code matches)
+                    logger.info("Updating device_id in cloud...")
+                    update_success, update_resp = update_device_id_in_cloud(
+                        pairing_code=normalized_pairing_code,
+                        device_id=local_device_id,
+                        api_key=api_key
+                    )
+                    
+                    if update_success:
+                        logger.info(f"Device ID updated successfully in cloud: {update_resp}")
+                        # API key already saved from GET response, no need to save again
+                    else:
+                        logger.warning(f"Device ID update failed: {update_resp}")
+                    # Start CI-OS-Hub from store install (fetch compose + config, then docker compose up)
+                    def _run_install():
+                        install_and_start_ci_os_hub(local_device_id, api_key)
+                    t = threading.Thread(target=_run_install, daemon=True)
+                    t.start()
+                    logger.info("[CI-OS-HUB] Started install-and-run in background")
+                        
+        except Exception as e:
+            logger.error(f"Exception during cloud registration: {e}", exc_info=True)
+        
+        # Return HTML response for form submissions, JSON for API calls
         if request.is_json:
             return jsonify({
                 'status': 'success',
