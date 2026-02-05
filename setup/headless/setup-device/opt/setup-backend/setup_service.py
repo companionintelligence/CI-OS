@@ -550,6 +550,8 @@ def connect_to_wifi(ssid):
             logger.error(f"[WIFI CONNECT] Return code: {result.returncode}")
             logger.error(f"[WIFI CONNECT] stderr: {result.stderr}")
             logger.error(f"[WIFI CONNECT] stdout: {result.stdout}")
+            
+            # Don't attempt fallback here - connection should be created beforehand by create_wifi_connection()
             return False
         
         logger.info(f"[WIFI CONNECT] Successfully connected to WiFi: {ssid}")
@@ -824,6 +826,12 @@ def configure():
         
         # Step 1: Connect to WiFi first
         logger.info(f"Connecting to WiFi network: {ssid}")
+        
+        # Create the WiFi connection first (this will also delete any existing connection with same SSID)
+        if not create_wifi_connection(ssid, password):
+            logger.error("Failed to create WiFi connection")
+            return jsonify({'error': 'Failed to create WiFi connection. Please check your credentials and try again.'}), 500
+        
         wifi_connected = False
         max_wifi_wait = 30  # Wait up to 30 seconds for WiFi connection
         for i in range(max_wifi_wait):
@@ -895,9 +903,8 @@ def configure():
             
             if not success:
                 logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
-                # Disconnect from WiFi to restart hotspot
-                logger.info("Disconnecting from WiFi to restart setup process...")
-                disconnect_from_wifi()
+                # KEEP WiFi connected - hotspot remains available for user to retry
+                logger.info("Cloud validation failed. Hotspot available for retry...")
                 
                 error_msg = 'Failed to validate pairing code with cloud service. Please reconnect to setup network and try again.'
                 if request.is_json:
@@ -943,10 +950,7 @@ def configure():
                     if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
                         logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
                         logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
-                        logger.info("[PAIRING VALIDATION] Disconnecting from WiFi to restart hotspot setup process...")
-                        
-                        # Disconnect from WiFi - this will trigger network monitor to restart hotspot
-                        disconnect_from_wifi()
+                        logger.info("[PAIRING VALIDATION] Pairing code mismatch - hotspot available for retry...")
                         
                         # Return error response
                         if request.is_json:
