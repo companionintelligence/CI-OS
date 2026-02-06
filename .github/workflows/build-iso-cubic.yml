@@ -1,0 +1,33 @@
+name: Build CI-OS ISO (Cubic)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-iso-cubic:
+    runs-on: [self-hosted, linux, cubic]
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Prepare Cubic workspace
+        run: |
+          ./scripts/cubic/prepare.sh
+          cat build/cubic/INSTRUCTIONS.txt
+
+      - name: Wait for ISO export
+        run: ./scripts/cubic/wait-for-iso.sh
+
+      - name: Collect ISO
+        run: ./scripts/cubic/collect-iso.sh
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-os-iso-cubic
+          path: dist/*.iso
+          retention-days: 7
+          compression-level: 0

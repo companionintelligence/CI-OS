@@ -16,6 +16,8 @@ Based on Ubuntu 24.04.
 2. [Headless device WiFi setup](#headless-device-wifi-setup)
 3. [Ubuntu branding (wallpaper & start icon)](#ubuntu-branding-wallpaper--start-icon)
 4. [Repo layout](#repo-layout)
+5. [Cubic ISO build (Ubuntu)](#cubic-iso-build-ubuntu)
+6. [Testing](#testing)
 
 ---
 
@@ -145,3 +147,41 @@ Both scripts create timestamped backups under `/usr/share/icons/ubuntu-backup-*`
 │   └── os-changes/    # replace-start-icon.sh, replace-wallpaper.sh, assets
 └── README.md          # This file
 ```
+
+---
+
+## Cubic ISO build (Ubuntu)
+
+Cubic is the supported path for building a CI OS ISO from an Ubuntu base.
+
+Quick start:
+
+```bash
+./scripts/cubic/launch.sh
+```
+
+This prepares a reproducible workspace under `build/cubic/` and launches Cubic. Follow the instructions printed in `build/cubic/INSTRUCTIONS.txt`, then collect the generated ISO:
+
+```bash
+./scripts/cubic/collect-iso.sh
+```
+
+Full details and a self-hosted GitHub Actions workflow are documented in `docs/cubic-build.md`.
+
+---
+
+## Testing
+
+Local checks:
+
+```bash
+./scripts/test.sh
+```
+
+CI-compatible run (installs dependencies on Ubuntu):
+
+```bash
+./scripts/ci.sh
+```
+
+See `docs/testing.md` for details.
