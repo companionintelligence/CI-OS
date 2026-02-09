@@ -728,3 +728,7 @@ main() {
 
 # Run main function
 main "$@"
+
+# Hook: install ROCm driver (standalone script; can also be run directly: ./scripts/install-rocm-driver.sh)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"${SCRIPT_DIR}/install-rocm-driver.sh"
