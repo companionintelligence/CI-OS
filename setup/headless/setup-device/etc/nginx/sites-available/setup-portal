@@ -1,64 +1,42 @@
-# Nginx configuration for setup portal
-# HTTPS on port 443, HTTP redirect on port 80
+# Nginx configuration for setup portal (HTTP only - temporary captive WiFi)
+# Serves on port 80. No HTTPS; acceptable for isolated setup network.
 
-# Redirect HTTP to HTTPS
 server {
     listen 80 default_server;
     listen [::]:80 default_server;
-    
-    server_name _;
-    
-    # Redirect all HTTP traffic to HTTPS
-    return 301 https://$host$request_uri;
-}
 
-# HTTPS server
-server {
-    listen 443 ssl default_server;
-    listen [::]:443 ssl default_server;
-    
     server_name setup.ci.computer _;
-    
-    # SSL certificate and key
-    ssl_certificate /etc/nginx/ssl/setup-device.crt;
-    ssl_certificate_key /etc/nginx/ssl/setup-device.key;
-    
-    # SSL configuration
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_ciphers HIGH:!aNULL:!MD5;
-    ssl_prefer_server_ciphers on;
-    
+
     root /var/www/setup-portal;
     index index.html;
-    
-    # Security headers
+
+    # Security headers (no HSTS - we use HTTP)
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "no-referrer" always;
-    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
-    
+
     # Captive portal detection - redirect to setup portal
     # Apple iOS
     location /hotspot-detect.html {
-        return 302 https://setup.ci.computer/;
+        return 302 http://setup.ci.computer/;
     }
-    
+
     # Microsoft Windows
     location /ncsi.txt {
-        return 302 https://setup.ci.computer/;
+        return 302 http://setup.ci.computer/;
     }
-    
+
     # Android
     location /generate_204 {
-        return 302 https://setup.ci.computer/;
+        return 302 http://setup.ci.computer/;
     }
-    
+
     # Generic captive detection fallback
     location = / {
         try_files $uri $uri/ /index.html;
     }
-    
+
     # API proxy
     location /api/ {
         proxy_pass http://127.0.0.1:5000;
@@ -67,12 +45,12 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
-    
+
     # Static files
     location / {
         try_files $uri $uri/ /index.html;
     }
-    
+
     # Logging
     access_log /var/log/nginx/setup-portal-access.log;
     error_log /var/log/nginx/setup-portal-error.log;

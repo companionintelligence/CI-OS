@@ -91,19 +91,7 @@ if ! grep -q "setup.ci.computer" /etc/hosts; then
     echo "192.168.99.1 setup.ci.computer" | sudo tee -a /etc/hosts > /dev/null
 fi
 
-# Generate self-signed certificate for HTTPS
-CERT_DIR="/etc/nginx/ssl"
-CERT_FILE="$CERT_DIR/setup-device.crt"
-KEY_FILE="$CERT_DIR/setup-device.key"
-
-if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
-    echo "Generating self-signed SSL certificate..."
-    mkdir -p "$CERT_DIR"
-    openssl req -x509 -newkey rsa:2048 -keyout "$KEY_FILE" -out "$CERT_FILE" -days 3650 -nodes \
-        -subj "/C=US/ST=State/L=City/O=Companion/CN=setup.ci.computer" 2>/dev/null || echo "Warning: SSL cert generation failed"
-    chmod 600 "$KEY_FILE"
-    chmod 644 "$CERT_FILE"
-fi
+# Setup portal uses HTTP only (no SSL) - acceptable for isolated setup network
 
 # Start backend service
 echo "Starting backend service..."
