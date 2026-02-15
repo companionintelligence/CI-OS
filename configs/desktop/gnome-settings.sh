@@ -1,17 +1,19 @@
 # CI OS Desktop Configuration Script
 # Applied during Cubic customization in chroot environment
+# Same settings are applied by setup/os-changes/set-ci-branding.sh for standalone setup flow
 
-# GNOME Settings via dconf
+# GNOME Settings via gsettings
 # These settings will be applied system-wide
 
 # Set CI OS wallpaper
 gsettings set org.gnome.desktop.background picture-uri "file:///usr/share/backgrounds/ci-os-wallpaper.png"
 gsettings set org.gnome.desktop.background picture-uri-dark "file:///usr/share/backgrounds/ci-os-wallpaper.png"
-gsettings set org.gnome.desktop.background primary-color "#2563EB"
-gsettings set org.gnome.desktop.background secondary-color "#1E40AF"
+# CI brand colors: teal, dark green
+gsettings set org.gnome.desktop.background primary-color "#0d4d2b"
+gsettings set org.gnome.desktop.background secondary-color "#1b4332"
 
-# Desktop interface settings
-gsettings set org.gnome.desktop.interface gtk-theme "Yaru-blue"
+# Desktop interface settings (dark green theme to match Plymouth and CI branding)
+gsettings set org.gnome.desktop.interface gtk-theme "Yaru-prussiangreen-dark"
 gsettings set org.gnome.desktop.interface icon-theme "Yaru"
 gsettings set org.gnome.desktop.interface cursor-theme "Yaru"
 
