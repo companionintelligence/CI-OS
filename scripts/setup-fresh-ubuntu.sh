@@ -612,6 +612,15 @@ install_cloudflared() {
     log_success "cloudflared installed"
 }
 
+# Remove Ubuntu telemetry (requires root)
+remove_telemetry() {
+    log_info "Removing Ubuntu telemetry..."
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    "${script_dir}/remove-telemetry.sh" --from-setup
+    log_success "Telemetry removal complete"
+}
+
 # Enable corepack (requires Node.js to be installed and proper permissions)
 enable_corepack() {
     log_info "Enabling corepack for user $ACTUAL_USER..."
@@ -714,6 +723,7 @@ main() {
     install_cloudflared
     install_vscode
     enable_corepack
+    remove_telemetry
     
     echo
     log_success "Setup completed successfully!"
