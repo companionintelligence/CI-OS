@@ -434,6 +434,26 @@ def scan_wifi_networks():
         logger.error(f"WiFi scan error: {e}")
         return []
 
+def get_device_ip_on_wifi():
+    """Get device IP on the WiFi interface (for WiFi-only flow - user reconnects to home network)"""
+    try:
+        wifi_if = get_wifi_interface()
+        result = subprocess.run(
+            ['ip', '-4', '-o', 'addr', 'show', wifi_if],
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        if result.returncode == 0 and result.stdout:
+            # Parse "2: wlan0 inet 192.168.1.50/24 ..."
+            import re
+            m = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', result.stdout)
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return None
+
 def get_wifi_interface():
     """Detect the WiFi interface (handles wlan0, wlp*, etc)"""
     try:
@@ -569,6 +589,46 @@ def disconnect_from_wifi():
         logger.error(f"[WIFI DISCONNECT] Exception disconnecting WiFi: {e}", exc_info=True)
         return False
 
+def _get_internet_interface():
+    """Get the network interface that has the default route (usually eth0 or enp*)"""
+    try:
+        r = subprocess.run(
+            ['ip', 'route', 'show', 'default'],
+            capture_output=True, text=True, timeout=3
+        )
+        if r.returncode == 0 and r.stdout:
+            # "default via 192.168.1.1 dev eth0 ..."
+            parts = r.stdout.strip().split()
+            for i, p in enumerate(parts):
+                if p == 'dev' and i + 1 < len(parts):
+                    return parts[i + 1]
+    except Exception:
+        pass
+    return 'eth0'  # Fallback
+
+def enable_ap_internet_sharing():
+    """Enable IP forwarding and NAT so AP clients can reach internet.
+    Required for keep-AP flow: user must reach setup.companionintelligence.com for registration."""
+    try:
+        subprocess.run(['sysctl', '-w', 'net.ipv4.ip_forward=1'], capture_output=True, timeout=5, check=False)
+        iface = _get_internet_interface()
+        check = subprocess.run(
+            ['iptables', '-t', 'nat', '-C', 'POSTROUTING', '-s', '192.168.99.0/24',
+             '-o', iface, '-j', 'MASQUERADE'],
+            capture_output=True, timeout=5
+        )
+        if check.returncode != 0:
+            subprocess.run(
+                ['iptables', '-t', 'nat', '-A', 'POSTROUTING', '-s', '192.168.99.0/24',
+                 '-o', iface, '-j', 'MASQUERADE'],
+                capture_output=True, timeout=5, check=False
+            )
+        logger.info(f"AP internet sharing enabled (NAT for 192.168.99.0/24 -> {iface})")
+        return True
+    except Exception as e:
+        logger.warning(f"Could not enable AP internet sharing: {e}")
+        return False
+
 def stop_hotspot_services():
     """Stop hotspot services after successful configuration"""
     try:
@@ -637,6 +697,42 @@ def scan_networks():
     networks = scan_wifi_networks()
     return jsonify({'networks': networks})
 
+LOGIN_SEEN_FILE = DATA_DIR / 'login-page-seen'
+
+@app.route('/api/setup/login-seen', methods=['GET', 'POST', 'OPTIONS'])
+def login_seen():
+    """Signal that the Hub login page was loaded (called from Hub frontend). Enables closing AP only after user reaches /login."""
+    if request.method == 'OPTIONS':
+        resp = jsonify({'status': 'ok'})
+        resp.headers['Access-Control-Allow-Origin'] = '*'
+        resp.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        resp.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+        return resp
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        LOGIN_SEEN_FILE.touch()
+        logger.info("[LOGIN-SEEN] Hub login page loaded - setup can close AP")
+    except Exception as e:
+        logger.warning(f"Could not write login-seen flag: {e}")
+    resp = jsonify({'status': 'ok'})
+    resp.headers['Access-Control-Allow-Origin'] = '*'
+    return resp
+
+@app.route('/api/setup/hub-status', methods=['GET'])
+def hub_status():
+    """Check if CI OS Hub is ready and registration status (for portal polling)"""
+    hub_ready = False
+    registered = False
+    try:
+        req = urllib.request.Request('http://127.0.0.1:5002/api/registration/status')
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            data = json.loads(resp.read().decode())
+            hub_ready = True
+            registered = data.get('registered', False)
+    except Exception:
+        pass
+    return jsonify({'hub_ready': hub_ready, 'registered': registered})
+
 @app.route('/api/configure', methods=['POST'])
 def configure():
     """Configure WiFi connection"""
@@ -694,11 +790,86 @@ def configure():
         # The network monitor runs independently and starts hotspot if no connectivity detected
         # Setup is complete when WiFi connection is active, not when the flag is written
         
-        # Stop hotspot services
+        # Check if we have internet NOW (e.g. via Ethernet) - if yes, keep AP open for Hub registration
+        # Device has Ethernet (enp*) + WiFi (wlp*): Ethernet = internet, WiFi = AP. No conflict.
+        internet_now = check_internet_connectivity(timeout=3)
+        logger.info(f"[CONFIGURE] Internet available (keep AP possible): {internet_now}")
+        
+        if internet_now:
+            # KEEP AP FLOW: Device has internet via Ethernet. AP stays alive - we never stop it here.
+            # User stays connected to hotspot through: validate -> pull-dev -> redirect -> register -> login.
+            # WiFi connection happens only at the end (in orchestrator, after login page seen).
+            # Do cloud validation first, then spawn orchestrator to run pull-dev, wait for registration.
+            logger.info("[CONFIGURE] Keep-AP flow: validating pairing with cloud...")
+            try:
+                normalized_pairing_code = normalize_pairing_code(pairing_code)
+                success, pairing_info = get_pairing_info_from_cloud(normalized_pairing_code)
+                if success:
+                    cloud_device_id = pairing_info.get('device_id')
+                    api_key = pairing_info.get('api_key')
+                    cloud_pairing_code = pairing_info.get('pairing_code', '')
+                    if cloud_device_id and api_key:
+                        cloud_code_norm = normalize_pairing_code(cloud_pairing_code)
+                        if cloud_code_norm and normalized_pairing_code != cloud_code_norm:
+                            return jsonify({'error': 'Pairing code does not match. Please try again.'}), 400
+                        save_cloud_credentials(cloud_device_id, api_key)
+                        local_device_id = get_device_id()
+                        update_device_id_in_cloud(
+                            pairing_code=normalized_pairing_code,
+                            device_id=local_device_id,
+                            api_key=api_key
+                        )
+                    else:
+                        return jsonify({'error': 'Cloud validation failed. Please try again.'}), 500
+                else:
+                    return jsonify({'error': 'Failed to validate pairing code with cloud service.'}), 500
+            except Exception as e:
+                logger.error(f"Cloud validation error: {e}", exc_info=True)
+                return jsonify({'error': 'Cloud validation failed.'}), 500
+            
+            # Spawn orchestrator (runs pull-dev, waits for registration, then closes AP)
+            orchestrator = Path('/opt/setup-device/scripts/setup-orchestrator.sh')
+            keep_ap_flag = Path('/var/lib/setup-device/keep-ap-during-registration')
+            if orchestrator.exists():
+                keep_ap_flag.parent.mkdir(parents=True, exist_ok=True)
+                keep_ap_flag.touch()
+                # Enable internet for AP clients (NAT + forwarding) so user can reach CI Cloud
+                enable_ap_internet_sharing()
+                # Restart dnsmasq to use upstream DNS (allows setup.companionintelligence.com)
+                subprocess.run(['systemctl', 'restart', 'dnsmasq-setup.service'], capture_output=True, timeout=10)
+                logger.info("[CONFIGURE] Spawning setup orchestrator (background)...")
+                subprocess.Popen(
+                    [str(orchestrator), str(CREDENTIALS_JSON)],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+                hub_url = "http://192.168.99.1:5002"
+                want_json = request.is_json or 'application/json' in request.headers.get('Accept', '')
+                if want_json:
+                    return jsonify({
+                        'status': 'success',
+                        'flow': 'keep_ap',
+                        'redirect_url': hub_url,
+                        'message': 'Redirecting to device registration...'
+                    })
+                return f'''
+                <!DOCTYPE html>
+                <html>
+                <head><meta charset="UTF-8"><meta http-equiv="refresh" content="2;url={hub_url}"></head>
+                <body style="font-family:sans-serif;text-align:center;padding:50px;">
+                <div style="color:green;font-size:20px;">Device configured. Starting CI OS Hub...</div>
+                <p>Redirecting to registration in 2 seconds. <a href="{hub_url}">Click here</a> if not redirected.</p>
+                </body>
+                </html>
+                ''', 200
+            else:
+                logger.warning(f"Orchestrator not found at {orchestrator}, falling back to WiFi-only flow")
+                internet_now = False
+        
+        # WIFI-ONLY FLOW: No internet via Ethernet. Must stop AP, connect WiFi.
         time.sleep(2)
         stop_hotspot_services()
-        
-        # Remove netplan static IP config to allow NetworkManager to manage the interface
         time.sleep(1)
         remove_setup_netplan_config()
         
@@ -881,11 +1052,29 @@ def configure():
         except Exception as e:
             logger.error(f"Exception during cloud registration: {e}", exc_info=True)
         
-        # Return HTML response for form submissions, JSON for API calls
-        if request.is_json:
+        # WiFi-only: spawn pull-dev in background (user will reconnect to home WiFi and open device-ip:5002)
+        pull_dev = Path('/opt/setup-device/scripts/pull-dev.sh')
+        if pull_dev.exists():
+            logger.info("[CONFIGURE] WiFi-only: spawning pull-dev in background...")
+            subprocess.Popen(
+                ['/usr/bin/bash', str(pull_dev)],
+                env={**os.environ, 'HOME': '/root'},
+                start_new_session=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+        
+        # Return JSON if client accepts it, else HTML
+        want_json = request.is_json or 'application/json' in request.headers.get('Accept', '')
+        device_ip = get_device_ip_on_wifi()
+        hub_url = f"http://{device_ip}:5002" if device_ip else "http://<device-ip>:5002"
+        if want_json:
             return jsonify({
                 'status': 'success',
-                'message': 'WiFi configured successfully'
+                'flow': 'wifi_only',
+                'message': 'WiFi configured successfully. Reconnect to your home WiFi and open the Hub to complete registration.',
+                'hub_url': hub_url,
+                'device_ip': device_ip
             })
         else:
             # Return HTML success page for form submissions

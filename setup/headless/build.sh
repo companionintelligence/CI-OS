@@ -19,6 +19,7 @@ fi
 echo "Validating required files..."
 
 REQUIRED_FILES=(
+    "opt/setup-device/scripts/setup-orchestrator.sh"
     "DEBIAN/control"
     "DEBIAN/postinst"
     "DEBIAN/prerm"
@@ -52,6 +53,20 @@ if [ ${#MISSING_FILES[@]} -gt 0 ]; then
 fi
 
 echo "✓ All required files present"
+
+# Copy pull-dev.sh from CI-OS repo root into package (for headless setup flow)
+CI_OS_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+PULL_DEV_SRC="${CI_OS_ROOT}/pull-dev.sh"
+PULL_DEV_DST="${PACKAGE_DIR}/opt/setup-device/scripts/pull-dev.sh"
+mkdir -p "$(dirname "$PULL_DEV_DST")"
+if [ ! -f "$PULL_DEV_SRC" ]; then
+    echo "Error: pull-dev.sh required at $PULL_DEV_SRC"
+    exit 1
+fi
+cp "$PULL_DEV_SRC" "$PULL_DEV_DST"
+chmod 755 "$PULL_DEV_DST"
+echo "✓ Copied pull-dev.sh into package"
+chmod 755 "${PACKAGE_DIR}/opt/setup-device/scripts/setup-orchestrator.sh" 2>/dev/null || true
 
 # Get version from control file
 VERSION=$(grep "^Version:" "${PACKAGE_DIR}/DEBIAN/control" | awk '{print $2}')

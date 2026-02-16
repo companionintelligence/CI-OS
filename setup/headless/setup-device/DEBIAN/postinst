@@ -59,8 +59,10 @@ echo "Final systemd daemon reload..."
 systemctl daemon-reload
 sleep 1
 
-# Make network monitor script executable
+# Make scripts executable
 chmod 755 /usr/local/bin/setup-network-monitor.sh 2>/dev/null || true
+chmod 755 /opt/setup-device/scripts/setup-orchestrator.sh 2>/dev/null || true
+chmod 755 /opt/setup-device/scripts/pull-dev.sh 2>/dev/null || true
 
 # Create required directories
 mkdir -p /var/lib/setup-device

@@ -331,7 +331,10 @@
             
             <div id="error-message" class="error" style="display: none;"></div>
             <div id="success-message" class="success-message" style="display: none;">
-                ✓ Device configured successfully! Closing...
+                ✓ Device configured successfully!
+            </div>
+            <div id="redirect-message" class="success-message" style="display: none;">
+                Starting CI OS Hub... Redirecting to registration.
             </div>
             
             <button type="submit" id="submit-btn" class="submit-button">Configure Device</button>
@@ -549,30 +552,35 @@
             try {
                 const response = await fetch('/api/configure', {
                     method: 'POST',
+                    headers: { 'Accept': 'application/json' },
                     body: formData
                 });
                 
                 if (response.ok) {
-                    // Success - show message and close captive portal
+                    const data = await response.json().catch(() => ({}));
+                    // Keep-AP flow: redirect to CI OS Hub for registration
+                    if (data.redirect_url && data.flow === 'keep_ap') {
+                        const redirectMsg = document.getElementById('redirect-message');
+                        if (redirectMsg) redirectMsg.style.display = 'block';
+                        successMessage.style.display = 'none';
+                        window.scrollTo(0, 0);
+                        submitBtn.textContent = 'Redirecting...';
+                        window.location.href = data.redirect_url;
+                        return;
+                    }
+                    // WiFi-only flow: show success and close captive portal
                     successMessage.style.display = 'block';
-                    
-                    // Scroll to top to show success message
+                    if (data.hub_url) {
+                        successMessage.innerHTML = '✓ Device configured! Reconnect to your home WiFi, then open <a href="' + data.hub_url + '" target="_blank">' + data.hub_url + '</a> to complete registration.';
+                    } else {
+                        successMessage.textContent = '✓ Device configured successfully! Closing...';
+                    }
                     window.scrollTo(0, 0);
-                    
-                    // Close captive portal after a short delay
-                    // Different methods for different platforms
                     setTimeout(function() {
-                        // Method 1: Redirect to success URL (works on iOS)
                         window.location.href = 'http://captive.apple.com/hotspot-detect.html';
-                        
-                        // Method 2: Try to close window (works in some browsers)
                         setTimeout(function() {
-                            if (window.close) {
-                                window.close();
-                            }
+                            if (window.close) window.close();
                         }, 500);
-                        
-                        // Method 3: Redirect to a known success page
                         setTimeout(function() {
                             window.location.href = 'http://www.msftconnecttest.com/redirect';
                         }, 1000);

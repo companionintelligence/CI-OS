@@ -40,6 +40,10 @@ check_connectivity() {
 }
 
 start_hotspot() {
+    # Never start hotspot after setup is complete
+    if [ -f /var/lib/setup-device/setup-complete ]; then
+        return 0
+    fi
     if [ "$hotspot_active" = false ]; then
         log "No connectivity detected. Starting hotspot via startup script..."
         if /usr/local/bin/setup-device-hotspot-start.sh >/dev/null 2>&1; then
@@ -52,6 +56,10 @@ start_hotspot() {
 }
 
 stop_hotspot() {
+    # Keep AP alive during Hub registration (device has Ethernet for internet, WiFi runs AP)
+    if [ -f /var/lib/setup-device/keep-ap-during-registration ]; then
+        return 0
+    fi
     if [ "$hotspot_active" = true ]; then
         log "Connectivity restored. Stopping hotspot services..."
         systemctl stop hostapd-setup.service 2>/dev/null || true
