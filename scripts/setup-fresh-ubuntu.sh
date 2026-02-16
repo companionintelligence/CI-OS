@@ -341,10 +341,11 @@ install_asdf_nodejs() {
         apt install -y npm
     fi
     
+
     # Install asdf and Node.js as the actual user
-    sudo -u "$ACTUAL_USER" bash <<EOF
+    sudo -u "$ACTUAL_USER" bash <<'EOF'
 # Source brew environment
-eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
+eval "$($(brew --prefix)/bin/brew shellenv)" 2>/dev/null || true
 
 # Install asdf (if not already installed)
 if ! command -v asdf &>/dev/null; then
@@ -353,23 +354,28 @@ fi
 
 # Add asdf to shell (if not already there)
 if ! grep -q "asdf.sh" ~/.bashrc; then
-    echo '. "\$(brew --prefix asdf)/libexec/asdf.sh"' >> ~/.bashrc
+    echo '. "$(brew --prefix asdf)/libexec/asdf.sh"' >> ~/.bashrc
 fi
 
-# Source bashrc to load asdf
+# Source bashrc and asdf.sh to load asdf
 source ~/.bashrc 2>/dev/null || true
+ASDF_SH="$(brew --prefix asdf 2>/dev/null)/libexec/asdf.sh"
+if [[ -f "$ASDF_SH" ]]; then
+    source "$ASDF_SH"
+fi
 
 # Add Node.js plugin (if not already added)
-sudo asdf plugin add nodejs 2>/dev/null || true
+asdf plugin add nodejs 2>/dev/null || true
 
 # Install Node.js (if not already installed)
-if ! sudo asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
-    sudo asdf install nodejs 22.15.1
+if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
+    asdf install nodejs 22.15.1
+    asdf reshim nodejs
 fi
 
 # Install yarn globally (if not already installed)
 if ! command -v yarn &>/dev/null; then
-    sudo npm install --global yarn
+    npm install --global yarn
 fi
 EOF
     
