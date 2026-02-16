@@ -172,6 +172,15 @@ cursor-theme='Yaru'
 [org/gnome/desktop/background]
 primary-color='#$CI_THEME_COLORS'
 secondary-color='#1b4332'
+
+# Enable GNOME Remote Desktop (screen sharing and remote control)
+[org/gnome/desktop/remote-desktop]
+screen-sharing-enabled=true
+remote-control-enabled=true
+
+[org/gnome/desktop/remote-desktop/rdp]
+enabled=true
+view-only=false
 DCONF_EOF
 
     # GDM login screen: Ubuntu uses system-db:gdm when /etc/dconf/profile/gdm exists
@@ -185,6 +194,14 @@ gtk-theme='$CI_GTK_THEME'
 [org/gnome/desktop/background]
 primary-color='#$CI_THEME_COLORS'
 secondary-color='#1b4332'
+
+    [org/gnome/desktop/remote-desktop]
+    screen-sharing-enabled=true
+    remote-control-enabled=true
+
+    [org/gnome/desktop/remote-desktop/rdp]
+    enabled=true
+    view-only=false
 GDM_EOF
     fi
 
@@ -227,6 +244,11 @@ if command -v gsettings >/dev/null 2>&1 && [[ -n "$ACTUAL_USER" ]] && [[ "$ACTUA
         _gset org.gnome.desktop.privacy disable-camera false
         _gset org.gnome.Terminal.Legacy.Settings default-show-menubar false
         _gset org.gnome.Terminal.Legacy.Settings theme-variant 'dark'
+            # Enable GNOME Remote Desktop (screen sharing and remote control) for current user
+            _gset org.gnome.desktop.remote-desktop screen-sharing-enabled true
+            _gset org.gnome.desktop.remote-desktop remote-control-enabled true
+            _gset org.gnome.desktop.remote-desktop.rdp enabled true
+            _gset org.gnome.desktop.remote-desktop.rdp view-only false
         log_success "Applied theme and desktop settings to $ACTUAL_USER"
     else
         log_warn "No D-Bus session for $ACTUAL_USER (not logged in?). Theme will apply on next login via dconf defaults."
