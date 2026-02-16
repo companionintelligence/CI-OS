@@ -647,7 +647,8 @@ remove_telemetry() {
     log_info "Removing Ubuntu telemetry..."
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    "${script_dir}/remove-telemetry.sh" --from-setup
+    # Use bash explicitly so it works even if remove-telemetry.sh lacks execute bit (e.g. fresh clone)
+    bash "${script_dir}/remove-telemetry.sh" --from-setup
     log_success "Telemetry removal complete"
 }
 
