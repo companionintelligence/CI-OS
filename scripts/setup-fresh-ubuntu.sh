@@ -122,6 +122,22 @@ install_make() {
     log_success "make installed"
 }
 
+# Install Tailscale (requires root)
+install_tailscale() {
+    if command_exists tailscale; then
+        log_info "Tailscale is already installed, skipping..."
+        return 0
+    fi
+
+    log_info "Installing Tailscale..."
+    # Import Tailscale GPG key and repo
+    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+    apt-get update
+    apt-get install -y tailscale
+    log_success "Tailscale installed"
+}
+
 # Install Docker (requires root for package installation and repository configuration)
 install_docker() {
     # Check if Docker is already installed
@@ -724,6 +740,8 @@ main() {
     install_vscode
     enable_corepack
     remove_telemetry
+
+        install_tailscale
     
     echo
     log_success "Setup completed successfully!"
