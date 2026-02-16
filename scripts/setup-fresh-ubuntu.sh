@@ -760,3 +760,79 @@ main "$@"
 # Hook: install ROCm driver (standalone script; can also be run directly: ./scripts/install-rocm-driver.sh)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "${SCRIPT_DIR}/install-rocm-driver.sh"
+
+# Install LACT GPU monitor (latest release from GitHub)
+install_lact() {
+    if command_exists lact; then
+        log_info "LACT GPU monitor is already installed, skipping..."
+        return 0
+    fi
+
+    log_info "Downloading and installing LACT GPU monitor..."
+    # Get latest .deb release URL from GitHub API
+    LACT_DEB_URL=$(curl -s https://api.github.com/repos/ilya-zlobintsev/LACT/releases/latest | grep browser_download_url | grep 'amd64.deb' | cut -d '"' -f 4 | head -n 1)
+    if [[ -z "$LACT_DEB_URL" ]]; then
+        log_error "Could not find LACT .deb package URL."
+        return 1
+    fi
+    TMP_DEB="/tmp/lact-latest.deb"
+    curl -L "$LACT_DEB_URL" -o "$TMP_DEB"
+    apt-get install -y "$TMP_DEB" || dpkg -i "$TMP_DEB"
+    rm -f "$TMP_DEB"
+    log_success "LACT GPU monitor installed. Run 'lact-gui' to launch."
+        # Pin LACT to GNOME favorites bar for the user
+        if command_exists gsettings && [[ -n "$ACTUAL_USER" ]] && [[ "$ACTUAL_USER" != "root" ]]; then
+            UID_NUM="$(id -u "$ACTUAL_USER" 2>/dev/null || true)"
+            RUNTIME_DIR="/run/user/${UID_NUM}"
+            DBUS_ADDRESS="unix:path=${RUNTIME_DIR}/bus"
+            if [[ -S "${RUNTIME_DIR}/bus" ]]; then
+                log_info "Pinning LACT to GNOME favorites bar for $ACTUAL_USER"
+                CURRENT_FAVS=$(sudo -u "$ACTUAL_USER" env DISPLAY=:0 XAUTHORITY="/home/$ACTUAL_USER/.Xauthority" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" \
+                    gsettings get org.gnome.shell favorite-apps 2>/dev/null)
+                if [[ "$CURRENT_FAVS" != *"lact-gui.desktop"* ]]; then
+                    # Remove brackets and quotes, then add lact-gui.desktop
+                    FAVS_CLEAN=$(echo "$CURRENT_FAVS" | sed -e "s/^\[//" -e "s/\]
+    $//" -e "s/'//g" -e 's/, /,/g')
+                    if [[ -z "$FAVS_CLEAN" ]]; then
+                        NEW_FAVS="['lact-gui.desktop']"
+                    else
+                        NEW_FAVS="[$(echo $FAVS_CLEAN | sed "s/$/,lact-gui.desktop/")"]"
+                        NEW_FAVS=$(echo "$NEW_FAVS" | sed "s/,/, /g" | sed "s/\[/['/g" | sed "s/\]/']/g" | sed "s/, '/, '/g")
+                    fi
+                    sudo -u "$ACTUAL_USER" env DISPLAY=:0 XAUTHORITY="/home/$ACTUAL_USER/.Xauthority" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" \
+                        gsettings set org.gnome.shell favorite-apps "$NEW_FAVS" 2>/dev/null || true
+                    log_success "Pinned LACT to GNOME favorites bar for $ACTUAL_USER"
+                else
+                    log_info "LACT already pinned to favorites bar for $ACTUAL_USER"
+                fi
+            else
+                log_warning "No D-Bus session for $ACTUAL_USER (not logged in?). Cannot pin LACT to favorites bar."
+            fi
+        else
+            log_warning "gsettings not available or no valid user detected. Skipping LACT pinning."
+        fi
+}
+
+# Call LACT install at the end
+install_lact
+
+# Set GNOME Power Mode to 'performance' for the user
+set_gnome_power_performance() {
+    if command_exists gsettings && [[ -n "$ACTUAL_USER" ]] && [[ "$ACTUAL_USER" != "root" ]]; then
+        UID_NUM="$(id -u "$ACTUAL_USER" 2>/dev/null || true)"
+        RUNTIME_DIR="/run/user/${UID_NUM}"
+        DBUS_ADDRESS="unix:path=${RUNTIME_DIR}/bus"
+        if [[ -S "${RUNTIME_DIR}/bus" ]]; then
+            log_info "Setting GNOME Power Mode to 'performance' for $ACTUAL_USER"
+            sudo -u "$ACTUAL_USER" env DISPLAY=:0 XAUTHORITY="/home/$ACTUAL_USER/.Xauthority" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" \
+                gsettings set org.gnome.settings-daemon.plugins.power power-profile 'performance' 2>/dev/null || true
+            log_success "GNOME Power Mode set to 'performance' for $ACTUAL_USER"
+        else
+            log_warning "No D-Bus session for $ACTUAL_USER (not logged in?). Power mode will apply on next login if set via dconf defaults."
+        fi
+    else
+        log_warning "gsettings not available or no valid user detected. Skipping GNOME Power Mode setting."
+    fi
+}
+
+set_gnome_power_performance
