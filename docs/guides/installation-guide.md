@@ -410,7 +410,7 @@ CI-OS includes setup scripts for development tools:
 
 ```bash
 # Setup Docker, Node.js, VS Code, etc.
-sudo /home/runner/work/CI-OS/CI-OS/scripts/setup-fresh-ubuntu.sh
+sudo ./scripts/setup-fresh-ubuntu.sh
 ```
 
 See README.md for details on included tools.
