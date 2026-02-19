@@ -187,7 +187,7 @@ jobs:
           echo "Generating Software Bill of Materials..."
           
           # Create a simple SBOM listing packages in the ISO
-          cat > output/SBOM.txt << 'EOF'
+          cat > output/SBOM.txt << EOF
           CI-OS Software Bill of Materials
           =================================
           
