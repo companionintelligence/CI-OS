@@ -20,7 +20,7 @@ Main orchestration script that:
 - Repacks squashfs with high compression
 - Generates bootable hybrid ISO (BIOS + UEFI + Secure Boot)
 - Creates checksums (SHA256, MD5) and optional GPG signatures
-- Generates SBOM (Software Bill of Materials)
+- Prepares artifacts for SBOM generation (SBOM generated in CI workflow)
 
 **Key Features**:
 - Clean builds with `--clean` flag

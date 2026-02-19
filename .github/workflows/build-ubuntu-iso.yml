@@ -163,7 +163,7 @@ jobs:
           cat MD5SUMS
       
       - name: Sign checksums (if enabled)
-        if: github.event.inputs.sign == 'true' && env.GPG_PRIVATE_KEY != ''
+        if: github.event.inputs.sign == 'true' && secrets.GPG_PRIVATE_KEY != ''
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
@@ -209,7 +209,7 @@ jobs:
       - name: Create release notes
         id: release_notes
         run: |
-          cat > release-notes.md << 'EOF'
+          cat > release-notes.md << EOF
           # CI-OS ${{ steps.version.outputs.version }} - Ubuntu 24.04 Based
           
           ## What's New
@@ -218,7 +218,7 @@ jobs:
           - 🎨 **Custom Branding** - CI-OS identity with dark green color scheme (#066c80, #00a9a7, #72ddd4)
           - 🔒 **Privacy First** - No ads, no surveillance, telemetry disabled
           - 💻 **AMD GPU Ready** - ROCm 7.2+ support with easy installation
-          - 🛠️ **Developer Tools** - Docker, VS Code, Node.js, Ollama pre-configured
+          - 🛠️ **Developer Friendly** - Compatible with popular tools like Docker, VS Code, Node.js, and Ollama
           - 🌐 **Sovereign Computing** - Your data, your control
           
           ## Installation

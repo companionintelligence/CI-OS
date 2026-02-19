@@ -170,6 +170,10 @@ extract_iso() {
     # Mount ISO
     local mount_point="$WORK_DIR/iso-mount"
     mkdir -p "$mount_point"
+    
+    # Setup cleanup trap for this function
+    trap 'umount "$mount_point" 2>/dev/null || true; rmdir "$mount_point" 2>/dev/null || true' RETURN
+    
     mount -o loop "$BASE_ISO" "$mount_point"
     
     # Copy ISO contents
@@ -179,7 +183,7 @@ extract_iso() {
     # Copy the squashfs separately (we'll replace it)
     cp "$mount_point/casper/filesystem.squashfs" "$WORK_DIR/squashfs/filesystem.squashfs"
     
-    # Unmount
+    # Unmount (trap will also handle this on error)
     umount "$mount_point"
     rmdir "$mount_point"
     
@@ -253,10 +257,10 @@ repack_squashfs() {
     # Create new squashfs with high compression
     mksquashfs "$chroot_dir" "$output_squashfs" \
         -comp xz -b 1M \
-        -e "$chroot_dir/var/cache/apt/archives/*" \
-        -e "$chroot_dir/var/lib/apt/lists/*" \
-        -e "$chroot_dir/tmp/*" \
-        -e "$chroot_dir/root/.bash_history" \
+        -e 'var/cache/apt/archives/*' \
+        -e 'var/lib/apt/lists/*' \
+        -e 'tmp/*' \
+        -e 'root/.bash_history' \
         -noappend \
         -no-recovery
     
@@ -282,8 +286,24 @@ generate_iso() {
     sed -i "s/Ubuntu/CI-OS/g" "$WORK_DIR/custom-iso/boot/grub/grub.cfg" || true
     sed -i "s/Ubuntu/CI-OS/g" "$WORK_DIR/custom-iso/isolinux/txt.cfg" || true
     
-    # Calculate MD5 checksums for files
-    (cd "$WORK_DIR/custom-iso" && find . -type f -print0 | xargs -0 md5sum > md5sum.txt)
+    # Calculate MD5 checksums for files (exclude md5sum.txt itself)
+    (cd "$WORK_DIR/custom-iso" && find . -type f ! -name 'md5sum.txt' -print0 | xargs -0 md5sum > md5sum.txt)
+    
+    # Detect isohdpfx.bin location
+    local isohdpfx=""
+    for path in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/mbr/isohdpfx.bin /usr/share/syslinux/isohdpfx.bin; do
+        if [[ -f "$path" ]]; then
+            isohdpfx="$path"
+            break
+        fi
+    done
+    
+    if [[ -z "$isohdpfx" ]]; then
+        log_error "isohdpfx.bin not found. Please install isolinux or syslinux-utils package."
+        exit 1
+    fi
+    
+    log_info "Using isohdpfx.bin from: $isohdpfx"
     
     # Generate ISO with xorriso
     xorriso -as mkisofs \
@@ -298,7 +318,7 @@ generate_iso() {
         -no-emul-boot \
         -boot-load-size 4 \
         -boot-info-table \
-        -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+        -isohybrid-mbr "$isohdpfx" \
         -eltorito-alt-boot \
         -e boot/grub/efi.img \
         -no-emul-boot \

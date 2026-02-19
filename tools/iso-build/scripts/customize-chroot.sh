@@ -133,8 +133,15 @@ apt-get purge -y ubuntu-report popularity-contest apport whoopsie apport-symptom
 # Hold packages to prevent reinstall
 apt-mark hold ubuntu-report popularity-contest apport whoopsie apport-symptoms landscape-common || true
 
-# Remove snap store (we'll use GNOME Software instead)
-snap remove snap-store || true
+# Remove snap store (in chroot, snapd isn't running, so we clean up files directly)
+# NOTE: We are in a chroot, so snapd is typically not running and
+# `snap remove snap-store` would fail. Instead, remove snap-store
+# by cleaning up its snap files, seeds, and desktop entries directly.
+rm -f /var/lib/snapd/snaps/snap-store_*.snap
+rm -f /var/lib/snapd/seed/snaps/snap-store.*
+rm -rf /snap/snap-store
+rm -rf /var/snap/snap-store
+rm -f /var/lib/snapd/desktop/applications/snap-store_*.desktop
 
 # Remove bloatware (be conservative - only remove obvious bloat)
 apt-get purge -y \
@@ -256,6 +263,14 @@ if [[ $EUID -ne 0 ]]; then
    echo "This script must be run as root"
    exit 1
 fi
+
+# Check for required tools
+for cmd in wget gpg; do
+    if ! command -v "$cmd" &> /dev/null; then
+        echo "Error: $cmd is required but not installed. Please install it first."
+        exit 1
+    fi
+done
 
 echo "[*] Installing ROCm for CI-OS..."
 

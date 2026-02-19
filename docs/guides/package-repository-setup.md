@@ -198,9 +198,12 @@ Aptly is more feature-rich with snapshot support.
 ### 1. Install Aptly
 
 ```bash
-# Add aptly repository
-echo "deb http://repo.aptly.info/ squeeze main" | sudo tee /etc/apt/sources.list.d/aptly.list
-wget -qO - https://www.aptly.info/pubkey.txt | sudo apt-key add -
+# Import Aptly GPG key into a dedicated keyring
+sudo mkdir -p /usr/share/keyrings
+wget -qO- https://www.aptly.info/pubkey.txt | sudo gpg --dearmor -o /usr/share/keyrings/aptly-archive-keyring.gpg
+
+# Configure Aptly APT source using the dedicated keyring
+echo "deb [signed-by=/usr/share/keyrings/aptly-archive-keyring.gpg] http://repo.aptly.info/ squeeze main" | sudo tee /etc/apt/sources.list.d/aptly.list
 
 sudo apt-get update
 sudo apt-get install aptly

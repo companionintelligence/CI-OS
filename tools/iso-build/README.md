@@ -95,7 +95,7 @@ sudo ./scripts/build-iso.sh [options]
 4. Applies customizations via `customize-chroot.sh`
 5. Repacks squashfs
 6. Generates bootable ISO
-7. Creates checksums and SBOM
+7. Creates checksums (SHA256/MD5) - SBOM generated in CI workflow
 
 **Requirements**:
 - Root privileges

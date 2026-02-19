@@ -36,6 +36,12 @@ if ! command -v reprepro &> /dev/null; then
     apt-get install -y reprepro
 fi
 
+# Check for nginx
+if ! command -v nginx &> /dev/null; then
+    echo "[*] Installing nginx..."
+    apt-get install -y nginx
+fi
+
 # Create directory structure
 echo "[*] Creating directory structure..."
 mkdir -p "$REPO_ROOT"/{conf,db,dists,pool,incoming}
@@ -80,21 +86,40 @@ chmod -R 755 "$REPO_ROOT"
 chmod 700 "$REPO_ROOT/conf"
 chmod 700 "$REPO_ROOT/db"
 
-# Export public key
-echo "[*] Exporting public key..."
-gpg --armor --export "$GPG_KEY_ID" > "$REPO_ROOT/ci-archive-keyring.asc"
+# Verify that the GPG key exists before exporting
+if ! gpg --list-keys "$GPG_KEY_ID" > /dev/null 2>&1; then
+    echo "Error: GPG key '$GPG_KEY_ID' not found in keyring. Aborting."
+    exit 1
+fi
+
+# Export to a temporary file first to avoid creating empty keyrings
+tmp_keyring="$(mktemp)"
+if ! gpg --armor --export "$GPG_KEY_ID" > "$tmp_keyring"; then
+    echo "Error: Failed to export GPG key '$GPG_KEY_ID'. Aborting."
+    rm -f "$tmp_keyring"
+    exit 1
+fi
+
+# Ensure the exported key is non-empty before using it
+if [[ ! -s "$tmp_keyring" ]]; then
+    echo "Error: Exported key for '$GPG_KEY_ID' is empty. Aborting."
+    rm -f "$tmp_keyring"
+    exit 1
+fi
+
+mv "$tmp_keyring" "$REPO_ROOT/ci-archive-keyring.asc"
 gpg --dearmor < "$REPO_ROOT/ci-archive-keyring.asc" > "$REPO_ROOT/ci-archive-keyring.gpg"
 
 # Create nginx configuration
 echo "[*] Creating nginx configuration..."
-cat > "/etc/nginx/sites-available/packages.ci.computer" << 'EOFNGINX'
+cat > "/etc/nginx/sites-available/packages.ci.computer" << EOFNGINX
 server {
     listen 80;
     listen [::]:80;
     server_name packages.ci.computer;
     
     # Redirect to HTTPS
-    return 301 https://$server_name$request_uri;
+    return 301 https://\$server_name\$request_uri;
 }
 
 server {
@@ -106,7 +131,7 @@ server {
     # ssl_certificate /etc/letsencrypt/live/packages.ci.computer/fullchain.pem;
     # ssl_certificate_key /etc/letsencrypt/live/packages.ci.computer/privkey.pem;
     
-    root /srv/packages.ci.computer;
+    root $REPO_ROOT;
     
     location / {
         autoindex on;
@@ -122,11 +147,11 @@ server {
     
     # Public key download
     location = /ci-archive-keyring.asc {
-        alias /srv/packages.ci.computer/ci-archive-keyring.asc;
+        alias $REPO_ROOT/ci-archive-keyring.asc;
     }
     
     location = /ci-archive-keyring.gpg {
-        alias /srv/packages.ci.computer/ci-archive-keyring.gpg;
+        alias $REPO_ROOT/ci-archive-keyring.gpg;
     }
 }
 EOFNGINX

@@ -49,4 +49,8 @@ done
 echo
 echo "[+] All packages built successfully"
 echo "[+] Location: $OUTPUT_DIR"
-ls -lh "$OUTPUT_DIR"/*.deb
+if compgen -G "$OUTPUT_DIR"/*.deb > /dev/null; then
+    ls -lh "$OUTPUT_DIR"/*.deb
+else
+    echo "[!] No .deb packages were built (none found in $OUTPUT_DIR)"
+fi

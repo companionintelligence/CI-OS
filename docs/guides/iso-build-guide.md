@@ -285,7 +285,7 @@ Generated files:
 - `MD5SUMS` - MD5 checksums
 - `SHA256SUMS.gpg` - GPG signature (if `--sign` used)
 - `MD5SUMS.gpg` - GPG signature (if `--sign` used)
-- `SBOM.txt` - Software Bill of Materials
+- `SBOM.txt` - Software Bill of Materials (CI builds only; local builds must generate separately)
 
 ---
 

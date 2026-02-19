@@ -2,7 +2,7 @@ Package: companion-memory
 Version: 1.0.0
 Section: misc
 Priority: optional
-Architecture: amd64
+Architecture: all
 Maintainer: Companion Intelligence <support@ci.computer>
 Description: Companion memory system
  Memory and context management system for CI-OS AI companions.

@@ -67,7 +67,7 @@ sudo ci-os-install-rocm
 ✅ **Based on Ubuntu 24.04 LTS** - Solid, stable foundation  
 ✅ **No Telemetry** - Privacy-first, no tracking  
 ✅ **AMD GPU Support** - ROCm 7.2+ ready for AI workloads  
-✅ **Developer Tools Ready** - Docker, Node.js, VS Code, Ollama  
+✅ **Developer Friendly** - Compatible with Docker, Node.js, VS Code, Ollama (install post-install)  
 ✅ **Custom Branding** - Dark green CI theme  
 ✅ **Secure Boot Compatible** - Works with modern systems
 
