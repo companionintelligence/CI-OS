@@ -1,0 +1,16 @@
+#!/bin/bash
+# Post-installation script for companion-os-base
+
+set -e
+
+# Update dconf database for system-wide settings
+if command -v dconf > /dev/null 2>&1; then
+    dconf update
+fi
+
+# Update GRUB if installed
+if command -v update-grub > /dev/null 2>&1; then
+    update-grub
+fi
+
+echo "CI-OS base system configured successfully"

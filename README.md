@@ -12,10 +12,58 @@ Based on Ubuntu 24.04.
 
 ## Contents
 
-1. [Fresh Ubuntu setup](#fresh-ubuntu-setup)
-2. [Headless device WiFi setup](#headless-device-wifi-setup)
-3. [Ubuntu branding (wallpaper & start icon)](#ubuntu-branding-wallpaper--start-icon)
-4. [Repo layout](#repo-layout)
+1. [Building CI-OS ISOs](#building-ci-os-isos)
+2. [Fresh Ubuntu setup](#fresh-ubuntu-setup)
+3. [Headless device WiFi setup](#headless-device-wifi-setup)
+4. [Ubuntu branding (wallpaper & start icon)](#ubuntu-branding-wallpaper--start-icon)
+5. [Repo layout](#repo-layout)
+6. [Documentation](#documentation)
+
+---
+
+## Building CI-OS ISOs
+
+Create custom CI-OS ISOs from Ubuntu 24.04 with complete branding, privacy features, and AMD GPU support.
+
+### Quick Start
+
+```bash
+# Download Ubuntu 24.04 base ISO
+wget https://releases.ubuntu.com/24.04/ubuntu-24.04.1-desktop-amd64.iso
+
+# Build CI-OS ISO
+sudo ./tools/iso-build/scripts/build-iso.sh \
+  --base-iso ubuntu-24.04.1-desktop-amd64.iso \
+  --version 1.0
+```
+
+Output: `./output/companion-os-1.0-amd64.iso`
+
+### Features
+
+✅ **Complete Ubuntu Rebrand** - All Ubuntu identity replaced with CI-OS  
+✅ **Privacy First** - Telemetry removed, metrics blocked  
+✅ **AMD GPU Ready** - ROCm installation helper included  
+✅ **Custom Branding** - Dark green theme (#066c80, #00a9a7, #72ddd4)  
+✅ **Developer Tools** - Pre-configured for Docker, Node.js, VS Code  
+✅ **Bootable ISO** - BIOS + UEFI + Secure Boot compatible
+
+### Documentation
+
+- **[ISO Build Guide](docs/guides/iso-build-guide.md)** - Complete build documentation
+- **[Installation Guide](docs/guides/installation-guide.md)** - End-user installation steps
+- **[Quick Start Guide](docs/guides/quick-start-guide.md)** - Get started fast
+- **[Package Repository Setup](docs/guides/package-repository-setup.md)** - Host your own packages
+- **[Tools README](tools/iso-build/README.md)** - Script reference
+
+### CI/CD
+
+ISOs are automatically built via GitHub Actions:
+- **Weekly**: Sundays at 2 AM UTC
+- **On Tags**: Push `v*` tag to trigger release
+- **Manual**: Workflow dispatch in Actions tab
+
+See `.github/workflows/build-ubuntu-iso.yml` for configuration.
 
 ---
 
@@ -173,12 +221,55 @@ Both scripts create timestamped backups under `/usr/share/icons/ubuntu-backup-*`
 ## Repo layout
 
 ```
-├── assets/           # Logos, wallpapers, branding
-├── configs/          # Boot, desktop, packages, preseed, scripts
-├── docs/              # Installation and headless setup notes
-├── scripts/           # setup-fresh-ubuntu.sh, libs
+├── .github/
+│   └── workflows/         # CI/CD: build-ubuntu-iso.yml
+├── assets/                # Logos, wallpapers, branding
+├── configs/               # Boot, desktop, packages, preseed, scripts
+├── docs/
+│   └── guides/            # ISO build, installation, quick start, repository setup
+├── packages/              # .deb package sources
+│   ├── companion-os-base/
+│   ├── companion-os-keyring/
+│   ├── companion-agents/
+│   └── companion-memory/
+├── scripts/               # setup-fresh-ubuntu.sh, libs
 ├── setup/
-│   ├── headless/      # Headless WiFi setup: build, deb, portal, backend
-│   └── os-changes/    # replace-start-icon.sh, replace-wallpaper.sh, assets
-└── README.md          # This file
+│   ├── headless/          # Headless WiFi setup: build, deb, portal, backend
+│   └── os-changes/        # replace-start-icon.sh, replace-wallpaper.sh, assets
+├── tools/
+│   └── iso-build/         # ISO building tools and scripts
+│       ├── scripts/       # build-iso.sh, customize-chroot.sh, build-packages.sh
+│       └── README.md      # Tools documentation
+└── README.md              # This file
 ```
+
+---
+
+## Documentation
+
+### For Users
+
+- **[Installation Guide](docs/guides/installation-guide.md)** - How to install CI-OS
+- **[Quick Start Guide](docs/guides/quick-start-guide.md)** - Get up and running fast
+
+### For Developers
+
+- **[ISO Build Guide](docs/guides/iso-build-guide.md)** - Build custom ISOs
+- **[Package Repository Setup](docs/guides/package-repository-setup.md)** - Host package repo
+- **[Tools README](tools/iso-build/README.md)** - Script reference and customization
+
+### Features
+
+- **No Ads, No Surveillance** - Privacy-first computing
+- **AMD GPU Support** - ROCm 7.2+ for AI workloads
+- **Developer Ready** - Docker, Node.js, VS Code, Ollama included
+- **Sovereign Computing** - Your data, your control
+
+---
+
+## Support
+
+- **Issues**: https://github.com/companionintelligence/CI-OS/issues
+- **Website**: https://ci.computer
+
+© Companion Intelligence — Lifescope Inc
