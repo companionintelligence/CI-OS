@@ -464,7 +464,7 @@ jobs:
           
       - name: Generate release notes
         run: |
-          cat > release-notes.md << 'EOF'
+          cat > release-notes.md << EOF
           # CI OS Ubuntu Edition
           
           **Based on:** Ubuntu 24.04 LTS (Noble Numbat)
