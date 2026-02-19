@@ -111,7 +111,7 @@ Automated repository setup script that:
 
 ### 4. CI/CD Pipeline ✅
 
-**Location**: `.github/workflows/build-ubuntu-iso.yml`
+**Location**: `.github/workflows/build-companion-os-iso.yml`
 
 GitHub Actions workflow that:
 - Triggers on:
@@ -336,7 +336,7 @@ Optional improvements for future releases:
 - `packages/companion-memory/DEBIAN/control`
 
 **Workflows**:
-- `.github/workflows/build-ubuntu-iso.yml` (9.6KB)
+- `.github/workflows/build-companion-os-iso.yml` (9.6KB)
 
 **Documentation**:
 - `docs/guides/iso-build-guide.md` (12.5KB)

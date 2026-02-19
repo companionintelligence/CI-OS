@@ -47,7 +47,7 @@ This repository currently contains:
 ```
 /
 ├── .github/
-│   ├── workflows/build-iso.yml    # Main build pipeline
+│   ├── workflows/build-companion-os-iso.yml    # Main build pipeline
 │   └── copilot-instructions.md    # This file
 ├── assets/logos/                  # Brand assets and logos
 ├── ISOs                          # Regular variant build definition (to be created)

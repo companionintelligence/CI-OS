@@ -455,7 +455,7 @@ sudo journalctl -f
 
 ### GitHub Actions Workflow
 
-The repository includes `.github/workflows/build-ubuntu-iso.yml` for automated builds.
+The repository includes `.github/workflows/build-companion-os-iso.yml` for automated builds.
 
 #### Trigger Builds
 
@@ -506,7 +506,7 @@ cat private.key | pbcopy  # or xclip on Linux
 
 #### Workflow Configuration
 
-Edit `.github/workflows/build-ubuntu-iso.yml`:
+Edit `.github/workflows/build-companion-os-iso.yml`:
 
 ```yaml
 env:
