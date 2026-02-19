@@ -39,3 +39,19 @@ config.local.*
 build/
 dist/
 out/
+
+# ISO build working directories
+/work/
+/output/
+tools/iso-build/work/
+tools/iso-build/output/
+
+# Package build artifacts
+*.deb
+*.dsc
+*.changes
+*.buildinfo
+
+# Repository artifacts
+/srv/
+packages.ci.computer/
