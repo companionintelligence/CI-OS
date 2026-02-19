@@ -1,7 +1,5 @@
-# CI OS
-
-**Custom Linux distribution for AI companions and development.**  
-Based on Ubuntu 24.04.
+## Companion Intelligence OS
+### UnCloud Debian Linux
 
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
