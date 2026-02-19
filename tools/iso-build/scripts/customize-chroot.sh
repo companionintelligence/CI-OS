@@ -259,9 +259,11 @@ fi
 
 echo "[*] Installing ROCm for CI-OS..."
 
-# Add ROCm repository
-wget -q -O - https://repo.radeon.com/rocm/rocm.gpg.key | apt-key add -
-echo 'deb [arch=amd64] https://repo.radeon.com/rocm/apt/latest ubuntu main' > /etc/apt/sources.list.d/rocm.list
+# Add ROCm repository using keyring and signed-by (apt-key is deprecated)
+ROCM_KEYRING="/usr/share/keyrings/rocm-archive-keyring.gpg"
+install -d -m 0755 "$(dirname "$ROCM_KEYRING")"
+wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor -o "$ROCM_KEYRING"
+echo "deb [arch=amd64 signed-by=$ROCM_KEYRING] https://repo.radeon.com/rocm/apt/latest ubuntu main" > /etc/apt/sources.list.d/rocm.list
 
 # Update and install
 apt-get update

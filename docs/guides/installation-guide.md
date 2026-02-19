@@ -103,6 +103,8 @@ If you downloaded `SHA256SUMS.gpg`:
 
 ```bash
 # Import CI-OS public key (first time only)
+# The CI-OS GPG key ID is published on the GitHub Releases page
+# Look for "Release signing key" in the release notes
 gpg --keyserver keyserver.ubuntu.com --recv-keys <CI-OS-KEY-ID>
 
 # Verify signature
@@ -409,7 +411,7 @@ flatpak install flathub com.spotify.Client
 CI-OS includes setup scripts for development tools:
 
 ```bash
-# Setup Docker, Node.js, VS Code, etc.
+# Setup Docker, Node.js, VS Code, etc. (from the repository root)
 sudo ./scripts/setup-fresh-ubuntu.sh
 ```
 
@@ -421,10 +423,10 @@ See README.md for details on included tools.
 
 System Settings → Appearance → Background
 
-Or use the existing wallpaper replacement script:
+Or use the existing wallpaper replacement script (from the repository root):
 
 ```bash
-sudo /home/runner/work/CI-OS/CI-OS/setup/os-changes/replace-wallpaper.sh
+sudo ./setup/os-changes/replace-wallpaper.sh
 ```
 
 #### Install Additional Themes

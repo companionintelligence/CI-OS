@@ -184,8 +184,8 @@ sudo ci-os-install-rocm
 ### Quick Dev Stack
 
 ```bash
-# Run full setup script
-sudo /home/runner/work/CI-OS/CI-OS/scripts/setup-fresh-ubuntu.sh
+# Run full setup script (from the repository root)
+sudo ./scripts/setup-fresh-ubuntu.sh
 ```
 
 This installs:

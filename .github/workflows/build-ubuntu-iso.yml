@@ -198,7 +198,7 @@ jobs:
           
           ## Verification
           
-          Verify the ISO checksum:
+          Verify the ISO checksum (from the download directory containing both the ISO and SHA256SUMS files):
           ```bash
           sha256sum -c SHA256SUMS
           ```
