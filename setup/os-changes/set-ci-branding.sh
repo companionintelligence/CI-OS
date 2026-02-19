@@ -8,7 +8,7 @@
 # Removes all Ubuntu references from Plymouth themes.
 #
 # This script:
-# - Replaces watermark.png in the Plymouth spinner theme
+# - Replaces watermark.png in the Plymouth spinner theme (resized to 50% for smaller boot logo)
 # - Updates spinner.plymouth, bgrt.plymouth with CI colors (no Ubuntu refs)
 # - Updates ubuntu-text.plymouth (text fallback) with CI OS title and colors
 # - Ensures default.plymouth and text.plymouth point to CI-themed variants
@@ -16,7 +16,7 @@
 # - Applies same theme/desktop settings as configs/desktop/gnome-settings.sh to current user
 #
 # Usage: sudo ./set-ci-branding.sh
-# Requirements: Root/sudo access
+# Requirements: Root/sudo access. ImageMagick (apt install imagemagick) for logo scaling.
 #
 
 set -euo pipefail
@@ -40,6 +40,10 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOGO_SOURCE="$SCRIPT_DIR/Logo_Banner_Color.png"
 PLYMOUTH_SPINNER_DIR="/usr/share/plymouth/themes/spinner"
+
+# Watermark scaling: make logo smaller on boot screen (Plymouth uses image at native size)
+# Set to 50 = 50% of original, 75 = 75%, etc. Use 100 to disable scaling.
+WATERMARK_SCALE_PERCENT=50
 WATERMARK_DEST="$PLYMOUTH_SPINNER_DIR/watermark.png"
 PLYMOUTH_UBUNTU_TEXT_DIR="/usr/share/plymouth/themes/ubuntu-text"
 UBUNTU_TEXT_PLYMOUTH="$PLYMOUTH_UBUNTU_TEXT_DIR/ubuntu-text.plymouth"
@@ -89,10 +93,21 @@ if [[ -f "$WATERMARK_DEST" ]]; then
     log_info "Backup created: $BACKUP_DIR/watermark.png.bak"
 fi
 
-# Copy our logo as watermark.png
-cp "$LOGO_SOURCE" "$WATERMARK_DEST"
+# Copy our logo as watermark.png (resized smaller for boot screen)
+if [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]] && command -v convert >/dev/null 2>&1; then
+    convert "$LOGO_SOURCE" -resize "${WATERMARK_SCALE_PERCENT}%" "$WATERMARK_DEST"
+    log_success "Resized Logo_Banner_Color.png (${WATERMARK_SCALE_PERCENT}%) → watermark.png"
+elif [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]] && command -v magick >/dev/null 2>&1; then
+    magick "$LOGO_SOURCE" -resize "${WATERMARK_SCALE_PERCENT}%" "$WATERMARK_DEST"
+    log_success "Resized Logo_Banner_Color.png (${WATERMARK_SCALE_PERCENT}%) → watermark.png"
+else
+    if [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]]; then
+        log_warn "ImageMagick not found (install: apt install imagemagick). Copying at full size."
+    fi
+    cp "$LOGO_SOURCE" "$WATERMARK_DEST"
+    log_success "Copied Logo_Banner_Color.png → watermark.png"
+fi
 chmod 644 "$WATERMARK_DEST"
-log_success "Copied Logo_Banner_Color.png → watermark.png"
 
 # --- Update spinner.plymouth (CI colors: dark green bg, teal progress bar) ---
 if [[ -f "$PLYMOUTH_SPINNER_CONF" ]]; then
