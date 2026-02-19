@@ -175,7 +175,7 @@ jobs:
           ## What's New
 
           - 🚀 **Based on Ubuntu 24.04 (Noble Numbat)** - Latest LTS release
-          - 🎨 **Custom Branding** - CI-OS identity with dark green color scheme
+          - 🎨 **Custom Branding** - CI-OS identity with dark green color scheme (#066c80, #00a9a7, #72ddd4)
           - 🔒 **Privacy First** - No ads, no surveillance, telemetry disabled
           - 💻 **AMD GPU Ready** - ROCm 7.2+ support with easy installation
           - 🛠️ **Developer Friendly** - Compatible with Docker, VS Code, Node.js
