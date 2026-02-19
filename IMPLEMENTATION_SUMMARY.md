@@ -116,7 +116,7 @@
 
 ### 4. Build Automation
 
-- **.github/workflows/build-ubuntu-iso.yml** (9.2KB)
+- **.github/workflows/build-companion-os-iso.yml** (9.2KB)
   - Automated ISO building from Ubuntu 24.04
   - Applies all CI OS branding
   - Generates checksums
@@ -254,7 +254,7 @@ cubic
 # Select Ubuntu 24.04 ISO, run complete-rebranding.sh in chroot
 
 # Using GitHub Actions
-# Trigger workflow: .github/workflows/build-ubuntu-iso.yml
+# Trigger workflow: .github/workflows/build-companion-os-iso.yml
 ```
 
 ---
@@ -279,7 +279,7 @@ cubic
 7. `docs/dark-green-theme-guide.md` - Implementation guide
 8. `docs/iso-build-guide.md` - ISO building guide
 9. `docs/quick-reference.md` - Quick reference
-10. `.github/workflows/build-ubuntu-iso.yml` - Build automation
+10. `.github/workflows/build-companion-os-iso.yml` - Build automation
 11. `IMPLEMENTATION_SUMMARY.md` - This file
 
 **Total:** 19 files (8 modified, 11 created)

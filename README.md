@@ -63,7 +63,7 @@ ISOs are automatically built via GitHub Actions:
 - **On Tags**: Push `v*` tag to trigger release
 - **Manual**: Workflow dispatch in Actions tab
 
-See `.github/workflows/build-ubuntu-iso.yml` for configuration.
+See `.github/workflows/build-companion-os-iso.yml` for configuration.
 
 ---
 
@@ -222,7 +222,7 @@ Both scripts create timestamped backups under `/usr/share/icons/ubuntu-backup-*`
 
 ```
 ├── .github/
-│   └── workflows/         # CI/CD: build-ubuntu-iso.yml
+│   └── workflows/         # CI/CD: build-companion-os-iso.yml
 ├── assets/                # Logos, wallpapers, branding
 ├── configs/               # Boot, desktop, packages, preseed, scripts
 ├── docs/

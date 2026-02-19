@@ -170,7 +170,7 @@ sudo ./scripts/setup-repository.sh [repo_root]
 
 ### GitHub Actions
 
-The repository includes `.github/workflows/build-ubuntu-iso.yml` for automated builds.
+The repository includes `.github/workflows/build-companion-os-iso.yml` for automated builds.
 
 **Triggers**:
 - Manual workflow dispatch

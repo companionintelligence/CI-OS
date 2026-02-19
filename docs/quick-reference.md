@@ -156,7 +156,7 @@ cubic
 ### Automated Method (GitHub Actions)
 ```bash
 # Trigger workflow at:
-# .github/workflows/build-ubuntu-iso.yml
+# .github/workflows/build-companion-os-iso.yml
 # Downloads Ubuntu 24.04, applies branding, creates ISO
 ```
 

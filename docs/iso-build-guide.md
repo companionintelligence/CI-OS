@@ -242,7 +242,7 @@ echo "ISO created: $WORK_DIR/$OUTPUT_ISO"
 
 ## Automated Build Pipeline (GitHub Actions)
 
-See `.github/workflows/build-ubuntu-iso.yml` (to be created) for automated ISO builds.
+See `.github/workflows/build-companion-os-iso.yml` for automated ISO builds.
 
 Basic structure:
 
