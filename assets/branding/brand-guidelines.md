@@ -7,15 +7,21 @@
 - Clear space: Minimum 20px around logo
 
 ## Color Palette
-### Primary Colors
-- **CI Blue**: #2563EB (Primary brand color)
-- **CI Dark Blue**: #1E40AF (Dark variant)
-- **CI Light Blue**: #60A5FA (Accent color)
+### Primary Colors (Official CI Dark Green Scheme)
+- **Primary Dark Green**: #066c80 (Primary brand color - backgrounds, window frames, selection)
+- **Medium Green**: #00a9a7 (Secondary elements - highlights, links, buttons)
+- **Light Green**: #72ddd4 (Accents - text highlights, branding elements)
 
-### Secondary Colors
+### Supporting Colors
+- **Deep Green**: #1b4332 (Dark backgrounds, secondary surfaces)
+- **Forest Green**: #2d5a45 (Progress bars, tertiary elements)
+- **Teal**: #20b2aa (Interactive elements, focus states)
+
+### UI Colors
 - **White**: #FFFFFF (Text on dark backgrounds)
 - **Light Gray**: #E5E7EB (Secondary text)
 - **Dark Gray**: #374151 (Body text)
+- **Black**: #000000 (Deep backgrounds, text)
 
 ## Typography
 - **Primary**: Ubuntu (system font)
