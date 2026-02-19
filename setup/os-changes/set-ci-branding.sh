@@ -46,10 +46,11 @@ UBUNTU_TEXT_PLYMOUTH="$PLYMOUTH_UBUNTU_TEXT_DIR/ubuntu-text.plymouth"
 PLYMOUTH_SPINNER_CONF="$PLYMOUTH_SPINNER_DIR/spinner.plymouth"
 PLYMOUTH_BGRT_CONF="/usr/share/plymouth/themes/bgrt/bgrt.plymouth"
 
-# CI color scheme: dark green background, teal progress bar
-BG_DARK_GREEN="0x1b4332"
-PROGRESS_BG="0x2d5a45"
-PROGRESS_FG="0x20b2aa"
+# CI color scheme: Official dark green palette
+# Primary Dark Green: #066c80, Medium Green: #00a9a7, Light Green: #72ddd4
+BG_DARK_GREEN="0x066c80"     # Primary dark green background
+PROGRESS_BG="0x1b4332"       # Deep green for progress background
+PROGRESS_FG="0x00a9a7"       # Medium green for progress foreground
 
 # GNOME/GDM theme (dark green - matches our brand)
 # Fallback order: prussiangreen > sage > viridian > dark
@@ -121,8 +122,8 @@ if [[ -f "$UBUNTU_TEXT_PLYMOUTH" ]]; then
     cp "$UBUNTU_TEXT_PLYMOUTH" "$BACKUP_DIR/ubuntu-text.plymouth.bak"
     log_info "Backup created: $BACKUP_DIR/ubuntu-text.plymouth.bak"
 
-    # CI OS color scheme: teal, green, aquamarine, black
-    # black=background, white=aquamarine (main text), brown=green, blue=teal
+    # CI OS color scheme: Official dark green palette
+    # black=background, white=light green (main text), brown=medium green, blue=primary dark green
     cat > "$UBUNTU_TEXT_PLYMOUTH" <<'PLYMOUTH_EOF'
 [Plymouth Theme]
 Name=CI OS Text
@@ -132,9 +133,9 @@ ModuleName=ubuntu-text
 [ubuntu-text]
 title=CI OS 0.0.1
 black=0x000000
-white=0x7fffd4
-brown=0x2e8b57
-blue=0x20b2aa
+white=0x72ddd4
+brown=0x00a9a7
+blue=0x066c80
 PLYMOUTH_EOF
     chmod 644 "$UBUNTU_TEXT_PLYMOUTH"
     log_success "Updated ubuntu-text.plymouth: title=CI OS 0.0.1, colors=teal/green/aquamarine/black"
@@ -156,9 +157,9 @@ if command -v update-alternatives >/dev/null 2>&1; then
 fi
 
 # --- Set GDM login screen and user default to dark green theme ---
-# Yaru-prussiangreen-dark: dark green accent theme (teal/dark green brand)
-# Alternative: Yaru-sage-dark (muted green)
-CI_THEME_COLORS="0d4d2b"  # dark green for lock screen / accent
+# Using official CI dark green color palette
+CI_THEME_COLORS="066c80"  # Primary dark green for lock screen / accent
+CI_SECONDARY_COLOR="1b4332"  # Deep green for secondary elements
 if [[ -d "/etc/dconf" ]]; then
     mkdir -p /etc/dconf/db/local.d
 
@@ -193,7 +194,7 @@ gtk-theme='$CI_GTK_THEME'
 
 [org/gnome/desktop/background]
 primary-color='#$CI_THEME_COLORS'
-secondary-color='#1b4332'
+secondary-color='#$CI_SECONDARY_COLOR'
 
     [org/gnome/desktop/remote-desktop]
     screen-sharing-enabled=true
@@ -229,7 +230,7 @@ if command -v gsettings >/dev/null 2>&1 && [[ -n "$ACTUAL_USER" ]] && [[ "$ACTUA
         _gset org.gnome.desktop.interface gtk-theme "$CI_GTK_THEME"
         _gset org.gnome.desktop.interface icon-theme "Yaru"
         _gset org.gnome.desktop.interface cursor-theme "Yaru"
-        _gset org.gnome.desktop.background primary-color "#0d4d2b"
+        _gset org.gnome.desktop.background primary-color "#066c80"
         _gset org.gnome.desktop.background secondary-color "#1b4332"
         _gset org.gnome.shell.extensions.dash-to-dock dock-fixed false
         _gset org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
@@ -268,4 +269,10 @@ else
 fi
 
 log_success "CI branding applied. Backup: $BACKUP_DIR"
-log_info "Plymouth: dark green bg, teal progress, CI OS 0.0.1 | GNOME: $CI_GTK_THEME"
+log_info "Plymouth: Official CI dark green (#066c80, #00a9a7, #72ddd4) | GNOME: $CI_GTK_THEME"
+log_info ""
+log_info "For complete CI OS rebranding, also run:"
+log_info "  sudo ./update-os-release.sh   # Update /etc/os-release identity"
+log_info "  sudo ./setup-ci-motd.sh       # Replace Ubuntu MOTD with CI OS welcome"
+log_info ""
+log_info "Reboot recommended to see Plymouth boot splash changes"

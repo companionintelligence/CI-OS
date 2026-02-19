@@ -8,11 +8,12 @@
 # Set CI OS wallpaper
 gsettings set org.gnome.desktop.background picture-uri "file:///usr/share/backgrounds/ci-os-wallpaper.png"
 gsettings set org.gnome.desktop.background picture-uri-dark "file:///usr/share/backgrounds/ci-os-wallpaper.png"
-# CI brand colors: teal, dark green
-gsettings set org.gnome.desktop.background primary-color "#0d4d2b"
+# Official CI brand colors: Primary Dark Green #066c80, Deep Green #1b4332
+gsettings set org.gnome.desktop.background primary-color "#066c80"
 gsettings set org.gnome.desktop.background secondary-color "#1b4332"
 
 # Desktop interface settings (dark green theme to match Plymouth and CI branding)
+# Using Yaru-prussiangreen-dark for closest match to CI official dark green palette
 gsettings set org.gnome.desktop.interface gtk-theme "Yaru-prussiangreen-dark"
 gsettings set org.gnome.desktop.interface icon-theme "Yaru"
 gsettings set org.gnome.desktop.interface cursor-theme "Yaru"

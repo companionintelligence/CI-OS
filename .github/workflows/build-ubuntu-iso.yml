@@ -1,8 +1,13 @@
+<<<<<<< HEAD
 name: Build CI-OS Ubuntu 24.04 ISO
+=======
+name: Build CI OS Ubuntu ISO
+>>>>>>> 82390e5052cdf560c21f96f0949c828d8835140a
 
 on:
   workflow_dispatch:
     inputs:
+<<<<<<< HEAD
       version:
         description: 'CI-OS version (e.g., 1.0, 1.1)'
         required: true
@@ -55,10 +60,48 @@ jobs:
           echo "Disk space after cleanup:"
           df -h
       
+=======
+      base_iso_url:
+        description: 'Ubuntu 24.04 ISO URL (optional, uses default if empty)'
+        required: false
+        default: ''
+  release:
+    types: [published]
+  schedule:
+    # Build weekly on Sundays at 3 AM UTC
+    - cron: "0 3 * * 0"
+
+env:
+  BASE_ISO_URL: 'https://releases.ubuntu.com/24.04/ubuntu-24.04-desktop-amd64.iso'
+  BASE_ISO_SHA256: '81fae9cc21e2b1e3a9a4526c7dad3131b668e346c580e39dcc03f6f713a84a65'
+  OUTPUT_ISO_NAME: 'ci-os-ubuntu-0.0.1-amd64.iso'
+
+jobs:
+  build-ubuntu-iso:
+    runs-on: ubuntu-22.04  # Use 22.04 for better stability
+    permissions:
+      contents: write
+      packages: write
+    
+    steps:
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@master
+        with:
+          remove-dotnet: 'true'
+          remove-android: 'true'
+          remove-haskell: 'true'
+          remove-codeql: 'true'
+          remove-docker-images: 'true'
+          
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+>>>>>>> 82390e5052cdf560c21f96f0949c828d8835140a
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+<<<<<<< HEAD
             debootstrap \
             squashfs-tools \
             xorriso \
@@ -278,3 +321,240 @@ jobs:
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           cat output/SHA256SUMS >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+=======
+            squashfs-tools \
+            xorriso \
+            isolinux \
+            syslinux-utils \
+            genisoimage \
+            rsync \
+            git
+            
+      - name: Download base ISO
+        run: |
+          ISO_URL="${{ github.event.inputs.base_iso_url }}"
+          if [ -z "$ISO_URL" ]; then
+            ISO_URL="$BASE_ISO_URL"
+          fi
+          echo "Downloading ISO from: $ISO_URL"
+          wget -O ubuntu-base.iso "$ISO_URL"
+          
+      - name: Verify ISO checksum (if using default)
+        if: github.event.inputs.base_iso_url == ''
+        run: |
+          echo "$BASE_ISO_SHA256  ubuntu-base.iso" | sha256sum -c -
+          
+      - name: Extract base ISO
+        run: |
+          mkdir -p iso squashfs
+          sudo mount -o loop ubuntu-base.iso /mnt
+          sudo rsync -a /mnt/ iso/
+          sudo umount /mnt
+          sudo chmod -R u+w iso/
+          
+      - name: Extract squashfs
+        run: |
+          sudo unsquashfs -d squashfs iso/casper/filesystem.squashfs
+          
+      - name: Prepare chroot environment
+        run: |
+          sudo mount --bind /dev squashfs/dev
+          sudo mount --bind /run squashfs/run
+          sudo mount -t proc none squashfs/proc
+          sudo mount -t sysfs none squashfs/sys
+          sudo mount -t devpts none squashfs/dev/pts
+          sudo cp /etc/resolv.conf squashfs/etc/resolv.conf
+          
+      - name: Copy CI OS files into chroot
+        run: |
+          sudo mkdir -p squashfs/root/CI-OS
+          sudo cp -r assets configs docs scripts setup squashfs/root/CI-OS/
+          
+      - name: Apply CI OS branding in chroot
+        run: |
+          sudo chroot squashfs /bin/bash -c '
+            set -euo pipefail
+            
+            # Update package lists
+            apt-get update
+            
+            # Apply CI OS branding
+            cd /root/CI-OS/setup/os-changes
+            chmod +x *.sh
+            ./complete-rebranding.sh --skip-reboot-check
+            
+            # Optional: Install additional packages
+            # apt-get install -y gnome-remote-desktop docker.io
+            
+            # Clean up
+            apt-get clean
+            apt-get autoremove -y
+            rm -rf /var/lib/apt/lists/*
+            rm -rf /tmp/*
+            rm -rf /root/.cache
+            
+            # Keep CI OS files for reference (remove .git to save space)
+            rm -rf /root/CI-OS/.git
+            
+            # Update initramfs
+            update-initramfs -u -k all
+          '
+          
+      - name: Validate branding in chroot
+        run: |
+          echo "Validating CI OS branding..."
+          sudo chroot squashfs /bin/bash -c '
+            set -euo pipefail
+            cd /root/CI-OS/setup/os-changes
+            ./validate-ci-theme.sh || echo "Validation warnings (may be expected in chroot)"
+          '
+          
+      - name: Clean up chroot
+        if: always()
+        run: |
+          sudo umount squashfs/dev/pts || true
+          sudo umount squashfs/sys || true
+          sudo umount squashfs/proc || true
+          sudo umount squashfs/run || true
+          sudo umount squashfs/dev || true
+          
+      - name: Repack squashfs
+        run: |
+          sudo rm iso/casper/filesystem.squashfs
+          sudo mksquashfs squashfs iso/casper/filesystem.squashfs \
+            -comp xz -b 1M -Xdict-size 100% -Xbcj x86
+            
+      - name: Update filesystem metadata
+        run: |
+          sudo du -sx --block-size=1 squashfs | cut -f1 > iso/casper/filesystem.size
+          sudo chroot squashfs dpkg-query -W --showformat='${Package} ${Version}\n' \
+            | sudo tee iso/casper/filesystem.manifest > /dev/null
+            
+      - name: Calculate MD5 checksums
+        run: |
+          cd iso
+          sudo find . -type f -print0 | sudo xargs -0 md5sum | \
+            grep -v isolinux/boot.cat | sudo tee md5sum.txt > /dev/null
+            
+      - name: Create ISO
+        run: |
+          cd iso
+          sudo xorriso -as mkisofs \
+            -iso-level 3 \
+            -full-iso9660-filenames \
+            -volid "CI-OS-001" \
+            -output "../$OUTPUT_ISO_NAME" \
+            -eltorito-boot isolinux/isolinux.bin \
+            -eltorito-catalog isolinux/boot.cat \
+            -no-emul-boot \
+            -boot-load-size 4 \
+            -boot-info-table \
+            -isohybrid-mbr /usr/lib/ISOLINUX/isohdpfx.bin \
+            -eltorito-alt-boot \
+            -e boot/grub/efi.img \
+            -no-emul-boot \
+            -isohybrid-gpt-basdat \
+            -isohybrid-apm-hfsplus \
+            .
+            
+      - name: Generate checksums
+        run: |
+          sha256sum "$OUTPUT_ISO_NAME" > "$OUTPUT_ISO_NAME.sha256"
+          md5sum "$OUTPUT_ISO_NAME" > "$OUTPUT_ISO_NAME.md5"
+          
+      - name: Generate release notes
+        run: |
+          cat > release-notes.md << 'EOF'
+          # CI OS Ubuntu Edition
+          
+          **Based on:** Ubuntu 24.04 LTS (Noble Numbat)
+          **Build Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          **Version:** 0.0.1
+          
+          ## Features
+          
+          ### Visual Theme
+          - ✅ **Official CI Dark Green Theme** throughout the system
+            - Primary Dark Green: `#066c80`
+            - Medium Green: `#00a9a7`
+            - Light Green: `#72ddd4`
+          - ✅ CI-branded Plymouth boot splash
+          - ✅ Dark green login screen (GDM)
+          - ✅ CI OS wallpaper and icons
+          - ✅ Custom GNOME theme (Yaru-prussiangreen-dark)
+          
+          ### System Identity
+          - ✅ `/etc/os-release` shows CI OS
+          - ✅ CI OS MOTD (Message of the Day)
+          - ✅ All Ubuntu branding removed
+          
+          ### Pre-configured
+          - ✅ GNOME Remote Desktop enabled
+          - ✅ Dark theme by default
+          - ✅ CI OS branding scripts included
+          
+          ## Installation
+          
+          1. Download the ISO and verify checksums
+          2. Create bootable USB: `sudo dd if=ci-os-ubuntu-0.0.1-amd64.iso of=/dev/sdX bs=4M status=progress`
+          3. Boot from USB and install
+          4. Enjoy your CI OS dark green themed system!
+          
+          ## Verification
+          
+          **SHA256:** See `.sha256` file
+          **MD5:** See `.md5` file
+          
+          ## Post-Installation
+          
+          All branding is pre-applied. To validate:
+          ```bash
+          /root/CI-OS/setup/os-changes/validate-ci-theme.sh
+          ```
+          
+          ## Support
+          
+          - Documentation: `/root/CI-OS/docs/`
+          - Theme Guide: `/root/CI-OS/docs/dark-green-theme-guide.md`
+          - Issues: https://github.com/companionintelligence/CI-OS/issues
+          
+          ---
+          
+          **CI OS - Companion Intelligence Operating System**
+          *Uncloud Modern Life*
+          EOF
+          
+      - name: Upload ISO as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-os-ubuntu-iso
+          path: |
+            ${{ env.OUTPUT_ISO_NAME }}
+            ${{ env.OUTPUT_ISO_NAME }}.sha256
+            ${{ env.OUTPUT_ISO_NAME }}.md5
+          retention-days: 30
+          compression-level: 0  # Don't compress ISO
+          
+      - name: Create Release (on tag/release)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ${{ env.OUTPUT_ISO_NAME }}
+            ${{ env.OUTPUT_ISO_NAME }}.sha256
+            ${{ env.OUTPUT_ISO_NAME }}.md5
+          body_path: release-notes.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Notify on completion
+        if: success()
+        run: |
+          echo "✅ CI OS Ubuntu ISO built successfully!"
+          echo "ISO: $OUTPUT_ISO_NAME"
+          echo "Size: $(du -h $OUTPUT_ISO_NAME | cut -f1)"
+          echo ""
+          echo "Checksums:"
+          cat "$OUTPUT_ISO_NAME.sha256"
+          cat "$OUTPUT_ISO_NAME.md5"
+>>>>>>> 82390e5052cdf560c21f96f0949c828d8835140a
