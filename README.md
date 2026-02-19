@@ -105,6 +105,28 @@ sudo systemctl start dnsmasq-setup.service
 
 Scripts in `setup/os-changes/` apply CI OS branding on Ubuntu (GNOME/Yaru). They use files in the same directory; the repo is intended to be moved as a whole, so no path prompts.
 
+### Complete system branding (recommended)
+
+Applies comprehensive CI OS branding including Plymouth boot splash, login screen, wallpaper, start icon, and dark green theme throughout the system.
+
+```bash
+sudo ./setup/os-changes/set-ci-branding.sh
+```
+
+**Official CI Dark Green Color Scheme:**
+- Primary Dark Green: `#066c80` (backgrounds, window frames, selection)
+- Medium Green: `#00a9a7` (highlights, links, buttons)
+- Light Green: `#72ddd4` (accents, text highlights)
+
+**What it does:**
+- Replaces Plymouth boot splash with CI logo and dark green colors
+- Updates GRUB theme with CI colors
+- Sets GDM (login screen) to dark green theme
+- Configures desktop environment with CI branding
+- Removes Ubuntu branding from boot messages
+- Sets wallpaper and applies CI color scheme system-wide
+- **Requires reboot** for Plymouth/boot changes to take effect
+
 ### Start icon (Show Apps button)
 
 Replaces the Ubuntu “Show Apps” / Activities icon with the CI OS icon in all Yaru theme variants.
