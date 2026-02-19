@@ -1,0 +1,280 @@
+name: Build CI-OS Ubuntu 24.04 ISO
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'CI-OS version (e.g., 1.0, 1.1)'
+        required: true
+        default: '1.0'
+      sign:
+        description: 'Sign checksums with GPG'
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+  schedule:
+    # Build ISOs weekly on Sundays at 2 AM UTC
+    - cron: "0 2 * * 0"
+
+env:
+  UBUNTU_VERSION: "24.04"
+  UBUNTU_CODENAME: "noble"
+  BASE_ISO_URL: "https://releases.ubuntu.com/24.04/ubuntu-24.04.1-desktop-amd64.iso"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      id-token: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Free disk space
+        run: |
+          echo "Disk space before cleanup:"
+          df -h
+          
+          # Remove unnecessary packages and files
+          sudo apt-get remove -y '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' azure-cli google-chrome-stable firefox powershell mono-devel || true
+          sudo apt-get autoremove -y
+          sudo apt-get clean
+          
+          # Remove large directories
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          
+          echo "Disk space after cleanup:"
+          df -h
+      
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            debootstrap \
+            squashfs-tools \
+            xorriso \
+            isolinux \
+            rsync \
+            gpg \
+            wget \
+            curl
+      
+      - name: Determine version
+        id: version
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"  # Remove 'v' prefix
+          else
+            VERSION="1.0-$(date +%Y%m%d)"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Building CI-OS version: $VERSION"
+      
+      - name: Download base Ubuntu ISO
+        run: |
+          echo "Downloading Ubuntu ${{ env.UBUNTU_VERSION }} Desktop ISO..."
+          wget -q --show-progress "${{ env.BASE_ISO_URL }}" -O /tmp/ubuntu-base.iso
+          
+          echo "ISO downloaded successfully:"
+          ls -lh /tmp/ubuntu-base.iso
+      
+      - name: Build CI-OS ISO
+        env:
+          CI_OS_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "Building CI-OS $CI_OS_VERSION..."
+          
+          sudo ./tools/iso-build/scripts/build-iso.sh \
+            --base-iso /tmp/ubuntu-base.iso \
+            --output-dir ./output \
+            --work-dir ./work \
+            --version "$CI_OS_VERSION" \
+            --clean
+      
+      - name: Generate checksums
+        id: checksums
+        run: |
+          cd output
+          
+          ISO_NAME=$(ls companion-os-*.iso)
+          echo "iso_name=$ISO_NAME" >> $GITHUB_OUTPUT
+          
+          # Generate SHA256 and MD5 checksums
+          sha256sum "$ISO_NAME" > SHA256SUMS
+          md5sum "$ISO_NAME" > MD5SUMS
+          
+          echo "Checksums generated:"
+          cat SHA256SUMS
+          cat MD5SUMS
+      
+      - name: Sign checksums (if enabled)
+        if: github.event.inputs.sign == 'true' && env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          cd output
+          
+          # Import GPG key
+          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
+          
+          # Sign checksums
+          echo "$GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
+            --armor --detach-sign --output SHA256SUMS.gpg SHA256SUMS
+          
+          echo "$GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
+            --armor --detach-sign --output MD5SUMS.gpg MD5SUMS
+          
+          echo "Checksums signed successfully"
+      
+      - name: Generate SBOM
+        run: |
+          echo "Generating Software Bill of Materials..."
+          
+          # Create a simple SBOM listing packages in the ISO
+          cat > output/SBOM.txt << 'EOF'
+          CI-OS Software Bill of Materials
+          =================================
+          
+          Base: Ubuntu 24.04 (Noble Numbat)
+          CI-OS Version: ${{ steps.version.outputs.version }}
+          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          
+          Custom Packages:
+          - companion-os-base
+          - companion-os-keyring
+          - companion-agents (stub)
+          - companion-memory (stub)
+          
+          For complete Ubuntu package list, see filesystem.manifest in the ISO.
+          EOF
+          
+          echo "SBOM generated"
+      
+      - name: Create release notes
+        id: release_notes
+        run: |
+          cat > release-notes.md << 'EOF'
+          # CI-OS ${{ steps.version.outputs.version }} - Ubuntu 24.04 Based
+          
+          ## What's New
+          
+          - 🚀 **Based on Ubuntu 24.04 (Noble Numbat)** - Latest LTS release
+          - 🎨 **Custom Branding** - CI-OS identity with dark green color scheme (#066c80, #00a9a7, #72ddd4)
+          - 🔒 **Privacy First** - No ads, no surveillance, telemetry disabled
+          - 💻 **AMD GPU Ready** - ROCm 7.2+ support with easy installation
+          - 🛠️ **Developer Tools** - Docker, VS Code, Node.js, Ollama pre-configured
+          - 🌐 **Sovereign Computing** - Your data, your control
+          
+          ## Installation
+          
+          1. Download the ISO file below
+          2. Create a bootable USB drive using:
+             - **Linux**: `sudo dd if=companion-os-*.iso of=/dev/sdX bs=4M status=progress`
+             - **Windows**: Use Rufus or Etcher
+             - **macOS**: Use Etcher or `dd` command
+          3. Boot from the USB drive
+          4. Follow the installer
+          5. Run `ci-os-info` after installation to see system information
+          
+          ## AMD GPU Support
+          
+          To install ROCm for AI workloads:
+          ```bash
+          sudo ci-os-install-rocm
+          ```
+          
+          ## Verification
+          
+          Verify the ISO checksum:
+          ```bash
+          sha256sum -c SHA256SUMS
+          ```
+          
+          ## System Requirements
+          
+          - **CPU**: 64-bit x86 processor (AMD Ryzen recommended)
+          - **RAM**: 4GB minimum, 8GB+ recommended
+          - **Storage**: 25GB minimum, 50GB+ recommended
+          - **GPU**: AMD Radeon RX 5000 series or newer for AI features
+          
+          ## What's Removed
+          
+          - Ubuntu telemetry services (ubuntu-report, popularity-contest, apport, whoopsie)
+          - Snap Store (use GNOME Software for native packages)
+          - Default games and bloatware
+          - Metric collection endpoints blocked in /etc/hosts
+          
+          ## Built-in Commands
+          
+          - `ci-os-info` - Display system and GPU information
+          - `ci-os-install-rocm` - Install AMD ROCm stack for AI
+          
+          ---
+          
+          **Built**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")  
+          **Base**: Ubuntu 24.04 (Noble Numbat)  
+          **Source**: https://github.com/companionintelligence/CI-OS
+          
+          © Companion Intelligence — Lifescope Inc
+          EOF
+      
+      - name: Upload ISO as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-os-iso-${{ steps.version.outputs.version }}
+          path: |
+            output/companion-os-*.iso
+            output/SHA256SUMS
+            output/MD5SUMS
+            output/SHA256SUMS.gpg
+            output/MD5SUMS.gpg
+            output/SBOM.txt
+          retention-days: 90
+          compression-level: 0  # ISO is already compressed
+      
+      - name: Create GitHub Release
+        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
+          name: CI-OS ${{ steps.version.outputs.version }}
+          body_path: release-notes.md
+          files: |
+            output/companion-os-*.iso
+            output/SHA256SUMS
+            output/MD5SUMS
+            output/SHA256SUMS.gpg
+            output/MD5SUMS.gpg
+            output/SBOM.txt
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "✅ CI-OS ISO built successfully!" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "**ISO Name**: ${{ steps.checksums.outputs.iso_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Base**: Ubuntu 24.04 (Noble Numbat)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Checksums" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          cat output/SHA256SUMS >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
