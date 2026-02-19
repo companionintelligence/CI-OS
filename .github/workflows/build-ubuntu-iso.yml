@@ -1,13 +1,8 @@
-<<<<<<< HEAD
-name: Build CI-OS Ubuntu 24.04 ISO
-=======
 name: Build CI OS Ubuntu ISO
->>>>>>> 82390e5052cdf560c21f96f0949c828d8835140a
 
 on:
   workflow_dispatch:
     inputs:
-<<<<<<< HEAD
       version:
         description: 'CI-OS version (e.g., 1.0, 1.1)'
         required: true
@@ -60,7 +55,6 @@ jobs:
           echo "Disk space after cleanup:"
           df -h
       
-=======
       base_iso_url:
         description: 'Ubuntu 24.04 ISO URL (optional, uses default if empty)'
         required: false
@@ -96,12 +90,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
->>>>>>> 82390e5052cdf560c21f96f0949c828d8835140a
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-<<<<<<< HEAD
             debootstrap \
             squashfs-tools \
             xorriso \
@@ -557,4 +549,3 @@ jobs:
           echo "Checksums:"
           cat "$OUTPUT_ISO_NAME.sha256"
           cat "$OUTPUT_ISO_NAME.md5"
->>>>>>> 82390e5052cdf560c21f96f0949c828d8835140a
