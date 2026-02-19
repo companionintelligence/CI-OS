@@ -105,9 +105,27 @@ sudo systemctl start dnsmasq-setup.service
 
 Scripts in `setup/os-changes/` apply CI OS branding on Ubuntu (GNOME/Yaru). They use files in the same directory; the repo is intended to be moved as a whole, so no path prompts.
 
-### Complete system branding (recommended)
+### Complete system rebranding (recommended)
 
-Applies comprehensive CI OS branding including Plymouth boot splash, login screen, wallpaper, start icon, and dark green theme throughout the system.
+**One-command rebranding:** Applies all CI OS branding in the correct order.
+
+```bash
+sudo ./setup/os-changes/complete-rebranding.sh
+```
+
+This master script runs all rebranding steps automatically:
+1. Plymouth boot splash and GNOME/KDE theme
+2. OS identity (/etc/os-release)
+3. MOTD customization
+4. Wallpaper installation
+5. Start icon replacement
+6. Validation checks
+
+**Requires reboot** for boot splash changes to take effect.
+
+### Manual/individual scripts
+
+Apply comprehensive CI OS branding including Plymouth boot splash, login screen, wallpaper, start icon, and dark green theme throughout the system.
 
 ```bash
 sudo ./setup/os-changes/set-ci-branding.sh
@@ -118,14 +136,11 @@ sudo ./setup/os-changes/set-ci-branding.sh
 - Medium Green: `#00a9a7` (highlights, links, buttons)
 - Light Green: `#72ddd4` (accents, text highlights)
 
-**What it does:**
-- Replaces Plymouth boot splash with CI logo and dark green colors
-- Updates GRUB theme with CI colors
-- Sets GDM (login screen) to dark green theme
-- Configures desktop environment with CI branding
-- Removes Ubuntu branding from boot messages
-- Sets wallpaper and applies CI color scheme system-wide
-- **Requires reboot** for Plymouth/boot changes to take effect
+**Additional individual scripts:**
+- `sudo ./setup/os-changes/update-os-release.sh` - Update OS identity
+- `sudo ./setup/os-changes/setup-ci-motd.sh` - Customize MOTD
+- `sudo ./setup/os-changes/validate-ci-theme.sh` - Validate theming
+- `./setup/os-changes/install-kde-theme.sh` - Install KDE Plasma theme (for KDE users)
 
 ### Start icon (Show Apps button)
 
