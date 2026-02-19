@@ -103,6 +103,8 @@ If you downloaded `SHA256SUMS.gpg`:
 
 ```bash
 # Import CI-OS public key (first time only)
+# Replace <CI-OS-KEY-ID> with the CI-OS GPG key ID published on the CI-OS
+# GitHub Releases page (see the "Release signing key" information there).
 # The CI-OS GPG key ID is published on the GitHub Releases page
 # Look for "Release signing key" in the release notes
 gpg --keyserver keyserver.ubuntu.com --recv-keys <CI-OS-KEY-ID>
