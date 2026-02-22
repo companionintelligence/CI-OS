@@ -10,9 +10,10 @@ set -o pipefail
 # Ensure we use the default context if Desktop is broken
 export DOCKER_CONTEXT=default
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Optionally load REGISTRY_USERNAME/PASSWORD (same env as hub:publish:dev)
 if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   for ENV_DEV in \
     "${CI_OS_HUB_REPO_PATH:-${SCRIPT_DIR}/../CI-OS-Hub}/.env.dev" \
     "${SCRIPT_DIR}/../CI-Cloud/apps/hono-app/.env.dev" \
@@ -76,6 +77,20 @@ mkdir -p "${INSTALL_DIR}/data/user-config"
 mkdir -p "${INSTALL_DIR}/data/backups"
 mkdir -p "${INSTALL_DIR}/app-data"
 mkdir -p "${INSTALL_DIR}/tunnel"
+
+# Tunnel Setup (optional — set TUNNEL_TOKEN to enable Cloudflare tunnel routing)
+TUNNEL_TOKEN="${TUNNEL_TOKEN:-}"
+COMPOSE_PROFILES=()
+if [ -n "$TUNNEL_TOKEN" ]; then
+  echo -e "${YELLOW}Setting up Cloudflare tunnel...${NC}"
+  printf '%s' "$TUNNEL_TOKEN" > "${INSTALL_DIR}/tunnel/token"
+  chmod 600 "${INSTALL_DIR}/tunnel/token"
+  TUNNEL_DIR="${INSTALL_DIR}/tunnel" bash "${SCRIPT_DIR}/scripts/generate-tunnel-certs.sh"
+  COMPOSE_PROFILES=(--profile tunnel)
+  echo -e "${GREEN}Tunnel token and certs configured.${NC}"
+else
+  echo -e "${YELLOW}No TUNNEL_TOKEN set — cloudflared will not start. Pass TUNNEL_TOKEN to enable routing.${NC}"
+fi
 
 # Registry Login (required for private registry)
 if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
@@ -400,18 +415,21 @@ EOF
 # Pull images (ci-os-hub from our registry, others from Docker Hub)
 echo -e "${YELLOW}Pulling images (including ${IMAGE_NAME})...${NC}"
 cd "${INSTALL_DIR}"
-if ! docker compose pull; then
+if ! docker compose "${COMPOSE_PROFILES[@]}" pull; then
     echo -e "${RED}Error: Failed to pull the image. Check registry credentials and network.${NC}"
     exit 1
 fi
 
 echo -e "${GREEN}Installation prepared at ${INSTALL_DIR}${NC}"
 echo -e "Starting services..."
-(cd "${INSTALL_DIR}" && docker compose down --remove-orphans 2>/dev/null || true)
-if ! (cd "${INSTALL_DIR}" && docker compose up -d); then
+(cd "${INSTALL_DIR}" && docker compose "${COMPOSE_PROFILES[@]}" down --remove-orphans 2>/dev/null || true)
+if ! (cd "${INSTALL_DIR}" && docker compose "${COMPOSE_PROFILES[@]}" up -d); then
     echo -e "${RED}Error: Failed to start services.${NC}"
     exit 1
 fi
 
 echo -e "${GREEN}CI OS Hub staging is running.${NC}"
 echo -e "Hub UI: http://localhost:5002"
+if [ ${#COMPOSE_PROFILES[@]} -gt 0 ]; then
+  echo -e "Cloudflare tunnel: active (token loaded from TUNNEL_TOKEN)"
+fi

@@ -3,12 +3,14 @@ set -euo pipefail
 
 usage() {
   cat <<EOF
-Usage: $0 [-d DEVICE_ID] [-k API_KEY] [-- pull-dev-args...]
+Usage: $0 [-d DEVICE_ID] [-k API_KEY] [-t TUNNEL_TOKEN] [-- pull-dev-args...]
 
-Either set the environment variables DEVICE_ID and API_KEY, or pass them via flags.
+Either set the environment variables DEVICE_ID, API_KEY, and optionally
+TUNNEL_TOKEN, or pass them via flags.
 Examples:
   DEVICE_ID=abc API_KEY=xyz ./pull-dev-manual.sh
   ./pull-dev-manual.sh -d abc -k xyz
+  ./pull-dev-manual.sh -d abc -k xyz -t eyJ...  (enables Cloudflare tunnel)
 
 Any arguments after -- are forwarded to pull-dev.sh.
 EOF
@@ -17,12 +19,14 @@ EOF
 
 DEVICE_ID="${DEVICE_ID:-}"
 API_KEY="${API_KEY:-}"
+TUNNEL_TOKEN="${TUNNEL_TOKEN:-}"
 
 # parse flags
-while getopts "d:k:h" opt; do
+while getopts "d:k:t:h" opt; do
   case "$opt" in
     d) DEVICE_ID="$OPTARG" ;;
     k) API_KEY="$OPTARG" ;;
+    t) TUNNEL_TOKEN="$OPTARG" ;;
     h) usage ;;
     *) usage ;;
   esac
@@ -39,6 +43,7 @@ fi
 
 export DEVICE_ID
 export API_KEY
+export TUNNEL_TOKEN
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PULL_DEV_SH="$SCRIPT_DIR/pull-dev.sh"
