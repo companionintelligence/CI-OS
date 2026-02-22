@@ -319,14 +319,13 @@ EOF
     
     # Verify Homebrew installation
     if ! sudo -u "$ACTUAL_USER" bash -c "command -v brew" &>/dev/null; then
-        # Try to source brew environment and check again
         if [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
             sudo -u "$ACTUAL_USER" bash -c "eval \"\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\" && command -v brew" &>/dev/null || {
                 log_warning "Homebrew installed but not in PATH yet. Will be available after shell restart."
             }
         else
-            log_error "Homebrew installation may have failed. Please check the output above."
-            return 1
+            log_warning "Homebrew installation may have failed. Node.js/Bun will use apt instead."
+            return 0
         fi
     fi
     
@@ -340,99 +339,31 @@ EOF
     log_success "Homebrew installed and configured"
 }
 
-# Install asdf and Node.js
+# Install Node.js 22.x via NodeSource (apt)
 install_asdf_nodejs() {
-    # Check if Node.js is already installed via asdf
-    if sudo -u "$ACTUAL_USER" bash -c "command -v node" &>/dev/null && \
-       sudo -u "$ACTUAL_USER" bash -c "node --version" 2>/dev/null | grep -q "v22.15.1"; then
-        log_info "Node.js 22.15.1 is already installed, skipping installation..."
+    # Check if Node.js 22+ is already installed
+    if command_exists node && node --version 2>/dev/null | grep -qE "v22|v23"; then
+        log_info "Node.js 22+ is already installed ($(node --version))"
         return 0
     fi
-    
-    log_info "Installing asdf and Node.js for user $ACTUAL_USER..."
-    
-    # Install npm first (system-wide)
-    if ! command_exists npm; then
-        apt install -y npm
+
+    log_info "Installing Node.js 22 via NodeSource..."
+    if [[ ! -f /etc/apt/sources.list.d/nodesource.list ]] || ! grep -q "node_22" /etc/apt/sources.list.d/nodesource.list 2>/dev/null; then
+        apt-get install -y ca-certificates curl gnupg
+        mkdir -p /etc/apt/keyrings
+        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
+        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
+        apt-get update
     fi
-    
-
-    # Install asdf and Node.js as the actual user
-    sudo -u "$ACTUAL_USER" bash <<'EOF'
-# Source brew environment
-eval "$($(brew --prefix)/bin/brew shellenv)" 2>/dev/null || true
-
-# Install asdf (if not already installed)
-if ! command -v asdf &>/dev/null; then
-    brew install asdf
-fi
-
-# Add asdf to shell (if not already there)
-if ! grep -q "asdf.sh" ~/.bashrc; then
-    echo '. "$(brew --prefix asdf)/libexec/asdf.sh"' >> ~/.bashrc
-fi
-
-# Source bashrc and asdf.sh to load asdf
-source ~/.bashrc 2>/dev/null || true
-ASDF_SH="$(brew --prefix asdf 2>/dev/null)/libexec/asdf.sh"
-if [[ -f "$ASDF_SH" ]]; then
-    source "$ASDF_SH"
-fi
-
-# Add Node.js plugin (if not already added)
-asdf plugin add nodejs 2>/dev/null || true
-
-# Install Node.js (if not already installed)
-if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
-    asdf install nodejs 22.15.1
-    asdf reshim nodejs
-fi
-
-# Install yarn globally (if not already installed)
-if ! command -v yarn &>/dev/null; then
-    npm install --global yarn
-fi
-EOF
-    
-    log_success "asdf and Node.js installed"
+    apt-get install -y nodejs
+    log_success "Node.js installed ($(node --version 2>/dev/null || echo 'unknown'))"
 }
 
-# Set global Node.js version
+# Set global Node.js version (no-op when using apt Node.js)
 set_global_nodejs() {
-    log_info "Setting global Node.js version to 22.15.1 for user $ACTUAL_USER..."
-    
-    # Check if Node.js 22.15.1 is already set as global
-    sudo -u "$ACTUAL_USER" bash <<EOF
-# Source brew environment
-eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
-
-# Source bashrc to load asdf
-source ~/.bashrc 2>/dev/null || true
-
-# Check if asdf is available
-if ! command -v asdf &>/dev/null; then
-    echo "asdf not found, skipping global Node.js version setting"
-    exit 0
-fi
-
-# Check if Node.js 22.15.1 is installed
-if ! sudo asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
-    echo "Node.js 22.15.1 is not installed, skipping global version setting"
-    exit 0
-fi
-
-# Check current global version
-CURRENT_GLOBAL=\$(sudo asdf current nodejs 2>/dev/null | grep -oP '22\.15\.1' || echo "")
-if [[ "\$CURRENT_GLOBAL" == "22.15.1" ]]; then
-    echo "Node.js 22.15.1 is already set as global version"
-    exit 0
-fi
-
-# Set global Node.js version
-sudo asdf set global nodejs 22.15.1
-EOF
-    
-    log_success "Global Node.js version set to 22.15.1"
+    if command_exists node; then
+        log_info "Node.js available: $(node --version 2>/dev/null || echo 'unknown')"
+    fi
 }
 
 # Install Bun
@@ -625,44 +556,16 @@ remove_telemetry() {
 
 # Enable corepack (requires Node.js to be installed and proper permissions)
 enable_corepack() {
-    log_info "Enabling corepack for user $ACTUAL_USER..."
-    
-    # Check if Node.js is available
-    if ! sudo -u "$ACTUAL_USER" bash -c "command -v node" &>/dev/null; then
-        log_warning "Node.js not found. Skipping corepack enable. It will be enabled when Node.js is available."
+    if ! command -v corepack &>/dev/null; then
+        log_info "Corepack not found; skipping (optional)"
         return 0
     fi
-    
-    # Enable corepack as the actual user with proper environment
-    # Corepack may need sudo permissions to create symlinks in system directories
-    sudo -u "$ACTUAL_USER" bash <<EOF
-# Source brew environment if available
-eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
-
-# Source asdf if available
-if [[ -f "\$(brew --prefix asdf)/libexec/asdf.sh" ]]; then
-    . "\$(brew --prefix asdf)/libexec/asdf.sh" 2>/dev/null || true
-fi
-
-# Enable corepack with sudo if needed
-if command -v corepack &>/dev/null; then
-    # Try enabling without sudo first
-    if corepack enable 2>/dev/null; then
-        echo "Corepack enabled successfully"
+    log_info "Enabling corepack..."
+    if corepack enable 2>/dev/null || sudo corepack enable 2>/dev/null; then
+        log_success "Corepack enabled"
     else
-        # If that fails, try with sudo (user should have passwordless sudo)
-        if sudo corepack enable 2>/dev/null; then
-            echo "Corepack enabled with sudo"
-        else
-            echo "Warning: Failed to enable corepack. You may need to run 'corepack enable' manually after logging out and back in."
-        fi
+        log_warning "Corepack enable failed; run 'corepack enable' manually if needed"
     fi
-else
-    echo "Warning: corepack command not found. Node.js may not be properly installed or in PATH."
-fi
-EOF
-    
-    log_success "Corepack enable attempted (check output above for status)"
 }
 
 # Install VS Code (requires root for snap installation)
@@ -712,7 +615,10 @@ main() {
     install_docker
     add_user_to_docker_group
     install_uv
-    install_homebrew
+    # Homebrew is optional; don't fail bootstrap if it has issues (Node/Bun use apt)
+    set +e
+    install_homebrew || log_warning "Homebrew had issues; Node.js will use apt"
+    set -e
     install_asdf_nodejs
     set_global_nodejs
     install_bun
@@ -778,12 +684,11 @@ install_lact() {
                     gsettings get org.gnome.shell favorite-apps 2>/dev/null)
                 if [[ "$CURRENT_FAVS" != *"lact-gui.desktop"* ]]; then
                     # Remove brackets and quotes, then add lact-gui.desktop
-                    FAVS_CLEAN=$(echo "$CURRENT_FAVS" | sed -e "s/^\[//" -e "s/\]
-    $//" -e "s/'//g" -e 's/, /,/g')
+                    FAVS_CLEAN=$(echo "$CURRENT_FAVS" | sed -e "s/^\[//" -e "s/\]$//" -e "s/'//g" -e 's/, /,/g')
                     if [[ -z "$FAVS_CLEAN" ]]; then
                         NEW_FAVS="['lact-gui.desktop']"
                     else
-                        NEW_FAVS="[$(echo $FAVS_CLEAN | sed "s/$/,lact-gui.desktop/")"]"
+                        NEW_FAVS="[$(echo "$FAVS_CLEAN" | sed 's/$/,lact-gui.desktop/')]"
                         NEW_FAVS=$(echo "$NEW_FAVS" | sed "s/,/, /g" | sed "s/\[/['/g" | sed "s/\]/']/g" | sed "s/, '/, '/g")
                     fi
                     sudo -u "$ACTUAL_USER" env DISPLAY=:0 XAUTHORITY="/home/$ACTUAL_USER/.Xauthority" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" \
@@ -793,7 +698,7 @@ install_lact() {
                     log_info "LACT already pinned to favorites bar for $ACTUAL_USER"
                 fi
             else
-                log_warning "No D-Bus session for $ACTUAL_USER (not logged in?). Cannot pin LACT to favorites bar."
+                log_warning "No D-Bus session for $ACTUAL_USER. Cannot pin LACT to favorites bar."
             fi
         else
             log_warning "gsettings not available or no valid user detected. Skipping LACT pinning."
@@ -815,7 +720,7 @@ set_gnome_power_performance() {
                 gsettings set org.gnome.settings-daemon.plugins.power power-profile 'performance' 2>/dev/null || true
             log_success "GNOME Power Mode set to 'performance' for $ACTUAL_USER"
         else
-            log_warning "No D-Bus session for $ACTUAL_USER (not logged in?). Power mode will apply on next login if set via dconf defaults."
+            log_warning "No D-Bus session for $ACTUAL_USER. Power mode will apply on next login."
         fi
     else
         log_warning "gsettings not available or no valid user detected. Skipping GNOME Power Mode setting."

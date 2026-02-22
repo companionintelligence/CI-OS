@@ -337,7 +337,7 @@ services:
       ci-os-hub-queue:
         condition: service_healthy
     ports:
-      - "5002:5002"
+      - "5002:3000"
     volumes:
       - ./tunnel:/app/tunnel
       - ./data/media:/data/media
