@@ -3,6 +3,15 @@
 Setup Device Backend Service
 Flask-based API for headless device WiFi configuration
 Daemon-safe with signal handling
+
+DESIGN: NO WIFI SCANNING OR SYNC
+- Single-radio chips (e.g. PCE-AX1800 / MT7921) cannot scan while in AP mode.
+- This backend NEVER triggers nmcli wifi list/rescan, iw scan, or similar.
+- /api/setup-data: single bootstrap endpoint (networks + SSID) from cache. Portal fetches once on load.
+- No further backend/network activity until user hits submit (POST /api/configure).
+- /api/networks and /api/scan-networks read only from last-scan.json (prescanned at hotspot start).
+- nmcli usage: device status, connection add/up (configure flow only). No wifi scan subcommands.
+- Cloud API calls (pairing) occur only after /api/configure: user has connected to their network.
 """
 
 import os
@@ -49,7 +58,8 @@ def _read_conf_value(key):
         return None
     return None
 
-CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://setup.companionintel.com'
+CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://portal.companionintelligence.com'
+CI_ZONE_ID = os.environ.get('CI_ZONE_ID') or _read_conf_value('CI_ZONE_ID') or '2b77d4360dbd4a9ccdad5c8d947323c9'
 
 def _cloud_pairing_url():
     """Get the cloud pairing endpoint URL"""
@@ -153,9 +163,9 @@ def get_pairing_info_from_cloud(pairing_code, timeout=10):
             try:
                 parsed = json.loads(body)
                 if isinstance(parsed, dict):
-                    device_id = parsed.get('device_id')
-                    api_key = parsed.get('api_key')
-                    cloud_pairing_code = parsed.get('pairing_code', '')
+                    device_id = parsed.get('device_id') or parsed.get('deviceId')
+                    api_key = parsed.get('api_key') or parsed.get('apiKey')
+                    cloud_pairing_code = parsed.get('pairing_code', '') or parsed.get('pairingCode', '')
                     if device_id and api_key:
                         logger.info(f"Retrieved device_id: {device_id}, api_key: {api_key[:8]}..., pairing_code: {cloud_pairing_code}")
                         return True, parsed
@@ -243,6 +253,25 @@ def save_cloud_credentials(device_id, api_key):
         logger.error(f"Failed to save cloud credentials: {e}")
         return False
 
+def save_hub_env(device_id, api_key):
+    """Write hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY, CI_CLOUD_API_KEY for CI OS Hub to consume."""
+    try:
+        hub_env = DATA_DIR / 'hub.env'
+        lines = [
+            f"CI_ZONE_ID={CI_ZONE_ID}",
+            f"DEVICE_ID={device_id}",
+            f"API_KEY={api_key}",
+            f"CI_CLOUD_API_KEY={api_key}",
+            f"CI_CLOUD_API_URL={CI_CLOUD_API_URL.rstrip('/')}",
+        ]
+        hub_env.write_text('\n'.join(lines) + '\n')
+        os.chmod(hub_env, 0o600)
+        logger.info(f"[HUB] Wrote hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY for CI OS Hub")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to write hub.env: {e}")
+        return False
+
 # Ensure directories exist
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -260,6 +289,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# Ensure pairing code on first request (gunicorn does not call main())
+_pairing_ensured = False
+@app.before_request
+def _ensure_pairing_on_first_request():
+    global _pairing_ensured
+    if not _pairing_ensured:
+        ensure_pairing_code()
+        _pairing_ensured = True
 
 # Signal handling for graceful shutdown
 shutdown_flag = False
@@ -390,52 +428,11 @@ def validate_pairing_code(code):
     
     return True
 
-def scan_wifi_networks():
-    """Scan for available WiFi networks using nmcli"""
-    try:
-        result = subprocess.run(
-            ['nmcli', '-t', '-f', 'SSID,SIGNAL,SECURITY', 'device', 'wifi', 'list'],
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
-        if result.returncode != 0:
-            logger.error(f"WiFi scan failed: {result.stderr}")
-            return []
-        
-        networks = []
-        seen_ssids = set()
-        
-        for line in result.stdout.strip().split('\n'):
-            if not line:
-                continue
-            parts = line.split(':')
-            if len(parts) >= 2:
-                ssid = parts[0]
-                signal = parts[1] if len(parts) > 1 else '0'
-                security = parts[2] if len(parts) > 2 else ''
-                
-                if ssid and ssid not in seen_ssids:
-                    networks.append({
-                        'ssid': ssid,
-                        'signal': int(signal) if signal.isdigit() else 0,
-                        'security': security if security else 'none'
-                    })
-                    seen_ssids.add(ssid)
-        
-        networks.sort(key=lambda x: x['signal'], reverse=True)
-        return networks
-        
-    except subprocess.TimeoutExpired:
-        logger.error("WiFi scan timed out")
-        return []
-    except Exception as e:
-        logger.error(f"WiFi scan error: {e}")
-        return []
+# No scan_wifi_networks - single-radio chips cannot scan while in AP mode. Use _get_cached_networks() only.
 
 def get_wifi_interface():
-    """Detect the WiFi interface (handles wlan0, wlp*, etc)"""
+    """Detect the WiFi interface (handles wlan0, wlp*, etc).
+    Uses nmcli device (lists devices only). DO NOT use nmcli device wifi list - that would scan."""
     try:
         result = subprocess.run(
             ['nmcli', '-t', '-f', 'DEVICE,TYPE', 'device'],
@@ -584,6 +581,17 @@ def stop_hotspot_services():
         logger.error(f"Error stopping hotspot services: {e}")
         return False
 
+def start_hotspot_services():
+    """Start hotspot services (used after scan-mode)"""
+    try:
+        logger.info("Starting hotspot services...")
+        subprocess.run(['/usr/local/bin/setup-device-hotspot-start.sh'], timeout=30)
+        logger.info("Hotspot services started")
+        return True
+    except Exception as e:
+        logger.error(f"Error starting hotspot services: {e}")
+        return False
+
 def remove_setup_netplan_config():
     """Remove netplan static IP config to allow NetworkManager to take over"""
     try:
@@ -630,12 +638,53 @@ def status():
         'pairing_code_available': pairing_code is not None
     })
 
-@app.route('/api/scan-networks', methods=['GET'])
-def scan_networks():
-    """Scan for available WiFi networks"""
-    logger.info("WiFi scan requested")
-    networks = scan_wifi_networks()
+LAST_SCAN_FILE = DATA_DIR / 'last-scan.json'
+
+
+def _get_cached_networks():
+    """Read static network list from prescan (file only, no chip access)."""
+    try:
+        if LAST_SCAN_FILE.exists():
+            data = json.loads(LAST_SCAN_FILE.read_text())
+            return data.get('networks', [])
+    except Exception as e:
+        logger.warning(f"Could not read last-scan: {e}")
+    return []
+
+
+@app.route('/api/networks', methods=['GET'])
+@app.route('/api/scan-networks', methods=['GET'])  # Legacy; same behavior
+def get_networks():
+    """Return static network list (prescanned at hotspot start). Never triggers a scan."""
+    networks = _get_cached_networks()
     return jsonify({'networks': networks})
+
+@app.route('/api/ssid-suffix', methods=['GET'])
+def ssid_suffix():
+    """Get current hotspot SSID suffix (e.g. XJ4T for Companion-Setup-XJ4T)"""
+    try:
+        suffix_file = DATA_DIR / 'ssid-suffix'
+        if suffix_file.exists():
+            suffix = suffix_file.read_text().strip()
+            return jsonify({'ssid_suffix': suffix, 'ssid': f'Companion-Setup-{suffix}'})
+    except Exception as e:
+        logger.warning(f"Could not read SSID suffix: {e}")
+    return jsonify({'ssid_suffix': '', 'ssid': 'Companion-Setup'})
+
+@app.route('/api/setup-data', methods=['GET'])
+def setup_data():
+    """Single bootstrap endpoint: all cached data for the form (networks + SSID). One fetch on load, no scan."""
+    networks = _get_cached_networks()
+    ssid_suffix_val = ''
+    ssid_val = 'Companion-Setup'
+    try:
+        suffix_file = DATA_DIR / 'ssid-suffix'
+        if suffix_file.exists():
+            ssid_suffix_val = suffix_file.read_text().strip()
+            ssid_val = f'Companion-Setup-{ssid_suffix_val}' if ssid_suffix_val else 'Companion-Setup'
+    except Exception as e:
+        logger.warning(f"Could not read SSID suffix: {e}")
+    return jsonify({'networks': networks, 'ssid_suffix': ssid_suffix_val, 'ssid': ssid_val})
 
 @app.route('/api/configure', methods=['POST'])
 def configure():
@@ -694,9 +743,24 @@ def configure():
         # The network monitor runs independently and starts hotspot if no connectivity detected
         # Setup is complete when WiFi connection is active, not when the flag is written
         
-        # Stop hotspot services
+        # Stop hotspot services - allow time for driver to release AP mode
         time.sleep(2)
         stop_hotspot_services()
+        time.sleep(3)  # Driver recovery: some chips need delay before station mode
+        
+        # Re-manage WiFi interface (hotspot script sets managed=no; NM needs it for connect)
+        wifi_iface = get_wifi_interface()
+        try:
+            subprocess.run(['nmcli', 'device', 'set', wifi_iface, 'managed', 'yes'],
+                          capture_output=True, timeout=5)
+        except Exception as e:
+            logger.debug(f"Could not set WiFi managed: {e}")
+        
+        # Unblock WiFi before NM connect
+        try:
+            subprocess.run(['rfkill', 'unblock', 'wifi'], capture_output=True, timeout=2)
+        except Exception:
+            pass
         
         # Remove netplan static IP config to allow NetworkManager to manage the interface
         time.sleep(1)
@@ -715,7 +779,8 @@ def configure():
             time.sleep(1)
         
         if not wifi_connected:
-            logger.error("Failed to connect to WiFi network")
+            logger.error("Failed to connect to WiFi network - restarting hotspot for retry")
+            start_hotspot_services()  # Bring hotspot back so user can try again
             return jsonify({'error': 'Failed to connect to WiFi network. Please check your credentials and try again.'}), 500
         
         logger.info("WiFi connection successful")
@@ -775,9 +840,9 @@ def configure():
             
             if not success:
                 logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
-                # Disconnect from WiFi to restart hotspot
-                logger.info("Disconnecting from WiFi to restart setup process...")
+                logger.info("Disconnecting from WiFi and restarting hotspot for retry...")
                 disconnect_from_wifi()
+                start_hotspot_services()  # Bring hotspot back so user can try again
                 
                 error_msg = 'Failed to validate pairing code with cloud service. Please reconnect to setup network and try again.'
                 if request.is_json:
@@ -822,11 +887,9 @@ def configure():
                     
                     if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
                         logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
-                        logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
-                        logger.info("[PAIRING VALIDATION] Disconnecting from WiFi to restart hotspot setup process...")
-                        
-                        # Disconnect from WiFi - this will trigger network monitor to restart hotspot
+                        logger.info("[PAIRING VALIDATION] Disconnecting from WiFi and restarting hotspot for retry...")
                         disconnect_from_wifi()
+                        start_hotspot_services()  # Bring hotspot back so user can try again
                         
                         # Return error response
                         if request.is_json:
@@ -856,11 +919,11 @@ def configure():
                     
                     logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}..., pairing_code matches")
                     
-                    # Step 2: Save API key from GET response for later use
-                    logger.info(f"[CREDENTIALS] Saving API key from cloud response for later use")
+                    # Step 2: Save credentials for later use
+                    logger.info(f"[CREDENTIALS] Saving credentials from cloud response")
                     save_cloud_credentials(cloud_device_id, api_key)
                     
-                    # Step 3: Get the actual device ID from local machine
+                    # Step 3: Get the actual device ID from local machine (used for DB update and Hub)
                     local_device_id = get_device_id()
                     logger.info(f"Local device ID: {local_device_id}")
                     
@@ -874,7 +937,16 @@ def configure():
                     
                     if update_success:
                         logger.info(f"Device ID updated successfully in cloud: {update_resp}")
-                        # API key already saved from GET response, no need to save again
+                        # Write hub.env for CI OS Hub: CI_ZONE_ID, DEVICE_ID (local), API_KEY
+                        save_hub_env(local_device_id, api_key)
+                        # Trigger Hub download/start (uses hub.env; no-op if Hub not installed)
+                        try:
+                            subprocess.run(
+                                ['/usr/local/bin/ci-os-hub-start.sh'],
+                                capture_output=True, timeout=30
+                            )
+                        except Exception as hub_err:
+                            logger.debug(f"Hub start script not available or failed: {hub_err}")
                     else:
                         logger.warning(f"Device ID update failed: {update_resp}")
                         
@@ -897,19 +969,25 @@ def configure():
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>Setup Complete</title>
                 <style>
-                    body { font-family: sans-serif; text-align: center; padding: 50px; }
-                    .success { color: green; font-size: 24px; margin-bottom: 20px; }
+                    body { font-family: -apple-system, sans-serif; text-align: center; padding: 50px; background: #0d1f1b; color: #e8f4f2; }
+                    .success { color: #72ddd4; font-size: 24px; margin-bottom: 16px; }
+                    a { color: #00a9a7; }
                 </style>
             </head>
             <body>
-                <div class="success">✓ Device configured successfully!</div>
+                <div class="success">Device configured successfully!</div>
                 <p>The device will connect to the network shortly.</p>
+                <p style="margin-top: 24px;"><a href="http://localhost:5002">Open CI OS Hub</a> (on the device)</p>
             </body>
             </html>
             ''', 200
         
     except Exception as e:
         logger.error(f"Configuration error: {e}", exc_info=True)
+        try:
+            start_hotspot_services()  # Restore hotspot so user can retry
+        except Exception:
+            pass
         return jsonify({'error': 'Internal server error'}), 500
 
 def main():
@@ -922,9 +1000,7 @@ def main():
     logger.info(f"Pairing code file: {PAIRING_CODE_JSON}")
     logger.info(f"Setup complete file: {SETUP_COMPLETE_FILE}")
     
-    # Run Flask app
-    # Use waitress or similar for production, but for now Flask dev server
-    # In production, this would be run via gunicorn or similar
+    # Run Flask app (dev fallback; production uses gunicorn via systemd)
     try:
         app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
     except KeyboardInterrupt:

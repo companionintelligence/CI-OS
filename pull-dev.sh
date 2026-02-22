@@ -32,7 +32,7 @@ REGISTRY_USERNAME="${REGISTRY_USERNAME:-Abcde12345}"
 REGISTRY_PASSWORD="${REGISTRY_PASSWORD:-Abcde12345}"
 
 # Configuration - always use dev registry (setup.companionintelligence.com)
-REGISTRY_DOMAIN="setup.companionintelligence.com"
+REGISTRY_DOMAIN="portal.companionintelligence.com"
 IMAGE_NAME="${REGISTRY_DOMAIN}/ci-os-hub:latest"
 INSTALL_DIR="${HOME}/ci-os-hub-staging"
 # CI Cloud URLs (user-facing setup/API)

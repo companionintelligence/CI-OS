@@ -253,7 +253,7 @@ if command -v gsettings >/dev/null 2>&1 && [[ -n "$ACTUAL_USER" ]] && [[ "$ACTUA
         _gset org.gnome.shell.extensions.dash-to-dock dash-max-icon-size 48
         _gset org.gnome.desktop.wm.preferences button-layout "close,minimize,maximize:"
         _gset org.gnome.desktop.wm.preferences focus-mode "click"
-        _gset org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'firefox.desktop', 'org.gnome.Terminal.desktop', 'code.desktop', 'steam.desktop', 'org.gnome.Settings.desktop']"
+        _gset org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'chromium_chromium.desktop', 'ci-os-hub.desktop', 'org.gnome.Terminal.desktop', 'code.desktop', 'steam.desktop', 'org.gnome.Settings.desktop']"
         _gset org.gnome.settings-daemon.plugins.power sleep-inactive-ac-timeout 0
         _gset org.gnome.settings-daemon.plugins.power sleep-inactive-battery-timeout 1800
         _gset org.gnome.desktop.privacy disable-microphone false

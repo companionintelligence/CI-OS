@@ -10,12 +10,57 @@
 
 ## Contents
 
-1. [Building CI-OS ISOs](#building-ci-os-isos)
-2. [Fresh Ubuntu setup](#fresh-ubuntu-setup)
-3. [Headless device WiFi setup](#headless-device-wifi-setup)
-4. [Ubuntu branding (wallpaper & start icon)](#ubuntu-branding-wallpaper--start-icon)
-5. [Repo layout](#repo-layout)
-6. [Documentation](#documentation)
+1. [One-command setup (flashed Ubuntu)](#one-command-setup-flashed-ubuntu)
+2. [Building CI-OS ISOs](#building-ci-os-isos)
+3. [Fresh Ubuntu setup](#fresh-ubuntu-setup)
+4. [Headless device WiFi setup](#headless-device-wifi-setup)
+5. [Ubuntu branding (wallpaper & start icon)](#ubuntu-branding-wallpaper--start-icon)
+6. [Repo layout](#repo-layout)
+7. [Documentation](#documentation)
+
+---
+
+## One-command setup (flashed Ubuntu)
+
+On a machine freshly flashed with Ubuntu, run one command to set up headless WiFi, CI OS branding, Chromium, and all UI changes.
+
+**One-liner** (clone + bootstrap, non-interactive):
+```bash
+git clone https://github.com/companionintelligence/CI-OS.git && cd CI-OS && sudo ./scripts/bootstrap-ci-os.sh --yes
+```
+
+**Or**, if the repo is already in your home folder (e.g. `~/CI-OS`; zip download may create `CI-OS-main`):
+
+```bash
+cd ~/CI-OS/scripts   # or cd ~/CI-OS-main/scripts
+chmod +x ./bootstrap-ci-os.sh
+sudo ./bootstrap-ci-os.sh --yes
+```
+
+Then **reboot** to see Plymouth boot splash and full branding.
+
+**Interactive mode** (prompts before each step and reboot):
+```bash
+cd ~/CI-OS/scripts
+sudo ./bootstrap-ci-os.sh
+```
+
+### What it does (in order)
+
+1. **Headless device setup** — Builds and installs the `setup-device` package (WiFi captive portal). Requires internet for `apt` (dependencies). If behind a captive portal or without internet, apt will fail; bootstrap continues with rebranding—re-run with `--no-rebrand` once connected.
+
+2. **Complete rebranding** — Plymouth boot splash, Chromium as default browser, wallpaper, start icon, MOTD, OS identity. Works offline on a fresh Ubuntu Desktop.
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--no-headless` | Skip headless WiFi setup |
+| `--no-rebrand` | Skip branding |
+| `--yes`, `-y` | Non-interactive (skip prompts, no reboot) |
+| `--no-reboot` | Skip reboot prompt |
+
+**Reboot** after setup to see Plymouth boot splash changes.
 
 ---
 
@@ -183,6 +228,7 @@ sudo ./setup/os-changes/set-ci-branding.sh
 - Light Green: `#72ddd4` (accents, text highlights)
 
 **Additional individual scripts:**
+- `sudo ./setup/os-changes/set-chromium-default.sh` - Install Chromium and set as default browser
 - `sudo ./setup/os-changes/update-os-release.sh` - Update OS identity
 - `sudo ./setup/os-changes/setup-ci-motd.sh` - Customize MOTD
 - `sudo ./setup/os-changes/validate-ci-theme.sh` - Validate theming

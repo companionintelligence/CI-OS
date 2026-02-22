@@ -37,7 +37,7 @@ mangohud
 # Desktop Environment Enhancements
 gnome-tweaks
 gnome-shell-extensions
-firefox
+chromium-browser
 thunderbird
 libreoffice
 

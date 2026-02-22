@@ -32,6 +32,7 @@ REQUIRED_FILES=(
     "etc/systemd/system/dnsmasq-setup.service"
     "etc/systemd/system/setup-backend.service"
     "opt/setup-backend/setup_service.py"
+    "usr/local/bin/setup-device-prescan.py"
     "var/www/setup-portal/index.html"
 )
 
@@ -75,6 +76,13 @@ if [ -f "$OUTPUT_FILE" ]; then
     echo "Removing old package: $OUTPUT_FILE"
     rm -f "$OUTPUT_FILE"
 fi
+
+# Ensure DEBIAN maintainer scripts are executable (git may not preserve +x)
+for script in postinst prerm postrm; do
+    if [ -f "${PACKAGE_DIR}/DEBIAN/${script}" ]; then
+        chmod 0755 "${PACKAGE_DIR}/DEBIAN/${script}"
+    fi
+done
 
 # Build the package
 echo "Building package: $PACKAGE_NAME"

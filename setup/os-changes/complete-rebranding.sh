@@ -10,7 +10,7 @@
 # - MOTD customization
 # - Ubuntu branding removal
 #
-# Usage: sudo ./complete-rebranding.sh [--skip-reboot-check]
+# Usage: sudo ./complete-rebranding.sh [--skip-reboot-check] [--yes|-y]
 # Requirements: Root/sudo access, Ubuntu 24.04 base system
 #
 
@@ -30,9 +30,13 @@ log_success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
 log_header()  { echo -e "${BOLD}${CYAN}$1${NC}"; }
 
 SKIP_REBOOT_CHECK=0
-if [[ "${1:-}" == "--skip-reboot-check" ]]; then
-    SKIP_REBOOT_CHECK=1
-fi
+NONINTERACTIVE=0
+for arg in "$@"; do
+    case "$arg" in
+        --skip-reboot-check) SKIP_REBOOT_CHECK=1 ;;
+        --yes|-y) NONINTERACTIVE=1 ;;
+    esac
+done
 
 if [[ $EUID -ne 0 ]]; then
     log_error "This script must be run as root (use sudo)"
@@ -56,16 +60,19 @@ log_info "  ✓ Ubuntu branding removal"
 echo ""
 log_warn "System will require a reboot to see Plymouth changes"
 echo ""
-read -p "Continue? (y/N) " -n 1 -r
-echo
-if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-    log_info "Aborted by user"
-    exit 0
+if [[ $NONINTERACTIVE -eq 0 ]]; then
+    read -p "Continue? (y/N) " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "Aborted by user"
+        exit 0
+    fi
 fi
 
 # Check if all required scripts are present
 declare -a REQUIRED_SCRIPTS=(
     "set-ci-branding.sh"
+    "set-chromium-default.sh"
     "update-os-release.sh"
     "setup-ci-motd.sh"
     "replace-wallpaper.sh"
@@ -89,9 +96,9 @@ log_success "All required scripts found"
 echo ""
 
 # Step 1: Apply CI branding (Plymouth, GNOME theme, wallpaper)
-log_header "Step 1/5: Applying CI branding theme..."
+log_header "Step 1/6: Applying CI branding theme..."
 echo ""
-if "$SCRIPT_DIR/set-ci-branding.sh"; then
+if bash "$SCRIPT_DIR/set-ci-branding.sh"; then
     log_success "CI branding theme applied"
 else
     log_error "Failed to apply CI branding theme"
@@ -99,10 +106,20 @@ else
 fi
 echo ""
 
-# Step 2: Update OS release information
-log_header "Step 2/5: Updating OS identity..."
+# Step 2: Install Chromium and set as default browser
+log_header "Step 2/6: Installing Chromium as default browser..."
 echo ""
-if "$SCRIPT_DIR/update-os-release.sh"; then
+if bash "$SCRIPT_DIR/set-chromium-default.sh"; then
+    log_success "Chromium set as default browser"
+else
+    log_warn "Chromium setup had issues (may already be configured)"
+fi
+echo ""
+
+# Step 3: Update OS release information
+log_header "Step 3/6: Updating OS identity..."
+echo ""
+if bash "$SCRIPT_DIR/update-os-release.sh"; then
     log_success "OS identity updated"
 else
     log_error "Failed to update OS identity"
@@ -110,10 +127,10 @@ else
 fi
 echo ""
 
-# Step 3: Setup CI MOTD
-log_header "Step 3/5: Configuring MOTD..."
+# Step 4: Setup CI MOTD
+log_header "Step 4/6: Configuring MOTD..."
 echo ""
-if "$SCRIPT_DIR/setup-ci-motd.sh"; then
+if bash "$SCRIPT_DIR/setup-ci-motd.sh"; then
     log_success "MOTD configured"
 else
     log_error "Failed to configure MOTD"
@@ -121,20 +138,20 @@ else
 fi
 echo ""
 
-# Step 4: Replace wallpaper
-log_header "Step 4/5: Setting wallpaper..."
+# Step 5: Replace wallpaper
+log_header "Step 5/6: Setting wallpaper..."
 echo ""
-if "$SCRIPT_DIR/replace-wallpaper.sh"; then
+if bash "$SCRIPT_DIR/replace-wallpaper.sh"; then
     log_success "Wallpaper set"
 else
     log_warn "Wallpaper script had issues (may be OK if already set)"
 fi
 echo ""
 
-# Step 5: Replace start icon
-log_header "Step 5/5: Updating start icon..."
+# Step 6: Replace start icon
+log_header "Step 6/6: Updating start icon..."
 echo ""
-if "$SCRIPT_DIR/replace-start-icon.sh"; then
+if bash "$SCRIPT_DIR/replace-start-icon.sh"; then
     log_success "Start icon updated"
 else
     log_warn "Start icon script had issues (may be OK if already set)"
@@ -142,7 +159,7 @@ fi
 echo ""
 
 # Optional: Install KDE theme if KDE is present
-if [[ -f "/usr/bin/kwriteconfig5" ]] || [[ -d "/usr/share/plasma" ]]; then
+if [[ $NONINTERACTIVE -eq 0 ]] && { [[ -f "/usr/bin/kwriteconfig5" ]] || [[ -d "/usr/share/plasma" ]]; }; then
     log_header "Optional: KDE Plasma detected"
     echo ""
     read -p "Install KDE theme? (Y/n) " -n 1 -r
@@ -150,7 +167,7 @@ if [[ -f "/usr/bin/kwriteconfig5" ]] || [[ -d "/usr/share/plasma" ]]; then
     if [[ ! $REPLY =~ ^[Nn]$ ]]; then
         if [[ -f "$SCRIPT_DIR/install-kde-theme.sh" ]]; then
             log_info "Installing KDE theme..."
-            if "$SCRIPT_DIR/install-kde-theme.sh"; then
+            if bash "$SCRIPT_DIR/install-kde-theme.sh"; then
                 log_success "KDE theme installed"
             else
                 log_warn "KDE theme installation had issues"
@@ -170,6 +187,7 @@ log_success "CI OS branding has been applied successfully"
 echo ""
 log_info "Changes applied:"
 log_info "  ✓ Plymouth boot splash (dark green CI colors)"
+log_info "  ✓ Chromium installed and set as default browser"
 log_info "  ✓ OS identity updated (/etc/os-release)"
 log_info "  ✓ GNOME/KDE theme configured"
 log_info "  ✓ Wallpaper set"
@@ -187,7 +205,7 @@ echo ""
 if [[ -f "$SCRIPT_DIR/validate-ci-theme.sh" ]]; then
     log_info "Running validation..."
     echo ""
-    if "$SCRIPT_DIR/validate-ci-theme.sh"; then
+    if bash "$SCRIPT_DIR/validate-ci-theme.sh"; then
         log_success "Validation passed!"
     else
         log_warn "Validation found some issues (may need reboot)"
@@ -197,16 +215,20 @@ fi
 
 # Reboot recommendation
 if [[ $SKIP_REBOOT_CHECK -eq 0 ]]; then
-    log_warn "IMPORTANT: Reboot required for Plymouth boot splash changes"
-    echo ""
-    read -p "Reboot now? (y/N) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        log_info "Rebooting in 5 seconds... (Ctrl+C to cancel)"
-        sleep 5
-        reboot
+    if [[ $NONINTERACTIVE -eq 0 ]]; then
+        log_warn "IMPORTANT: Reboot required for Plymouth boot splash changes"
+        echo ""
+        read -p "Reboot now? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            log_info "Rebooting in 5 seconds... (Ctrl+C to cancel)"
+            sleep 5
+            reboot
+        else
+            log_info "Please reboot when convenient to see all changes"
+        fi
     else
-        log_info "Please reboot when convenient to see all changes"
+        log_info "Reboot when convenient to see Plymouth boot splash changes"
     fi
 fi
 

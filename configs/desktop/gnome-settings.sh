@@ -24,8 +24,8 @@ gsettings set org.gnome.shell.extensions.dash-to-dock dock-position 'BOTTOM'
 gsettings set org.gnome.shell.extensions.dash-to-dock extend-height false
 gsettings set org.gnome.shell.extensions.dash-to-dock dash-max-icon-size 48
 
-# Favorite applications (dock)
-gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'firefox.desktop', 'org.gnome.Terminal.desktop', 'code.desktop', 'steam.desktop', 'org.gnome.Settings.desktop']"
+# Favorite applications (dock) - Chromium, CI OS Hub; chromium_chromium.desktop for snap
+gsettings set org.gnome.shell favorite-apps "['org.gnome.Nautilus.desktop', 'chromium_chromium.desktop', 'ci-os-hub.desktop', 'org.gnome.Terminal.desktop', 'code.desktop', 'steam.desktop', 'org.gnome.Settings.desktop']"
 
 # Window management
 gsettings set org.gnome.desktop.wm.preferences button-layout "close,minimize,maximize:"

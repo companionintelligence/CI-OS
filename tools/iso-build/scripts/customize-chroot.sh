@@ -163,9 +163,23 @@ rm "$CHROOT_PATH/tmp/remove-packages.sh"
 echo "[+] Telemetry and bloatware removed"
 
 #=============================================================================
-# 3. Install CI-OS Branding
+# 3. Install Chromium and set as default browser
 #=============================================================================
-echo "[*] Step 3: Installing CI-OS branding..."
+echo "[*] Step 3: Installing Chromium as default browser..."
+
+if [[ -f "$REPO_ROOT/setup/os-changes/set-chromium-default.sh" ]]; then
+    copy_to_chroot "$REPO_ROOT/setup/os-changes/set-chromium-default.sh" "/tmp/set-chromium-default.sh"
+    chroot_exec "chmod +x /tmp/set-chromium-default.sh && /tmp/set-chromium-default.sh"
+    chroot_exec "rm -f /tmp/set-chromium-default.sh"
+    echo "[+] Chromium installed and set as default browser"
+else
+    echo "[!] set-chromium-default.sh not found, skipping Chromium setup"
+fi
+
+#=============================================================================
+# 4. Install CI-OS Branding
+#=============================================================================
+echo "[*] Step 4: Installing CI-OS branding..."
 
 # Copy logo
 if [[ -f "$REPO_ROOT/assets/logos/ci-holo-depth.png" ]]; then
@@ -177,7 +191,7 @@ if [[ -f "$REPO_ROOT/setup/os-changes/background.png" ]]; then
     copy_to_chroot "$REPO_ROOT/setup/os-changes/background.png" "/usr/share/backgrounds/ci-os-wallpaper.png"
 fi
 
-# Set default wallpaper for GDM and user sessions
+# Set default wallpaper and dock favorites for GDM and user sessions
 mkdir -p "$CHROOT_PATH/etc/dconf/db/local.d"
 cat > "$CHROOT_PATH/etc/dconf/db/local.d/01-ci-os-wallpaper" << 'EOF'
 [org/gnome/desktop/background]
@@ -186,6 +200,10 @@ picture-uri-dark='file:///usr/share/backgrounds/ci-os-wallpaper.png'
 
 [org/gnome/desktop/screensaver]
 picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+
+# Chromium as default browser in dock (chromium_chromium.desktop for Ubuntu 24.04 snap)
+[org/gnome/shell]
+favorite-apps=['org.gnome.Nautilus.desktop', 'chromium_chromium.desktop', 'org.gnome.Terminal.desktop', 'code.desktop', 'steam.desktop', 'org.gnome.Settings.desktop']
 EOF
 
 # Update dconf database
@@ -194,9 +212,9 @@ chroot_exec "dconf update" || true
 echo "[+] Branding installed"
 
 #=============================================================================
-# 4. Configure GRUB
+# 5. Configure GRUB
 #=============================================================================
-echo "[*] Step 4: Configuring GRUB..."
+echo "[*] Step 5: Configuring GRUB..."
 
 # Update GRUB defaults
 sed -i 's/GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="CI-OS"/' "$CHROOT_PATH/etc/default/grub" || true
@@ -205,9 +223,9 @@ sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash
 echo "[+] GRUB configured"
 
 #=============================================================================
-# 5. Configure Plymouth Splash
+# 6. Configure Plymouth Splash
 #=============================================================================
-echo "[*] Step 5: Configuring Plymouth splash..."
+echo "[*] Step 6: Configuring Plymouth splash..."
 
 # We'll use the default ubuntu-logo theme but could customize later
 # TODO: Create custom Plymouth theme in future enhancement
@@ -215,9 +233,9 @@ echo "[*] Step 5: Configuring Plymouth splash..."
 echo "[+] Plymouth configured (using default theme)"
 
 #=============================================================================
-# 6. Install AMD GPU Support
+# 7. Install AMD GPU Support
 #=============================================================================
-echo "[*] Step 6: Installing AMD GPU support..."
+echo "[*] Step 7: Installing AMD GPU support..."
 
 cat > "$CHROOT_PATH/tmp/install-amd.sh" << 'EOFSCRIPT'
 #!/bin/bash
@@ -299,9 +317,9 @@ chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm"
 echo "[+] AMD GPU support configured (ROCm available via ci-os-install-rocm)"
 
 #=============================================================================
-# 7. Configure Installer (Ubuntu Desktop Installer Whitelabel)
+# 8. Configure Installer (Ubuntu Desktop Installer Whitelabel)
 #=============================================================================
-echo "[*] Step 7: Configuring installer..."
+echo "[*] Step 8: Configuring installer..."
 
 mkdir -p "$CHROOT_PATH/usr/share/desktop-provision"
 
@@ -367,9 +385,9 @@ EOF
 echo "[+] Installer configured"
 
 #=============================================================================
-# 8. Create CI-OS MOTD
+# 9. Create CI-OS MOTD
 #=============================================================================
-echo "[*] Step 8: Creating CI-OS MOTD..."
+echo "[*] Step 9: Creating CI-OS MOTD..."
 
 cat > "$CHROOT_PATH/etc/update-motd.d/00-ci-os-header" << 'EOF'
 #!/bin/sh
@@ -393,9 +411,9 @@ chmod +x "$CHROOT_PATH/etc/update-motd.d/00-ci-os-header"
 echo "[+] MOTD created"
 
 #=============================================================================
-# 9. Create CI-OS Info Command
+# 10. Create CI-OS Info Command
 #=============================================================================
-echo "[*] Step 9: Creating CI-OS info command..."
+echo "[*] Step 10: Creating CI-OS info command..."
 
 cat > "$CHROOT_PATH/usr/local/bin/ci-os-info" << 'EOF'
 #!/bin/bash
@@ -461,9 +479,9 @@ chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-info"
 echo "[+] CI-OS info command created"
 
 #=============================================================================
-# 10. Set up APT repository configuration (template)
+# 11. Set up APT repository configuration (template)
 #=============================================================================
-echo "[*] Step 10: Setting up package repository configuration..."
+echo "[*] Step 11: Setting up package repository configuration..."
 
 mkdir -p "$CHROOT_PATH/etc/apt/sources.list.d"
 
@@ -477,9 +495,9 @@ EOF
 echo "[+] Package repository template created"
 
 #=============================================================================
-# 11. Final Cleanup
+# 12. Final Cleanup
 #=============================================================================
-echo "[*] Step 11: Final cleanup..."
+echo "[*] Step 12: Final cleanup..."
 
 cat > "$CHROOT_PATH/tmp/final-cleanup.sh" << 'EOFSCRIPT'
 #!/bin/bash

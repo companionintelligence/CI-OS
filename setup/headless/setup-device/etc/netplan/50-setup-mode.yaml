@@ -1,25 +1,12 @@
 # Netplan configuration for setup mode
-# Static IP for wlan0 in setup mode (only active during setup)
-# Wired Ethernet remains DHCP if present
-# Note: wlan0 AP mode is managed by hostapd service, not netplan
+# Wired Ethernet only - WiFi interface is managed by hotspot script and NetworkManager
+# We avoid configuring WiFi here to prevent conflicts with hostapd/NM
 
 network:
   version: 2
   renderer: networkd
-  
+
   ethernets:
-    # Wired Ethernet - keep DHCP
     eth0:
       dhcp4: true
-      optional: true
-    
-    # WiFi interface - static IP for AP mode (managed by hostapd)
-    wlp192s0:
-      dhcp4: false
-      addresses:
-        - 192.168.99.1/24
-      # No gateway - prevents WAN access during setup
-      routes: []
-      nameservers:
-        addresses: [127.0.0.1]
       optional: true

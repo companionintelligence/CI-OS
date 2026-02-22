@@ -1,0 +1,38 @@
+#!/bin/bash
+# CI OS WiFi recovery - reload driver if chip is unresponsive
+# Run when: sudo setup-wifi-recover
+# Use if WiFi disappears after setup or hotspot cycles
+
+set -e
+
+echo "WiFi recovery: stopping hotspot, reloading driver..."
+
+# Stop hotspot services
+systemctl stop hostapd-setup.service 2>/dev/null || true
+systemctl stop dnsmasq-setup.service 2>/dev/null || true
+sleep 2
+
+# Unblock WiFi
+rfkill unblock wifi 2>/dev/null || true
+
+# Find WiFi driver (e.g. mt7921e for Mediatek MT7925)
+for d in /sys/class/net/*; do
+    [ -e "$d/phy80211" ] || continue
+    [ -e "$d/device/driver" ] || continue
+    DRIVER=$(readlink -f "$d/device/driver" 2>/dev/null)
+    [ -n "$DRIVER" ] && break
+done
+if [ -n "$DRIVER" ]; then
+    DRIVER_NAME=$(basename "$DRIVER")
+    if [ -n "$DRIVER_NAME" ]; then
+        echo "Reloading driver: $DRIVER_NAME"
+        modprobe -r "$DRIVER_NAME" 2>/dev/null || true
+        sleep 2
+        modprobe "$DRIVER_NAME"
+        echo "Driver reloaded."
+    fi
+else
+    echo "Could not detect WiFi driver. Try: rfkill unblock wifi; systemctl restart NetworkManager"
+fi
+
+echo "Done. Check 'ip link' and 'nmcli device status'."

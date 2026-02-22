@@ -6,8 +6,18 @@
 # - This script MUST be run as root (use: sudo ./setup-fresh-ubuntu.sh)
 # - All system-level operations require root privileges
 # - User-specific operations run as the actual user via sudo -u
+#
+# OPTIONS:
+#   --light    Phase 1 mode: skip ROCm, Ollama model pulls, LACT (defer to post-validation)
+#
+# © Companion Intelligence — Lifescope Inc
 
 set -euo pipefail
+
+LIGHT_MODE=0
+for arg in "$@"; do
+    [[ "$arg" == "--light" ]] && LIGHT_MODE=1
+done
 
 # Color definitions
 RED='\033[0;31m'
@@ -129,13 +139,18 @@ install_tailscale() {
         return 0
     fi
 
-    log_info "Installing Tailscale..."
-    # Import Tailscale GPG key and repo
-    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
-    apt-get update
-    apt-get install -y tailscale
-    log_success "Tailscale installed"
+    log_info "Installing Tailscale via snap..."
+    if command -v snap >/dev/null 2>&1; then
+        snap install tailscale
+        log_success "Tailscale installed"
+    else
+        log_warning "snap not available; installing Tailscale via apt..."
+        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+        apt-get update
+        apt-get install -y tailscale
+        log_success "Tailscale installed"
+    fi
 }
 
 # Install Docker (requires root for package installation and repository configuration)
@@ -544,50 +559,6 @@ EOF
     log_success "Ollama service configured"
 }
 
-# Pull Ollama models (runs as user, but service management requires root)
-pull_ollama_models() {
-    if ! command_exists ollama; then
-        log_warning "Ollama is not installed, skipping model pull..."
-        return 0
-    fi
-    
-    log_info "Checking Ollama models..."
-    
-    # Start ollama service if not running
-    if ! systemctl is-active --quiet ollama; then
-        systemctl start ollama || true
-        sleep 5
-    fi
-    
-    # Check and pull models as the actual user (ollama stores models in user's home)
-    sudo -u "$ACTUAL_USER" bash <<EOF || log_warning "Failed to pull some Ollama models"
-# Check if models are already pulled
-if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
-    echo "nomic-embed-text already installed"
-else
-    echo "Pulling nomic-embed-text..."
-    ollama pull nomic-embed-text
-fi
-
-if ollama list 2>/dev/null | grep -q "gemma3:1b"; then
-    echo "gemma3:1b already installed"
-else
-    echo "Pulling gemma3:1b..."
-    ollama pull gemma3:1b
-fi
-
-# Add qwen3-vl:32b model
-if ollama list 2>/dev/null | grep -q "qwen3-vl:32b"; then
-     echo "qwen3-vl:32b already installed"
-else
-     echo "Pulling qwen3-vl:32b..."
-     ollama pull qwen3-vl:32b
-fi
-EOF
-    
-    log_success "Ollama models checked/pulled"
-}
-
 # Install GitHub CLI (requires root for package installation and repository configuration)
 install_github_cli() {
     if command_exists gh; then
@@ -750,7 +721,6 @@ main() {
     install_github_cli
     install_ollama
     configure_ollama
-    pull_ollama_models
     install_cloudflared
     install_vscode
     enable_corepack
@@ -772,9 +742,11 @@ main() {
 # Run main function
 main "$@"
 
-# Hook: install ROCm driver (standalone script; can also be run directly: ./scripts/install-rocm-driver.sh)
+# Post-main: ROCm and LACT (skipped in --light mode; run ci-os-setup.sh --phase2 after validation)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/install-rocm-driver.sh"
+if [[ $LIGHT_MODE -eq 0 ]] && [[ -f "${SCRIPT_DIR}/install-rocm-driver.sh" ]]; then
+    "${SCRIPT_DIR}/install-rocm-driver.sh"
+fi
 
 # Install LACT GPU monitor (latest release from GitHub)
 install_lact() {
@@ -828,8 +800,8 @@ install_lact() {
         fi
 }
 
-# Call LACT install at the end
-install_lact
+# Call LACT install at the end (skip in --light mode)
+[[ $LIGHT_MODE -eq 0 ]] && install_lact || true
 
 # Set GNOME Power Mode to 'performance' for the user
 set_gnome_power_performance() {

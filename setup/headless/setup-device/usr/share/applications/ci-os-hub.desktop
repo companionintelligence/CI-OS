@@ -1,0 +1,9 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=CI OS Hub
+Comment=Companion Intelligence OS Hub - App launcher and device management
+Exec=xdg-open http://localhost:5002
+Icon=application-x-executable
+Categories=Utility;System;
+StartupNotify=true
