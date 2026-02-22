@@ -78,8 +78,9 @@ mkdir -p "${INSTALL_DIR}/data/backups"
 mkdir -p "${INSTALL_DIR}/app-data"
 mkdir -p "${INSTALL_DIR}/tunnel"
 
-# Tunnel Setup (optional — set TUNNEL_TOKEN to enable Cloudflare tunnel routing)
-TUNNEL_TOKEN="${TUNNEL_TOKEN:-}"
+# Tunnel Setup — uses the shared dev tunnel token by default (same tunnel, multiple machines OK)
+# Override by setting TUNNEL_TOKEN in env or passing -t to pull-dev-manual.sh
+TUNNEL_TOKEN="${TUNNEL_TOKEN:-eyJhIjoiOWE2ZWYyZGJjZDEzOGVhYzEyMTY0N2Y1NjdhOTg1ZDgiLCJ0IjoiYTA5MDc2YzAtMzkwOS00ZGZiLWFmYzAtOWQ5YTQzOTEzYTMxIiwicyI6IlYxL3NCOVRJbXQzZ3JMaVIzQTJxWmlpY2lsek1NSFJKZ0Z3MFNrYkNQUWs9In0=}"
 COMPOSE_PROFILES=()
 if [ -n "$TUNNEL_TOKEN" ]; then
   echo -e "${YELLOW}Setting up Cloudflare tunnel...${NC}"
@@ -88,8 +89,6 @@ if [ -n "$TUNNEL_TOKEN" ]; then
   TUNNEL_DIR="${INSTALL_DIR}/tunnel" bash "${SCRIPT_DIR}/scripts/generate-tunnel-certs.sh"
   COMPOSE_PROFILES=(--profile tunnel)
   echo -e "${GREEN}Tunnel token and certs configured.${NC}"
-else
-  echo -e "${YELLOW}No TUNNEL_TOKEN set — cloudflared will not start. Pass TUNNEL_TOKEN to enable routing.${NC}"
 fi
 
 # Registry Login (required for private registry)
