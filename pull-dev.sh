@@ -36,9 +36,9 @@ REGISTRY_DOMAIN="portal.companionintelligence.com"
 IMAGE_NAME="${REGISTRY_DOMAIN}/ci-os-hub:latest"
 INSTALL_DIR="${HOME}/ci-os-hub-staging"
 # CI Cloud URLs (user-facing setup/API)
-CI_CLOUD_URL="${CI_CLOUD_URL:-https://setup.companionintelligence.com}"
-CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://setup.companionintelligence.com/api}"
-CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://setup.companionintelligence.com}"
+CI_CLOUD_URL="${CI_CLOUD_URL:-https://portal.companionintelligence.com}"
+CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://portal.companionintelligence.com/api}"
+CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://portal.companionintelligence.com}"
 
 # Colors
 RED='\033[0;31m'
