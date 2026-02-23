@@ -28,24 +28,36 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-# --- Install Chromium ---
-log_info "Installing Chromium..."
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y chromium-browser || apt-get install -y chromium || {
-    log_error "Failed to install Chromium"
-    exit 1
-}
-log_success "Chromium installed"
+# --- Install Chromium (skip if already present) ---
+CHROMIUM_ALREADY_INSTALLED=0
+if command -v chromium-browser &>/dev/null || command -v chromium &>/dev/null; then
+    log_info "Chromium is already installed, skipping installation..."
+    CHROMIUM_ALREADY_INSTALLED=1
+else
+    log_info "Installing Chromium..."
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update
+    apt-get install -y chromium-browser || apt-get install -y chromium || {
+        log_error "Failed to install Chromium"
+        exit 1
+    }
+    log_success "Chromium installed"
+fi
 
-# Determine desktop file (Ubuntu 24.04 snap: chromium_chromium.desktop; deb: chromium-browser.desktop)
+# Determine desktop file (deb: chromium-browser.desktop; snap: chromium_chromium.desktop; flatpak: org.chromium.Chromium.desktop)
 CHROMIUM_DESKTOP=""
 if [[ -f /usr/share/applications/chromium-browser.desktop ]]; then
     CHROMIUM_DESKTOP="chromium-browser.desktop"
 elif [[ -f /var/lib/snapd/desktop/applications/chromium_chromium.desktop ]]; then
     CHROMIUM_DESKTOP="chromium_chromium.desktop"
+elif [[ -f /var/lib/flatpak/exports/share/applications/org.chromium.Chromium.desktop ]] || \
+     [[ -f "$HOME/.local/share/flatpak/exports/share/applications/org.chromium.Chromium.desktop" ]]; then
+    CHROMIUM_DESKTOP="org.chromium.Chromium.desktop"
 else
-    found=$(find /usr/share/applications /var/lib/snapd/desktop/applications -maxdepth 1 -name '*chromium*.desktop' 2>/dev/null | head -1)
+    found=$(find /usr/share/applications /var/lib/snapd/desktop/applications \
+        /var/lib/flatpak/exports/share/applications \
+        "${HOME:-/root}/.local/share/flatpak/exports/share/applications" \
+        -maxdepth 1 -name '*chromium*.desktop' 2>/dev/null | head -1)
     [[ -n "$found" ]] && CHROMIUM_DESKTOP="$(basename "$found")"
 fi
 [[ -z "$CHROMIUM_DESKTOP" ]] && CHROMIUM_DESKTOP="chromium_chromium.desktop"
@@ -98,4 +110,44 @@ fi
 
 log_success "Set Chromium as default browser for new users (mimeapps.list)"
 
-log_success "Chromium set as default browser"
+# --- Runtime validation ---
+log_info "Verifying default browser configuration..."
+VERIFY_FAILED=0
+
+# Check update-alternatives
+if [[ -n "$CHROMIUM_BIN" ]]; then
+    ALT_RESULT=$(update-alternatives --query x-www-browser 2>/dev/null | awk '/^Value:/{print $2}' || true)
+    if [[ "$ALT_RESULT" == "$CHROMIUM_BIN" ]]; then
+        log_success "update-alternatives: x-www-browser → $CHROMIUM_BIN"
+    else
+        log_warn "update-alternatives x-www-browser may not point to Chromium (got: ${ALT_RESULT:-unset})"
+        VERIFY_FAILED=1
+    fi
+fi
+
+# Check xdg-mime default (best-effort: xdg-mime may not be available in chroot)
+if command -v xdg-mime >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+    XDG_RESULT=$(sudo -u "${SUDO_USER:-root}" xdg-mime query default x-scheme-handler/https 2>/dev/null || true)
+    if echo "$XDG_RESULT" | grep -qi "chromium"; then
+        log_success "xdg-mime: x-scheme-handler/https → $XDG_RESULT"
+    else
+        log_warn "xdg-mime default for https: ${XDG_RESULT:-unset} (expected Chromium; will apply on next login)"
+        VERIFY_FAILED=1
+    fi
+else
+    log_info "xdg-mime check skipped (no display or not available)"
+fi
+
+# Check /etc/skel mimeapps.list
+if grep -q "$CHROMIUM_DESKTOP" "$MIMEAPPS_SKEL" 2>/dev/null; then
+    log_success "mimeapps.list: Chromium is default for new users"
+else
+    log_warn "mimeapps.list does not reference $CHROMIUM_DESKTOP"
+    VERIFY_FAILED=1
+fi
+
+if [[ $VERIFY_FAILED -eq 0 ]]; then
+    log_success "Chromium set as default browser — all checks passed"
+else
+    log_warn "Chromium configured as default browser (some checks may need reboot/login to confirm)"
+fi

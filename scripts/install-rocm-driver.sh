@@ -32,6 +32,16 @@ export DEBIAN_FRONTEND=noninteractive
 
 echo "[ROCm] Installing AMD GPU driver and ROCm stack (running as root)."
 
+# --- Check if ROCm is already installed ---
+if command -v rocminfo &>/dev/null && dpkg -l amdgpu-dkms 2>/dev/null | grep -q '^ii'; then
+    echo "[ROCm] ROCm stack and amdgpu-dkms already installed — skipping downloads."
+    # Still ensure user is in correct groups
+    echo "[ROCm] Ensuring user ${ACTUAL_USER} is in render and video groups..."
+    usermod -a -G render,video "${ACTUAL_USER}" 2>/dev/null || true
+    echo "[ROCm] ROCm driver check complete (already installed)."
+    exit 0
+fi
+
 # --- AMD GPU installer .deb ---
 TMP_DEB=$(mktemp -d)
 trap 'rm -rf "$TMP_DEB"' EXIT

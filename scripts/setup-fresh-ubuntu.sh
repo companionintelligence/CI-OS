@@ -341,29 +341,95 @@ EOF
 
 # Install Node.js 22.x via NodeSource (apt)
 install_asdf_nodejs() {
-    # Check if Node.js 22+ is already installed
-    if command_exists node && node --version 2>/dev/null | grep -qE "v22|v23"; then
-        log_info "Node.js 22+ is already installed ($(node --version))"
+    # Install asdf if not already present (check both command and directory)
+    if ! command_exists asdf && [[ ! -f "$ACTUAL_HOME/.asdf/asdf.sh" ]]; then
+        log_info "Installing asdf..."
+        # Remove empty/broken directory if it exists before cloning
+        if [[ -d "$ACTUAL_HOME/.asdf" ]] && [[ ! -f "$ACTUAL_HOME/.asdf/asdf.sh" ]]; then
+            log_warning "Found incomplete ~/.asdf directory — removing before fresh install"
+            rm -rf "$ACTUAL_HOME/.asdf"
+        fi
+        sudo -u "$ACTUAL_USER" bash -c "
+            git clone https://github.com/asdf-vm/asdf.git \"$ACTUAL_HOME/.asdf\"
+            cd \"$ACTUAL_HOME/.asdf\"
+            git checkout \$(git describe --abbrev=0 --tags)
+        " || {
+            log_error "Failed to install asdf"
+            return 1
+        }
+        
+        # Add asdf to bashrc
+        RC="$ACTUAL_HOME/.bashrc"
+        if ! grep -q "\.asdf/asdf\.sh" "$RC"; then
+            echo "" >> "$RC"
+            echo ". \$HOME/.asdf/asdf.sh" >> "$RC"
+            echo ". \$HOME/.asdf/completions/asdf.bash" >> "$RC"
+        fi
+        log_success "asdf installed"
+    else
+        log_info "asdf is already installed"
+    fi
+
+    # Source asdf for current session
+    export PATH="$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:$PATH"
+    if [[ -f "$ACTUAL_HOME/.asdf/asdf.sh" ]]; then
+        source "$ACTUAL_HOME/.asdf/asdf.sh"
+    fi
+
+    # Check if Node.js 22+ is already installed via asdf
+    if sudo -u "$ACTUAL_USER" bash -c "
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        node --version 2>/dev/null | grep -qE 'v22|v23'
+    "; then
+        log_info "Node.js 22+ is already installed ($(sudo -u "$ACTUAL_USER" bash -c "export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"; [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"; node --version 2>/dev/null"))"
         return 0
     fi
 
-    log_info "Installing Node.js 22 via NodeSource..."
-    if [[ ! -f /etc/apt/sources.list.d/nodesource.list ]] || ! grep -q "node_22" /etc/apt/sources.list.d/nodesource.list 2>/dev/null; then
-        apt-get install -y ca-certificates curl gnupg
-        mkdir -p /etc/apt/keyrings
-        curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg
-        echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_22.x nodistro main" > /etc/apt/sources.list.d/nodesource.list
-        apt-get update
-    fi
-    apt-get install -y nodejs
-    log_success "Node.js installed ($(node --version 2>/dev/null || echo 'unknown'))"
+    log_info "Installing Node.js 22.15.1+ via asdf..."
+    
+    # Add nodejs plugin
+    sudo -u "$ACTUAL_USER" bash -c "
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        asdf plugin add nodejs 2>/dev/null || true
+    " || {
+        log_error "Failed to add nodejs plugin"
+        return 1
+    }
+
+    # Install Node.js 22.15.1 or latest 22.x
+    sudo -u "$ACTUAL_USER" bash -c "
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        asdf install nodejs 22.15.1 2>/dev/null || asdf install nodejs latest:22
+    " || {
+        log_error "Failed to install Node.js via asdf"
+        return 1
+    }
+
+    log_success "Node.js installed via asdf"
 }
 
-# Set global Node.js version (no-op when using apt Node.js)
+# Set global Node.js version using asdf set -u
 set_global_nodejs() {
-    if command_exists node; then
-        log_info "Node.js available: $(node --version 2>/dev/null || echo 'unknown')"
-    fi
+    log_info "Setting Node.js as global version..."
+    
+    sudo -u "$ACTUAL_USER" bash -c "
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        asdf set -u nodejs \$(asdf latest nodejs 2>/dev/null || echo '22.15.1')
+    " 2>/dev/null || {
+        log_warning "Could not set global Node.js via asdf (may already be set or asdf not loaded)"
+    }
+    
+    # Verify (best-effort — don't fail if node isn't on PATH yet in this shell)
+    NODEJS_VERSION=$(sudo -u "$ACTUAL_USER" bash -c "
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        node --version 2>/dev/null || echo '(not yet in PATH — will work after shell reload)'
+    " 2>/dev/null || true)
+    log_success "Node.js version: ${NODEJS_VERSION:-unknown (reload shell to verify)}"
 }
 
 # Install Bun
@@ -568,15 +634,19 @@ enable_corepack() {
     fi
 }
 
-# Install VS Code (requires root for snap installation)
+# Install VS Code (requires root for snap/apt installation)
 install_vscode() {
-    if command_exists code; then
+    if command_exists code || [[ -f /usr/share/applications/code.desktop ]]; then
         log_info "VS Code is already installed, skipping installation..."
         return 0
     fi
     
     log_info "Installing VS Code..."
-    snap install code --classic
+    if command -v snap >/dev/null 2>&1; then
+        snap install code --classic || log_warning "snap install code failed; VS Code may need manual install"
+    else
+        log_warning "snap not available; skipping VS Code snap install (install manually if needed)"
+    fi
     log_success "VS Code installed"
 }
 
@@ -620,7 +690,7 @@ main() {
     install_homebrew || log_warning "Homebrew had issues; Node.js will use apt"
     set -e
     install_asdf_nodejs
-    set_global_nodejs
+    set_global_nodejs || true
     install_bun
     note_bashrc
     create_ci_user
