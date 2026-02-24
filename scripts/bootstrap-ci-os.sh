@@ -27,9 +27,10 @@
 #
 # What this script runs (in order):
 #   1. System setup - setup-fresh-ubuntu --light (Docker, Tailscale, Ollama, Node/Bun, etc.)
-#   2. Headless device setup - builds and installs setup-device .deb
+#   2. Complete rebranding - Plymouth, Chromium, wallpaper, start icon, MOTD
+#   3. Headless device setup - builds and installs setup-device .deb
 #      (WiFi captive portal: Companion-Setup-XXXX hotspot, setup.ci.computer)
-#   3. Complete rebranding - Plymouth, Chromium, wallpaper, start icon, MOTD
+#      NOTE: runs last because it disables internet connectivity
 #   4. Restart (or prompt when not --yes)
 #
 # Recoverable: Re-run after any failure. Steps are idempotent; use --no-headless
@@ -110,8 +111,8 @@ echo ""
 log_info "Repo root: $REPO_ROOT"
 log_info "Will run:"
 log_info "  ✓ System setup (Docker, Tailscale, Ollama, Node/Bun)"
-[[ $DO_HEADLESS -eq 1 ]] && log_info "  ✓ Headless device setup (WiFi captive portal)"
 [[ $DO_REBRAND -eq 1 ]] && log_info "  ✓ Complete CI OS rebranding"
+[[ $DO_HEADLESS -eq 1 ]] && log_info "  ✓ Headless device setup (WiFi captive portal) — runs last"
 echo ""
 
 #-----------------------------------------------------------------------------
@@ -133,10 +134,35 @@ if [[ -f "$SCRIPT_DIR/setup-fresh-ubuntu.sh" ]]; then
 fi
 
 #-----------------------------------------------------------------------------
-# 2. Headless device setup (or use ci-os-setup.sh for full phased orchestration)
+# 2. Complete rebranding
+#-----------------------------------------------------------------------------
+if [[ $DO_REBRAND -eq 1 ]]; then
+    log_header "Step 2: Complete CI OS rebranding"
+    echo ""
+
+    REBRAND="$REPO_ROOT/setup/os-changes/complete-rebranding.sh"
+    if [[ ! -f "$REBRAND" ]]; then
+        log_error "Rebranding script not found: $REBRAND"
+        exit 1
+    fi
+
+    REBRAND_ARGS=()
+    [[ $NONINTERACTIVE -eq 1 ]] && REBRAND_ARGS+=(--yes)
+    [[ $NO_REBOOT -eq 1 ]] && REBRAND_ARGS+=(--skip-reboot-check)
+
+    if ! bash "$REBRAND" "${REBRAND_ARGS[@]}"; then
+        log_error "Rebranding failed"
+        exit 1
+    fi
+    log_success "Rebranding complete"
+    echo ""
+fi
+
+#-----------------------------------------------------------------------------
+# 3. Headless device setup — MUST run last (disables internet connectivity)
 #-----------------------------------------------------------------------------
 if [[ $DO_HEADLESS -eq 1 ]]; then
-    log_header "Step 2: Headless device setup"
+    log_header "Step 3: Headless device setup"
     echo ""
 
     # Build and install setup-device .deb (or use ci-os-setup.sh as main entry for full orchestration)
@@ -193,34 +219,9 @@ if [[ $DO_HEADLESS -eq 1 ]]; then
 fi
 
 #-----------------------------------------------------------------------------
-# 3. Complete rebranding
-#-----------------------------------------------------------------------------
-if [[ $DO_REBRAND -eq 1 ]]; then
-    log_header "Step 3: Complete CI OS rebranding"
-    echo ""
-
-    REBRAND="$REPO_ROOT/setup/os-changes/complete-rebranding.sh"
-    if [[ ! -f "$REBRAND" ]]; then
-        log_error "Rebranding script not found: $REBRAND"
-        exit 1
-    fi
-
-    REBRAND_ARGS=()
-    [[ $NONINTERACTIVE -eq 1 ]] && REBRAND_ARGS+=(--yes)
-    [[ $NO_REBOOT -eq 1 ]] && REBRAND_ARGS+=(--skip-reboot-check)
-
-    if ! bash "$REBRAND" "${REBRAND_ARGS[@]}"; then
-        log_error "Rebranding failed"
-        exit 1
-    fi
-    log_success "Rebranding complete"
-    echo ""
-fi
-
-#-----------------------------------------------------------------------------
 # 4. Restart (when not --yes / NO_REBOOT=0)
 #-----------------------------------------------------------------------------
-if [[ $DO_REBRAND -eq 1 ]] && [[ $NO_REBOOT -eq 0 ]]; then
+if [[ ($DO_REBRAND -eq 1 || $DO_HEADLESS -eq 1) ]] && [[ $NO_REBOOT -eq 0 ]]; then
     echo ""
     log_info "Rebooting to apply Plymouth and full branding..."
     sleep 3
