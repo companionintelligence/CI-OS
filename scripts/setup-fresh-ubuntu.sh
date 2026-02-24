@@ -358,19 +358,33 @@ install_asdf_nodejs() {
             return 1
         }
         
-        # Add asdf to bashrc
+        # Add asdf to bashrc (guard missing files to avoid noisy startup errors)
         RC="$ACTUAL_HOME/.bashrc"
-        if ! grep -q "\.asdf/asdf\.sh" "$RC"; then
-            echo "" >> "$RC"
-            echo ". \$HOME/.asdf/asdf.sh" >> "$RC"
-            echo ". \$HOME/.asdf/completions/asdf.bash" >> "$RC"
+        if ! grep -q "asdf.sh" "$RC"; then
+            cat >> "$RC" <<'EOF'
+
+# asdf
+if [[ -f "$HOME/.asdf/asdf.sh" ]]; then
+    . "$HOME/.asdf/asdf.sh"
+fi
+if [[ -f "$HOME/.asdf/completions/asdf.bash" ]]; then
+    . "$HOME/.asdf/completions/asdf.bash"
+fi
+EOF
+        else
+            # Normalize older asdf lines to be conditional
+            sed -i 's|^\. \$HOME/.asdf/asdf.sh$|[[ -f "$HOME/.asdf/asdf.sh" ]] && . "$HOME/.asdf/asdf.sh"|' "$RC" 2>/dev/null || true
+            sed -i 's|^\. \$HOME/.asdf/completions/asdf.bash$|[[ -f "$HOME/.asdf/completions/asdf.bash" ]] && . "$HOME/.asdf/completions/asdf.bash"|' "$RC" 2>/dev/null || true
         fi
         log_success "asdf installed"
     else
         log_info "asdf is already installed"
     fi
 
-    # Source asdf for current session
+    # Ensure asdf is owned by the actual user and source it for this session
+    if [[ -d "$ACTUAL_HOME/.asdf" ]]; then
+        chown -R "$ACTUAL_USER:$ACTUAL_USER" "$ACTUAL_HOME/.asdf" 2>/dev/null || true
+    fi
     export PATH="$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:$PATH"
     if [[ -f "$ACTUAL_HOME/.asdf/asdf.sh" ]]; then
         source "$ACTUAL_HOME/.asdf/asdf.sh"
@@ -407,6 +421,13 @@ install_asdf_nodejs() {
         log_error "Failed to install Node.js via asdf"
         return 1
     }
+
+    # Rebuild shims to ensure node/npm/corepack are available
+    sudo -u "$ACTUAL_USER" bash -c "
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        asdf reshim nodejs 2>/dev/null || true
+    "
 
     log_success "Node.js installed via asdf"
 }
@@ -622,15 +643,88 @@ remove_telemetry() {
 
 # Enable corepack (requires Node.js to be installed and proper permissions)
 enable_corepack() {
-    if ! command -v corepack &>/dev/null; then
+    log_info "Enabling corepack..."
+    if ! sudo -u "$ACTUAL_USER" bash -c "
+        export HOME=\"$ACTUAL_HOME\"
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        command -v corepack >/dev/null 2>&1
+    "; then
         log_info "Corepack not found; skipping (optional)"
         return 0
     fi
-    log_info "Enabling corepack..."
-    if corepack enable 2>/dev/null || sudo corepack enable 2>/dev/null; then
+
+    if sudo -u "$ACTUAL_USER" bash -c "
+        export HOME=\"$ACTUAL_HOME\"
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        corepack enable
+    " 2>/dev/null; then
         log_success "Corepack enabled"
     else
         log_warning "Corepack enable failed; run 'corepack enable' manually if needed"
+    fi
+}
+
+# Install pnpm (prefers corepack; falls back to official installer)
+install_pnpm() {
+    log_info "Configuring pnpm..."
+
+    sudo -u "$ACTUAL_USER" bash -c "
+        export HOME=\"$ACTUAL_HOME\"
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        command -v corepack >/dev/null 2>&1 && corepack prepare pnpm@latest --activate >/dev/null 2>&1 || true
+    "
+
+    if sudo -u "$ACTUAL_USER" bash -c "
+        export HOME=\"$ACTUAL_HOME\"
+        export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+        command -v pnpm >/dev/null 2>&1
+    "; then
+        PNPM_VERSION=$(sudo -u "$ACTUAL_USER" bash -c "
+            export HOME=\"$ACTUAL_HOME\"
+            export PATH=\"$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+            [[ -f \"$ACTUAL_HOME/.asdf/asdf.sh\" ]] && source \"$ACTUAL_HOME/.asdf/asdf.sh\"
+            pnpm -v 2>/dev/null
+        ")
+        log_success "pnpm available (version: ${PNPM_VERSION:-unknown})"
+        return 0
+    fi
+
+    log_info "Installing pnpm via official installer (user-local)..."
+    sudo -u "$ACTUAL_USER" env HOME="$ACTUAL_HOME" PNPM_HOME="$ACTUAL_HOME/.local/share/pnpm" bash -c "
+        curl -fsSL https://get.pnpm.io/install.sh | sh -s -- --force
+    " || log_warning "pnpm installer reported issues"
+
+    # Ensure PNPM_HOME is on PATH for the actual user
+    RC="$ACTUAL_HOME/.bashrc"
+    if ! grep -q "PNPM_HOME" "$RC"; then
+        cat >> "$RC" <<'EOF'
+
+# pnpm
+export PNPM_HOME="$HOME/.local/share/pnpm"
+case ":$PATH:" in
+  *":$PNPM_HOME:"*) ;;
+  *) export PATH="$PNPM_HOME:$PATH" ;;
+esac
+EOF
+        chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
+    fi
+
+    if [[ -d "$ACTUAL_HOME/.local/share/pnpm" ]]; then
+        chown -R "$ACTUAL_USER:$ACTUAL_USER" "$ACTUAL_HOME/.local/share/pnpm" 2>/dev/null || true
+    fi
+
+    if sudo -u "$ACTUAL_USER" bash -c "
+        export HOME=\"$ACTUAL_HOME\"
+        export PATH=\"$ACTUAL_HOME/.local/share/pnpm:$ACTUAL_HOME/.asdf/shims:$ACTUAL_HOME/.asdf/bin:\$PATH\"
+        command -v pnpm >/dev/null 2>&1
+    "; then
+        log_success "pnpm installed"
+    else
+        log_warning "pnpm not found in PATH yet; user may need to run 'source ~/.bashrc'"
     fi
 }
 
@@ -700,6 +794,7 @@ main() {
     install_cloudflared
     install_vscode
     enable_corepack
+    install_pnpm
     remove_telemetry
 
         install_tailscale
