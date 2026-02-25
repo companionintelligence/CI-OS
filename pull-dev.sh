@@ -31,14 +31,15 @@ fi
 REGISTRY_USERNAME="${REGISTRY_USERNAME:-Abcde12345}"
 REGISTRY_PASSWORD="${REGISTRY_PASSWORD:-Abcde12345}"
 
-# Configuration - always use dev registry (setup.companionintelligence.com)
-REGISTRY_DOMAIN="setup.companionintelligence.com"
-IMAGE_NAME="${REGISTRY_DOMAIN}/ci-os-hub:latest"
+# Configuration - default dev registry/domain (portal.companionintelligence.com)
+REGISTRY_DOMAIN="${REGISTRY_DOMAIN:-portal.companionintelligence.com}"
+IMAGE_NAME="${IMAGE_NAME:-${REGISTRY_DOMAIN}/ci-os-hub:latest}"
 INSTALL_DIR="${HOME}/ci-os-hub-staging"
+INTERNAL_DIR="${INSTALL_DIR}/.internal"
 # CI Cloud URLs (user-facing setup/API)
-CI_CLOUD_URL="${CI_CLOUD_URL:-https://setup.companionintelligence.com}"
-CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://setup.companionintelligence.com/api}"
-CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://setup.companionintelligence.com}"
+CI_CLOUD_URL="${CI_CLOUD_URL:-https://portal.companionintelligence.com}"
+CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://portal.companionintelligence.com/api}"
+CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://portal.companionintelligence.com}"
 
 # Colors
 RED='\033[0;31m'
@@ -76,6 +77,50 @@ mkdir -p "${INSTALL_DIR}/data/user-config"
 mkdir -p "${INSTALL_DIR}/data/backups"
 mkdir -p "${INSTALL_DIR}/app-data"
 mkdir -p "${INSTALL_DIR}/tunnel"
+mkdir -p "${INSTALL_DIR}/tunnel/certs"
+
+# Prepare absolute .internal host paths for Hub/app runtime data
+mkdir -p "${INTERNAL_DIR}"
+mkdir -p "${INTERNAL_DIR}/media"
+mkdir -p "${INTERNAL_DIR}/state"
+mkdir -p "${INTERNAL_DIR}/repos"
+mkdir -p "${INTERNAL_DIR}/apps"
+mkdir -p "${INTERNAL_DIR}/logs"
+mkdir -p "${INTERNAL_DIR}/user-config"
+mkdir -p "${INTERNAL_DIR}/backups"
+mkdir -p "${INTERNAL_DIR}/app-data"
+
+# Cloudflare tunnel prerequisites (token + local CA certs)
+TUNNEL_TOKEN_FILE="${INSTALL_DIR}/tunnel/token"
+if [ -n "${CLOUDFLARE_TUNNEL_TOKEN:-}" ]; then
+  printf '%s\n' "${CLOUDFLARE_TUNNEL_TOKEN}" > "${TUNNEL_TOKEN_FILE}"
+  chmod 600 "${TUNNEL_TOKEN_FILE}"
+  echo -e "${GREEN}Cloudflare tunnel token written to ${TUNNEL_TOKEN_FILE}${NC}"
+elif [ -f "${TUNNEL_TOKEN_FILE}" ] && [ -s "${TUNNEL_TOKEN_FILE}" ]; then
+  echo -e "${GREEN}Using existing Cloudflare tunnel token at ${TUNNEL_TOKEN_FILE}${NC}"
+else
+  echo -e "${YELLOW}No Cloudflare tunnel token found.${NC}"
+  echo -e "${YELLOW}To enable tunnel, set CLOUDFLARE_TUNNEL_TOKEN or create ${TUNNEL_TOKEN_FILE}.${NC}"
+fi
+
+if [ ! -f "${INSTALL_DIR}/tunnel/certs/custom-ca.pem" ] || [ ! -f "${INSTALL_DIR}/tunnel/certs/custom-ca.key" ]; then
+  if command -v openssl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Generating tunnel certificates in ${INSTALL_DIR}/tunnel/certs...${NC}"
+    openssl genrsa -out "${INSTALL_DIR}/tunnel/certs/custom-ca.key" 2048
+    openssl req -x509 -new -nodes \
+      -key "${INSTALL_DIR}/tunnel/certs/custom-ca.key" \
+      -sha256 -days 3650 \
+      -out "${INSTALL_DIR}/tunnel/certs/custom-ca.pem" \
+      -subj "/C=US/ST=State/L=City/O=CompanionIntelligence/OU=LocalDev/CN=CI-Local-Root-CA"
+    chmod 644 "${INSTALL_DIR}/tunnel/certs/custom-ca.pem"
+    chmod 600 "${INSTALL_DIR}/tunnel/certs/custom-ca.key"
+    echo -e "${GREEN}Tunnel certificates generated.${NC}"
+  else
+    echo -e "${YELLOW}openssl not found. Skipping tunnel certificate generation.${NC}"
+  fi
+else
+  echo -e "${GREEN}Using existing tunnel certificates in ${INSTALL_DIR}/tunnel/certs.${NC}"
+fi
 
 # Registry Login (required for private registry)
 if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
@@ -202,6 +247,38 @@ fi
 
 CI_CLOUD_API_KEY=${CI_CLOUD_API_KEY:-""}
 
+# Always use user-specific absolute paths under the install .internal directory
+ROOT_FOLDER_HOST="${INTERNAL_DIR}"
+RUNTIPI_APP_DATA_PATH="${INTERNAL_DIR}"
+RUNTIPI_MEDIA_PATH="${INTERNAL_DIR}/media"
+RUNTIPI_STATE_PATH="${INTERNAL_DIR}/state"
+RUNTIPI_REPOS_PATH="${INTERNAL_DIR}/repos"
+RUNTIPI_APPS_PATH="${INTERNAL_DIR}/apps"
+RUNTIPI_LOGS_PATH="${INTERNAL_DIR}/logs"
+RUNTIPI_USER_CONFIG_PATH="${INTERNAL_DIR}/user-config"
+RUNTIPI_BACKUPS_PATH="${INTERNAL_DIR}/backups"
+
+# Service credentials (allow override, enforce sane defaults)
+POSTGRES_DBNAME="${POSTGRES_DBNAME:-tipi}"
+POSTGRES_USERNAME="${POSTGRES_USERNAME:-tipi}"
+POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
+RABBITMQ_USERNAME="${RABBITMQ_USERNAME:-tipi}"
+RABBITMQ_PASSWORD="${RABBITMQ_PASSWORD:-tipi}"
+
+# Preserve existing JWT secret if present, otherwise use env or generate securely
+EXISTING_JWT_SECRET=""
+if [ -f "${INSTALL_DIR}/.env" ]; then
+  EXISTING_JWT_SECRET=$(grep -E '^JWT_SECRET=' "${INSTALL_DIR}/.env" | tail -n 1 | cut -d '=' -f2- || true)
+fi
+JWT_SECRET="${JWT_SECRET:-${EXISTING_JWT_SECRET:-}}"
+if [ -z "${JWT_SECRET}" ]; then
+  if command -v openssl >/dev/null 2>&1; then
+    JWT_SECRET=$(openssl rand -hex 32)
+  else
+    JWT_SECRET=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  fi
+fi
+
 # Full .env matching production CI OS Hub configuration
 cat > "${INSTALL_DIR}/.env" <<ENVEOF
 # Application Configuration
@@ -221,15 +298,15 @@ DB_VOLUME_NAME=ci_hub_pgdata
 ENV_FILE=.env
 
 # Paths (staging install directory)
-ROOT_FOLDER_HOST=${INSTALL_DIR}
-RUNTIPI_APP_DATA_PATH=${INSTALL_DIR}
-RUNTIPI_MEDIA_PATH=${INSTALL_DIR}
-RUNTIPI_STATE_PATH=${INSTALL_DIR}
-RUNTIPI_REPOS_PATH=${INSTALL_DIR}
-RUNTIPI_APPS_PATH=${INSTALL_DIR}
-RUNTIPI_LOGS_PATH=${INSTALL_DIR}
-RUNTIPI_USER_CONFIG_PATH=${INSTALL_DIR}
-RUNTIPI_BACKUPS_PATH=${INSTALL_DIR}
+ROOT_FOLDER_HOST=${ROOT_FOLDER_HOST}
+RUNTIPI_APP_DATA_PATH=${RUNTIPI_APP_DATA_PATH}
+RUNTIPI_MEDIA_PATH=${RUNTIPI_MEDIA_PATH}
+RUNTIPI_STATE_PATH=${RUNTIPI_STATE_PATH}
+RUNTIPI_REPOS_PATH=${RUNTIPI_REPOS_PATH}
+RUNTIPI_APPS_PATH=${RUNTIPI_APPS_PATH}
+RUNTIPI_LOGS_PATH=${RUNTIPI_LOGS_PATH}
+RUNTIPI_USER_CONFIG_PATH=${RUNTIPI_USER_CONFIG_PATH}
+RUNTIPI_BACKUPS_PATH=${RUNTIPI_BACKUPS_PATH}
 INTERNAL_IP=0.0.0.0
 
 # CI Cloud Integration
@@ -245,19 +322,19 @@ DNS_IP=9.9.9.9
 
 # Database Configuration
 POSTGRES_HOST=ci-hub-db
-POSTGRES_DBNAME=tipi
-POSTGRES_USERNAME=tipi
-POSTGRES_USER=tipi
-POSTGRES_PASSWORD=postgres
+POSTGRES_DBNAME=${POSTGRES_DBNAME}
+POSTGRES_USERNAME=${POSTGRES_USERNAME}
+POSTGRES_USER=${POSTGRES_USERNAME}
+POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
 POSTGRES_PORT=6543
 
 # RabbitMQ Configuration
 RABBITMQ_HOST=ci-os-hub-queue
-RABBITMQ_USERNAME=tipi
-RABBITMQ_PASSWORD=tipi
+RABBITMQ_USERNAME=${RABBITMQ_USERNAME}
+RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
 
 # Traefik Configuration (ci-os-hub uses port 5002 in this setup)
-RUNTIPI_FORWARD_AUTH_URL=http://ci-os-hub:5002/api/auth/traefik
+RUNTIPI_FORWARD_AUTH_URL=http://ci-os-hub:3000/api/auth/traefik
 
 # Application Settings
 DEMO_MODE=false
@@ -274,7 +351,7 @@ THEME_COLOR=blue
 DISABLE_PASSWORD_RESET=true
 
 # Security
-JWT_SECRET=857ad2225d62961ba24b12ee88b4a628e1647a0c61d5113f313f56f22461d0c3
+JWT_SECRET=${JWT_SECRET}
 
 # Timezone
 TZ=UTC
@@ -337,7 +414,7 @@ services:
       ci-os-hub-queue:
         condition: service_healthy
     ports:
-      - "5002:5002"
+      - "5002:3000"
     volumes:
       - ./tunnel:/app/tunnel
       - ./data/media:/data/media
@@ -353,7 +430,7 @@ services:
     labels:
       traefik.enable: true
       ci-os-hub.managed: true
-      traefik.http.middlewares.runtipi.forwardauth.address: "http://ci-os-hub:5002/api/auth/traefik"
+      traefik.http.middlewares.runtipi.forwardauth.address: "http://ci-os-hub:3000/api/auth/traefik"
       traefik.http.middlewares.runtipi.forwardauth.trustForwardHeader: "true"
       traefik.http.middlewares.runtipi.forwardauth.authResponseHeaders: "X-Runtipi-User"
       traefik.http.routers.ci-os-hub.entrypoints: "web"
@@ -397,6 +474,132 @@ volumes:
   ci_hub_pgdata:
 EOF
 
+stop_conflicting_containers() {
+  local port="$1"
+  local ids
+  ids=$(docker ps -q --filter "publish=${port}" | tr '\n' ' ' | xargs -r echo || true)
+  if [ -n "${ids:-}" ]; then
+    echo -e "${YELLOW}Stopping/removing containers using host port ${port}: ${ids}${NC}"
+    # shellcheck disable=SC2086
+    docker rm -f ${ids} >/dev/null 2>&1 || true
+  fi
+}
+
+stop_managed_containers() {
+  local names=(ci-os-hub ci-os-hub-queue ci-hub-db traefik cloudflared)
+  local cid
+  for name in "${names[@]}"; do
+    cid=$(docker ps -aq --filter "name=^/${name}$" | head -n1 || true)
+    if [ -n "${cid:-}" ]; then
+      echo -e "${YELLOW}Removing existing container ${name} (${cid})...${NC}"
+      docker rm -f "${cid}" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+cleanup_stale_networks() {
+  local compose_network
+  local network
+
+  compose_network="$(basename "${INSTALL_DIR}")_default"
+
+  for network in "${NETWORK_NAME:-ci-os-hub_network}" "${compose_network}"; do
+    if docker network inspect "${network}" >/dev/null 2>&1; then
+      echo -e "${YELLOW}Removing stale docker network ${network}...${NC}"
+      docker network rm "${network}" >/dev/null 2>&1 || true
+    fi
+  done
+}
+
+show_port_owners() {
+  local port="$1"
+  echo -e "${YELLOW}Diagnostics for host port ${port}:${NC}"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltnp "sport = :${port}" 2>/dev/null || true
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true
+  fi
+}
+
+nginx_is_on_port() {
+  local port="$1"
+  ss -ltnp "sport = :${port}" 2>/dev/null | grep -q "nginx"
+}
+
+stop_nginx_if_conflicting() {
+  local port="$1"
+
+  if ! nginx_is_on_port "$port"; then
+    return 0
+  fi
+
+  echo -e "${YELLOW}Detected nginx listening on port ${port}.${NC}"
+
+  if [ "${EUID}" -ne 0 ]; then
+    echo -e "${RED}Cannot stop nginx without root privileges.${NC}"
+    echo -e "${YELLOW}Please re-run this script with sudo, or run: sudo systemctl stop nginx${NC}"
+    return 1
+  fi
+
+  if command -v systemctl >/dev/null 2>&1; then
+    echo -e "${YELLOW}Stopping nginx service to free port ${port}...${NC}"
+    systemctl stop nginx >/dev/null 2>&1 || true
+  elif command -v service >/dev/null 2>&1; then
+    echo -e "${YELLOW}Stopping nginx service to free port ${port}...${NC}"
+    service nginx stop >/dev/null 2>&1 || true
+  fi
+
+  sleep 1
+
+  if nginx_is_on_port "$port"; then
+    echo -e "${RED}nginx is still using port ${port}.${NC}"
+    echo -e "${YELLOW}Please run: sudo systemctl stop nginx${NC}"
+    return 1
+  fi
+
+  echo -e "${GREEN}nginx stopped; port ${port} is now available.${NC}"
+  return 0
+}
+
+recover_port_conflict() {
+  local port="$1"
+  echo -e "${YELLOW}Attempting aggressive recovery for port ${port} conflict...${NC}"
+  stop_nginx_if_conflicting "$port" || true
+  stop_managed_containers
+  cleanup_stale_networks
+  stop_conflicting_containers "$port"
+  if command -v fuser >/dev/null 2>&1; then
+    fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+  fi
+  sleep 2
+}
+
+port_is_listening() {
+  local port="$1"
+  ss -ltn "sport = :${port}" 2>/dev/null | awk 'NR>1 {print; found=1} END {exit found ? 0 : 1}'
+}
+
+free_host_port() {
+  local port="$1"
+  stop_conflicting_containers "$port"
+  stop_nginx_if_conflicting "$port" || true
+
+  if port_is_listening "$port" >/dev/null; then
+    if command -v fuser >/dev/null 2>&1; then
+      echo -e "${YELLOW}Killing non-Docker process on port ${port}...${NC}"
+      fuser -k "${port}/tcp" >/dev/null 2>&1 || true
+      sleep 1
+    fi
+  fi
+
+  if port_is_listening "$port" >/dev/null; then
+    echo -e "${RED}Error: Host port ${port} is still in use.${NC}"
+    echo -e "${RED}Please stop the process using port ${port}, then re-run this script.${NC}"
+    exit 1
+  fi
+}
+
 # Pull images (ci-os-hub from our registry, others from Docker Hub)
 echo -e "${YELLOW}Pulling images (including ${IMAGE_NAME})...${NC}"
 cd "${INSTALL_DIR}"
@@ -408,9 +611,40 @@ fi
 echo -e "${GREEN}Installation prepared at ${INSTALL_DIR}${NC}"
 echo -e "Starting services..."
 (cd "${INSTALL_DIR}" && docker compose down --remove-orphans 2>/dev/null || true)
-if ! (cd "${INSTALL_DIR}" && docker compose up -d); then
-    echo -e "${RED}Error: Failed to start services.${NC}"
-    exit 1
+stop_managed_containers
+cleanup_stale_networks
+
+# Ensure all required host ports are free before starting
+for PORT in 5002 5001 6543 18080 18443 18081; do
+  free_host_port "$PORT"
+done
+
+COMPOSE_UP_CMD=(docker compose up -d)
+if [ "${ENABLE_CLOUDFLARE_TUNNEL:-false}" = "true" ]; then
+  if [ -f "${TUNNEL_TOKEN_FILE}" ] && [ -s "${TUNNEL_TOKEN_FILE}" ]; then
+    echo -e "${GREEN}Cloudflare tunnel profile enabled.${NC}"
+    COMPOSE_UP_CMD=(docker compose --profile tunnel up -d)
+  else
+    echo -e "${YELLOW}ENABLE_CLOUDFLARE_TUNNEL=true but no tunnel token found; starting without tunnel profile.${NC}"
+  fi
+fi
+
+if ! (cd "${INSTALL_DIR}" && "${COMPOSE_UP_CMD[@]}"); then
+    echo -e "${YELLOW}Initial startup failed. Checking for port conflicts...${NC}"
+    show_port_owners 5002
+    recover_port_conflict 5002
+
+    # Re-check all required ports after aggressive cleanup
+    for PORT in 5002 5001 6543 18080 18443 18081; do
+      free_host_port "$PORT"
+    done
+
+    echo -e "${YELLOW}Retrying service startup once...${NC}"
+    if ! (cd "${INSTALL_DIR}" && "${COMPOSE_UP_CMD[@]}"); then
+      echo -e "${RED}Error: Failed to start services after retry.${NC}"
+      show_port_owners 5002
+      exit 1
+    fi
 fi
 
 echo -e "${GREEN}CI OS Hub staging is running.${NC}"
