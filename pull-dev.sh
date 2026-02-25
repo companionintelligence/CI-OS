@@ -101,6 +101,9 @@ elif [ -f "${TUNNEL_TOKEN_FILE}" ] && [ -s "${TUNNEL_TOKEN_FILE}" ]; then
 else
   echo -e "${YELLOW}No Cloudflare tunnel token found.${NC}"
   echo -e "${YELLOW}To enable tunnel, set CLOUDFLARE_TUNNEL_TOKEN or create ${TUNNEL_TOKEN_FILE}.${NC}"
+  echo -e "${YELLOW}Creating placeholder token so cloudflared container exists for later restart during registration.${NC}"
+  printf '%s\n' "pending-registration-token" > "${TUNNEL_TOKEN_FILE}"
+  chmod 600 "${TUNNEL_TOKEN_FILE}"
 fi
 
 if [ ! -f "${INSTALL_DIR}/tunnel/certs/custom-ca.pem" ] || [ ! -f "${INSTALL_DIR}/tunnel/certs/custom-ca.key" ]; then
@@ -461,9 +464,12 @@ services:
     image: cloudflare/cloudflared:latest
     container_name: \${CLOUDFLARED_CONTAINER_NAME:-cloudflared}
     profiles:
+      - cloudflare
       - tunnel
     restart: unless-stopped
     command: tunnel run --token-file /home/nonroot/.cloudflared/token
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./tunnel:/home/nonroot/.cloudflared:ro
     depends_on:
@@ -619,14 +625,12 @@ for PORT in 5002 5001 6543 18080 18443 18081; do
   free_host_port "$PORT"
 done
 
-COMPOSE_UP_CMD=(docker compose up -d)
-if [ "${ENABLE_CLOUDFLARE_TUNNEL:-false}" = "true" ]; then
-  if [ -f "${TUNNEL_TOKEN_FILE}" ] && [ -s "${TUNNEL_TOKEN_FILE}" ]; then
-    echo -e "${GREEN}Cloudflare tunnel profile enabled.${NC}"
-    COMPOSE_UP_CMD=(docker compose --profile tunnel up -d)
-  else
-    echo -e "${YELLOW}ENABLE_CLOUDFLARE_TUNNEL=true but no tunnel token found; starting without tunnel profile.${NC}"
-  fi
+if [ "${ENABLE_CLOUDFLARE_TUNNEL:-true}" = "true" ]; then
+  echo -e "${GREEN}Cloudflare tunnel profile enabled (default).${NC}"
+  COMPOSE_UP_CMD=(docker compose --profile cloudflare up -d)
+else
+  echo -e "${YELLOW}Cloudflare tunnel profile disabled via ENABLE_CLOUDFLARE_TUNNEL=false.${NC}"
+  COMPOSE_UP_CMD=(docker compose up -d)
 fi
 
 if ! (cd "${INSTALL_DIR}" && "${COMPOSE_UP_CMD[@]}"); then
