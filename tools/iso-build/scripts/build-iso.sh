@@ -265,10 +265,10 @@ repack_squashfs() {
     local casper_dir="$WORK_DIR/custom-iso/casper"
     local output_squashfs="$casper_dir/minimal.squashfs"
     
-    # Remove all existing squashfs layers (we produce a single merged layer)
+    # Remove all existing squashfs layers
     rm -f "$casper_dir"/*.squashfs
     
-    # Create new squashfs with high compression
+    # Pack the full merged rootfs into minimal.squashfs
     mksquashfs "$chroot_dir" "$output_squashfs" \
         -comp xz -b 1M \
         -e 'var/cache/apt/archives/*' \
@@ -277,6 +277,18 @@ repack_squashfs() {
         -e 'root/.bash_history' \
         -noappend \
         -no-recovery
+
+    # Ubuntu 24.04 casper initramfs hardcodes all three layer names and will
+    # refuse to boot if any are missing. Create empty squashfs placeholders for
+    # the layers we merged into minimal.squashfs so casper's layer check passes.
+    local empty_dir
+    empty_dir="$(mktemp -d)"
+    for placeholder in minimal.standard.squashfs minimal.standard.live.squashfs; do
+        log_info "Creating empty placeholder: $placeholder"
+        mksquashfs "$empty_dir" "$casper_dir/$placeholder" \
+            -comp xz -noappend -no-recovery 2>/dev/null
+    done
+    rmdir "$empty_dir"
     
     # Update filesystem size in manifest
     log_info "Updating filesystem manifest..."
@@ -303,6 +315,8 @@ generate_iso() {
     # Ubuntu 24.04 ISO, then swap in our custom casper directory.
     # This avoids having to manually replicate Ubuntu's complex boot setup.
     log_info "Building ISO with xorriso (inheriting boot from base ISO)..."
+    # xorriso requires blank output when indev != outdev
+    rm -f "$iso_path"
     xorriso \
         -indev "$BASE_ISO" \
         -outdev "$iso_path" \
