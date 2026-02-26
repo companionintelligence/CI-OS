@@ -301,26 +301,28 @@ repack_squashfs() {
     # Regenerate install-sources.yaml — subiquity uses this to locate squashfs
     # layers and estimate disk space. Must reference only the files that exist
     # and carry the correct installed size.
-    local installed_size
+    local installed_size squashfs_size
     installed_size="$(cat "$casper_dir/filesystem.size")"
+    squashfs_size="$(stat -c%s "$casper_dir/minimal.squashfs")"
     {
         printf -- '- default: true\n'
         printf    '  description:\n'
         printf    '    en: CI-OS Desktop\n'
-        printf    '  id: ci-os-desktop\n'
+        printf    '  id: ubuntu-desktop-minimal\n'
         printf    '  locale_support: langpack\n'
         printf    '  name:\n'
         printf    '    en: CI-OS Desktop\n'
         printf    '  path: minimal.squashfs\n'
         printf    '  preinstalled_langs:\n'
+        printf    '  - en\n'
         printf    '  - ""\n'
         printf    '  size: %s\n' "$installed_size"
         printf    '  type: fsimage-layered\n'
         printf    '  variant: desktop\n'
         printf    '  variations:\n'
-        printf    '    standard:\n'
+        printf    '    minimal:\n'
         printf    '      path: minimal.squashfs\n'
-        printf    '      size: %s\n' "$installed_size"
+        printf    '      size: %s\n' "$squashfs_size"
     } > "$casper_dir/install-sources.yaml"
     log_info "install-sources.yaml regenerated (installed size: $installed_size)"
 
