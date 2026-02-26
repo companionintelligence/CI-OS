@@ -297,7 +297,38 @@ repack_squashfs() {
     # Generate new manifest
     chroot "$chroot_dir" dpkg-query -W --showformat='${Package} ${Version}\n' \
         > "$casper_dir/filesystem.manifest"
-    
+
+    # Regenerate install-sources.yaml — subiquity uses this to locate squashfs
+    # layers and estimate disk space. Must reference only the files that exist
+    # and carry the correct installed size.
+    local installed_size
+    installed_size="$(cat "$casper_dir/filesystem.size")"
+    {
+        printf -- '- default: true\n'
+        printf    '  description:\n'
+        printf    '    en: CI-OS Desktop\n'
+        printf    '  id: ci-os-desktop\n'
+        printf    '  locale_support: langpack\n'
+        printf    '  name:\n'
+        printf    '    en: CI-OS Desktop\n'
+        printf    '  path: minimal.squashfs\n'
+        printf    '  preinstalled_langs:\n'
+        printf    '  - ""\n'
+        printf    '  size: %s\n' "$installed_size"
+        printf    '  type: fsimage-layered\n'
+        printf    '  variant: desktop\n'
+        printf    '  variations:\n'
+        printf    '    standard:\n'
+        printf    '      path: minimal.squashfs\n'
+        printf    '      size: %s\n' "$installed_size"
+    } > "$casper_dir/install-sources.yaml"
+    log_info "install-sources.yaml regenerated (installed size: $installed_size)"
+
+    # Regenerate casper/SHA256SUMS for the squashfs files so the live-boot
+    # integrity check and subiquity source validation pass.
+    (cd "$casper_dir" && sha256sum minimal.squashfs minimal.standard.squashfs minimal.standard.live.squashfs > SHA256SUMS)
+    log_info "casper/SHA256SUMS regenerated"
+
     log_info "Squashfs repacked successfully"
 }
 
