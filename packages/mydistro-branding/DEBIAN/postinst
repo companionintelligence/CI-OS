@@ -3,9 +3,12 @@ set -e
 
 TARGET="/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
 
-dpkg-divert --package mydistro-branding \
-            --add --rename \
-            --divert ${TARGET}.distrib \
-            ${TARGET}
+# Only add the diversion if it does not already exist (idempotent)
+if ! dpkg-divert --list mydistro-branding | grep -q "$TARGET" 2>/dev/null; then
+    dpkg-divert --package mydistro-branding \
+                --add --rename \
+                --divert ${TARGET}.distrib \
+                ${TARGET}
+fi
 
 exit 0

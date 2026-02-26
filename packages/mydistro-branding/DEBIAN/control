@@ -5,7 +5,6 @@ Priority: optional
 Architecture: all
 Depends: yaru-theme-gnome-shell
 Replaces: yaru-theme-gnome-shell
-Breaks: yaru-theme-gnome-shell
 Maintainer: Companion Intelligence <support@ci.computer>
 Description: MyDistro login screen branding
  Overrides GNOME Shell theme resources for GDM and
