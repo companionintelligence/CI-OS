@@ -505,7 +505,7 @@ EOFSCRIPT
 
 chmod +x "$CHROOT_PATH/tmp/final-cleanup.sh"
 chroot_exec "/tmp/final-cleanup.sh"
-rm "$CHROOT_PATH/tmp/final-cleanup.sh"
+rm -f "$CHROOT_PATH/tmp/final-cleanup.sh"
 
 echo "[+] Final cleanup complete"
 

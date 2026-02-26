@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+
+TARGET="/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
+
+dpkg-divert --package mydistro-branding \
+            --remove --rename \
+            ${TARGET}
+
+exit 0

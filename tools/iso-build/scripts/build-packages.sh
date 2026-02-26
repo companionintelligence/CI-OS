@@ -15,6 +15,7 @@ OUTPUT_DIR="${1:-./output/packages}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PACKAGES_DIR="$REPO_ROOT/packages"
+GDM_GRESOURCE_BUILDER="$SCRIPT_DIR/build-gdm-branding-gresource.sh"
 
 echo "[*] Building CI-OS packages..."
 echo "[*] Output directory: $OUTPUT_DIR"
@@ -32,6 +33,12 @@ for pkg_dir in "$PACKAGES_DIR"/*/; do
     fi
     
     echo "[*] Building package: $pkg_name"
+
+    if [[ "$pkg_name" == "mydistro-branding" ]]; then
+        echo "[*] Generating branded GNOME Shell gresource for $pkg_name"
+        chmod +x "$GDM_GRESOURCE_BUILDER"
+        "$GDM_GRESOURCE_BUILDER"
+    fi
     
     # Make postinst/preinst/prerm/postrm executable if they exist
     for script in postinst preinst prerm postrm; do

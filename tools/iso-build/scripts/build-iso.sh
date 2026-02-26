@@ -40,9 +40,10 @@ NC='\033[0m' # No Color
 # Default configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TOOLS_ROOT="$(dirname "$(dirname "$SCRIPT_DIR")")"
-BASE_ISO=""
-OUTPUT_DIR="$TOOLS_ROOT/output"
-WORK_DIR="$TOOLS_ROOT/work"
+REPO_ROOT="$(dirname "$TOOLS_ROOT")"
+BASE_ISO="${BASE_ISO:-$REPO_ROOT/ubuntu-24.04.4-desktop-amd64.iso}"
+OUTPUT_DIR="$REPO_ROOT/output"
+WORK_DIR="$REPO_ROOT/work"
 CI_OS_VERSION="${CI_OS_VERSION:-1.0}"
 SIGN_CHECKSUMS=false
 CLEAN_WORK=false
@@ -174,14 +175,20 @@ extract_iso() {
     # Setup cleanup trap for this function
     trap 'umount "$mount_point" 2>/dev/null || true; rmdir "$mount_point" 2>/dev/null || true' RETURN
     
-    mount -o loop "$BASE_ISO" "$mount_point"
+    mount -o loop,ro "$BASE_ISO" "$mount_point"
     
-    # Copy ISO contents
+    # Copy ISO contents (exclude all squashfs layers — we'll rebuild them)
     log_info "Copying ISO contents..."
-    rsync -a --exclude=casper/filesystem.squashfs "$mount_point/" "$WORK_DIR/custom-iso/"
+    rsync -a --exclude='casper/*.squashfs' "$mount_point/" "$WORK_DIR/custom-iso/"
     
-    # Copy the squashfs separately (we'll replace it)
-    cp "$mount_point/casper/filesystem.squashfs" "$WORK_DIR/squashfs/filesystem.squashfs"
+    # Copy squashfs layers in layer order (Ubuntu 24.04 layered structure)
+    mkdir -p "$WORK_DIR/squashfs"
+    for layer in minimal.squashfs minimal.standard.squashfs minimal.standard.live.squashfs; do
+        if [[ -f "$mount_point/casper/$layer" ]]; then
+            log_info "Copying squashfs layer: $layer"
+            cp "$mount_point/casper/$layer" "$WORK_DIR/squashfs/$layer"
+        fi
+    done
     
     # Unmount (trap will also handle this on error)
     umount "$mount_point"
@@ -192,9 +199,15 @@ extract_iso() {
 
 # Extract squashfs
 extract_squashfs() {
-    log_info "Extracting squashfs filesystem..."
+    log_info "Extracting squashfs filesystem (layered)..."
     
-    unsquashfs -f -d "$WORK_DIR/chroot" "$WORK_DIR/squashfs/filesystem.squashfs"
+    # Extract layers in order — each layer overlays the previous
+    for layer in minimal.squashfs minimal.standard.squashfs minimal.standard.live.squashfs; do
+        if [[ -f "$WORK_DIR/squashfs/$layer" ]]; then
+            log_info "Extracting layer: $layer"
+            unsquashfs -f -d "$WORK_DIR/chroot" "$WORK_DIR/squashfs/$layer"
+        fi
+    done
     
     log_info "Squashfs extracted to: $WORK_DIR/chroot"
 }
@@ -212,8 +225,8 @@ setup_chroot() {
     mount -t sysfs sysfs "$chroot_dir/sys"
     mount -t devpts devpts "$chroot_dir/dev/pts"
     
-    # Copy resolv.conf for network access
-    cp /etc/resolv.conf "$chroot_dir/etc/resolv.conf"
+    # Copy resolv.conf for network access (skip if it's already the same file via bind mount)
+    cp /etc/resolv.conf "$chroot_dir/etc/resolv.conf" 2>/dev/null || true
     
     log_info "Chroot environment ready"
 }
@@ -249,10 +262,11 @@ repack_squashfs() {
     log_info "Repacking squashfs filesystem..."
     
     local chroot_dir="$WORK_DIR/chroot"
-    local output_squashfs="$WORK_DIR/custom-iso/casper/filesystem.squashfs"
+    local casper_dir="$WORK_DIR/custom-iso/casper"
+    local output_squashfs="$casper_dir/minimal.squashfs"
     
-    # Remove old squashfs if exists
-    rm -f "$output_squashfs"
+    # Remove all existing squashfs layers (we produce a single merged layer)
+    rm -f "$casper_dir"/*.squashfs
     
     # Create new squashfs with high compression
     mksquashfs "$chroot_dir" "$output_squashfs" \
@@ -266,11 +280,11 @@ repack_squashfs() {
     
     # Update filesystem size in manifest
     log_info "Updating filesystem manifest..."
-    du -sx --block-size=1 "$chroot_dir" | cut -f1 > "$WORK_DIR/custom-iso/casper/filesystem.size"
+    du -sx --block-size=1 "$chroot_dir" | cut -f1 > "$casper_dir/filesystem.size"
     
     # Generate new manifest
     chroot "$chroot_dir" dpkg-query -W --showformat='${Package} ${Version}\n' \
-        > "$WORK_DIR/custom-iso/casper/filesystem.manifest"
+        > "$casper_dir/filesystem.manifest"
     
     log_info "Squashfs repacked successfully"
 }
@@ -284,47 +298,21 @@ generate_iso() {
     
     # Update GRUB configuration
     sed -i "s/Ubuntu/CI-OS/g" "$WORK_DIR/custom-iso/boot/grub/grub.cfg" || true
-    sed -i "s/Ubuntu/CI-OS/g" "$WORK_DIR/custom-iso/isolinux/txt.cfg" || true
     
-    # Calculate MD5 checksums for files (exclude md5sum.txt itself)
-    (cd "$WORK_DIR/custom-iso" && find . -type f ! -name 'md5sum.txt' -print0 | xargs -0 md5sum > md5sum.txt)
-    
-    # Detect isohdpfx.bin location
-    local isohdpfx=""
-    for path in /usr/lib/ISOLINUX/isohdpfx.bin /usr/lib/syslinux/mbr/isohdpfx.bin /usr/share/syslinux/isohdpfx.bin; do
-        if [[ -f "$path" ]]; then
-            isohdpfx="$path"
-            break
-        fi
-    done
-    
-    if [[ -z "$isohdpfx" ]]; then
-        log_error "isohdpfx.bin not found. Please install isolinux or syslinux-utils package."
-        exit 1
-    fi
-    
-    log_info "Using isohdpfx.bin from: $isohdpfx"
-    
-    # Generate ISO with xorriso
-    xorriso -as mkisofs \
-        -iso-level 3 \
-        -full-iso9660-filenames \
+    # Build ISO inheriting all boot parameters (EFI + BIOS) from the original
+    # Ubuntu 24.04 ISO, then swap in our custom casper directory.
+    # This avoids having to manually replicate Ubuntu's complex boot setup.
+    log_info "Building ISO with xorriso (inheriting boot from base ISO)..."
+    xorriso \
+        -indev "$BASE_ISO" \
+        -outdev "$iso_path" \
         -volid "CI-OS ${CI_OS_VERSION}" \
-        -appid "CI-OS ${CI_OS_VERSION}" \
-        -publisher "Companion Intelligence" \
-        -preparer "CI-OS Build System" \
-        -eltorito-boot isolinux/isolinux.bin \
-        -eltorito-catalog isolinux/boot.cat \
-        -no-emul-boot \
-        -boot-load-size 4 \
-        -boot-info-table \
-        -isohybrid-mbr "$isohdpfx" \
-        -eltorito-alt-boot \
-        -e boot/grub/efi.img \
-        -no-emul-boot \
-        -isohybrid-gpt-basdat \
-        -output "$iso_path" \
-        "$WORK_DIR/custom-iso"
+        -boot_image any replay \
+        -pathspecs on \
+        -rm_r /casper -- \
+        -map "$WORK_DIR/custom-iso/casper" /casper \
+        -map "$WORK_DIR/custom-iso/boot/grub/grub.cfg" /boot/grub/grub.cfg \
+        -commit_eject all
     
     log_info "ISO generated: $iso_path"
     

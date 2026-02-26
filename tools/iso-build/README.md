@@ -25,6 +25,8 @@ tools/iso-build/
 │   ├── build-iso.sh              # Main ISO builder
 │   ├── customize-chroot.sh       # Chroot customization
 │   ├── build-packages.sh         # Build .deb packages
+│   ├── build-gdm-branding-gresource.sh # Build branded Yaru gresource
+│   ├── stage-live-build-branding-package.sh # Stage .deb into live-build config/packages.chroot
 │   └── setup-repository.sh       # Repository setup helper
 ├── configs/                       # Build configurations (future)
 └── templates/                     # Templates (future)
@@ -139,6 +141,13 @@ Builds all .deb packages from `packages/` directory.
 - `companion-os-keyring` - Repository keyring
 - `companion-agents` - AI agents (stub)
 - `companion-memory` - Memory system (stub)
+- `mydistro-branding` - GDM Yaru gresource override using dpkg-divert
+
+When `mydistro-branding` is built, `build-packages.sh` automatically runs:
+
+- `scripts/build-gdm-branding-gresource.sh`
+
+to generate `packages/mydistro-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource` from upstream Yaru with CI accent/assets.
 
 **Add custom packages**: Create directory in `packages/` with `DEBIAN/control`.
 
