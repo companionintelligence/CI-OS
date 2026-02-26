@@ -51,32 +51,114 @@ copy_to_chroot() {
 #=============================================================================
 echo "[*] Step 1: Updating OS identity..."
 
-cat > "$CHROOT_PATH/etc/os-release" << 'EOF'
+# IMPORTANT: The squashfs is both the live session AND the base that gets
+# copied to disk during installation. Subiquity/curtin rely on ID=ubuntu and
+# VERSION_ID=24.04 to configure apt sources, run curthooks (update-initramfs,
+# grub-install), and seed snaps correctly. Setting ID=ci-os here breaks the
+# installer toolchain. Instead, we:
+#  - Keep ubuntu-compatible IDs in os-release / lsb-release (live + initial install)
+#  - Brand NAME and PRETTY_NAME as CI-OS (visible in grub, neofetch, etc.)
+#  - Install a first-boot systemd service that rewrites the IDs to ci-os after
+#    the installer has finished and the system first boots into the desktop.
+
+cat > "$CHROOT_PATH/etc/os-release" << EOF
 NAME="CI-OS"
-VERSION="1.0"
-ID=ci-os
+VERSION="$CI_OS_VERSION"
+ID=ubuntu
 ID_LIKE=ubuntu
-PRETTY_NAME="CI-OS 1.0"
-VERSION_ID="1.0"
+PRETTY_NAME="CI-OS $CI_OS_VERSION"
+VERSION_ID="24.04"
 HOME_URL="https://ci.computer"
 SUPPORT_URL="https://ci.computer/support"
 BUG_REPORT_URL="https://ci.computer/bugs"
 PRIVACY_POLICY_URL="https://ci.computer/privacy"
 UBUNTU_CODENAME=noble
+VERSION_CODENAME=noble
+CI_OS_VERSION="$CI_OS_VERSION"
+CI_OS_BUILD="$(date -u +%Y%m%d)"
 EOF
 
-# Replace version placeholder
-sed -i "s/VERSION=\"1.0\"/VERSION=\"$CI_OS_VERSION\"/" "$CHROOT_PATH/etc/os-release"
-sed -i "s/VERSION_ID=\"1.0\"/VERSION_ID=\"$CI_OS_VERSION\"/" "$CHROOT_PATH/etc/os-release"
-sed -i "s/PRETTY_NAME=\"CI-OS 1.0\"/PRETTY_NAME=\"CI-OS $CI_OS_VERSION\"/" "$CHROOT_PATH/etc/os-release"
-
-# Update lsb-release
+# lsb-release: keep DISTRIB_ID=Ubuntu and DISTRIB_RELEASE=24.04 so that
+# lsb_release -si / -sr return values the installer and apt tooling expect.
 cat > "$CHROOT_PATH/etc/lsb-release" << EOF
-DISTRIB_ID=CI-OS
-DISTRIB_RELEASE=$CI_OS_VERSION
+DISTRIB_ID=Ubuntu
+DISTRIB_RELEASE=24.04
 DISTRIB_CODENAME=noble
 DISTRIB_DESCRIPTION="CI-OS $CI_OS_VERSION"
 EOF
+
+# ---------------------------------------------------------------------------
+# First-boot rebrand service
+# Runs once after installation is complete and the user boots the installed
+# system for the first time. Writes the real CI-OS IDs and disables itself.
+# ---------------------------------------------------------------------------
+mkdir -p "$CHROOT_PATH/usr/lib/ci-os"
+
+cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-rebrand.sh" << 'REBRAND'
+#!/bin/bash
+# CI-OS first-boot identity rebranding
+# Replaces the Ubuntu-compatible IDs used during installation with real CI-OS IDs.
+
+CI_OS_VERSION="$(grep '^CI_OS_VERSION=' /etc/os-release | cut -d= -f2 | tr -d '"')"
+CI_OS_VERSION="${CI_OS_VERSION:-1.0}"
+
+cat > /etc/os-release << __EOF__
+NAME="CI-OS"
+VERSION="${CI_OS_VERSION}"
+ID=ci-os
+ID_LIKE=ubuntu
+PRETTY_NAME="CI-OS ${CI_OS_VERSION}"
+VERSION_ID="${CI_OS_VERSION}"
+HOME_URL="https://ci.computer"
+SUPPORT_URL="https://ci.computer/support"
+BUG_REPORT_URL="https://ci.computer/bugs"
+PRIVACY_POLICY_URL="https://ci.computer/privacy"
+UBUNTU_CODENAME=noble
+VERSION_CODENAME=noble
+__EOF__
+
+cat > /etc/lsb-release << __EOF__
+DISTRIB_ID=CI-OS
+DISTRIB_RELEASE=${CI_OS_VERSION}
+DISTRIB_CODENAME=noble
+DISTRIB_DESCRIPTION="CI-OS ${CI_OS_VERSION}"
+__EOF__
+
+# Disable this service so it only runs once
+systemctl disable ci-os-first-boot-rebrand.service
+
+echo "[CI-OS] First-boot rebrand complete: ID=ci-os VERSION_ID=${CI_OS_VERSION}"
+REBRAND
+
+chmod +x "$CHROOT_PATH/usr/lib/ci-os/first-boot-rebrand.sh"
+
+cat > "$CHROOT_PATH/usr/lib/systemd/system/ci-os-first-boot-rebrand.service" << 'SVCEOF'
+[Unit]
+Description=CI-OS First-Boot Identity Rebranding
+Documentation=https://ci.computer
+After=local-fs.target
+Before=display-manager.service gdm.service
+ConditionPathExists=/usr/lib/ci-os/first-boot-rebrand.sh
+# Only run once — service disables itself on success
+ConditionFirstBoot=yes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ci-os/first-boot-rebrand.sh
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+# Enable the service
+mkdir -p "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants"
+ln -sf /usr/lib/systemd/system/ci-os-first-boot-rebrand.service \
+    "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants/ci-os-first-boot-rebrand.service"
+
+echo "[+] OS identity configured (Ubuntu-compatible IDs for installer, CI-OS rebrand on first boot)"
 
 # Update hostname default
 echo "ci-os" > "$CHROOT_PATH/etc/hostname"
