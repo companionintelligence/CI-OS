@@ -245,6 +245,60 @@ rm "$CHROOT_PATH/tmp/remove-packages.sh"
 echo "[+] Telemetry and bloatware removed"
 
 #=============================================================================
+# 2b. Install CI-OS Custom Packages
+#=============================================================================
+echo "[*] Step 2b: Installing CI-OS custom packages..."
+
+CI_DEBS_DIR="$REPO_ROOT/output/packages"
+if [[ -d "$CI_DEBS_DIR" ]] && compgen -G "$CI_DEBS_DIR/*.deb" > /dev/null 2>&1; then
+    # Stage debs inside the chroot
+    mkdir -p "$CHROOT_PATH/tmp/ci-debs"
+    cp "$CI_DEBS_DIR"/*.deb "$CHROOT_PATH/tmp/ci-debs/"
+
+    # Build a local apt repo so apt can handle dependency resolution
+    # dpkg-scanpackages is in dpkg-dev — use apt-ftparchive if available,
+    # otherwise fall back to direct dpkg install + apt-get install -f
+    cat > "$CHROOT_PATH/tmp/install-ci-packages.sh" << 'EOFSCRIPT'
+#!/bin/bash
+set -e
+export DEBIAN_FRONTEND=noninteractive
+
+DEB_DIR="/tmp/ci-debs"
+
+# Build a local Packages index so apt can resolve inter-package deps
+if command -v dpkg-scanpackages &>/dev/null; then
+    dpkg-scanpackages --multiversion "$DEB_DIR" > "$DEB_DIR/Packages" 2>/dev/null
+    echo "deb [trusted=yes] file://$DEB_DIR ./" > /etc/apt/sources.list.d/ci-local.list
+    apt-get update -o Dir::Etc::sourcelist="sources.list.d/ci-local.list" \
+                   -o Dir::Etc::sourceparts="-" \
+                   -o APT::Get::List-Cleanup="0" 2>/dev/null || true
+    apt-get install -y --allow-downgrades \
+        companion-os-base \
+        companion-os-keyring \
+        companion-memory \
+        companion-agents \
+        mydistro-branding || dpkg -i --force-overwrite "$DEB_DIR"/*.deb || true
+    rm -f /etc/apt/sources.list.d/ci-local.list
+else
+    # Fallback: install directly with dpkg then fix any missing deps
+    # --force-overwrite needed for mydistro-branding which replaces a Yaru file
+    dpkg -i --force-overwrite "$DEB_DIR"/*.deb || true
+    apt-get install -f -y || true
+fi
+
+# Clean up staged debs
+rm -rf "$DEB_DIR"
+EOFSCRIPT
+
+    chmod +x "$CHROOT_PATH/tmp/install-ci-packages.sh"
+    chroot_exec "/tmp/install-ci-packages.sh"
+    rm -f "$CHROOT_PATH/tmp/install-ci-packages.sh"
+    echo "[+] CI-OS custom packages installed"
+else
+    echo "[!] No CI-OS .deb packages found in $CI_DEBS_DIR — skipping"
+fi
+
+#=============================================================================
 # 3. Install CI-OS Branding
 #=============================================================================
 echo "[*] Step 3: Installing CI-OS branding..."
