@@ -34,7 +34,7 @@ for pkg_dir in "$PACKAGES_DIR"/*/; do
     
     echo "[*] Building package: $pkg_name"
 
-    if [[ "$pkg_name" == "mydistro-branding" ]]; then
+    if [[ "$pkg_name" == "ci-os-branding" ]]; then
         echo "[*] Generating branded GNOME Shell gresource for $pkg_name"
         chmod +x "$GDM_GRESOURCE_BUILDER"
         "$GDM_GRESOURCE_BUILDER"

@@ -10,11 +10,11 @@ LIVE_BUILD_PACKAGES_DIR="${2:-$REPO_ROOT/config/packages.chroot}"
 mkdir -p "$LIVE_BUILD_PACKAGES_DIR"
 
 shopt -s nullglob
-matches=("$OUTPUT_DIR"/mydistro-branding_*.deb)
+matches=("$OUTPUT_DIR"/ci-os-branding_*.deb)
 shopt -u nullglob
 
 if [[ ${#matches[@]} -eq 0 ]]; then
-    echo "[ERROR] No mydistro-branding package found in: $OUTPUT_DIR"
+    echo "[ERROR] No ci-os-branding package found in: $OUTPUT_DIR"
     echo "[HINT] Run: ./tools/iso-build/scripts/build-packages.sh $OUTPUT_DIR"
     exit 1
 fi

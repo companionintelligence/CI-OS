@@ -3,7 +3,7 @@ set -e
 
 TARGET="/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
 
-dpkg-divert --package mydistro-branding \
+dpkg-divert --package ci-os-branding \
             --remove --rename \
             ${TARGET}
 

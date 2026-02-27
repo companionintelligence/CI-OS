@@ -7,7 +7,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 SOURCE_GRESOURCE="${SOURCE_GRESOURCE:-/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource}"
 SOURCE_XML="${SOURCE_XML:-/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource.xml}"
-OUTPUT_GRESOURCE="${OUTPUT_GRESOURCE:-$REPO_ROOT/packages/mydistro-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource}"
+OUTPUT_GRESOURCE="${OUTPUT_GRESOURCE:-$REPO_ROOT/packages/ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource}"
 
 THEME_ASSETS_DIR="${THEME_ASSETS_DIR:-$REPO_ROOT/assets/package theme assets}"
 LOGO_BANNER_FILE="${LOGO_BANNER_FILE:-$REPO_ROOT/assets/logos/2024_CI__Logo_Banner_Color_small.svg}"
@@ -130,18 +130,77 @@ replace_asset_by_name checkbox-light.svg
 replace_asset_by_name checkbox-off-focused-light.svg
 replace_asset_by_name toggle-on-light.svg
 
-echo "[*] Replacing symbolic banner/logo/wallpaper assets with CI banner..."
-symbolic_replaced=0
+echo "[*] Replacing Ubuntu logo SVG files with CI logo..."
+logo_replaced=0
+
+# a) Replace ALL SVG files whose filename contains 'ubuntu' (case-insensitive)
+while IFS= read -r ubuntu_svg; do
+    cp "$LOGO_BANNER_FILE" "$ubuntu_svg"
+    echo "[+] Replaced (ubuntu filename): $ubuntu_svg"
+    logo_replaced=$((logo_replaced + 1))
+done < <(find "$work_theme_dir" -type f -iname '*ubuntu*.svg' || true)
+
+# b) Replace logo.svg and logo-text.svg if they exist
+for logo_name in logo.svg logo-text.svg; do
+    while IFS= read -r logo_file; do
+        cp "$LOGO_BANNER_FILE" "$logo_file"
+        echo "[+] Replaced (logo file): $logo_file"
+        logo_replaced=$((logo_replaced + 1))
+    done < <(find "$work_theme_dir" -type f -name "$logo_name" || true)
+done
+
+# c) Replace symbolic banner/logo/wallpaper SVGs (original logic kept)
 while IFS= read -r symbolic_asset; do
     cp "$LOGO_BANNER_FILE" "$symbolic_asset"
-    symbolic_replaced=$((symbolic_replaced + 1))
+    echo "[+] Replaced (symbolic): $symbolic_asset"
+    logo_replaced=$((logo_replaced + 1))
 done < <(find "$work_theme_dir" -type f -name '*symbolic*.svg' | grep -E '/(banner|logo|wallpaper)[^/]*symbolic[^/]*\.svg$' || true)
-echo "[+] Symbolic banner/logo/wallpaper replacements: $symbolic_replaced"
+
+echo "[+] Total logo/banner replacements: $logo_replaced"
 
 echo "[*] Applying accent color remapping in CSS..."
 while IFS= read -r css_file; do
-    perl -0pi -e 's/#E95420/'"$ACCENT_PRIMARY"'/g; s/#e95420/'"$ACCENT_PRIMARY"'/g; s/rgb\(233\s*,\s*84\s*,\s*32\)/rgb(0, 169, 167)/g; s/rgba\(233\s*,\s*84\s*,\s*32\s*,\s*([0-9.]+)\)/rgba(0, 169, 167, $1)/g; s/#77216F/'"$ACCENT_SECONDARY"'/g; s/#77216f/'"$ACCENT_SECONDARY"'/g; s/rgb\(119\s*,\s*33\s*,\s*111\)/rgb(6, 108, 128)/g; s/rgba\(119\s*,\s*33\s*,\s*111\s*,\s*([0-9.]+)\)/rgba(6, 108, 128, $1)/g;' "$css_file"
+    perl -0pi -e '
+        # Ubuntu orange (#E95420 / #e95420)
+        s/#E95420/'"$ACCENT_PRIMARY"'/g;
+        s/#e95420/'"$ACCENT_PRIMARY"'/g;
+        s/rgb\(233\s*,\s*84\s*,\s*32\)/rgb(0, 169, 167)/g;
+        s/rgba\(233\s*,\s*84\s*,\s*32\s*,\s*([0-9.]+)\)/rgba(0, 169, 167, $1)/g;
+        # Yaru aubergine/purple (#77216F / #77216f)
+        s/#77216F/'"$ACCENT_SECONDARY"'/g;
+        s/#77216f/'"$ACCENT_SECONDARY"'/g;
+        s/rgb\(119\s*,\s*33\s*,\s*111\)/rgb(6, 108, 128)/g;
+        s/rgba\(119\s*,\s*33\s*,\s*111\s*,\s*([0-9.]+)\)/rgba(6, 108, 128, $1)/g;
+        # Ubuntu highlight/selection blue (#19B6EE / #19b6ee)
+        s/#19B6EE/'"$ACCENT_PRIMARY"'/g;
+        s/#19b6ee/'"$ACCENT_PRIMARY"'/g;
+        s/rgb\(25\s*,\s*182\s*,\s*238\)/rgb(0, 169, 167)/g;
+        s/rgba\(25\s*,\s*182\s*,\s*238\s*,\s*([0-9.]+)\)/rgba(0, 169, 167, $1)/g;
+    ' "$css_file"
 done < <(find "$work_theme_dir" -type f \( -name '*.css' -o -name '*.scss' \))
+
+# Audit: scan for any remaining orange/purple/blue hex values that weren't caught
+echo "[*] Auditing CSS for remaining Ubuntu brand colors..."
+audit_patterns=(
+    '#[Ee]95420'
+    '#[Ee]95[0-9a-fA-F]{3}'
+    '#77216[Ff]'
+    '#7[0-9a-fA-F]21[0-9a-fA-F]{2}'
+    '#19[Bb]6[Ee][Ee]'
+    '#19[Bb][0-9a-fA-F]{4}'
+)
+audit_found=0
+for pat in "${audit_patterns[@]}"; do
+    while IFS= read -r hit; do
+        echo "[AUDIT] Remaining brand color match: $hit"
+        audit_found=$((audit_found + 1))
+    done < <(grep -rn --include='*.css' --include='*.scss' -E "$pat" "$work_theme_dir" 2>/dev/null || true)
+done
+if [[ "$audit_found" -eq 0 ]]; then
+    echo "[+] Audit clean — no remaining Ubuntu brand colors found in CSS"
+else
+    echo "[WARN] $audit_found remaining brand color occurrence(s) found (see [AUDIT] lines above)"
+fi
 
 echo "[*] Compiling branded gresource..."
 mkdir -p "$(dirname "$OUTPUT_GRESOURCE")"

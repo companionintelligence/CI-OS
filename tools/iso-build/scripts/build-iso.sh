@@ -4,11 +4,12 @@
 # Main orchestration script for building custom CI-OS ISOs
 #
 # This script coordinates the entire ISO build process:
-# 1. Extract base Ubuntu ISO
-# 2. Customize the squashfs rootfs
-# 3. Apply branding and identity changes
-# 4. Repack the ISO
-# 5. Generate checksums and signatures
+# 1. Build .deb packages and branded gresource (unless --skip-packages)
+# 2. Extract base Ubuntu ISO
+# 3. Customize the squashfs rootfs
+# 4. Apply branding and identity changes
+# 5. Repack the ISO
+# 6. Generate checksums and signatures
 #
 # Usage:
 #   sudo ./tools/iso-build/scripts/build-iso.sh [options]
@@ -20,11 +21,14 @@
 #   --version VERSION     CI-OS version string (default: 1.0)
 #   --sign                Sign the ISO checksums with GPG
 #   --clean               Clean work directory before building
+#   --skip-packages       Skip building .deb packages and gresource (use for
+#                         iterative builds when packages have not changed)
 #
 # Requirements:
-#   - Ubuntu 24.04 or newer build host
+#   - Ubuntu 24.04 (Noble) build host with Yaru theme installed
 #   - Root privileges
-#   - Packages: debootstrap, squashfs-tools, xorriso, rsync, gpg
+#   - Packages: squashfs-tools xorriso glib2.0-bin libglib2.0-bin
+#               yaru-theme-gnome-shell debootstrap rsync gpg
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
@@ -47,6 +51,7 @@ WORK_DIR="$REPO_ROOT/work"
 CI_OS_VERSION="${CI_OS_VERSION:-1.0}"
 SIGN_CHECKSUMS=false
 CLEAN_WORK=false
+SKIP_PACKAGES=false
 
 # Logging functions
 log_info() {
@@ -117,6 +122,10 @@ parse_args() {
                 CLEAN_WORK=true
                 shift
                 ;;
+            --skip-packages)
+                SKIP_PACKAGES=true
+                shift
+                ;;
             -h|--help)
                 grep "^#" "$0" | grep -v "^#!/" | sed 's/^# //' | sed 's/^#//'
                 exit 0
@@ -147,6 +156,7 @@ validate_config() {
     log_info "  Output directory: $OUTPUT_DIR"
     log_info "  Work directory: $WORK_DIR"
     log_info "  CI-OS version: $CI_OS_VERSION"
+    log_info "  Skip packages: $SKIP_PACKAGES"
 }
 
 # Setup working directories
@@ -171,9 +181,6 @@ extract_iso() {
     # Mount ISO
     local mount_point="$WORK_DIR/iso-mount"
     mkdir -p "$mount_point"
-    
-    # Setup cleanup trap for this function
-    trap 'umount "$mount_point" 2>/dev/null || true; rmdir "$mount_point" 2>/dev/null || true' RETURN
     
     mount -o loop,ro "$BASE_ISO" "$mount_point"
     
@@ -247,6 +254,18 @@ cleanup_chroot() {
     log_info "Chroot cleaned up"
 }
 
+# Build .deb packages (including the branded gresource)
+build_packages() {
+    if [[ "$SKIP_PACKAGES" == "true" ]]; then
+        log_warn "Skipping package build (--skip-packages specified)"
+        return 0
+    fi
+
+    log_info "Building packages (including branded gresource)..."
+    "$SCRIPT_DIR/build-packages.sh" "$OUTPUT_DIR/packages"
+    log_info "Packages built"
+}
+
 # Apply customizations
 apply_customizations() {
     log_info "Applying CI-OS customizations..."
@@ -268,7 +287,7 @@ repack_squashfs() {
     # Remove all existing squashfs layers
     rm -f "$casper_dir"/*.squashfs
     
-    # Pack the full merged rootfs into minimal.squashfs
+    # Pack the full merged rootfs into minimal.squashfs (the base layer)
     mksquashfs "$chroot_dir" "$output_squashfs" \
         -comp xz -b 1M \
         -e 'var/cache/apt/archives/*' \
@@ -278,32 +297,42 @@ repack_squashfs() {
         -noappend \
         -no-recovery
 
-    # Ubuntu 24.04 casper initramfs hardcodes all three layer names and will
-    # refuse to boot if any are missing. Create empty squashfs placeholders for
-    # the layers we merged into minimal.squashfs so casper's layer check passes.
+    # Ubuntu 24.04 casper initramfs expects all three layer names. Create
+    # empty squashfs placeholders with a minimal directory structure for the
+    # layers we merged into minimal.squashfs — overlayfs will just see empty
+    # upper layers and use minimal.squashfs's content as the base.
     local empty_dir
     empty_dir="$(mktemp -d)"
+    # Create a minimal directory structure so the squashfs is a valid overlayfs layer
+    mkdir -p "$empty_dir"/{etc,var,tmp}
     for placeholder in minimal.standard.squashfs minimal.standard.live.squashfs; do
-        log_info "Creating empty placeholder: $placeholder"
+        log_info "Creating placeholder layer: $placeholder"
         mksquashfs "$empty_dir" "$casper_dir/$placeholder" \
             -comp xz -noappend -no-recovery 2>/dev/null
     done
-    rmdir "$empty_dir"
+    rm -rf "$empty_dir"
     
     # Update filesystem size in manifest
     log_info "Updating filesystem manifest..."
     du -sx --block-size=1 "$chroot_dir" | cut -f1 > "$casper_dir/filesystem.size"
     
-    # Generate new manifest
-    chroot "$chroot_dir" dpkg-query -W --showformat='${Package} ${Version}\n' \
-        > "$casper_dir/filesystem.manifest"
+    # Use the manifest generated earlier (while chroot mounts were active)
+    if [[ ! -f "$casper_dir/filesystem.manifest" ]] || [[ ! -s "$casper_dir/filesystem.manifest" ]]; then
+        log_warn "Manifest not found or empty — generating now (chroot mounts may be down)..."
+        chroot "$chroot_dir" dpkg-query -W --showformat='${Package} ${Version}\n' \
+            > "$casper_dir/filesystem.manifest" 2>/dev/null || true
+    fi
 
     # Regenerate install-sources.yaml — subiquity uses this to locate squashfs
-    # layers and estimate disk space. Must reference only the files that exist
-    # and carry the correct installed size.
-    local installed_size squashfs_size
+    # layers and estimate disk space. MUST match Ubuntu's expected layered
+    # structure: path points to the topmost layer name, variations list the
+    # sub-layers. Even though our upper layers are empty placeholders,
+    # the structure must be consistent for subiquity to proceed.
+    local installed_size squashfs_size standard_size live_size
     installed_size="$(cat "$casper_dir/filesystem.size")"
     squashfs_size="$(stat -c%s "$casper_dir/minimal.squashfs")"
+    standard_size="$(stat -c%s "$casper_dir/minimal.standard.squashfs")"
+    live_size="$(stat -c%s "$casper_dir/minimal.standard.live.squashfs")"
     {
         printf -- '- default: true\n'
         printf    '  description:\n'
@@ -312,7 +341,7 @@ repack_squashfs() {
         printf    '  locale_support: langpack\n'
         printf    '  name:\n'
         printf    '    en: CI-OS Desktop\n'
-        printf    '  path: minimal.squashfs\n'
+        printf    '  path: minimal.standard.live.squashfs\n'
         printf    '  preinstalled_langs:\n'
         printf    '  - en\n'
         printf    '  - ""\n'
@@ -323,6 +352,9 @@ repack_squashfs() {
         printf    '    minimal:\n'
         printf    '      path: minimal.squashfs\n'
         printf    '      size: %s\n' "$squashfs_size"
+        printf    '    standard:\n'
+        printf    '      path: minimal.standard.squashfs\n'
+        printf    '      size: %s\n' "$standard_size"
     } > "$casper_dir/install-sources.yaml"
     log_info "install-sources.yaml regenerated (installed size: $installed_size)"
 
@@ -341,24 +373,74 @@ generate_iso() {
     local iso_name="companion-os-${CI_OS_VERSION}-amd64.iso"
     local iso_path="$OUTPUT_DIR/$iso_name"
     
-    # Update GRUB configuration
-    sed -i "s/Ubuntu/CI-OS/g" "$WORK_DIR/custom-iso/boot/grub/grub.cfg" || true
-    
+    # ─────────────────────────────────────────────────────────────────────────
+    # CRITICAL: Read the original ISO volume id. We MUST keep it for the
+    # output ISO so that the EFI boot-image's embedded GRUB search (which
+    # looks for the original label) can still locate the boot medium.
+    # Changing the volume label while using --boot_image any replay causes
+    # the EFI embedded GRUB to fail → VFS: Unable to mount root fs → kernel
+    # panic (exit code 0x00000100).
+    # ─────────────────────────────────────────────────────────────────────────
+    local orig_volid
+    orig_volid="$(xorriso -indev "$BASE_ISO" -pvd_info 2>&1 \
+        | grep -i 'volume.id' | head -1 \
+        | sed "s/.*: *//" | sed "s/^ *'\{0,1\}//;s/'\{0,1\} *$//")" || true
+    if [[ -z "$orig_volid" ]]; then
+        orig_volid="Ubuntu 24.04.4 LTS amd64"
+        log_warn "Could not read volume id from base ISO — using fallback: $orig_volid"
+    fi
+    log_info "Original ISO volume id: '$orig_volid' (preserving for EFI boot compatibility)"
+
+    # ─────────────────────────────────────────────────────────────────────────
+    # Surgically edit GRUB menus — change ONLY display text (menuentry
+    # titles), NEVER the search label, UUID, kernel command-line parameters,
+    # or any boot-critical values.
+    # ─────────────────────────────────────────────────────────────────────────
+    local grub_cfg="$WORK_DIR/custom-iso/boot/grub/grub.cfg"
+    if [[ -f "$grub_cfg" ]]; then
+        log_info "Editing GRUB configuration (display text only)..."
+        cp "$grub_cfg" "$grub_cfg.orig"
+        sed -i \
+            -e 's/\(menuentry "\)Try or Install Ubuntu/\1Try or Install CI-OS/' \
+            -e 's/\(menuentry "\)Ubuntu (safe graphics)/\1CI-OS (safe graphics)/' \
+            -e 's/\(menuentry[[:space:]]*"\)Ubuntu\b/\1CI-OS/' \
+            "$grub_cfg"
+        log_info "GRUB menuentry titles updated to CI-OS"
+    fi
+
+    # Also edit loopback.cfg if present (used for booting ISO from GRUB)
+    local loopback_cfg="$WORK_DIR/custom-iso/boot/grub/loopback.cfg"
+    if [[ -f "$loopback_cfg" ]]; then
+        sed -i \
+            -e 's/\(menuentry "\)Try or Install Ubuntu/\1Try or Install CI-OS/' \
+            -e 's/\(menuentry "\)Ubuntu (safe graphics)/\1CI-OS (safe graphics)/' \
+            -e 's/\(menuentry[[:space:]]*"\)Ubuntu\b/\1CI-OS/' \
+            "$loopback_cfg"
+    fi
+
+    # ─────────────────────────────────────────────────────────────────────────
     # Build ISO inheriting all boot parameters (EFI + BIOS) from the original
     # Ubuntu 24.04 ISO, then swap in our custom casper directory.
-    # This avoids having to manually replicate Ubuntu's complex boot setup.
+    # CRITICAL: Use the ORIGINAL volume id so the EFI embedded GRUB search
+    # and casper can find the boot medium.
+    # ─────────────────────────────────────────────────────────────────────────
     log_info "Building ISO with xorriso (inheriting boot from base ISO)..."
-    # xorriso requires blank output when indev != outdev
     rm -f "$iso_path"
+
+    local -a xorriso_maps=(
+        -map "$WORK_DIR/custom-iso/casper" /casper
+        -map "$grub_cfg" /boot/grub/grub.cfg
+    )
+    [[ -f "$loopback_cfg" ]] && xorriso_maps+=(-map "$loopback_cfg" /boot/grub/loopback.cfg)
+
     xorriso \
         -indev "$BASE_ISO" \
         -outdev "$iso_path" \
-        -volid "CI-OS ${CI_OS_VERSION}" \
+        -volid "$orig_volid" \
         -boot_image any replay \
         -pathspecs on \
         -rm_r /casper -- \
-        -map "$WORK_DIR/custom-iso/casper" /casper \
-        -map "$WORK_DIR/custom-iso/boot/grub/grub.cfg" /boot/grub/grub.cfg \
+        "${xorriso_maps[@]}" \
         -commit_eject all
     
     log_info "ISO generated: $iso_path"
@@ -405,6 +487,9 @@ main() {
     check_dependencies
     validate_config
     setup_directories
+
+    # Build packages (including branded gresource) unless skipped
+    build_packages
     
     # Build process
     extract_iso
@@ -414,6 +499,13 @@ main() {
     # Apply customizations (wrapped in trap for cleanup)
     trap cleanup_chroot EXIT
     apply_customizations
+
+    # Generate manifest while chroot mounts are still active
+    log_info "Generating package manifest..."
+    local casper_dir="$WORK_DIR/custom-iso/casper"
+    chroot "$WORK_DIR/chroot" dpkg-query -W --showformat='${Package} ${Version}\n' \
+        > "$casper_dir/filesystem.manifest" 2>/dev/null || true
+
     cleanup_chroot
     trap - EXIT
     

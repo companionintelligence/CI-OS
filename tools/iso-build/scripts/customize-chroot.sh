@@ -249,7 +249,7 @@ echo "[+] Telemetry and bloatware removed"
 #=============================================================================
 echo "[*] Step 2b: Applying CI-OS GNOME Shell / GDM theme..."
 
-GRESOURCE_SRC="$REPO_ROOT/packages/mydistro-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
+GRESOURCE_SRC="$REPO_ROOT/packages/ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
 if [[ -f "$GRESOURCE_SRC" ]]; then
     # Replace the top-level shell theme (desktop session)
     install -m 644 -o root -g root "$GRESOURCE_SRC" \
@@ -273,9 +273,18 @@ if [[ -f "$REPO_ROOT/assets/logos/ci-holo-depth.png" ]]; then
     copy_to_chroot "$REPO_ROOT/assets/logos/ci-holo-depth.png" "/usr/share/pixmaps/companion-logo.png"
 fi
 
-# Copy wallpaper
+# Copy wallpaper — try primary path first, then fallback, warn if neither exists
 if [[ -f "$REPO_ROOT/setup/os-changes/background.png" ]]; then
     copy_to_chroot "$REPO_ROOT/setup/os-changes/background.png" "/usr/share/backgrounds/ci-os-wallpaper.png"
+    echo "[+] Wallpaper installed from setup/os-changes/background.png"
+elif [[ -f "$REPO_ROOT/assets/wallpapers/ci-os-wallpaper.svg" ]]; then
+    copy_to_chroot "$REPO_ROOT/assets/wallpapers/ci-os-wallpaper.svg" "/usr/share/backgrounds/ci-os-wallpaper.svg"
+    echo "[+] Wallpaper installed from assets/wallpapers/ci-os-wallpaper.svg"
+    # Update dconf to point to the SVG path
+    sed -i "s|ci-os-wallpaper.png|ci-os-wallpaper.svg|g" \
+        "$CHROOT_PATH/etc/dconf/db/local.d/01-ci-os-wallpaper" || true
+else
+    echo "[WARN] No wallpaper found at setup/os-changes/background.png or assets/wallpapers/ci-os-wallpaper.svg — skipping wallpaper install"
 fi
 
 # Set default wallpaper for GDM and user sessions
@@ -576,6 +585,324 @@ cat > "$CHROOT_PATH/etc/apt/sources.list.d/companion-intelligence.list.disabled"
 EOF
 
 echo "[+] Package repository template created"
+
+#=============================================================================
+# 10b. Pre-install Development Packages
+#=============================================================================
+echo "[*] Step 10b: Pre-installing development packages..."
+
+cat > "$CHROOT_PATH/tmp/install-dev-packages.sh" << 'EOFSCRIPT'
+#!/bin/bash
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+
+# Core development tools (safe to install in chroot)
+apt-get install -y \
+    git \
+    build-essential \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    software-properties-common \
+    apt-transport-https \
+    wget \
+    htop \
+    net-tools \
+    jq \
+    unzip \
+    tree \
+    python3-pip \
+    python3-venv \
+    openssh-server || true
+
+# Clean up after install
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+EOFSCRIPT
+
+chmod +x "$CHROOT_PATH/tmp/install-dev-packages.sh"
+chroot_exec "/tmp/install-dev-packages.sh"
+rm -f "$CHROOT_PATH/tmp/install-dev-packages.sh"
+
+echo "[+] Development packages pre-installed"
+
+#=============================================================================
+# 10c. Include Bootstrap Scripts & First-Boot Setup Service
+#=============================================================================
+echo "[*] Step 10c: Setting up first-boot bootstrap service..."
+
+# ── Copy the full bootstrap scripts into the image ──────────────────────────
+# These scripts are available offline for manual or automated execution.
+mkdir -p "$CHROOT_PATH/usr/lib/ci-os/bootstrap"
+mkdir -p "$CHROOT_PATH/usr/lib/ci-os/bootstrap/lib"
+
+# Copy main setup script
+if [[ -f "$REPO_ROOT/scripts/setup-fresh-ubuntu.sh" ]]; then
+    install -m 755 "$REPO_ROOT/scripts/setup-fresh-ubuntu.sh" \
+        "$CHROOT_PATH/usr/lib/ci-os/bootstrap/setup-fresh-ubuntu.sh"
+    echo "[+] Copied setup-fresh-ubuntu.sh"
+fi
+
+# Copy library scripts
+for lib_script in "$REPO_ROOT/scripts/lib/"*.sh; do
+    if [[ -f "$lib_script" ]]; then
+        install -m 755 "$lib_script" \
+            "$CHROOT_PATH/usr/lib/ci-os/bootstrap/lib/$(basename "$lib_script")"
+        echo "[+] Copied lib/$(basename "$lib_script")"
+    fi
+done
+
+# Copy additional setup scripts
+for setup_script in install-rocm-driver.sh remove-telemetry.sh; do
+    if [[ -f "$REPO_ROOT/scripts/$setup_script" ]]; then
+        install -m 755 "$REPO_ROOT/scripts/$setup_script" \
+            "$CHROOT_PATH/usr/lib/ci-os/bootstrap/$setup_script"
+        echo "[+] Copied $setup_script"
+    fi
+done
+
+# ── Create the first-boot setup script ─────────────────────────────────────
+# This script runs on first boot AFTER the OS has been installed to disk.
+# It sets up Docker, Node.js, Ollama, and other tools that require a running
+# kernel, systemd, and network access. It is designed to be idempotent and
+# network-failure-tolerant.
+cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-setup.sh" << 'BOOTSTRAP_SCRIPT'
+#!/bin/bash
+#=============================================================================
+# CI-OS First-Boot Setup
+# Installs development tools that require a running system and network.
+# This runs automatically on first boot, or can be re-run manually:
+#   sudo ci-os-setup
+#
+# Tools installed: Docker CE, Node.js (via asdf), Bun, UV, Homebrew,
+#                  Ollama + models, GitHub CLI, cloudflared, VS Code,
+#                  Tailscale, LACT GPU monitor
+#
+# © Companion Intelligence — Lifescope Inc
+#=============================================================================
+
+set -euo pipefail
+
+LOG_FILE="/var/log/ci-os-first-boot-setup.log"
+MARKER_FILE="/var/lib/ci-os/.first-boot-setup-done"
+
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+echo "[CI-OS] First-boot setup starting at $(date -u)"
+
+# If already completed, skip
+if [[ -f "$MARKER_FILE" ]]; then
+    echo "[CI-OS] First-boot setup already completed. To re-run: sudo rm $MARKER_FILE && sudo ci-os-setup"
+    exit 0
+fi
+
+# Detect the primary desktop user (first UID >= 1000)
+SETUP_USER=""
+while IFS=: read -r name _ uid _ _ home _; do
+    if [[ "$uid" -ge 1000 ]] && [[ "$uid" -lt 60000 ]] && [[ -d "$home" ]]; then
+        SETUP_USER="$name"
+        SETUP_HOME="$home"
+        break
+    fi
+done < /etc/passwd
+
+if [[ -z "$SETUP_USER" ]]; then
+    echo "[CI-OS] WARNING: No desktop user found. Skipping user-specific setup."
+    SETUP_USER="root"
+    SETUP_HOME="/root"
+fi
+echo "[CI-OS] Setting up for user: $SETUP_USER ($SETUP_HOME)"
+
+export DEBIAN_FRONTEND=noninteractive
+
+# Helper: run as the desktop user
+run_as_user() {
+    sudo -H -u "$SETUP_USER" bash -c "$*"
+}
+
+# ── Wait for network ──────────────────────────────────────────────────────
+echo "[CI-OS] Waiting for network..."
+for i in $(seq 1 30); do
+    if ping -c1 -W2 archive.ubuntu.com &>/dev/null || ping -c1 -W2 1.1.1.1 &>/dev/null; then
+        echo "[CI-OS] Network available."
+        break
+    fi
+    echo "[CI-OS] Waiting for network... ($i/30)"
+    sleep 2
+done
+
+# ── APT Update ────────────────────────────────────────────────────────────
+apt-get update || true
+
+# ── Docker CE ─────────────────────────────────────────────────────────────
+if ! command -v docker &>/dev/null; then
+    echo "[CI-OS] Installing Docker CE..."
+    install -m 0755 -d /etc/apt/keyrings
+    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc 2>/dev/null
+    chmod a+r /etc/apt/keyrings/docker.asc
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
+        > /etc/apt/sources.list.d/docker.list
+    apt-get update
+    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || true
+    usermod -aG docker "$SETUP_USER" 2>/dev/null || true
+    echo "[CI-OS] Docker installed."
+else
+    echo "[CI-OS] Docker already installed."
+fi
+
+# ── UV ────────────────────────────────────────────────────────────────────
+if ! run_as_user "command -v uv" &>/dev/null; then
+    echo "[CI-OS] Installing UV..."
+    run_as_user "curl -LsSf https://astral.sh/uv/install.sh | sh" || true
+fi
+
+# ── Homebrew ──────────────────────────────────────────────────────────────
+if ! run_as_user "command -v brew" &>/dev/null; then
+    echo "[CI-OS] Installing Homebrew..."
+    # Ensure passwordless sudo for the setup user
+    echo "$SETUP_USER ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/$SETUP_USER-ci-os"
+    chmod 0440 "/etc/sudoers.d/$SETUP_USER-ci-os"
+    run_as_user "NONINTERACTIVE=1 CI=1 /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" || true
+    # Add to bashrc
+    if ! grep -q 'linuxbrew' "$SETUP_HOME/.bashrc" 2>/dev/null; then
+        echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> "$SETUP_HOME/.bashrc"
+        chown "$SETUP_USER:$SETUP_USER" "$SETUP_HOME/.bashrc"
+    fi
+fi
+
+# ── asdf + Node.js ────────────────────────────────────────────────────────
+echo "[CI-OS] Installing asdf + Node.js..."
+run_as_user 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null; \
+    command -v brew &>/dev/null && { \
+        brew install asdf 2>/dev/null || true; \
+        ASDF_SH="$(brew --prefix asdf 2>/dev/null)/libexec/asdf.sh"; \
+        [[ -f "$ASDF_SH" ]] && source "$ASDF_SH"; \
+        asdf plugin add nodejs 2>/dev/null || true; \
+        asdf install nodejs 22.15.1 2>/dev/null || true; \
+    }' || true
+
+# ── Bun ───────────────────────────────────────────────────────────────────
+if ! run_as_user "command -v bun" &>/dev/null; then
+    echo "[CI-OS] Installing Bun..."
+    run_as_user "curl -fsSL https://bun.com/install | bash" || true
+fi
+
+# ── Ollama ────────────────────────────────────────────────────────────────
+if ! command -v ollama &>/dev/null; then
+    echo "[CI-OS] Installing Ollama..."
+    curl -fsSL https://ollama.com/install.sh | sh || true
+fi
+if command -v ollama &>/dev/null; then
+    systemctl enable ollama 2>/dev/null || true
+    systemctl start ollama 2>/dev/null || true
+    sleep 3
+    echo "[CI-OS] Pulling Ollama models (this may take a while)..."
+    ollama pull nomic-embed-text 2>/dev/null || true
+    ollama pull gemma3:1b 2>/dev/null || true
+    # Large model — pull in background
+    nohup ollama pull qwen3-vl:32b &>/dev/null &
+fi
+
+# ── GitHub CLI ────────────────────────────────────────────────────────────
+if ! command -v gh &>/dev/null; then
+    echo "[CI-OS] Installing GitHub CLI..."
+    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+        > /etc/apt/sources.list.d/github-cli.list
+    apt-get update && apt-get install -y gh || true
+fi
+
+# ── cloudflared ───────────────────────────────────────────────────────────
+if ! command -v cloudflared &>/dev/null; then
+    echo "[CI-OS] Installing cloudflared..."
+    mkdir -p /usr/share/keyrings
+    curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg \
+        | tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+    echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' \
+        > /etc/apt/sources.list.d/cloudflared.list
+    apt-get update && apt-get install -y cloudflared || true
+fi
+
+# ── VS Code ───────────────────────────────────────────────────────────────
+if ! command -v code &>/dev/null; then
+    echo "[CI-OS] Installing VS Code..."
+    snap install code --classic 2>/dev/null || true
+fi
+
+# ── Tailscale ─────────────────────────────────────────────────────────────
+if ! command -v tailscale &>/dev/null; then
+    echo "[CI-OS] Installing Tailscale..."
+    curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg" \
+        | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+    curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list" \
+        | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+    apt-get update && apt-get install -y tailscale || true
+fi
+
+# ── GNOME Power Mode ─────────────────────────────────────────────────────
+echo "[CI-OS] Setting GNOME power profile to performance..."
+if command -v powerprofilesctl &>/dev/null; then
+    powerprofilesctl set performance 2>/dev/null || true
+fi
+
+# ── Mark complete ─────────────────────────────────────────────────────────
+mkdir -p "$(dirname "$MARKER_FILE")"
+date -u > "$MARKER_FILE"
+
+echo "[CI-OS] First-boot setup completed at $(date -u)"
+echo "[CI-OS] Log saved to $LOG_FILE"
+echo "[CI-OS] NOTE: Log out and back in for Docker group and PATH changes."
+BOOTSTRAP_SCRIPT
+
+chmod +x "$CHROOT_PATH/usr/lib/ci-os/first-boot-setup.sh"
+
+# ── Create a convenient command alias ───────────────────────────────────────
+cat > "$CHROOT_PATH/usr/local/bin/ci-os-setup" << 'EOF'
+#!/bin/bash
+# CI-OS Setup — install development tools (Docker, Node.js, Ollama, etc.)
+# Usage: sudo ci-os-setup
+if [[ $EUID -ne 0 ]]; then
+    echo "This script must be run as root: sudo ci-os-setup"
+    exit 1
+fi
+exec /usr/lib/ci-os/first-boot-setup.sh "$@"
+EOF
+chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-setup"
+
+# ── Create systemd service unit for first-boot auto-execution ───────────────
+cat > "$CHROOT_PATH/usr/lib/systemd/system/ci-os-first-boot-setup.service" << 'SVCEOF'
+[Unit]
+Description=CI-OS First-Boot Development Environment Setup
+Documentation=https://ci.computer
+After=network-online.target
+Wants=network-online.target
+# Only run once — script checks a marker file and exits if already done
+ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ci-os/first-boot-setup.sh
+RemainAfterExit=yes
+TimeoutStartSec=1800
+StandardOutput=journal+console
+StandardError=journal+console
+Environment=DEBIAN_FRONTEND=noninteractive
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+# Enable the first-boot setup service
+mkdir -p "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants"
+ln -sf /usr/lib/systemd/system/ci-os-first-boot-setup.service \
+    "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants/ci-os-first-boot-setup.service"
+
+echo "[+] First-boot bootstrap service installed"
+echo "[+] Bootstrap scripts copied to /usr/lib/ci-os/bootstrap/"
+echo "[+] Manual re-run available via: sudo ci-os-setup"
 
 #=============================================================================
 # 11. Final Cleanup
