@@ -184,15 +184,20 @@ extract_iso() {
     
     mount -o loop,ro "$BASE_ISO" "$mount_point"
     
-    # Copy ISO contents (exclude all squashfs layers — we'll rebuild them)
-    log_info "Copying ISO contents..."
-    rsync -a --exclude='casper/*.squashfs' "$mount_point/" "$WORK_DIR/custom-iso/"
+    # Copy ALL ISO contents — including every squashfs layer, language
+    # packs, enhanced-secureboot layers, manifests, and sizes.
+    # We will only REPLACE the 3 main layers; all other casper files
+    # (language layers, enhanced-secureboot, metadata) stay intact so the
+    # installer and casper find the complete layered structure they expect.
+    log_info "Copying ISO contents (all files including squashfs layers)..."
+    rsync -a "$mount_point/" "$WORK_DIR/custom-iso/"
     
-    # Copy squashfs layers in layer order (Ubuntu 24.04 layered structure)
+    # Stage the 3 main squashfs layers for chroot extraction.
+    # These are the layers we merge, customize, and repack.
     mkdir -p "$WORK_DIR/squashfs"
     for layer in minimal.squashfs minimal.standard.squashfs minimal.standard.live.squashfs; do
         if [[ -f "$mount_point/casper/$layer" ]]; then
-            log_info "Copying squashfs layer: $layer"
+            log_info "Staging layer for extraction: $layer"
             cp "$mount_point/casper/$layer" "$WORK_DIR/squashfs/$layer"
         fi
     done
@@ -211,8 +216,8 @@ extract_squashfs() {
     # Extract layers in order — each layer overlays the previous
     for layer in minimal.squashfs minimal.standard.squashfs minimal.standard.live.squashfs; do
         if [[ -f "$WORK_DIR/squashfs/$layer" ]]; then
-            log_info "Extracting layer: $layer"
-            unsquashfs -f -d "$WORK_DIR/chroot" "$WORK_DIR/squashfs/$layer"
+            log_info "Extracting layer: $layer (this may take a few minutes)..."
+            unsquashfs -f -q -d "$WORK_DIR/chroot" "$WORK_DIR/squashfs/$layer"
         fi
     done
     
@@ -286,28 +291,29 @@ repack_squashfs() {
     
     # ─────────────────────────────────────────────────────────────────────────
     # Strategy: We put the full merged rootfs into minimal.squashfs (the base
-    # layer). We keep minimal.standard.squashfs and minimal.standard.live.squashfs
-    # as tiny empty placeholders since casper's initramfs expects all three
-    # layer names to exist.
+    # layer). We create small empty placeholder layers for
+    # minimal.standard.squashfs and minimal.standard.live.squashfs (since our
+    # base already contains everything from all 3 original layers).
     #
-    # CRITICALLY, install-sources.yaml must point path: to minimal.squashfs
-    # (matching the original Ubuntu structure for the "minimized" variant)
-    # because subiquity reads the 'path' field to determine what to rsync
-    # onto the target disk.
+    # ALL other squashfs files (language packs like minimal.en.squashfs,
+    # minimal.de.squashfs, enhanced-secureboot layers, etc.) are KEPT INTACT
+    # from the original ISO. This is critical because subiquity expects the
+    # full layered structure, including language overlays, to be present.
+    #
+    # install-sources.yaml mirrors the original Ubuntu structure with BOTH
+    # entries (ubuntu-desktop-minimal and ubuntu-desktop) and the full set
+    # of preinstalled_langs matching the language layers on disk.
     # ─────────────────────────────────────────────────────────────────────────
 
-    # Remove only the squashfs files we will rebuild (preserve all other
-    # casper metadata like manifests, sizes, language layers, etc.)
+    # Remove ONLY the 3 main layers we are replacing. Keep all language
+    # layers, enhanced-secureboot layers, and all metadata files intact.
     rm -f "$casper_dir/minimal.squashfs"
     rm -f "$casper_dir/minimal.standard.squashfs"
     rm -f "$casper_dir/minimal.standard.live.squashfs"
-    # Also remove enhanced-secureboot squashfs variants since our single-layer
-    # approach doesn't support the secureboot path and leaving mismatched
-    # squashfs/hash pairs causes integrity check failures.
-    rm -f "$casper_dir"/minimal.enhanced-secureboot*.squashfs
-    rm -f "$casper_dir"/minimal.standard.enhanced-secureboot*.squashfs
 
     # Pack the full merged rootfs into minimal.squashfs
+    # -quiet suppresses per-file progress output (millions of lines that crash terminals)
+    log_info "Compressing rootfs into minimal.squashfs (this takes 5-15 minutes)..."
     mksquashfs "$chroot_dir" "$output_squashfs" \
         -comp xz -b 1M \
         -e 'var/cache/apt/archives/*' \
@@ -315,10 +321,13 @@ repack_squashfs() {
         -e 'tmp/*' \
         -e 'root/.bash_history' \
         -noappend \
-        -no-recovery
+        -no-recovery \
+        -quiet
 
-    # Create empty placeholder layers — casper expects all three names.
-    # Must contain a valid filesystem (not literally empty).
+    # Create empty placeholder layers for standard and live.
+    # Our minimal.squashfs already contains everything from all 3 original
+    # layers plus our customizations, so these layers need to exist (casper
+    # and the installer expect them) but don't need to add any content.
     local empty_dir
     empty_dir="$(mktemp -d)"
     mkdir -p "$empty_dir"/{etc,var,tmp}
@@ -330,22 +339,17 @@ repack_squashfs() {
     rm -rf "$empty_dir"
 
     # ── Update filesystem.size ──────────────────────────────────────────────
-    # This is the total installed (uncompressed) size. Subiquity uses it to
-    # check that the target disk has enough space.
+    # Total installed (uncompressed) size. Subiquity checks disk space.
     log_info "Updating filesystem sizes..."
     du -sx --block-size=1 "$chroot_dir" | cut -f1 > "$casper_dir/filesystem.size"
     local installed_size
     installed_size="$(cat "$casper_dir/filesystem.size")"
 
-    # Update per-layer .size files to match actual squashfs contents.
-    # For our setup: minimal.squashfs contains everything, the other layers
-    # are trivially small.
+    # Update per-layer .size files for the 3 layers we replaced.
+    # All other .size files remain from the original ISO.
     echo "$installed_size" > "$casper_dir/minimal.size"
     echo "0" > "$casper_dir/minimal.standard.size"
     echo "0" > "$casper_dir/minimal.standard.live.size"
-    # Remove enhanced-secureboot .size files since we removed those squashfs
-    rm -f "$casper_dir"/minimal.enhanced-secureboot*.size
-    rm -f "$casper_dir"/minimal.standard.enhanced-secureboot*.size
 
     # ── Use the manifest generated earlier ──────────────────────────────────
     if [[ ! -f "$casper_dir/filesystem.manifest" ]] || [[ ! -s "$casper_dir/filesystem.manifest" ]]; then
@@ -355,30 +359,47 @@ repack_squashfs() {
     fi
 
     # ── Regenerate install-sources.yaml ─────────────────────────────────────
-    # Must mirror the original Ubuntu structure EXACTLY:
-    #   - id: ubuntu-desktop-minimal (this is the DEFAULT in the original ISO)
-    #   - type: fsimage-layered
-    #   - path: minimal.squashfs (matches our single-layer approach)
-    #
-    # IMPORTANT: The original ISO has TWO entries:
+    # MUST mirror the original Ubuntu structure with BOTH entries:
     #   1. ubuntu-desktop-minimal (default: true, path: minimal.squashfs)
     #   2. ubuntu-desktop (default: false, path: minimal.standard.squashfs)
-    # Since we merged everything into minimal.squashfs, we only need one entry.
-    # The id MUST be ubuntu-desktop-minimal — subiquity dispatches curthooks
-    # based on this id and the installer was built expecting it.
+    #
+    # The id MUST be ubuntu-desktop-minimal / ubuntu-desktop — subiquity
+    # dispatches curthooks (grub-install, initramfs, snap seeding) based on
+    # these IDs and the installer was built expecting them.
+    #
+    # preinstalled_langs MUST match the language squashfs layers that exist
+    # on disk (de, en, es, fr, it, pt, ru, zh) — these are all intact from
+    # the original ISO.
     local squashfs_size
     squashfs_size="$(stat -c%s "$casper_dir/minimal.squashfs")"
+    local standard_squashfs_size
+    standard_squashfs_size="$(stat -c%s "$casper_dir/minimal.standard.squashfs")"
+
+    # Calculate an approximate "enhanced-secureboot" size from original files
+    # (these layers are untouched from the base ISO)
+    local esb_size="${installed_size}"
+    if [[ -f "$casper_dir/minimal.enhanced-secureboot.squashfs" ]]; then
+        esb_size="$(stat -c%s "$casper_dir/minimal.enhanced-secureboot.squashfs")"
+    fi
+
     cat > "$casper_dir/install-sources.yaml" << ISYAML
 - default: true
   description:
-    en: CI-OS Desktop
+    en: CI-OS Desktop (minimized)
   id: ubuntu-desktop-minimal
   locale_support: langpack
   name:
-    en: CI-OS Desktop (default)
+    en: CI-OS Desktop (minimized)
   path: minimal.squashfs
   preinstalled_langs:
+  - de
   - en
+  - es
+  - fr
+  - it
+  - pt
+  - ru
+  - zh
   - ''
   size: ${installed_size}
   type: fsimage-layered
@@ -387,8 +408,41 @@ repack_squashfs() {
     minimal:
       path: minimal.squashfs
       size: ${squashfs_size}
+    minimal-enhanced-secureboot:
+      path: minimal.enhanced-secureboot.squashfs
+      size: ${esb_size}
+      snapd_system_label: enhanced-secureboot-desktop
+- default: false
+  description:
+    en: CI-OS Desktop (full)
+  id: ubuntu-desktop
+  locale_support: langpack
+  name:
+    en: CI-OS Desktop
+  path: minimal.standard.squashfs
+  preinstalled_langs:
+  - de
+  - en
+  - es
+  - fr
+  - it
+  - pt
+  - ru
+  - zh
+  - ''
+  size: ${installed_size}
+  type: fsimage-layered
+  variant: desktop
+  variations:
+    enhanced-secureboot:
+      path: minimal.standard.enhanced-secureboot.squashfs
+      size: ${esb_size}
+      snapd_system_label: enhanced-secureboot-desktop
+    standard:
+      path: minimal.standard.squashfs
+      size: ${squashfs_size}
 ISYAML
-    log_info "install-sources.yaml regenerated (id: ubuntu-desktop-minimal, installed size: $installed_size, squashfs: $squashfs_size)"
+    log_info "install-sources.yaml regenerated with both entries (minimal + standard)"
 
     # ── Regenerate SHA256SUMS for ALL squashfs files ────────────────────────
     # Must cover every .squashfs in casper/ or integrity checks fail.
@@ -400,10 +454,6 @@ ISYAML
     # SHA256SUMS and will cause verification failure with our new checksums.
     rm -f "$casper_dir/SHA256SUMS.gpg"
     log_info "Removed stale SHA256SUMS.gpg"
-
-    # Remove enhanced-secureboot manifest/size files that no longer have squashfs
-    rm -f "$casper_dir"/minimal.enhanced-secureboot*.manifest
-    rm -f "$casper_dir"/minimal.standard.enhanced-secureboot*.manifest
 
     log_info "Squashfs repacked successfully"
 }
@@ -548,29 +598,12 @@ main() {
     chroot "$WORK_DIR/chroot" dpkg-query -W --showformat='${Package} ${Version}\n' \
         > "$casper_dir/filesystem.manifest" 2>/dev/null || true
 
-    # Generate filesystem.manifest-remove — lists packages that should be
-    # REMOVED from the installed system (they are only needed for the live
-    # session and installer). Without this file subiquity may leave live-only
-    # packages on the installed system, or — on some versions — fail to
-    # complete the installation.
-    log_info "Generating filesystem.manifest-remove..."
-    cat > "$casper_dir/filesystem.manifest-remove" << 'MANIFEST_REMOVE'
-casper
-lupin-casper
-ubiquity
-ubiquity-casper
-ubiquity-frontend-debconf
-ubiquity-frontend-gtk
-ubiquity-ubuntu-artwork
-discover
-laptop-detect
-os-prober
-MANIFEST_REMOVE
-
-    # Also create filesystem.manifest-minimal-remove (used by the minimal
-    # install option — same list is safe for both variants)
-    cp "$casper_dir/filesystem.manifest-remove" \
-       "$casper_dir/filesystem.manifest-minimal-remove"
+    # Generate filesystem.manifest-remove is NOT needed for Ubuntu 24.04.
+    # The original ISO does not ship one — subiquity handles package removal
+    # internally. Adding one with wrong package names can break the installer.
+    # Clean up any stale versions from previous builds.
+    rm -f "$casper_dir/filesystem.manifest-remove"
+    rm -f "$casper_dir/filesystem.manifest-minimal-remove"
 
     cleanup_chroot
     trap - EXIT

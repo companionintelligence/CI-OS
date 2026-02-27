@@ -141,8 +141,11 @@ Before=display-manager.service gdm.service
 ConditionPathExists=/usr/lib/ci-os/first-boot-rebrand.sh
 # Only run once — service disables itself on success
 ConditionFirstBoot=yes
-# NEVER run in the live USB session — casper is the live-boot parameter
-ConditionKernelCommandLine=!boot=casper
+# NEVER run in the live USB session.
+# Ubuntu 24.04 does NOT pass boot=casper on the kernel command line, so
+# ConditionKernelCommandLine would silently pass. Instead we check for the
+# casper live-boot files on the ISO mount at /cdrom.
+ConditionPathExists=!/cdrom/casper/vmlinuz
 
 [Service]
 Type=oneshot
@@ -217,23 +220,59 @@ apt-get purge -y ubuntu-report popularity-contest apport whoopsie apport-symptom
 # Hold packages to prevent reinstall
 apt-mark hold ubuntu-report popularity-contest apport whoopsie apport-symptoms landscape-common || true
 
-# Remove snap store (in chroot, snapd isn't running, so we clean up files directly)
-# NOTE: We are in a chroot, so snapd is typically not running and
-# `snap remove snap-store` would fail. Instead, remove snap-store
-# by cleaning up its snap files, seeds, and desktop entries directly.
+# Remove snap store and thunderbird snaps from the snap SEED.
+# In a chroot, snapd isn't running so `snap remove` would fail. Instead we
+# remove the snap files and assertions from the seed, then edit seed.yaml
+# to remove the corresponding entries so the seed stays consistent.
+# NOTE: Use glob with underscore (snap-store_*) not dot (snap-store.*).
+rm -f /var/lib/snapd/seed/snaps/snap-store_*.snap
+rm -f /var/lib/snapd/seed/assertions/snap-store_*.assert
+rm -f /var/lib/snapd/seed/snaps/thunderbird_*.snap
+rm -f /var/lib/snapd/seed/assertions/thunderbird_*.assert
 rm -f /var/lib/snapd/snaps/snap-store_*.snap
-rm -f /var/lib/snapd/seed/snaps/snap-store.*
 rm -rf /snap/snap-store
 rm -rf /var/snap/snap-store
 rm -f /var/lib/snapd/desktop/applications/snap-store_*.desktop
+rm -rf /snap/thunderbird
+rm -rf /var/snap/thunderbird
 
-# Remove bloatware (be conservative - only remove obvious bloat)
+# Remove snap-store and thunderbird entries from seed.yaml so the snap seed
+# remains internally consistent (the snap files are gone, the manifest must
+# match). Uses awk to delete multi-line YAML blocks starting with
+# "name: snap-store" or "name: thunderbird" (each block starts with "  -"
+# and continues until the next "  -" or EOF).
+if [[ -f /var/lib/snapd/seed/seed.yaml ]]; then
+    awk '
+    /^[[:space:]]*-[[:space:]]*$/ {
+        if (hold != "" && !skip) print hold
+        skip = 0
+        hold = $0
+        next
+    }
+    hold != "" {
+        if ($0 ~ /name: snap-store/ || $0 ~ /name: thunderbird/) {
+            skip = 1; hold = ""
+        } else {
+            print hold; hold = ""
+            print
+        }
+        next
+    }
+    skip { next }
+    { print }
+    END { if (hold != "" && !skip) print hold }
+    ' /var/lib/snapd/seed/seed.yaml > /var/lib/snapd/seed/seed.yaml.tmp \
+    && mv /var/lib/snapd/seed/seed.yaml.tmp /var/lib/snapd/seed/seed.yaml
+    echo "[+] Removed snap-store and thunderbird from snap seed"
+fi
+
+# Remove bloatware debs (be conservative - only remove obvious bloat)
+# NOTE: thunderbird is a snap on 24.04, already removed from snap seed above.
 apt-get purge -y \
     aisleriot \
     gnome-mahjongg \
     gnome-mines \
-    gnome-sudoku \
-    thunderbird || true
+    gnome-sudoku || true
 
 # Clean up
 apt-get autoremove -y
@@ -733,7 +772,10 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 echo "[CI-OS] First-boot setup starting at $(date -u)"
 
 # Bail out immediately if running in a live session (safety net)
-if grep -q 'boot=casper' /proc/cmdline 2>/dev/null; then
+# Detect live session: Ubuntu 24.04 does NOT pass boot=casper on the kernel
+# command line. Instead casper mounts the boot medium at /cdrom. Check both
+# the mount point and the kernel BOOT_IMAGE path for maximum reliability.
+if [ -d /cdrom/casper ] || grep -q 'BOOT_IMAGE=/casper/' /proc/cmdline 2>/dev/null; then
     echo "[CI-OS] Live session detected — skipping first-boot setup."
     exit 0
 fi
@@ -939,9 +981,10 @@ After=network-online.target
 Wants=network-online.target
 # Only run once — script checks a marker file and exits if already done
 ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
-# NEVER run in the live USB session — casper is the live-boot parameter.
-# This service must only run after the OS has been installed to disk.
-ConditionKernelCommandLine=!boot=casper
+# NEVER run in the live USB session.
+# Ubuntu 24.04 does NOT pass boot=casper on the kernel command line. Instead
+# we detect the live session by checking for casper files on the ISO mount.
+ConditionPathExists=!/cdrom/casper/vmlinuz
 
 [Service]
 Type=oneshot
