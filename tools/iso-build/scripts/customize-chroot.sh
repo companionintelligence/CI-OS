@@ -220,51 +220,15 @@ apt-get purge -y ubuntu-report popularity-contest apport whoopsie apport-symptom
 # Hold packages to prevent reinstall
 apt-mark hold ubuntu-report popularity-contest apport whoopsie apport-symptoms landscape-common || true
 
-# Remove snap store and thunderbird snaps from the snap SEED.
-# In a chroot, snapd isn't running so `snap remove` would fail. Instead we
-# remove the snap files and assertions from the seed, then edit seed.yaml
-# to remove the corresponding entries so the seed stays consistent.
-# NOTE: Use glob with underscore (snap-store_*) not dot (snap-store.*).
-rm -f /var/lib/snapd/seed/snaps/snap-store_*.snap
-rm -f /var/lib/snapd/seed/assertions/snap-store_*.assert
-rm -f /var/lib/snapd/seed/snaps/thunderbird_*.snap
-rm -f /var/lib/snapd/seed/assertions/thunderbird_*.assert
-rm -f /var/lib/snapd/snaps/snap-store_*.snap
-rm -rf /snap/snap-store
-rm -rf /var/snap/snap-store
-rm -f /var/lib/snapd/desktop/applications/snap-store_*.desktop
-rm -rf /snap/thunderbird
-rm -rf /var/snap/thunderbird
-
-# Remove snap-store and thunderbird entries from seed.yaml so the snap seed
-# remains internally consistent (the snap files are gone, the manifest must
-# match). Uses awk to delete multi-line YAML blocks starting with
-# "name: snap-store" or "name: thunderbird" (each block starts with "  -"
-# and continues until the next "  -" or EOF).
-if [[ -f /var/lib/snapd/seed/seed.yaml ]]; then
-    awk '
-    /^[[:space:]]*-[[:space:]]*$/ {
-        if (hold != "" && !skip) print hold
-        skip = 0
-        hold = $0
-        next
-    }
-    hold != "" {
-        if ($0 ~ /name: snap-store/ || $0 ~ /name: thunderbird/) {
-            skip = 1; hold = ""
-        } else {
-            print hold; hold = ""
-            print
-        }
-        next
-    }
-    skip { next }
-    { print }
-    END { if (hold != "" && !skip) print hold }
-    ' /var/lib/snapd/seed/seed.yaml > /var/lib/snapd/seed/seed.yaml.tmp \
-    && mv /var/lib/snapd/seed/seed.yaml.tmp /var/lib/snapd/seed/seed.yaml
-    echo "[+] Removed snap-store and thunderbird from snap seed"
-fi
+# ── DO NOT TOUCH THE SNAP SEED ──────────────────────────────────────────────
+# The snap seed (/var/lib/snapd/seed/) is cryptographically signed via the
+# model assertion. Removing any snap files or editing seed.yaml causes snapd
+# seed validation to fail on boot, which prevents ALL snaps from mounting —
+# including ubuntu-desktop-bootstrap (the installer). This results in a
+# "broken desktop file" error and the installer never launches.
+#
+# Instead, snap-store and thunderbird removal is deferred to the first-boot
+# service that runs AFTER installation is complete and snapd is fully running.
 
 # Remove bloatware debs (be conservative - only remove obvious bloat)
 # NOTE: thunderbird is a snap on 24.04, already removed from snap seed above.
@@ -834,6 +798,15 @@ fi
 
 # ── APT Update ────────────────────────────────────────────────────────────
 apt-get update || true
+
+# ── Remove unwanted snaps (deferred from ISO build) ───────────────────────
+# These cannot be removed during ISO build because the snap seed is
+# cryptographically signed. Now that snapd is running on the installed
+# system, we can safely remove them.
+echo "[CI-OS] Removing unwanted snaps..."
+snap remove --purge snap-store 2>/dev/null || true
+snap remove --purge thunderbird 2>/dev/null || true
+echo "[CI-OS] Unwanted snaps removed."
 
 # ── Docker CE ─────────────────────────────────────────────────────────────
 if ! command -v docker &>/dev/null; then
