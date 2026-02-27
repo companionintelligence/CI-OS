@@ -355,11 +355,17 @@ repack_squashfs() {
     fi
 
     # ── Regenerate install-sources.yaml ─────────────────────────────────────
-    # Must mirror the original Ubuntu structure:
-    #   - path: points to the BASE squashfs (minimal.squashfs), NOT the topmost
-    #   - id: ubuntu-desktop-minimal (subiquity matches this to curthooks)
+    # Must mirror the original Ubuntu structure EXACTLY:
+    #   - id: ubuntu-desktop-minimal (this is the DEFAULT in the original ISO)
     #   - type: fsimage-layered
-    #   - Only one entry (the "minimized" variant, which contains everything)
+    #   - path: minimal.squashfs (matches our single-layer approach)
+    #
+    # IMPORTANT: The original ISO has TWO entries:
+    #   1. ubuntu-desktop-minimal (default: true, path: minimal.squashfs)
+    #   2. ubuntu-desktop (default: false, path: minimal.standard.squashfs)
+    # Since we merged everything into minimal.squashfs, we only need one entry.
+    # The id MUST be ubuntu-desktop-minimal — subiquity dispatches curthooks
+    # based on this id and the installer was built expecting it.
     local squashfs_size
     squashfs_size="$(stat -c%s "$casper_dir/minimal.squashfs")"
     cat > "$casper_dir/install-sources.yaml" << ISYAML
@@ -369,7 +375,7 @@ repack_squashfs() {
   id: ubuntu-desktop-minimal
   locale_support: langpack
   name:
-    en: CI-OS Desktop
+    en: CI-OS Desktop (default)
   path: minimal.squashfs
   preinstalled_langs:
   - en
@@ -382,7 +388,7 @@ repack_squashfs() {
       path: minimal.squashfs
       size: ${squashfs_size}
 ISYAML
-    log_info "install-sources.yaml regenerated (installed size: $installed_size, squashfs: $squashfs_size)"
+    log_info "install-sources.yaml regenerated (id: ubuntu-desktop-minimal, installed size: $installed_size, squashfs: $squashfs_size)"
 
     # ── Regenerate SHA256SUMS for ALL squashfs files ────────────────────────
     # Must cover every .squashfs in casper/ or integrity checks fail.
@@ -541,6 +547,30 @@ main() {
     local casper_dir="$WORK_DIR/custom-iso/casper"
     chroot "$WORK_DIR/chroot" dpkg-query -W --showformat='${Package} ${Version}\n' \
         > "$casper_dir/filesystem.manifest" 2>/dev/null || true
+
+    # Generate filesystem.manifest-remove — lists packages that should be
+    # REMOVED from the installed system (they are only needed for the live
+    # session and installer). Without this file subiquity may leave live-only
+    # packages on the installed system, or — on some versions — fail to
+    # complete the installation.
+    log_info "Generating filesystem.manifest-remove..."
+    cat > "$casper_dir/filesystem.manifest-remove" << 'MANIFEST_REMOVE'
+casper
+lupin-casper
+ubiquity
+ubiquity-casper
+ubiquity-frontend-debconf
+ubiquity-frontend-gtk
+ubiquity-ubuntu-artwork
+discover
+laptop-detect
+os-prober
+MANIFEST_REMOVE
+
+    # Also create filesystem.manifest-minimal-remove (used by the minimal
+    # install option — same list is safe for both variants)
+    cp "$casper_dir/filesystem.manifest-remove" \
+       "$casper_dir/filesystem.manifest-minimal-remove"
 
     cleanup_chroot
     trap - EXIT

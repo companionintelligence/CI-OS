@@ -158,43 +158,108 @@ done < <(find "$work_theme_dir" -type f -name '*symbolic*.svg' | grep -E '/(bann
 
 echo "[+] Total logo/banner replacements: $logo_replaced"
 
-echo "[*] Applying accent color remapping in CSS..."
+# d) Replace gnome-shell-start.svg (Activities button / Ubuntu logo)
+#    This file contains the Ubuntu Circle of Friends logo but its filename
+#    does NOT contain 'ubuntu', so the above patterns miss it.
+if [[ -f "$work_theme_dir/gnome-shell-start.svg" ]]; then
+    cp "$LOGO_BANNER_FILE" "$work_theme_dir/gnome-shell-start.svg"
+    echo "[+] Replaced gnome-shell-start.svg (Activities button logo)"
+fi
+
+echo "[*] Applying comprehensive accent color remapping in CSS..."
+# ──────────────────────────────────────────────────────────────────────────────
+# Yaru's default theme uses a wide palette of orange variants, NOT just #E95420.
+# We must remap ALL of them to CI-OS teal/green equivalents. The mapping
+# preserves relative luminance relationships (darkest→darkest, lightest→lightest).
+# ──────────────────────────────────────────────────────────────────────────────
 while IFS= read -r css_file; do
     perl -0pi -e '
-        # Ubuntu orange (#E95420 / #e95420)
-        s/#E95420/'"$ACCENT_PRIMARY"'/g;
-        s/#e95420/'"$ACCENT_PRIMARY"'/g;
-        s/rgb\(233\s*,\s*84\s*,\s*32\)/rgb(0, 169, 167)/g;
-        s/rgba\(233\s*,\s*84\s*,\s*32\s*,\s*([0-9.]+)\)/rgba(0, 169, 167, $1)/g;
-        # Yaru aubergine/purple (#77216F / #77216f)
-        s/#77216F/'"$ACCENT_SECONDARY"'/g;
-        s/#77216f/'"$ACCENT_SECONDARY"'/g;
+        # ── Yaru orange accent family (sorted dark→light) ────────────────────
+        # Dark orange variants → CI-OS dark teal
+        s/#be3f13/#04525e/g;  s/#BE3F13/#04525e/g;
+        s/#c04013/#045260/g;  s/#C04013/#045260/g;
+        s/#c14013/#045360/g;  s/#C14013/#045360/g;
+        s/#c54113/#055663/g;  s/#C54113/#055663/g;
+        s/#c74214/#055865/g;  s/#C74214/#055865/g;
+        s/#d34615/#066c80/g;  s/#D34615/#066c80/g;   # Primary Yaru accent (24×)
+        s/#da4816/#077486/g;  s/#DA4816/#077486/g;
+
+        # Mid orange variants → CI-OS primary teal
+        s/#e14b16/#08808e/g;  s/#E14B16/#08808e/g;
+        s/#e54c17/#098891/g;  s/#E54C17/#098891/g;
+        s/#e64c17/#098a93/g;  s/#E64C17/#098a93/g;
+        s/#e84f19/#0a8e96/g;  s/#E84F19/#0a8e96/g;
+        s/#E95420/#00a9a7/g;  s/#e95420/#00a9a7/g;   # Classic Ubuntu orange
+        s/#e95c2a/#14b0ab/g;  s/#e95C2A/#14b0ab/g;
+        s/#ea5d2c/#1ab2ad/g;  s/#EA5D2C/#1ab2ad/g;
+        s/#eb6030/#20b5b0/g;  s/#EB6030/#20b5b0/g;
+
+        # Light orange variants → CI-OS light teal
+        s/#ec6b3e/#33bbb6/g;  s/#EC6B3E/#33bbb6/g;
+        s/#ef845f/#55ccc8/g;  s/#EF845F/#55ccc8/g;
+        s/#ef8661/#59ceca/g;  s/#EF8661/#59ceca/g;   # Most common Yaru light accent (32×)
+
+        # ── Yaru yellow/amber warning palette → CI-OS gold-teal ──────────────
+        s/#f9990c/#0ec4a8/g;  s/#F9990C/#0ec4a8/g;
+        s/#f99b11/#12c5aa/g;  s/#F99B11/#12c5aa/g;
+        s/#faa52a/#2dccb3/g;  s/#FAA52A/#2dccb3/g;
+
+        # ── Yaru red accent variants → CI-OS dark teal ───────────────────────
+        s/#c7162b/#044f5b/g;  s/#C7162B/#044f5b/g;
+        s/#da3450/#066677/g;  s/#DA3450/#066677/g;
+        s/#dc415b/#07707e/g;  s/#DC415B/#07707e/g;
+        s/#dd445e/#077381/g;  s/#DD445E/#077381/g;
+        s/#dd455f/#077482/g;  s/#DD455F/#077482/g;
+        s/#de4a63/#087986/g;  s/#DE4A63/#087986/g;
+        s/#e82d43/#0a8c94/g;  s/#E82D43/#0a8c94/g;
+        s/#e15970/#099098/g;  s/#E15970/#099098/g;
+        s/#e15b71/#09929a/g;  s/#E15B71/#09929a/g;
+        s/#e25f75/#0a969d/g;  s/#E25F75/#0a969d/g;
+
+        # ── Yaru aubergine/purple brand (#77216F) ────────────────────────────
+        s/#77216F/#066c80/g;  s/#77216f/#066c80/g;
         s/rgb\(119\s*,\s*33\s*,\s*111\)/rgb(6, 108, 128)/g;
         s/rgba\(119\s*,\s*33\s*,\s*111\s*,\s*([0-9.]+)\)/rgba(6, 108, 128, $1)/g;
-        # Ubuntu highlight/selection blue (#19B6EE / #19b6ee)
-        s/#19B6EE/'"$ACCENT_PRIMARY"'/g;
-        s/#19b6ee/'"$ACCENT_PRIMARY"'/g;
+
+        # ── Ubuntu highlight/selection blue (#19B6EE) ────────────────────────
+        s/#19B6EE/#00a9a7/g;  s/#19b6ee/#00a9a7/g;
         s/rgb\(25\s*,\s*182\s*,\s*238\)/rgb(0, 169, 167)/g;
         s/rgba\(25\s*,\s*182\s*,\s*238\s*,\s*([0-9.]+)\)/rgba(0, 169, 167, $1)/g;
+
+        # ── Catch rgb/rgba forms of the main Ubuntu orange ───────────────────
+        s/rgb\(233\s*,\s*84\s*,\s*32\)/rgb(0, 169, 167)/g;
+        s/rgba\(233\s*,\s*84\s*,\s*32\s*,\s*([0-9.]+)\)/rgba(0, 169, 167, $1)/g;
+        s/rgb\(211\s*,\s*70\s*,\s*21\)/rgb(6, 108, 128)/g;
+        s/rgba\(211\s*,\s*70\s*,\s*21\s*,\s*([0-9.]+)\)/rgba(6, 108, 128, $1)/g;
     ' "$css_file"
 done < <(find "$work_theme_dir" -type f \( -name '*.css' -o -name '*.scss' \))
 
-# Audit: scan for any remaining orange/purple/blue hex values that weren't caught
-echo "[*] Auditing CSS for remaining Ubuntu brand colors..."
+# Audit: scan for remaining orange accent colors in the DEFAULT and GDM CSS only
+# (the alternate variant CSS files like bark, magenta, sage have their own color
+# palettes that we intentionally leave alone — they're never active by default)
+echo "[*] Auditing default + GDM CSS for remaining Yaru accent colors..."
 audit_patterns=(
     '#[Ee]95420'
-    '#[Ee]95[0-9a-fA-F]{3}'
+    '#[Dd]34615'
+    '#[Ee][Ff]8661'
+    '#[Ee][Ff]845[Ff]'
     '#77216[Ff]'
-    '#7[0-9a-fA-F]21[0-9a-fA-F]{2}'
     '#19[Bb]6[Ee][Ee]'
-    '#19[Bb][0-9a-fA-F]{4}'
+)
+audit_files=(
+    "$work_theme_dir/gnome-shell.css"
+    "$work_theme_dir/gnome-shell-dark.css"
+    "$work_theme_dir/gdm.css"
 )
 audit_found=0
 for pat in "${audit_patterns[@]}"; do
-    while IFS= read -r hit; do
-        echo "[AUDIT] Remaining brand color match: $hit"
-        audit_found=$((audit_found + 1))
-    done < <(grep -rn --include='*.css' --include='*.scss' -E "$pat" "$work_theme_dir" 2>/dev/null || true)
+    for afile in "${audit_files[@]}"; do
+        [[ -f "$afile" ]] || continue
+        while IFS= read -r hit; do
+            echo "[AUDIT] Remaining brand color match: $hit"
+            audit_found=$((audit_found + 1))
+        done < <(grep -n -E "$pat" "$afile" 2>/dev/null || true)
+    done
 done
 if [[ "$audit_found" -eq 0 ]]; then
     echo "[+] Audit clean — no remaining Ubuntu brand colors found in CSS"

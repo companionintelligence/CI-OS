@@ -141,6 +141,8 @@ Before=display-manager.service gdm.service
 ConditionPathExists=/usr/lib/ci-os/first-boot-rebrand.sh
 # Only run once — service disables itself on success
 ConditionFirstBoot=yes
+# NEVER run in the live USB session — casper is the live-boot parameter
+ConditionKernelCommandLine=!boot=casper
 
 [Service]
 Type=oneshot
@@ -287,7 +289,7 @@ else
     echo "[WARN] No wallpaper found at setup/os-changes/background.png or assets/wallpapers/ci-os-wallpaper.svg — skipping wallpaper install"
 fi
 
-# Set default wallpaper for GDM and user sessions
+# Set default wallpaper for user sessions (local.d applies to regular users)
 mkdir -p "$CHROOT_PATH/etc/dconf/db/local.d"
 cat > "$CHROOT_PATH/etc/dconf/db/local.d/01-ci-os-wallpaper" << 'EOF'
 [org/gnome/desktop/background]
@@ -298,7 +300,43 @@ picture-uri-dark='file:///usr/share/backgrounds/ci-os-wallpaper.png'
 picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
 EOF
 
-# Update dconf database
+# ── Configure GDM (login screen) branding ──────────────────────────────────
+# GDM reads from its OWN dconf database, not the user's local.d.
+# The profile at /usr/share/dconf/profile/gdm tells GDM to read:
+#   user-db:user
+#   file-db:/var/lib/gdm3/greeter-dconf-defaults
+# We write our overrides to /etc/dconf/db/gdm.d/ and compile via dconf update.
+mkdir -p "$CHROOT_PATH/etc/dconf/db/gdm.d"
+cat > "$CHROOT_PATH/etc/dconf/db/gdm.d/01-ci-os-login" << 'EOF'
+[org/gnome/desktop/background]
+picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+picture-uri-dark='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+
+[org/gnome/desktop/screensaver]
+picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+
+[org/gnome/login-screen]
+logo='/usr/share/pixmaps/companion-logo.png'
+EOF
+
+# Ensure the GDM dconf profile references the gdm database
+# (Ubuntu ships this by default, but ensure it exists in our chroot)
+mkdir -p "$CHROOT_PATH/usr/share/dconf/profile"
+cat > "$CHROOT_PATH/usr/share/dconf/profile/gdm" << 'EOF'
+user-db:user
+system-db:gdm
+file-db:/var/lib/gdm3/greeter-dconf-defaults
+EOF
+
+# Lock the GDM settings so they can't be overridden per-user
+mkdir -p "$CHROOT_PATH/etc/dconf/db/gdm.d/locks"
+cat > "$CHROOT_PATH/etc/dconf/db/gdm.d/locks/01-ci-os-login" << 'EOF'
+/org/gnome/desktop/background/picture-uri
+/org/gnome/desktop/background/picture-uri-dark
+/org/gnome/login-screen/logo
+EOF
+
+# Update dconf database (compiles local + gdm databases)
 chroot_exec "dconf update" || true
 
 echo "[+] Branding installed"
@@ -682,7 +720,10 @@ cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-setup.sh" << 'BOOTSTRAP_SCRIPT'
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
 
-set -euo pipefail
+# NOTE: Do NOT use 'set -e' here. Many install steps depend on network and
+# third-party servers that may be temporarily unavailable. Individual failures
+# are acceptable — the setup can be re-run later via: sudo ci-os-setup
+set -u
 
 LOG_FILE="/var/log/ci-os-first-boot-setup.log"
 MARKER_FILE="/var/lib/ci-os/.first-boot-setup-done"
@@ -690,6 +731,12 @@ MARKER_FILE="/var/lib/ci-os/.first-boot-setup-done"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 echo "[CI-OS] First-boot setup starting at $(date -u)"
+
+# Bail out immediately if running in a live session (safety net)
+if grep -q 'boot=casper' /proc/cmdline 2>/dev/null; then
+    echo "[CI-OS] Live session detected — skipping first-boot setup."
+    exit 0
+fi
 
 # If already completed, skip
 if [[ -f "$MARKER_FILE" ]]; then
@@ -722,15 +769,26 @@ run_as_user() {
 }
 
 # ── Wait for network ──────────────────────────────────────────────────────
+NETWORK_OK=false
 echo "[CI-OS] Waiting for network..."
 for i in $(seq 1 30); do
     if ping -c1 -W2 archive.ubuntu.com &>/dev/null || ping -c1 -W2 1.1.1.1 &>/dev/null; then
         echo "[CI-OS] Network available."
+        NETWORK_OK=true
         break
     fi
     echo "[CI-OS] Waiting for network... ($i/30)"
     sleep 2
 done
+
+if [[ "$NETWORK_OK" != "true" ]]; then
+    echo "[CI-OS] WARNING: Network not available after 60s. Skipping network-dependent setup."
+    echo "[CI-OS] Re-run later with: sudo ci-os-setup"
+    # Still mark partially complete — user can re-run manually
+    mkdir -p "$(dirname "$MARKER_FILE")"
+    echo "partial - no network - $(date -u)" > "$MARKER_FILE"
+    exit 0
+fi
 
 # ── APT Update ────────────────────────────────────────────────────────────
 apt-get update || true
@@ -881,6 +939,9 @@ After=network-online.target
 Wants=network-online.target
 # Only run once — script checks a marker file and exits if already done
 ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
+# NEVER run in the live USB session — casper is the live-boot parameter.
+# This service must only run after the OS has been installed to disk.
+ConditionKernelCommandLine=!boot=casper
 
 [Service]
 Type=oneshot
