@@ -284,10 +284,30 @@ repack_squashfs() {
     local casper_dir="$WORK_DIR/custom-iso/casper"
     local output_squashfs="$casper_dir/minimal.squashfs"
     
-    # Remove all existing squashfs layers
-    rm -f "$casper_dir"/*.squashfs
-    
-    # Pack the full merged rootfs into minimal.squashfs (the base layer)
+    # ─────────────────────────────────────────────────────────────────────────
+    # Strategy: We put the full merged rootfs into minimal.squashfs (the base
+    # layer). We keep minimal.standard.squashfs and minimal.standard.live.squashfs
+    # as tiny empty placeholders since casper's initramfs expects all three
+    # layer names to exist.
+    #
+    # CRITICALLY, install-sources.yaml must point path: to minimal.squashfs
+    # (matching the original Ubuntu structure for the "minimized" variant)
+    # because subiquity reads the 'path' field to determine what to rsync
+    # onto the target disk.
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # Remove only the squashfs files we will rebuild (preserve all other
+    # casper metadata like manifests, sizes, language layers, etc.)
+    rm -f "$casper_dir/minimal.squashfs"
+    rm -f "$casper_dir/minimal.standard.squashfs"
+    rm -f "$casper_dir/minimal.standard.live.squashfs"
+    # Also remove enhanced-secureboot squashfs variants since our single-layer
+    # approach doesn't support the secureboot path and leaving mismatched
+    # squashfs/hash pairs causes integrity check failures.
+    rm -f "$casper_dir"/minimal.enhanced-secureboot*.squashfs
+    rm -f "$casper_dir"/minimal.standard.enhanced-secureboot*.squashfs
+
+    # Pack the full merged rootfs into minimal.squashfs
     mksquashfs "$chroot_dir" "$output_squashfs" \
         -comp xz -b 1M \
         -e 'var/cache/apt/archives/*' \
@@ -297,13 +317,10 @@ repack_squashfs() {
         -noappend \
         -no-recovery
 
-    # Ubuntu 24.04 casper initramfs expects all three layer names. Create
-    # empty squashfs placeholders with a minimal directory structure for the
-    # layers we merged into minimal.squashfs — overlayfs will just see empty
-    # upper layers and use minimal.squashfs's content as the base.
+    # Create empty placeholder layers — casper expects all three names.
+    # Must contain a valid filesystem (not literally empty).
     local empty_dir
     empty_dir="$(mktemp -d)"
-    # Create a minimal directory structure so the squashfs is a valid overlayfs layer
     mkdir -p "$empty_dir"/{etc,var,tmp}
     for placeholder in minimal.standard.squashfs minimal.standard.live.squashfs; do
         log_info "Creating placeholder layer: $placeholder"
@@ -311,57 +328,76 @@ repack_squashfs() {
             -comp xz -noappend -no-recovery 2>/dev/null
     done
     rm -rf "$empty_dir"
-    
-    # Update filesystem size in manifest
-    log_info "Updating filesystem manifest..."
+
+    # ── Update filesystem.size ──────────────────────────────────────────────
+    # This is the total installed (uncompressed) size. Subiquity uses it to
+    # check that the target disk has enough space.
+    log_info "Updating filesystem sizes..."
     du -sx --block-size=1 "$chroot_dir" | cut -f1 > "$casper_dir/filesystem.size"
-    
-    # Use the manifest generated earlier (while chroot mounts were active)
+    local installed_size
+    installed_size="$(cat "$casper_dir/filesystem.size")"
+
+    # Update per-layer .size files to match actual squashfs contents.
+    # For our setup: minimal.squashfs contains everything, the other layers
+    # are trivially small.
+    echo "$installed_size" > "$casper_dir/minimal.size"
+    echo "0" > "$casper_dir/minimal.standard.size"
+    echo "0" > "$casper_dir/minimal.standard.live.size"
+    # Remove enhanced-secureboot .size files since we removed those squashfs
+    rm -f "$casper_dir"/minimal.enhanced-secureboot*.size
+    rm -f "$casper_dir"/minimal.standard.enhanced-secureboot*.size
+
+    # ── Use the manifest generated earlier ──────────────────────────────────
     if [[ ! -f "$casper_dir/filesystem.manifest" ]] || [[ ! -s "$casper_dir/filesystem.manifest" ]]; then
         log_warn "Manifest not found or empty — generating now (chroot mounts may be down)..."
         chroot "$chroot_dir" dpkg-query -W --showformat='${Package} ${Version}\n' \
             > "$casper_dir/filesystem.manifest" 2>/dev/null || true
     fi
 
-    # Regenerate install-sources.yaml — subiquity uses this to locate squashfs
-    # layers and estimate disk space. MUST match Ubuntu's expected layered
-    # structure: path points to the topmost layer name, variations list the
-    # sub-layers. Even though our upper layers are empty placeholders,
-    # the structure must be consistent for subiquity to proceed.
-    local installed_size squashfs_size standard_size live_size
-    installed_size="$(cat "$casper_dir/filesystem.size")"
+    # ── Regenerate install-sources.yaml ─────────────────────────────────────
+    # Must mirror the original Ubuntu structure:
+    #   - path: points to the BASE squashfs (minimal.squashfs), NOT the topmost
+    #   - id: ubuntu-desktop-minimal (subiquity matches this to curthooks)
+    #   - type: fsimage-layered
+    #   - Only one entry (the "minimized" variant, which contains everything)
+    local squashfs_size
     squashfs_size="$(stat -c%s "$casper_dir/minimal.squashfs")"
-    standard_size="$(stat -c%s "$casper_dir/minimal.standard.squashfs")"
-    live_size="$(stat -c%s "$casper_dir/minimal.standard.live.squashfs")"
-    {
-        printf -- '- default: true\n'
-        printf    '  description:\n'
-        printf    '    en: CI-OS Desktop\n'
-        printf    '  id: ubuntu-desktop-minimal\n'
-        printf    '  locale_support: langpack\n'
-        printf    '  name:\n'
-        printf    '    en: CI-OS Desktop\n'
-        printf    '  path: minimal.standard.live.squashfs\n'
-        printf    '  preinstalled_langs:\n'
-        printf    '  - en\n'
-        printf    '  - ""\n'
-        printf    '  size: %s\n' "$installed_size"
-        printf    '  type: fsimage-layered\n'
-        printf    '  variant: desktop\n'
-        printf    '  variations:\n'
-        printf    '    minimal:\n'
-        printf    '      path: minimal.squashfs\n'
-        printf    '      size: %s\n' "$squashfs_size"
-        printf    '    standard:\n'
-        printf    '      path: minimal.standard.squashfs\n'
-        printf    '      size: %s\n' "$standard_size"
-    } > "$casper_dir/install-sources.yaml"
-    log_info "install-sources.yaml regenerated (installed size: $installed_size)"
+    cat > "$casper_dir/install-sources.yaml" << ISYAML
+- default: true
+  description:
+    en: CI-OS Desktop
+  id: ubuntu-desktop-minimal
+  locale_support: langpack
+  name:
+    en: CI-OS Desktop
+  path: minimal.squashfs
+  preinstalled_langs:
+  - en
+  - ''
+  size: ${installed_size}
+  type: fsimage-layered
+  variant: desktop
+  variations:
+    minimal:
+      path: minimal.squashfs
+      size: ${squashfs_size}
+ISYAML
+    log_info "install-sources.yaml regenerated (installed size: $installed_size, squashfs: $squashfs_size)"
 
-    # Regenerate casper/SHA256SUMS for the squashfs files so the live-boot
-    # integrity check and subiquity source validation pass.
-    (cd "$casper_dir" && sha256sum minimal.squashfs minimal.standard.squashfs minimal.standard.live.squashfs > SHA256SUMS)
-    log_info "casper/SHA256SUMS regenerated"
+    # ── Regenerate SHA256SUMS for ALL squashfs files ────────────────────────
+    # Must cover every .squashfs in casper/ or integrity checks fail.
+    log_info "Regenerating casper/SHA256SUMS..."
+    (cd "$casper_dir" && sha256sum *.squashfs > SHA256SUMS)
+    log_info "casper/SHA256SUMS regenerated ($(wc -l < "$casper_dir/SHA256SUMS") entries)"
+
+    # Remove stale Ubuntu GPG signature — it was signed over the original
+    # SHA256SUMS and will cause verification failure with our new checksums.
+    rm -f "$casper_dir/SHA256SUMS.gpg"
+    log_info "Removed stale SHA256SUMS.gpg"
+
+    # Remove enhanced-secureboot manifest/size files that no longer have squashfs
+    rm -f "$casper_dir"/minimal.enhanced-secureboot*.manifest
+    rm -f "$casper_dir"/minimal.standard.enhanced-secureboot*.manifest
 
     log_info "Squashfs repacked successfully"
 }
