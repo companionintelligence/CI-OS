@@ -515,6 +515,13 @@ install_ollama() {
     log_success "Ollama installed"
 }
 
+# Check if ollama systemd unit exists (official installer creates it; Homebrew/manual installs may not)
+ollama_systemd_unit_exists() {
+    systemctl cat ollama.service &>/dev/null || \
+    [[ -f /etc/systemd/system/ollama.service ]] || \
+    [[ -f /usr/lib/systemd/system/ollama.service ]]
+}
+
 # Configure Ollama service (requires root for systemd operations)
 configure_ollama() {
     if ! command_exists ollama; then
@@ -522,12 +529,23 @@ configure_ollama() {
         return 0
     fi
     
+    # Skip systemd configuration if no ollama.service unit exists (e.g. Homebrew install)
+    if ! ollama_systemd_unit_exists; then
+        log_info "Ollama is installed but no systemd unit found (e.g. Homebrew/manual install). Skipping systemd configuration."
+        log_info "To run Ollama, use 'ollama serve' or reinstall via: curl -fsSL https://ollama.com/install.sh | sh"
+        log_success "Ollama configured (user-managed)"
+        return 0
+    fi
+    
     log_info "Configuring Ollama service..."
     
     # Enable ollama service (if not already enabled)
     if ! service_enabled ollama; then
-        systemctl enable ollama
-        log_info "Ollama service enabled"
+        if systemctl enable ollama 2>/dev/null; then
+            log_info "Ollama service enabled"
+        else
+            log_warning "Could not enable ollama service (unit may not support it), continuing..."
+        fi
     else
         log_info "Ollama service is already enabled, skipping..."
     fi
@@ -562,9 +580,15 @@ pull_ollama_models() {
     
     log_info "Checking Ollama models..."
     
-    # Start ollama service if not running
-    if ! systemctl is-active --quiet ollama; then
-        systemctl start ollama || true
+    # Start ollama if not running (systemd or background)
+    if ollama_systemd_unit_exists && systemctl is-active --quiet ollama 2>/dev/null; then
+        :
+    elif ollama_systemd_unit_exists; then
+        systemctl start ollama 2>/dev/null || true
+        sleep 5
+    elif ! pgrep -f "ollama serve" >/dev/null 2>&1; then
+        log_info "Starting Ollama in background (no systemd unit)..."
+        sudo -u "$ACTUAL_USER" nohup ollama serve >/tmp/ollama.log 2>&1 &
         sleep 5
     fi
     
