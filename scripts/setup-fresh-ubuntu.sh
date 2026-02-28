@@ -325,96 +325,90 @@ EOF
     log_success "Homebrew installed and configured"
 }
 
-# Install asdf and Node.js
+# Install asdf and Node.js (standalone asdf via git clone - no Homebrew dependency)
 install_asdf_nodejs() {
     # Check if Node.js is already installed via asdf
-    if sudo -u "$ACTUAL_USER" bash -c "command -v node" &>/dev/null && \
-       sudo -u "$ACTUAL_USER" bash -c "node --version" 2>/dev/null | grep -q "v22.15.1"; then
-        log_info "Node.js 22.15.1 is already installed, skipping installation..."
+    if sudo -u "$ACTUAL_USER" bash -c '[[ -f "$HOME/.asdf/asdf.sh" ]] && source "$HOME/.asdf/asdf.sh" && command -v node &>/dev/null' 2>/dev/null && \
+       sudo -u "$ACTUAL_USER" bash -c 'source "$HOME/.asdf/asdf.sh" && node --version' 2>/dev/null | grep -q "v22.15.1"; then
+        log_info "Node.js 22.15.1 is already installed via asdf, skipping installation..."
         return 0
     fi
     
     log_info "Installing asdf and Node.js for user $ACTUAL_USER..."
     
-    # Install npm first (system-wide)
-    if ! command_exists npm; then
-        apt install -y npm
+    # Ensure git is available (needed to clone asdf)
+    if ! command_exists git; then
+        apt install -y git
     fi
-    
 
-    # Install asdf and Node.js as the actual user
+    # Install asdf and Node.js as the actual user (standalone asdf - no Homebrew)
     sudo -u "$ACTUAL_USER" bash <<'EOF'
-# Source brew environment
-eval "$($(brew --prefix)/bin/brew shellenv)" 2>/dev/null || true
+ASDF_DIR="$HOME/.asdf"
+ASDF_VERSION="v0.14.0"
 
-# Install asdf (if not already installed)
-if ! command -v asdf &>/dev/null; then
-    brew install asdf
+# Install asdf via git clone (if not already installed)
+if [[ ! -d "$ASDF_DIR" ]]; then
+    git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch "$ASDF_VERSION"
 fi
 
 # Add asdf to shell (if not already there)
-if ! grep -q "asdf.sh" ~/.bashrc; then
-    echo '. "$(brew --prefix asdf)/libexec/asdf.sh"' >> ~/.bashrc
+if ! grep -q "asdf.sh" ~/.bashrc 2>/dev/null; then
+    echo '' >> ~/.bashrc
+    echo '# asdf version manager' >> ~/.bashrc
+    echo '. "$HOME/.asdf/asdf.sh"' >> ~/.bashrc
 fi
 
-# Source bashrc and asdf.sh to load asdf
-source ~/.bashrc 2>/dev/null || true
-ASDF_SH="$(brew --prefix asdf 2>/dev/null)/libexec/asdf.sh"
-if [[ -f "$ASDF_SH" ]]; then
-    source "$ASDF_SH"
+# Source asdf for current session
+export PATH="$HOME/.asdf/bin:$PATH"
+if [[ -f "$ASDF_DIR/asdf.sh" ]]; then
+    . "$ASDF_DIR/asdf.sh"
 fi
+
+# Create .asdfrc for legacy version file support
+echo 'legacy_version_file = yes' > ~/.asdfrc 2>/dev/null || true
 
 # Add Node.js plugin (if not already added)
-asdf plugin add nodejs 2>/dev/null || true
+asdf plugin add nodejs https://github.com/asdf-vm/asdf-nodejs.git 2>/dev/null || true
 
-# Install Node.js (if not already installed)
+# Install Node.js 22.15.1 (if not already installed)
 if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
     asdf install nodejs 22.15.1
-    asdf reshim nodejs
+    asdf reshim
 fi
 
-# Install yarn globally (if not already installed)
-if ! command -v yarn &>/dev/null; then
-    npm install --global yarn
-fi
+# Set as global version
+asdf global nodejs 22.15.1
 EOF
     
     log_success "asdf and Node.js installed"
 }
 
-# Set global Node.js version
+# Set global Node.js version (standalone asdf in ~/.asdf)
 set_global_nodejs() {
     log_info "Setting global Node.js version to 22.15.1 for user $ACTUAL_USER..."
     
-    # Check if Node.js 22.15.1 is already set as global
-    sudo -u "$ACTUAL_USER" bash <<EOF
-# Source brew environment
-eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
-
-# Source bashrc to load asdf
-source ~/.bashrc 2>/dev/null || true
-
-# Check if asdf is available
-if ! command -v asdf &>/dev/null; then
-    echo "asdf not found, skipping global Node.js version setting"
+    sudo -u "$ACTUAL_USER" bash <<'EOF'
+# Load standalone asdf from ~/.asdf
+ASDF_DIR="$HOME/.asdf"
+if [[ ! -f "$ASDF_DIR/asdf.sh" ]]; then
     exit 0
 fi
+export PATH="$HOME/.asdf/bin:$PATH"
+. "$ASDF_DIR/asdf.sh"
 
 # Check if Node.js 22.15.1 is installed
-if ! sudo asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
-    echo "Node.js 22.15.1 is not installed, skipping global version setting"
+if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
     exit 0
 fi
 
 # Check current global version
-CURRENT_GLOBAL=\$(sudo asdf current nodejs 2>/dev/null | grep -oP '22\.15\.1' || echo "")
-if [[ "\$CURRENT_GLOBAL" == "22.15.1" ]]; then
-    echo "Node.js 22.15.1 is already set as global version"
+CURRENT_GLOBAL=$(asdf current nodejs 2>/dev/null | awk '{print $2}' || echo "")
+if [[ "$CURRENT_GLOBAL" == "22.15.1" ]]; then
     exit 0
 fi
 
 # Set global Node.js version
-sudo asdf set global nodejs 22.15.1
+asdf global nodejs 22.15.1
 EOF
     
     log_success "Global Node.js version set to 22.15.1"
@@ -652,39 +646,29 @@ remove_telemetry() {
     log_success "Telemetry removal complete"
 }
 
-# Enable corepack (requires Node.js to be installed and proper permissions)
+# Enable corepack (requires Node.js via asdf; corepack provides yarn/pnpm)
 enable_corepack() {
     log_info "Enabling corepack for user $ACTUAL_USER..."
     
-    # Check if Node.js is available
-    if ! sudo -u "$ACTUAL_USER" bash -c "command -v node" &>/dev/null; then
+    # Check if Node.js is available via asdf
+    if ! sudo -u "$ACTUAL_USER" bash -c '[[ -f "$HOME/.asdf/asdf.sh" ]] && source "$HOME/.asdf/asdf.sh" && command -v node &>/dev/null' 2>/dev/null; then
         log_warning "Node.js not found. Skipping corepack enable. It will be enabled when Node.js is available."
         return 0
     fi
     
-    # Enable corepack as the actual user with proper environment
-    # Corepack may need sudo permissions to create symlinks in system directories
-    sudo -u "$ACTUAL_USER" bash <<EOF
-# Source brew environment if available
-eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
-
-# Source asdf if available
-if [[ -f "\$(brew --prefix asdf)/libexec/asdf.sh" ]]; then
-    . "\$(brew --prefix asdf)/libexec/asdf.sh" 2>/dev/null || true
+    sudo -u "$ACTUAL_USER" bash <<'EOF'
+# Load standalone asdf from ~/.asdf
+ASDF_DIR="$HOME/.asdf"
+if [[ -f "$ASDF_DIR/asdf.sh" ]]; then
+    export PATH="$HOME/.asdf/bin:$PATH"
+    . "$ASDF_DIR/asdf.sh"
 fi
 
-# Enable corepack with sudo if needed
 if command -v corepack &>/dev/null; then
-    # Try enabling without sudo first
     if corepack enable 2>/dev/null; then
-        echo "Corepack enabled successfully"
+        echo "Corepack enabled successfully (yarn/pnpm available)"
     else
-        # If that fails, try with sudo (user should have passwordless sudo)
-        if sudo corepack enable 2>/dev/null; then
-            echo "Corepack enabled with sudo"
-        else
-            echo "Warning: Failed to enable corepack. You may need to run 'corepack enable' manually after logging out and back in."
-        fi
+        echo "Warning: Failed to enable corepack. You may need to run 'corepack enable' manually after logging out and back in."
     fi
 else
     echo "Warning: corepack command not found. Node.js may not be properly installed or in PATH."
@@ -806,12 +790,11 @@ install_lact() {
                     gsettings get org.gnome.shell favorite-apps 2>/dev/null)
                 if [[ "$CURRENT_FAVS" != *"lact-gui.desktop"* ]]; then
                     # Remove brackets and quotes, then add lact-gui.desktop
-                    FAVS_CLEAN=$(echo "$CURRENT_FAVS" | sed -e "s/^\[//" -e "s/\]
-    $//" -e "s/'//g" -e 's/, /,/g')
+                    FAVS_CLEAN=$(echo "$CURRENT_FAVS" | sed -e "s/^\[//" -e "s/\]$//" -e "s/'//g" -e 's/, /,/g')
                     if [[ -z "$FAVS_CLEAN" ]]; then
                         NEW_FAVS="['lact-gui.desktop']"
                     else
-                        NEW_FAVS="[$(echo $FAVS_CLEAN | sed "s/$/,lact-gui.desktop/")"]"
+                        NEW_FAVS="[$(echo "$FAVS_CLEAN" | sed 's/$/,lact-gui.desktop/')]"
                         NEW_FAVS=$(echo "$NEW_FAVS" | sed "s/,/, /g" | sed "s/\[/['/g" | sed "s/\]/']/g" | sed "s/, '/, '/g")
                     fi
                     sudo -u "$ACTUAL_USER" env DISPLAY=:0 XAUTHORITY="/home/$ACTUAL_USER/.Xauthority" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" \
@@ -821,7 +804,7 @@ install_lact() {
                     log_info "LACT already pinned to favorites bar for $ACTUAL_USER"
                 fi
             else
-                log_warning "No D-Bus session for $ACTUAL_USER (not logged in?). Cannot pin LACT to favorites bar."
+                log_warning "No D-Bus session for ${ACTUAL_USER}. User may not be logged in. Cannot pin LACT to favorites bar."
             fi
         else
             log_warning "gsettings not available or no valid user detected. Skipping LACT pinning."
@@ -843,7 +826,7 @@ set_gnome_power_performance() {
                 gsettings set org.gnome.settings-daemon.plugins.power power-profile 'performance' 2>/dev/null || true
             log_success "GNOME Power Mode set to 'performance' for $ACTUAL_USER"
         else
-            log_warning "No D-Bus session for $ACTUAL_USER (not logged in?). Power mode will apply on next login if set via dconf defaults."
+            log_warning "No D-Bus session for ${ACTUAL_USER}. User may not be logged in. Power mode will apply on next login if set via dconf defaults."
         fi
     else
         log_warning "gsettings not available or no valid user detected. Skipping GNOME Power Mode setting."
