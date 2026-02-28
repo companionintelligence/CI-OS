@@ -103,6 +103,18 @@ install_curl() {
     log_success "curl installed"
 }
 
+# Fix Docker apt source conflicts before any apt-get update.
+# Different machines may have docker.list (docker.gpg) AND docker.sources (docker.asc);
+# both target the same repo and cause: "Conflicting values set for option Signed-By"
+fix_docker_apt_conflicts() {
+    for f in /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources; do
+        if [[ -f "$f" ]]; then
+            log_info "Removing conflicting Docker apt source: $f"
+            rm -f "$f"
+        fi
+    done
+}
+
 # Update apt packages (requires root)
 update_apt() {
     log_info "Updating apt package lists..."
@@ -140,10 +152,13 @@ install_tailscale() {
 
 # Install Docker (requires root for package installation and repository configuration)
 install_docker() {
+    # Note: fix_docker_apt_conflicts() runs earlier (before update_apt) to resolve
+    # Signed-By conflicts from mixed docker.list/docker.sources on pre-configured machines
+
     # Check if Docker is already installed
     if command_exists docker && docker --version &>/dev/null; then
         log_info "Docker is already installed, skipping installation..."
-        # Still check if repository is configured
+        # Still ensure repository is configured (we removed any old conflicting sources above)
         if ! repo_configured "/etc/apt/sources.list.d/docker.sources"; then
             log_info "Configuring Docker repository..."
             install -m 0755 -d /etc/apt/keyrings
@@ -720,6 +735,7 @@ main() {
     echo
     
     install_curl
+    fix_docker_apt_conflicts
     update_apt
     install_make
     install_docker
