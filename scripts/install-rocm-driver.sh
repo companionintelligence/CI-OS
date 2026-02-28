@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 #=============================================================================
-# Download and install ROCm: AMD GPU driver (amdgpu-dkms), ROCm stack, and
-# ROCm container image. Must run with sudo/root.
+# Download and install ROCm: AMD GPU driver (amdgpu-dkms) and ROCm stack.
+# Must run with sudo/root.
 #
 # - AMD GPU: amdgpu-install .deb, linux-headers, amdgpu-dkms
 # - ROCm Linux: python3-setuptools, python3-wheel, rocm; add user to render,video
-# - ROCm container: docker pull rocm/dev-ubuntu-24.04:7.1.1-complete
 #
 # Can be run standalone or invoked from setup-fresh-ubuntu.sh.
 #
@@ -17,12 +16,11 @@
 
 set -euo pipefail
 
-# Re-exec with sudo if not root (so all apt/docker/usermod run with sudo)
+# Re-exec with sudo if not root (so all apt/usermod run with sudo)
 if [[ ${EUID:-0} -ne 0 ]]; then
   exec sudo "$0" "$@"
 fi
 
-ROCM_IMAGE="${ROCM_IMAGE:-rocm/dev-ubuntu-24.04:7.1.1-complete}"
 AMGPU_INSTALL_DEB="amdgpu-install_7.2.70200-1_all.deb"
 AMGPU_INSTALL_URL="https://repo.radeon.com/amdgpu-install/7.2/ubuntu/noble/${AMGPU_INSTALL_DEB}"
 
@@ -59,15 +57,6 @@ usermod -a -G render,video "${ACTUAL_USER}"
 # --- ROCm stack ---
 echo "[ROCm] Installing rocm..."
 apt install -y rocm
-
-# --- ROCm container image (optional if docker not installed yet) ---
-if command -v docker &>/dev/null; then
-  echo "[ROCm] Pulling ROCm container image: ${ROCM_IMAGE}..."
-  docker pull "${ROCM_IMAGE}"
-  echo "[ROCm] Done: ROCm image ${ROCM_IMAGE} is available."
-else
-  echo "[ROCm] Docker not found; skipping container image pull. Run 'docker pull ${ROCM_IMAGE}' later if needed."
-fi
 
 echo "[ROCm] ROCm driver and stack installation finished."
 echo "  User ${ACTUAL_USER} was added to render and video groups; log out and back in for that to take effect."

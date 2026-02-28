@@ -283,23 +283,32 @@ configure_passwordless_sudo() {
 
 # Install Homebrew
 install_homebrew() {
+    local brew_bin="/home/linuxbrew/.linuxbrew/bin/brew"
+
+    # Check if brew is already available (in PATH)
     if sudo -u "$ACTUAL_USER" bash -c "command -v brew" &>/dev/null; then
-        log_info "Homebrew is already installed for user $ACTUAL_USER, skipping installation..."
-        # Still ensure bashrc is configured
-        RC="$ACTUAL_HOME/.bashrc"
-        if ! grep -q "linuxbrew" "$RC"; then
-            echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> "$RC"
-            chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
-            log_info "Added Homebrew to bashrc"
-        fi
+        log_info "Homebrew is already installed and available for user $ACTUAL_USER, skipping installation..."
+        _homebrew_ensure_bashrc
         return 0
     fi
-    
+
+    # Check if brew binary exists (e.g. from a previous run that failed at brew update)
+    if [[ -f "$brew_bin" ]]; then
+        log_info "Homebrew binary found at $brew_bin (partial install or permission issue). Fixing and verifying..."
+        chown -R "$ACTUAL_USER:$ACTUAL_USER" /home/linuxbrew/.linuxbrew 2>/dev/null || true
+        if sudo -u "$ACTUAL_USER" "$brew_bin" update --force --quiet 2>/dev/null; then
+            log_success "Homebrew recovered and verified."
+            _homebrew_ensure_bashrc
+            return 0
+        fi
+        log_warning "Could not recover existing Homebrew. Will attempt reinstall..."
+    fi
+
     log_info "Installing Homebrew for user $ACTUAL_USER..."
-    
+
     # Configure passwordless sudo first (required for noninteractive Homebrew installation)
     configure_passwordless_sudo
-    
+
     # Install Homebrew dependencies
     log_info "Installing Homebrew dependencies..."
     local deps=("build-essential" "git" "file" "procps")
@@ -308,36 +317,49 @@ install_homebrew() {
             apt-get install -y "$dep"
         fi
     done
-    
-    # Install Homebrew as the actual user with proper environment
+
+    # Install Homebrew as the actual user with proper environment (allow installer failure; we fix perms after)
     log_info "Running Homebrew installer..."
-    sudo -u "$ACTUAL_USER" bash <<EOF
+    sudo -u "$ACTUAL_USER" bash <<EOF || true
 export NONINTERACTIVE=1
 export CI=1
 /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 EOF
-    
+
+    # Fix lock directory permissions (Homebrew installer can leave var/homebrew owned by root)
+    if [[ -d /home/linuxbrew/.linuxbrew ]]; then
+        log_info "Ensuring Homebrew directory permissions for $ACTUAL_USER..."
+        chown -R "$ACTUAL_USER:$ACTUAL_USER" /home/linuxbrew/.linuxbrew
+    fi
+
+    # Complete brew update if installer failed mid-way (e.g. due to lock permissions)
+    if [[ -f "$brew_bin" ]]; then
+        log_info "Running brew update to complete installation..."
+        sudo -u "$ACTUAL_USER" "$brew_bin" update --force --quiet 2>/dev/null || true
+    fi
+
     # Verify Homebrew installation
-    if ! sudo -u "$ACTUAL_USER" bash -c "command -v brew" &>/dev/null; then
-        # Try to source brew environment and check again
-        if [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
-            sudo -u "$ACTUAL_USER" bash -c "eval \"\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\" && command -v brew" &>/dev/null || {
-                log_warning "Homebrew installed but not in PATH yet. Will be available after shell restart."
-            }
+    if ! sudo -u "$ACTUAL_USER" bash -c "eval \"\$($brew_bin shellenv)\" && command -v brew" &>/dev/null; then
+        if [[ -f "$brew_bin" ]]; then
+            log_warning "Homebrew installed but not in PATH yet. Will be available after shell restart."
         else
             log_error "Homebrew installation may have failed. Please check the output above."
             return 1
         fi
     fi
-    
-    # Finalize homebrew and set path variable in user's bashrc
+
+    _homebrew_ensure_bashrc
+    log_success "Homebrew installed and configured"
+}
+
+# Ensure Homebrew eval is in user's bashrc (helper used by install_homebrew)
+_homebrew_ensure_bashrc() {
     RC="$ACTUAL_HOME/.bashrc"
     if ! grep -q "linuxbrew" "$RC"; then
         echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> "$RC"
         chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
+        log_info "Added Homebrew to bashrc"
     fi
-    
-    log_success "Homebrew installed and configured"
 }
 
 # Install asdf and Node.js (standalone asdf via git clone - no Homebrew dependency)
