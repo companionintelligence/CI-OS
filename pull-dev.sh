@@ -10,9 +10,10 @@ set -o pipefail
 # Ensure we use the default context if Desktop is broken
 export DOCKER_CONTEXT=default
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # Optionally load REGISTRY_USERNAME/PASSWORD (same env as hub:publish:dev)
 if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
-  SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   for ENV_DEV in \
     "${CI_OS_HUB_REPO_PATH:-${SCRIPT_DIR}/../CI-OS-Hub}/.env.dev" \
     "${SCRIPT_DIR}/../CI-Cloud/apps/hono-app/.env.dev" \
@@ -108,16 +109,31 @@ fi
 
 if [ ! -f "${INSTALL_DIR}/tunnel/certs/custom-ca.pem" ] || [ ! -f "${INSTALL_DIR}/tunnel/certs/custom-ca.key" ]; then
   if command -v openssl >/dev/null 2>&1; then
-    echo -e "${YELLOW}Generating tunnel certificates in ${INSTALL_DIR}/tunnel/certs...${NC}"
-    openssl genrsa -out "${INSTALL_DIR}/tunnel/certs/custom-ca.key" 2048
-    openssl req -x509 -new -nodes \
-      -key "${INSTALL_DIR}/tunnel/certs/custom-ca.key" \
-      -sha256 -days 3650 \
-      -out "${INSTALL_DIR}/tunnel/certs/custom-ca.pem" \
-      -subj "/C=US/ST=State/L=City/O=CompanionIntelligence/OU=LocalDev/CN=CI-Local-Root-CA"
-    chmod 644 "${INSTALL_DIR}/tunnel/certs/custom-ca.pem"
-    chmod 600 "${INSTALL_DIR}/tunnel/certs/custom-ca.key"
-    echo -e "${GREEN}Tunnel certificates generated.${NC}"
+    # Try to use generate-tunnel-certs.sh from ci-os-hub when available (same logic, single source of truth)
+    CERT_SCRIPT=""
+    for candidate in \
+      "${CI_OS_HUB_REPO_PATH:-${SCRIPT_DIR}/../CI-OS-Hub}/scripts/generate-tunnel-certs.sh" \
+      "${SCRIPT_DIR}/../ci-os-hub/scripts/generate-tunnel-certs.sh"; do
+      if [ -f "$candidate" ]; then
+        CERT_SCRIPT="$candidate"
+        break
+      fi
+    done
+    if [ -n "${CERT_SCRIPT}" ]; then
+      echo -e "${YELLOW}Generating tunnel certificates via ${CERT_SCRIPT}...${NC}"
+      bash "$CERT_SCRIPT" "${INSTALL_DIR}" && echo -e "${GREEN}Tunnel certificates generated.${NC}"
+    else
+      echo -e "${YELLOW}Generating tunnel certificates in ${INSTALL_DIR}/tunnel/certs...${NC}"
+      openssl genrsa -out "${INSTALL_DIR}/tunnel/certs/custom-ca.key" 2048
+      openssl req -x509 -new -nodes \
+        -key "${INSTALL_DIR}/tunnel/certs/custom-ca.key" \
+        -sha256 -days 3650 \
+        -out "${INSTALL_DIR}/tunnel/certs/custom-ca.pem" \
+        -subj "/C=US/ST=State/L=City/O=CompanionIntelligence/OU=LocalDev/CN=CI-Local-Root-CA"
+      chmod 644 "${INSTALL_DIR}/tunnel/certs/custom-ca.pem"
+      chmod 600 "${INSTALL_DIR}/tunnel/certs/custom-ca.key"
+      echo -e "${GREEN}Tunnel certificates generated.${NC}"
+    fi
   else
     echo -e "${YELLOW}openssl not found. Skipping tunnel certificate generation.${NC}"
   fi
