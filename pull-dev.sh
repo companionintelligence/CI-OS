@@ -32,15 +32,33 @@ fi
 REGISTRY_USERNAME="${REGISTRY_USERNAME:-Abcde12345}"
 REGISTRY_PASSWORD="${REGISTRY_PASSWORD:-Abcde12345}"
 
-# Configuration - default dev registry/domain (portal.companionintelligence.com)
-REGISTRY_DOMAIN="${REGISTRY_DOMAIN:-portal.companionintelligence.com}"
+# Configuration - per-environment when HUB_INSTALL_ENV is set (by pull-staging/pull-prod)
+case "${HUB_INSTALL_ENV:-dev}" in
+  staging)
+    REGISTRY_DOMAIN="${REGISTRY_DOMAIN:-portal.companionintel.com}"
+    INSTALL_DIR="${INSTALL_DIR:-${HOME}/ci-os-hub-staging}"
+    CI_CLOUD_URL="${CI_CLOUD_URL:-https://portal.companionintel.com}"
+    CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://portal.companionintel.com/api}"
+    CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://portal.companionintel.com}"
+    ;;
+  prod)
+    REGISTRY_DOMAIN="${REGISTRY_DOMAIN:-portal.ci.computer}"
+    INSTALL_DIR="${INSTALL_DIR:-${HOME}/ci-os-hub}"
+    CI_CLOUD_URL="${CI_CLOUD_URL:-https://portal.ci.computer}"
+    CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://portal.ci.computer/api}"
+    CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://portal.ci.computer}"
+    ;;
+  *)
+    REGISTRY_DOMAIN="${REGISTRY_DOMAIN:-portal.companionintelligence.com}"
+    INSTALL_DIR="${INSTALL_DIR:-${HOME}/ci-os-hub-staging}"
+    CI_CLOUD_URL="${CI_CLOUD_URL:-https://portal.companionintelligence.com}"
+    CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://portal.companionintelligence.com/api}"
+    CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://portal.companionintelligence.com}"
+    ;;
+esac
+
 IMAGE_NAME="${IMAGE_NAME:-${REGISTRY_DOMAIN}/ci-os-hub:latest}"
-INSTALL_DIR="${HOME}/ci-os-hub-staging"
 INTERNAL_DIR="${INSTALL_DIR}/.internal"
-# CI Cloud URLs (user-facing setup/API)
-CI_CLOUD_URL="${CI_CLOUD_URL:-https://portal.companionintelligence.com}"
-CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://portal.companionintelligence.com/api}"
-CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://portal.companionintelligence.com}"
 
 # Colors
 RED='\033[0;31m'
@@ -48,7 +66,8 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}Starting CI OS Hub Staging Installation...${NC}"
+HUB_ENV_LABEL="${HUB_INSTALL_ENV:-Staging}"
+echo -e "${GREEN}Starting CI OS Hub ${HUB_ENV_LABEL} Installation...${NC}"
 echo -e "Registry: ${REGISTRY_DOMAIN}"
 echo -e "Image: ${IMAGE_NAME}"
 echo ""
@@ -146,7 +165,7 @@ if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
     echo -e "${YELLOW}Note: Set REGISTRY_USERNAME and REGISTRY_PASSWORD for registry auth.${NC}"
     echo -e "${YELLOW}Example: export REGISTRY_USERNAME=xxx REGISTRY_PASSWORD=xxx${NC}"
 fi
-echo -e "${YELLOW}Logging in to the staging registry (${REGISTRY_DOMAIN})...${NC}"
+echo -e "${YELLOW}Logging in to registry (${REGISTRY_DOMAIN})...${NC}"
 if [ -n "${REGISTRY_USERNAME:-}" ] && [ -n "${REGISTRY_PASSWORD:-}" ]; then
     echo "Configuring docker auth manually to bypass registry root 404 issue..."
     # Calculate base64 auth string (user:pass)
@@ -667,5 +686,5 @@ if ! (cd "${INSTALL_DIR}" && "${COMPOSE_UP_CMD[@]}"); then
     fi
 fi
 
-echo -e "${GREEN}CI OS Hub staging is running.${NC}"
+echo -e "${GREEN}CI OS Hub ${HUB_ENV_LABEL} is running.${NC}"
 echo -e "Hub UI: http://localhost:5002"
