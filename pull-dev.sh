@@ -413,6 +413,9 @@ ARCHITECTURE=amd64
 
 # Device ID
 DEVICE_ID=${DEVICE_ID}
+
+# Host install directory (used by Hub to run docker compose with absolute paths)
+HOST_INSTALL_DIR=${INSTALL_DIR}
 ENVEOF
 
 # Generate docker-compose.yml
@@ -521,7 +524,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./tunnel:/home/nonroot/.cloudflared:ro
+      - \${HOST_INSTALL_DIR}/tunnel:/home/nonroot/.cloudflared:ro
     depends_on:
       - ci-os-hub
       - traefik
