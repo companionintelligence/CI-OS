@@ -481,6 +481,7 @@ services:
       - ./app-data:/app-data
       - ./data/backups:/data/backups
       - ./.env:/data/.env:ro
+      - ./.env:/app/.env:ro
       - ./docker-compose.yml:/app/docker-compose.prod.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
