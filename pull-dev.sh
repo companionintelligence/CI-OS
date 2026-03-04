@@ -257,7 +257,7 @@ http:
   middlewares:
     runtipi:
       forwardAuth:
-        address: "http://ci-os-hub:5002/api/auth/traefik"
+        address: "http://ci-os-hub:3000/api/auth/traefik"
         trustForwardHeader: true
         authResponseHeaders:
           - "X-Runtipi-User"
@@ -685,7 +685,7 @@ for PORT in 5002 5001 6543 18080 18443 18081; do
   free_host_port "$PORT"
 done
 
-if [ "${ENABLE_CLOUDFLARE_TUNNEL:-true}" = "true" ]; then
+if [ "${ENABLE_CLOUDFLARE_TUNNEL:-false}" = "true" ]; then
   echo -e "${GREEN}Cloudflare tunnel profile enabled (default).${NC}"
   COMPOSE_UP_CMD=(docker compose --profile cloudflare up -d)
 else
