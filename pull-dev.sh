@@ -660,22 +660,12 @@ free_host_port() {
   fi
 }
 
-# Build or Pull the Hub image
-if [ "${BUILD_LOCAL:-false}" = "true" ]; then
-  HUB_REPO_PATH="${CI_OS_HUB_REPO_PATH:-${SCRIPT_DIR}/../CI-OS-Hub}"
-  if [ ! -f "${HUB_REPO_PATH}/Dockerfile" ]; then
-    echo -e "${RED}Error: CI-OS-Hub repo not found at ${HUB_REPO_PATH}. Set CI_OS_HUB_REPO_PATH.${NC}"
+# Pull the Hub image
+echo -e "${YELLOW}Pulling images (including ${IMAGE_NAME})...${NC}"
+cd "${INSTALL_DIR}"
+if ! docker compose pull; then
+    echo -e "${RED}Error: Failed to pull the image. Check registry credentials and network.${NC}"
     exit 1
-  fi
-  echo -e "${YELLOW}Building Hub image locally from ${HUB_REPO_PATH}...${NC}"
-  (cd "${HUB_REPO_PATH}" && docker build -t "${IMAGE_NAME}" .)
-else
-  echo -e "${YELLOW}Pulling images (including ${IMAGE_NAME})...${NC}"
-  cd "${INSTALL_DIR}"
-  if ! docker compose pull; then
-      echo -e "${RED}Error: Failed to pull the image. Check registry credentials and network.${NC}"
-      exit 1
-  fi
 fi
 
 echo -e "${GREEN}Installation prepared at ${INSTALL_DIR}${NC}"
