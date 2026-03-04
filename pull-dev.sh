@@ -257,7 +257,7 @@ http:
   middlewares:
     runtipi:
       forwardAuth:
-        address: "http://ci-os-hub:5002/api/auth/traefik"
+        address: "http://ci-os-hub:3000/api/auth/traefik"
         trustForwardHeader: true
         authResponseHeaders:
           - "X-Runtipi-User"
@@ -275,12 +275,26 @@ if [ -f "${INSTALL_DIR}/.env" ]; then
 fi
 
 # DEVICE_ID: always from system serial (sudo dmidecode -s system-serial-number)
-if SERIAL=$(sudo dmidecode -s system-serial-number 2>/dev/null) && [ -n "$SERIAL" ] && [ "$SERIAL" != "Not Specified" ]; then
-    DEVICE_ID="$SERIAL"
-    echo -e "${GREEN}DEVICE_ID from system serial: ${DEVICE_ID}${NC}"
-else
+# Try DMI serial, machine-id, or generate a stable fallback
+DEVICE_ID=""
+if SERIAL=$(sudo dmidecode -s system-serial-number 2>/dev/null); then
+    # Filter out placeholder values that aren't real serial numbers
+    case "$SERIAL" in
+      ""|"Not Specified"|"System Serial Number"|"To be filled by O.E.M."|"Default string"|"None"|"0")
+        ;;
+      *)
+        DEVICE_ID="$SERIAL"
+        echo -e "${GREEN}DEVICE_ID from system serial: ${DEVICE_ID}${NC}"
+        ;;
+    esac
+fi
+if [ -z "$DEVICE_ID" ] && [ -f /etc/machine-id ]; then
+    DEVICE_ID=$(cat /etc/machine-id)
+    echo -e "${GREEN}DEVICE_ID from /etc/machine-id: ${DEVICE_ID}${NC}"
+fi
+if [ -z "$DEVICE_ID" ]; then
     DEVICE_ID="staging-$(hostname)-$(date +%s)"
-    echo -e "${YELLOW}No DMI serial; using fallback DEVICE_ID: ${DEVICE_ID}${NC}"
+    echo -e "${YELLOW}No DMI serial or machine-id; using fallback DEVICE_ID: ${DEVICE_ID}${NC}"
 fi
 
 CI_CLOUD_API_KEY=${CI_CLOUD_API_KEY:-""}
@@ -399,6 +413,9 @@ ARCHITECTURE=amd64
 
 # Device ID
 DEVICE_ID=${DEVICE_ID}
+
+# Host install directory (used by Hub to run docker compose with absolute paths)
+HOST_INSTALL_DIR=${INSTALL_DIR}
 ENVEOF
 
 # Generate docker-compose.yml
@@ -464,6 +481,8 @@ services:
       - ./app-data:/app-data
       - ./data/backups:/data/backups
       - ./.env:/data/.env:ro
+      - ./.env:/app/.env:ro
+      - ./docker-compose.yml:/app/docker-compose.prod.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     labels:
       traefik.enable: true
@@ -506,7 +525,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./tunnel:/home/nonroot/.cloudflared:ro
+      - \${HOST_INSTALL_DIR}/tunnel:/home/nonroot/.cloudflared:ro
     depends_on:
       - ci-os-hub
       - traefik
@@ -641,12 +660,22 @@ free_host_port() {
   fi
 }
 
-# Pull images (ci-os-hub from our registry, others from Docker Hub)
-echo -e "${YELLOW}Pulling images (including ${IMAGE_NAME})...${NC}"
-cd "${INSTALL_DIR}"
-if ! docker compose pull; then
-    echo -e "${RED}Error: Failed to pull the image. Check registry credentials and network.${NC}"
+# Build or Pull the Hub image
+if [ "${BUILD_LOCAL:-false}" = "true" ]; then
+  HUB_REPO_PATH="${CI_OS_HUB_REPO_PATH:-${SCRIPT_DIR}/../CI-OS-Hub}"
+  if [ ! -f "${HUB_REPO_PATH}/Dockerfile" ]; then
+    echo -e "${RED}Error: CI-OS-Hub repo not found at ${HUB_REPO_PATH}. Set CI_OS_HUB_REPO_PATH.${NC}"
     exit 1
+  fi
+  echo -e "${YELLOW}Building Hub image locally from ${HUB_REPO_PATH}...${NC}"
+  (cd "${HUB_REPO_PATH}" && docker build -t "${IMAGE_NAME}" .)
+else
+  echo -e "${YELLOW}Pulling images (including ${IMAGE_NAME})...${NC}"
+  cd "${INSTALL_DIR}"
+  if ! docker compose pull; then
+      echo -e "${RED}Error: Failed to pull the image. Check registry credentials and network.${NC}"
+      exit 1
+  fi
 fi
 
 echo -e "${GREEN}Installation prepared at ${INSTALL_DIR}${NC}"
@@ -660,7 +689,7 @@ for PORT in 5002 5001 6543 18080 18443 18081; do
   free_host_port "$PORT"
 done
 
-if [ "${ENABLE_CLOUDFLARE_TUNNEL:-true}" = "true" ]; then
+if [ "${ENABLE_CLOUDFLARE_TUNNEL:-false}" = "true" ]; then
   echo -e "${GREEN}Cloudflare tunnel profile enabled (default).${NC}"
   COMPOSE_UP_CMD=(docker compose --profile cloudflare up -d)
 else
