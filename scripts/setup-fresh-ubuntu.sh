@@ -740,6 +740,18 @@ EOF
 }
 
 # Install VS Code (requires root for snap installation)
+# Install Chromium browser (requires root)
+install_chromium() {
+    if package_installed chromium-browser || [[ -f /snap/bin/chromium ]]; then
+        log_info "Chromium is already installed, skipping..."
+        return 0
+    fi
+
+    log_info "Installing Chromium browser..."
+    apt install -y chromium-browser
+    log_success "Chromium installed"
+}
+
 install_vscode() {
     if command_exists code; then
         log_info "VS Code is already installed, skipping installation..."
@@ -798,6 +810,7 @@ main() {
     configure_ollama
     pull_ollama_models
     install_cloudflared
+    install_chromium
     install_vscode
     enable_corepack
     remove_telemetry
