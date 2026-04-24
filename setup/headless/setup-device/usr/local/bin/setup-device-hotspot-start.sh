@@ -11,11 +11,16 @@ log() {
 
 log "Starting hotspot setup sequence..."
 
-# Step 1: Copy config files (ensure they're present)
-log "Ensuring config files are in place..."
-mkdir -p /etc/hostapd /etc/dnsmasq.d
-cp -f /home/companion/devel/companion/CI-OS/setup/headless/setup-device/etc/hostapd/hostapd-setup.conf /etc/hostapd/ 2>/dev/null || log "Warning: Could not copy hostapd config"
-cp -f /home/companion/devel/companion/CI-OS/setup/headless/setup-device/etc/dnsmasq.d/setup-portal.conf /etc/dnsmasq.d/ 2>/dev/null || log "Warning: Could not copy dnsmasq config"
+# Step 1: Validate required runtime config files installed by the package
+log "Validating required config files..."
+if [ ! -f /etc/hostapd/hostapd-setup.conf ]; then
+    log "Error: /etc/hostapd/hostapd-setup.conf is missing"
+    exit 1
+fi
+if [ ! -f /etc/dnsmasq.d/setup-portal.conf ]; then
+    log "Error: /etc/dnsmasq.d/setup-portal.conf is missing"
+    exit 1
+fi
 
 # Step 2: Reset WiFi interface (disconnect from any existing connection)
 log "Resetting WiFi interface wlp192s0..."
@@ -64,13 +69,6 @@ fi
 # Wait briefly for hostapd to stabilize and broadcast SSID
 sleep 3
 log "Hotspot setup complete - Companion-Setup network should be available"
-
-if systemctl is-active --quiet dnsmasq-setup.service; then
-    log "✓ dnsmasq-setup.service started successfully"
-else
-    log "✗ dnsmasq-setup.service failed to start - checking logs"
-    journalctl -u dnsmasq-setup.service -n 5 | systemd-cat -t setup-hotspot-start -p warning
-fi
 
 # Verify interface has IP
 IP_CHECK=$(ip addr show wlp192s0 | grep "inet 192.168.99" || echo "")

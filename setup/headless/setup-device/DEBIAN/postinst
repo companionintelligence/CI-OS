@@ -88,10 +88,32 @@ fi
 # Add setup.ci.computer to /etc/hosts
 echo "Configuring hosts mapping..."
 if ! grep -q "setup.ci.computer" /etc/hosts; then
-    echo "192.168.99.1 setup.ci.computer" | sudo tee -a /etc/hosts > /dev/null
+    echo "192.168.99.1 setup.ci.computer" >> /etc/hosts
 fi
 
 # Setup portal uses HTTP only (no SSL) - acceptable for isolated setup network
+
+# Remove dangling site symlinks that can break nginx -t/start
+if [ -d /etc/nginx/sites-enabled ]; then
+    find /etc/nginx/sites-enabled -maxdepth 1 -xtype l -delete 2>/dev/null || true
+fi
+
+# Validate and start nginx first so portal and API proxy are available
+echo "Validating nginx configuration..."
+if nginx -t; then
+    echo "✓ Nginx configuration is valid"
+    echo "Starting nginx service..."
+    if systemctl start nginx.service; then
+        echo "✓ Nginx service started successfully"
+    else
+        echo "Warning: Failed to start nginx.service"
+        echo "Portal UI may be unavailable until nginx is fixed and started"
+    fi
+else
+    echo "Warning: nginx configuration test failed"
+    echo "Portal UI may be unavailable until nginx configuration issues are fixed"
+fi
+sleep 1
 
 # Start backend service
 echo "Starting backend service..."
@@ -118,15 +140,6 @@ else
     exit 1
 fi
 sleep 1
-
-# Start nginx
-echo "Starting nginx service..."
-if systemctl start nginx.service; then
-    echo "✓ Nginx service started successfully"
-else
-    echo "ERROR: Failed to start nginx.service"
-    exit 1
-fi
 
 # Verify services are active and enabled
 echo ""

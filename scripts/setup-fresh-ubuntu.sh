@@ -122,6 +122,18 @@ update_apt() {
     log_success "apt package lists updated"
 }
 
+# Enforce apt to prefer IPv4 to avoid failures on systems with broken IPv6
+enable_apt_force_ipv4() {
+    log_info "Ensuring apt uses IPv4 (workaround for IPv6 network issues)"
+    local conf_file="/etc/apt/apt.conf.d/99force-ipv4"
+    if [[ ! -f "$conf_file" ]] || ! grep -q 'Acquire::ForceIPv4 "true";' "$conf_file" 2>/dev/null; then
+        echo 'Acquire::ForceIPv4 "true";' > "$conf_file"
+        log_info "Wrote apt IPv4 config to $conf_file"
+    else
+        log_info "APT IPv4 enforcement already configured"
+    fi
+}
+
 # Install make (requires root)
 install_make() {
     if command_exists make; then
@@ -451,45 +463,7 @@ EOF
     log_success "Global Node.js version set to 22.15.1"
 }
 
-# Install Bun
-install_bun() {
-    if sudo -u "$ACTUAL_USER" bash -c "command -v bun" &>/dev/null; then
-        log_info "Bun is already installed for user $ACTUAL_USER, skipping installation..."
-        # Still ensure bashrc is configured
-        RC="$ACTUAL_HOME/.bashrc"
-        if ! grep -q "bun" "$RC"; then
-            echo '' >> "$RC"
-            echo '# Bun' >> "$RC"
-            echo 'export BUN_INSTALL="$HOME/.bun"' >> "$RC"
-            echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> "$RC"
-            chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
-            log_info "Added Bun to bashrc"
-        fi
-        return 0
-    fi
-    
-    log_info "Installing Bun for user $ACTUAL_USER..."
-    
-    # Install Bun as the actual user using the official installer
-    sudo -u "$ACTUAL_USER" bash <<EOF
-curl -fsSL https://bun.com/install | bash
-EOF
-    
-    # Add Bun to PATH in user's bashrc if not already there
-    RC="$ACTUAL_HOME/.bashrc"
-    if ! grep -q "bun" "$RC"; then
-        echo '' >> "$RC"
-        echo '# Bun' >> "$RC"
-        echo 'export BUN_INSTALL="$HOME/.bun"' >> "$RC"
-        echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> "$RC"
-        chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
-    fi
-    
-    # Source bashrc to load Bun
-    sudo -u "$ACTUAL_USER" bash -c "source ~/.bashrc" 2>/dev/null || true
-    
-    log_success "Bun installed"
-}
+# Bun installation removed — Bun is no longer required
 
 # Note about bashrc
 note_bashrc() {
@@ -794,6 +768,7 @@ main() {
     
     install_curl
     fix_docker_apt_conflicts
+    enable_apt_force_ipv4
     update_apt
     install_make
     install_docker
@@ -802,7 +777,7 @@ main() {
     install_homebrew
     install_asdf_nodejs
     set_global_nodejs
-    install_bun
+    # Bun removed from setup — no longer installed
     note_bashrc
     create_ci_user
     install_github_cli
@@ -824,7 +799,7 @@ main() {
     echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools and activate docker group"
     echo "  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group"
     echo "  • Start Ollama service: systemctl start ollama"
-    echo "  • Verify installations: docker --version, node --version, bun --version, ollama --version, gh --version"
+    echo "  • Verify installations: docker --version, node --version, ollama --version, gh --version"
     echo "  • Note: 'Create deploy read key' step was not specified - please add this manually if needed"
 }
 

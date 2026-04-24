@@ -15,6 +15,7 @@ import signal
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
+from wsgiref.simple_server import make_server, WSGIRequestHandler
 from flask import Flask, request, jsonify
 import urllib.request
 import urllib.error
@@ -922,11 +923,21 @@ def main():
     logger.info(f"Pairing code file: {PAIRING_CODE_JSON}")
     logger.info(f"Setup complete file: {SETUP_COMPLETE_FILE}")
     
-    # Run Flask app
-    # Use waitress or similar for production, but for now Flask dev server
-    # In production, this would be run via gunicorn or similar
     try:
-        app.run(host='127.0.0.1', port=5000, debug=False, use_reloader=False)
+        # Use stdlib WSGI server to avoid Flask development-server warnings.
+        class QuietHandler(WSGIRequestHandler):
+            def log_message(self, format, *args):
+                logger.info("HTTP %s", format % args)
+
+        httpd = make_server('127.0.0.1', 5000, app, handler_class=QuietHandler)
+        httpd.timeout = 1
+        logger.info("WSGI server listening on http://127.0.0.1:5000")
+
+        while not shutdown_flag:
+            httpd.handle_request()
+
+        logger.info("Shutting down WSGI server")
+        httpd.server_close()
     except KeyboardInterrupt:
         logger.info("Shutting down...")
     except Exception as e:
