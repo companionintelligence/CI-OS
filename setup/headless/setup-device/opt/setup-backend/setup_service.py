@@ -52,7 +52,8 @@ def _read_conf_value(key):
     return None
 
 CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://setup.companionintel.com'
-CI_HUB_REGISTRATION_STATUS_URL = os.environ.get('CI_HUB_REGISTRATION_STATUS_URL', 'http://127.0.0.1:5002/registration/status')
+CI_HUB_REGISTRATION_STATUS_URL = os.environ.get('CI_HUB_REGISTRATION_STATUS_URL', 'http://127.0.0.1:5002/api/registration/status')
+CI_HUB_REGISTRATION_CALLBACK_URL = os.environ.get('CI_HUB_REGISTRATION_CALLBACK_URL', 'http://127.0.0.1:5002/api/registration/callback')
 
 
 def _hub_running():
@@ -272,6 +273,64 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key, timeout=10):
     except Exception as e:
         logger.warning(f"Device ID update failed: {e}")
         return False, str(e)
+
+
+def notify_hub_registration_callback(cloud_response, retries=10, retry_delay=2):
+    """Forward finalized cloud registration payload to CI Hub callback endpoint."""
+    try:
+        if not isinstance(cloud_response, dict):
+            logger.warning("Skipping Hub callback: cloud response is not JSON object")
+            return False
+
+        required_fields = [
+            'device_id',
+            'organization_id',
+            'organization_name',
+            'slug',
+            'subdomain',
+            'tunnel_id',
+            'tunnel_token',
+            'api_key',
+        ]
+        missing = [k for k in required_fields if not cloud_response.get(k)]
+        if missing:
+            logger.warning(f"Skipping Hub callback: cloud response missing fields: {', '.join(missing)}")
+            return False
+
+        query = urllib.parse.urlencode({
+            'device_id': cloud_response.get('device_id', ''),
+            'organization_id': cloud_response.get('organization_id', ''),
+            'organization_name': cloud_response.get('organization_name', ''),
+            'slug': cloud_response.get('slug', ''),
+            'subdomain': cloud_response.get('subdomain', ''),
+            'tunnel_id': cloud_response.get('tunnel_id', ''),
+            'tunnel_token': cloud_response.get('tunnel_token', ''),
+            'api_key': cloud_response.get('api_key', ''),
+            'domain': cloud_response.get('domain', ''),
+        })
+
+        callback_url = f"{CI_HUB_REGISTRATION_CALLBACK_URL}?{query}"
+
+        for attempt in range(1, retries + 1):
+            try:
+                req = urllib.request.Request(callback_url, method='GET')
+                with urllib.request.urlopen(req, timeout=6) as resp:
+                    body = resp.read().decode('utf-8', errors='replace')
+                    parsed = json.loads(body)
+                    if isinstance(parsed, dict) and parsed.get('success'):
+                        logger.info(f"Hub callback succeeded on attempt {attempt}: {CI_HUB_REGISTRATION_CALLBACK_URL}")
+                        return True
+                    logger.warning(f"Hub callback attempt {attempt} returned non-success payload: {parsed}")
+            except Exception as e:
+                logger.warning(f"Hub callback attempt {attempt}/{retries} failed: {e}")
+
+            if attempt < retries:
+                time.sleep(retry_delay)
+
+        return False
+    except Exception as e:
+        logger.warning(f"Failed to invoke Hub callback: {e}")
+        return False
 
 def save_cloud_credentials(device_id, api_key):
     """Save device_id and api_key for later use (API key comes from GET response)"""
@@ -1006,6 +1065,13 @@ def configure():
                     
                     if update_success:
                         logger.info(f"Device ID updated successfully in cloud: {update_resp}")
+                        if hub_state.get('hub_running'):
+                            callback_ok = notify_hub_registration_callback(update_resp)
+                            if not callback_ok:
+                                logger.warning(
+                                    "Cloud registration completed, but failed to forward callback to Hub. "
+                                    "Hub may remain on registration page until manual refresh/retry."
+                                )
                         # API key already saved from GET response, no need to save again
                     else:
                         logger.warning(f"Device ID update failed: {update_resp}")
