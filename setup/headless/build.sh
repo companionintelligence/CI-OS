@@ -25,6 +25,8 @@ REQUIRED_FILES=(
     "DEBIAN/postrm"
     "etc/hostapd/hostapd-setup.conf"
     "etc/dnsmasq.d/setup-portal.conf"
+    "usr/share/setup-device/defaults/hostapd-setup.conf"
+    "usr/share/setup-device/defaults/setup-portal.conf"
     "etc/nginx/sites-available/setup-portal"
     "etc/netplan/50-setup-mode.yaml"
     "etc/setup-device/device.conf"
@@ -32,6 +34,7 @@ REQUIRED_FILES=(
     "etc/systemd/system/dnsmasq-setup.service"
     "etc/systemd/system/setup-backend.service"
     "opt/setup-backend/setup_service.py"
+    "opt/setup-backend/scripts/get-device-id.ts"
     "var/www/setup-portal/index.html"
 )
 

@@ -5,6 +5,16 @@ set -e
 
 echo "Cleaning up setup-device files..."
 
+# On upgrade, do not remove runtime/config files from the new package.
+# Debian calls old package postrm during upgrade after new files are unpacked.
+case "$1" in
+    upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        systemctl daemon-reload || true
+        echo "Skipping cleanup during upgrade lifecycle: $1"
+        exit 0
+        ;;
+esac
+
 # Reload systemd to recognize service removal
 systemctl daemon-reload || true
 
@@ -14,12 +24,13 @@ rm -f /etc/nginx/sites-enabled/setup-portal
 # NOTE: Do NOT remove systemd service files here - dpkg handles package files.
 # Removing them breaks upgrades. See: https://wiki.debian.org/MaintainerScripts
 
-# Remove configuration files (kept for user reference on uninstall)
-rm -f /etc/hostapd/hostapd-setup.conf
-rm -f /etc/dnsmasq.d/setup-portal.conf
-rm -f /etc/netplan/50-setup-mode.yaml
-rm -f /etc/setup-device/device.conf
-rm -f /etc/setup-device/pairing_code.json
+# Keep config files on remove so reinstall works without reconstructing state.
+# Remove persistent state only on explicit purge.
+if [ "$1" = "purge" ]; then
+    rm -f /etc/netplan/50-setup-mode.yaml
+    rm -f /etc/setup-device/device.conf
+    rm -f /etc/setup-device/pairing_code.json
+fi
 
 # Restore wlan0 to DHCP (remove static config if setup was active)
 if [ -f /etc/netplan/50-setup-mode.yaml ]; then
