@@ -737,6 +737,67 @@ install_vscode() {
     log_success "VS Code installed"
 }
 
+# Install Companion Hub Desktop (requires root)
+install_companion_hub() {
+    local hub_url="https://dl.ci.computer/v0.1.4/linux/deb/x64/Companion%20Hub_0.1.4_amd64.deb"
+    local hub_deb="/tmp/Companion_Hub_0.1.4_amd64.deb"
+
+    if command_exists ci-os-hub-desktop && dpkg -s companion-hub >/dev/null 2>&1; then
+        log_info "Companion Hub is already installed, skipping..."
+        return 0
+    fi
+
+    log_info "Installing Companion Hub Desktop..."
+    curl -L "$hub_url" -o "$hub_deb"
+
+    # Prefer apt install for dependency resolution.
+    if ! apt-get install -y "$hub_deb"; then
+        dpkg -i "$hub_deb" || true
+        apt-get install -f -y
+        dpkg -i "$hub_deb"
+    fi
+
+    rm -f "$hub_deb"
+    log_success "Companion Hub Desktop installed"
+}
+
+# Configure Companion Hub to auto-launch for desktop sessions and at boot.
+configure_companion_hub_autostart() {
+    if ! command_exists ci-os-hub-desktop; then
+        log_warning "Companion Hub binary not found, skipping autostart configuration"
+        return 0
+    fi
+
+    log_info "Configuring Companion Hub autostart..."
+
+    # Ensure launcher appears in system autostart for graphical login sessions.
+    install -d -m 755 /etc/xdg/autostart
+    cat > /etc/xdg/autostart/companion-hub.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Companion Hub
+Comment=Start Companion Hub Desktop
+Exec=ci-os-hub-desktop
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+
+    # Ensure Hub runtime directories are writable by the actual desktop user.
+    if [[ -d "${ACTUAL_HOME}/.local/share/companion-hub" ]]; then
+        chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.local/share/companion-hub" || true
+    fi
+
+    # Disable/remove legacy system service autostart. GUI apps are more reliable
+    # via desktop-session autostart than root-managed system services.
+    if systemctl list-unit-files | grep -q '^companion-hub-autostart.service'; then
+        systemctl disable --now companion-hub-autostart.service 2>/dev/null || true
+        rm -f /etc/systemd/system/companion-hub-autostart.service
+        systemctl daemon-reload
+    fi
+
+    log_success "Companion Hub autostart configured"
+}
+
 # Main function
 main() {
     log_info "Fresh Ubuntu Setup Script for CI-OS"
@@ -787,6 +848,8 @@ main() {
     install_cloudflared
     install_chromium
     install_vscode
+    install_companion_hub
+    configure_companion_hub_autostart
     enable_corepack
     remove_telemetry
 
