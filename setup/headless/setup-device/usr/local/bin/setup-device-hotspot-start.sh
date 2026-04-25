@@ -5,21 +5,78 @@
 
 set -e
 
+SCAN_CACHE_DIR="/var/lib/setup-device"
+SCAN_CACHE_FILE="${SCAN_CACHE_DIR}/last_scan_networks.txt"
+WIFI_IFACE="wlp192s0"
+
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | systemd-cat -t setup-hotspot-start -p info
 }
 
 log "Starting hotspot setup sequence..."
 
+wait_for_wifi_ready_for_scan() {
+    local max_wait=12
+    local i=0
+
+    ip link set "${WIFI_IFACE}" up 2>/dev/null || true
+
+    while [ "$i" -lt "$max_wait" ]; do
+        # Consider these states scan-ready for nmcli wifi list.
+        local state
+        state=$(nmcli -t -f DEVICE,TYPE,STATE device 2>/dev/null | awk -F: -v iface="${WIFI_IFACE}" '$1==iface && $2=="wifi" {print $3; exit}')
+
+        case "$state" in
+            connected|connecting|disconnected)
+                return 0
+                ;;
+        esac
+
+        sleep 1
+        i=$((i + 1))
+    done
+
+    return 1
+}
+
 # Step 1: Validate required runtime config files installed by the package
 log "Validating required config files..."
+mkdir -p /etc/hostapd /etc/dnsmasq.d
+
 if [ ! -f /etc/hostapd/hostapd-setup.conf ]; then
-    log "Error: /etc/hostapd/hostapd-setup.conf is missing"
-    exit 1
+    if [ -f /usr/share/setup-device/defaults/hostapd-setup.conf ]; then
+        cp /usr/share/setup-device/defaults/hostapd-setup.conf /etc/hostapd/hostapd-setup.conf
+        chmod 644 /etc/hostapd/hostapd-setup.conf
+        log "Restored missing /etc/hostapd/hostapd-setup.conf from defaults"
+    else
+        log "Error: /etc/hostapd/hostapd-setup.conf is missing"
+        exit 1
+    fi
 fi
 if [ ! -f /etc/dnsmasq.d/setup-portal.conf ]; then
-    log "Error: /etc/dnsmasq.d/setup-portal.conf is missing"
-    exit 1
+    if [ -f /usr/share/setup-device/defaults/setup-portal.conf ]; then
+        cp /usr/share/setup-device/defaults/setup-portal.conf /etc/dnsmasq.d/setup-portal.conf
+        chmod 644 /etc/dnsmasq.d/setup-portal.conf
+        log "Restored missing /etc/dnsmasq.d/setup-portal.conf from defaults"
+    else
+        log "Error: /etc/dnsmasq.d/setup-portal.conf is missing"
+        exit 1
+    fi
+fi
+
+# Step 2: Capture nearby WiFi networks before switching interface into AP mode
+mkdir -p "${SCAN_CACHE_DIR}"
+log "Capturing pre-AP WiFi scan results for setup dropdown fallback..."
+if ! wait_for_wifi_ready_for_scan; then
+    log "Warning: WiFi interface did not become scan-ready before timeout; attempting scan anyway"
+fi
+if nmcli -t -f SSID,SIGNAL,SECURITY device wifi list --rescan yes > "${SCAN_CACHE_FILE}.tmp" 2>/dev/null; then
+    mv "${SCAN_CACHE_FILE}.tmp" "${SCAN_CACHE_FILE}"
+    chmod 644 "${SCAN_CACHE_FILE}"
+    log "Saved pre-AP WiFi scan cache to ${SCAN_CACHE_FILE}"
+else
+    rm -f "${SCAN_CACHE_FILE}.tmp"
+    log "Warning: Could not capture pre-AP WiFi scan results"
 fi
 
 # Step 2: Reset WiFi interface (disconnect from any existing connection)

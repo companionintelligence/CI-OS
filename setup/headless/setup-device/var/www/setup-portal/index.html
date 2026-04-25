@@ -274,7 +274,7 @@
         <p class="subtitle">Configure your device's WiFi connection</p>
         
         <form method="POST" action="/api/configure" enctype="application/x-www-form-urlencoded">
-            <div class="form-group">
+            <div class="form-group" id="pairing-group">
                 <label for="pairing_code">Pairing Code</label>
                 <input 
                     type="text" 
@@ -349,6 +349,36 @@
         let healthCheckInterval = null;
         let scanRetryInterval = null;
         let lastScanSuccess = false;
+        let pairingRequired = true;
+
+        async function loadSetupState() {
+            try {
+                const response = await fetch('/api/status');
+                if (!response.ok) return;
+
+                const data = await response.json();
+                pairingRequired = Boolean(data.require_pairing);
+
+                const pairingGroup = document.getElementById('pairing-group');
+                const pairingInput = document.getElementById('pairing_code');
+                const subtitle = document.querySelector('.subtitle');
+
+                if (pairingRequired) {
+                    pairingGroup.style.display = 'block';
+                    pairingInput.setAttribute('required', 'required');
+                    pairingInput.disabled = false;
+                    subtitle.textContent = 'Configure your device\'s WiFi connection';
+                } else {
+                    pairingGroup.style.display = 'none';
+                    pairingInput.removeAttribute('required');
+                    pairingInput.disabled = true;
+                    pairingInput.value = '';
+                    subtitle.textContent = 'Configure your device\'s WiFi connection (pairing not required)';
+                }
+            } catch (error) {
+                console.log('Status check failed:', error.message);
+            }
+        }
         
         // Handle SSID dropdown changes
         const ssidSelect = document.getElementById('ssid');
@@ -600,6 +630,7 @@
         
         // Start monitoring on page load
         window.addEventListener('load', function() {
+            loadSetupState();
             startHealthMonitoring();
         });
         

@@ -29,6 +29,7 @@ LOG_FILE = '/var/log/setup-backend.log'
 PAIRING_CODE_JSON = CONFIG_DIR / 'pairing_code.json'
 SETUP_COMPLETE_FILE = DATA_DIR / 'setup-complete'
 CREDENTIALS_JSON = DATA_DIR / 'credentials.json'
+SCAN_CACHE_TXT = DATA_DIR / 'last_scan_networks.txt'
 
 # Cloud API config - can be set via environment `CI_CLOUD_API_URL`
 # or via `/etc/setup-device/device.conf` value `CI_CLOUD_API_URL`.
@@ -51,6 +52,52 @@ def _read_conf_value(key):
     return None
 
 CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://setup.companionintel.com'
+CI_HUB_REGISTRATION_STATUS_URL = os.environ.get('CI_HUB_REGISTRATION_STATUS_URL', 'http://127.0.0.1:5002/registration/status')
+
+
+def _hub_running():
+    """Detect whether Companion Hub is running on the device."""
+    try:
+        proc = subprocess.run(
+            ['pgrep', '-f', 'ci-os-hub-desktop'],
+            capture_output=True,
+            text=True,
+            timeout=3
+        )
+        return proc.returncode == 0
+    except Exception:
+        return False
+
+
+def get_hub_pairing_state():
+    """Return whether Hub is running and whether pairing should be required."""
+    state = {
+        'hub_running': False,
+        'hub_registered': False,
+        'require_pairing': False,
+    }
+
+    if not _hub_running():
+        return state
+
+    state['hub_running'] = True
+
+    try:
+        req = urllib.request.Request(CI_HUB_REGISTRATION_STATUS_URL, method='GET')
+        with urllib.request.urlopen(req, timeout=4) as resp:
+            body = resp.read().decode('utf-8', errors='replace')
+            parsed = json.loads(body)
+
+            hub_registered = bool(parsed.get('registered', False))
+            state['hub_registered'] = hub_registered
+            state['require_pairing'] = not hub_registered
+            return state
+    except Exception as e:
+        logger.warning(f"Could not query Hub registration status ({CI_HUB_REGISTRATION_STATUS_URL}): {e}")
+
+    # Conservative fallback: if Hub is running but status is unknown, require pairing.
+    state['require_pairing'] = True
+    return state
 
 def _cloud_pairing_url():
     """Get the cloud pairing endpoint URL"""
@@ -391,8 +438,52 @@ def validate_pairing_code(code):
     
     return True
 
+def _parse_nmcli_scan_lines(raw_lines):
+    """Parse nmcli -t SSID,SIGNAL,SECURITY lines into unique network objects."""
+    networks = []
+    seen_ssids = set()
+
+    for line in (raw_lines or '').strip().split('\n'):
+        if not line:
+            continue
+        parts = line.split(':')
+        if len(parts) >= 2:
+            ssid = parts[0]
+            signal = parts[1] if len(parts) > 1 else '0'
+            security = parts[2] if len(parts) > 2 else ''
+
+            if ssid and ssid not in seen_ssids:
+                networks.append({
+                    'ssid': ssid,
+                    'signal': int(signal) if signal.isdigit() else 0,
+                    'security': security if security else 'none'
+                })
+                seen_ssids.add(ssid)
+
+    networks.sort(key=lambda x: x['signal'], reverse=True)
+    return networks
+
+
+def load_cached_wifi_networks():
+    """Load cached pre-AP scan output captured before hotspot starts."""
+    try:
+        if not SCAN_CACHE_TXT.exists():
+            return []
+
+        with open(SCAN_CACHE_TXT, 'r') as f:
+            cached = f.read()
+
+        networks = _parse_nmcli_scan_lines(cached)
+        if networks:
+            logger.info(f"Using cached WiFi scan results ({len(networks)} networks)")
+        return networks
+    except Exception as e:
+        logger.warning(f"Failed to load cached WiFi scan results: {e}")
+        return []
+
+
 def scan_wifi_networks():
-    """Scan for available WiFi networks using nmcli"""
+    """Scan for available WiFi networks using nmcli with cached fallback in AP mode."""
     try:
         result = subprocess.run(
             ['nmcli', '-t', '-f', 'SSID,SIGNAL,SECURITY', 'device', 'wifi', 'list'],
@@ -400,40 +491,23 @@ def scan_wifi_networks():
             text=True,
             timeout=30
         )
-        
+
         if result.returncode != 0:
             logger.error(f"WiFi scan failed: {result.stderr}")
-            return []
-        
-        networks = []
-        seen_ssids = set()
-        
-        for line in result.stdout.strip().split('\n'):
-            if not line:
-                continue
-            parts = line.split(':')
-            if len(parts) >= 2:
-                ssid = parts[0]
-                signal = parts[1] if len(parts) > 1 else '0'
-                security = parts[2] if len(parts) > 2 else ''
-                
-                if ssid and ssid not in seen_ssids:
-                    networks.append({
-                        'ssid': ssid,
-                        'signal': int(signal) if signal.isdigit() else 0,
-                        'security': security if security else 'none'
-                    })
-                    seen_ssids.add(ssid)
-        
-        networks.sort(key=lambda x: x['signal'], reverse=True)
+            return load_cached_wifi_networks()
+
+        networks = _parse_nmcli_scan_lines(result.stdout)
+        if not networks:
+            return load_cached_wifi_networks()
+
         return networks
-        
+
     except subprocess.TimeoutExpired:
         logger.error("WiFi scan timed out")
-        return []
+        return load_cached_wifi_networks()
     except Exception as e:
         logger.error(f"WiFi scan error: {e}")
-        return []
+        return load_cached_wifi_networks()
 
 def get_wifi_interface():
     """Detect the WiFi interface (handles wlan0, wlp*, etc)"""
@@ -498,11 +572,20 @@ def connect_to_wifi(ssid):
         )
         
         if result.returncode != 0:
+            stderr_lower = (result.stderr or '').lower()
+            # Missing secrets is not transient: retrying 30 times only adds delay and noise.
+            if (
+                'no secrets' in stderr_lower
+                or 'cannot ask without' in stderr_lower
+                or 'password for' in stderr_lower
+            ):
+                return False, 'missing-secrets'
+
             logger.error(f"[WIFI CONNECT] Failed to activate connection to {ssid}")
             logger.error(f"[WIFI CONNECT] Return code: {result.returncode}")
             logger.error(f"[WIFI CONNECT] stderr: {result.stderr}")
             logger.error(f"[WIFI CONNECT] stdout: {result.stdout}")
-            return False
+            return False, None
         
         logger.info(f"[WIFI CONNECT] Successfully connected to WiFi: {ssid}")
         # Verify connection status
@@ -514,11 +597,11 @@ def connect_to_wifi(ssid):
         )
         if verify_result.returncode == 0:
             logger.info(f"[WIFI CONNECT] Active connections: {verify_result.stdout.strip()}")
-        return True
+        return True, None
         
     except Exception as e:
         logger.error(f"[WIFI CONNECT] Exception connecting to WiFi {ssid}: {e}", exc_info=True)
-        return False
+        return False, None
 
 def disconnect_from_wifi():
     """Disconnect from current WiFi connection"""
@@ -625,10 +708,14 @@ def status():
     """Get setup status"""
     setup_complete = SETUP_COMPLETE_FILE.exists()
     pairing_code = load_pairing_code()
+    hub_state = get_hub_pairing_state()
     
     return jsonify({
         'setup_complete': setup_complete,
-        'pairing_code_available': pairing_code is not None
+        'pairing_code_available': pairing_code is not None,
+        'hub_running': hub_state['hub_running'],
+        'hub_registered': hub_state['hub_registered'],
+        'require_pairing': hub_state['require_pairing'],
     })
 
 @app.route('/api/scan-networks', methods=['GET'])
@@ -654,21 +741,30 @@ def configure():
         pairing_code = data.get('pairing_code', '')
         ssid = data.get('ssid', '')
         password = data.get('password', '')
+
+        hub_state = get_hub_pairing_state()
+        require_pairing = hub_state['require_pairing']
+        logger.info(
+            f"[CONFIGURE] Hub state: running={hub_state['hub_running']}, "
+            f"registered={hub_state['hub_registered']}, require_pairing={require_pairing}"
+        )
         
-        if not pairing_code:
-            return jsonify({'error': 'Pairing code required'}), 400
+        if require_pairing and not pairing_code:
+            return jsonify({'error': 'Pairing code required for unregistered Hub'}), 400
         
         if not ssid:
             return jsonify({'error': 'SSID required'}), 400
         
-        # Validate pairing code is 6 characters (after normalizing user input)
-        normalized_code = normalize_pairing_code(pairing_code)
-        if len(normalized_code) != 6:
+        normalized_code = normalize_pairing_code(pairing_code) if pairing_code else ''
+        if require_pairing and len(normalized_code) != 6:
             return jsonify({'error': 'Pairing code must be 6 characters'}), 400
         
         logger.info(f"[CONFIGURE] Starting WiFi configuration")
         logger.info(f"[CONFIGURE] SSID: {ssid}")
-        logger.info(f"[CONFIGURE] Pairing code (normalized): {normalized_code}")
+        if require_pairing:
+            logger.info(f"[CONFIGURE] Pairing code (normalized): {normalized_code}")
+        else:
+            logger.info("[CONFIGURE] Pairing code not required for this device state")
         logger.info(f"[CONFIGURE] Password provided: {'Yes' if password else 'No (open network)'}")
         
         # Create NetworkManager connection
@@ -708,10 +804,18 @@ def configure():
         wifi_connected = False
         max_wifi_wait = 30  # Wait up to 30 seconds for WiFi connection
         for i in range(max_wifi_wait):
-            if connect_to_wifi(ssid):
+            connected, failure_reason = connect_to_wifi(ssid)
+            if connected:
                 wifi_connected = True
                 logger.info("WiFi connection established")
                 break
+
+            if failure_reason == 'missing-secrets':
+                logger.warning("Selected WiFi network requires additional credentials that were not provided")
+                return jsonify({
+                    'error': 'Selected WiFi network requires credentials that were not provided. Please re-enter WiFi details and try again.'
+                }), 400
+
             logger.info(f"Waiting for WiFi connection... ({i+1}/{max_wifi_wait})")
             time.sleep(1)
         
@@ -765,6 +869,33 @@ def configure():
                 </html>
                 ''', 200
         
+        if not require_pairing:
+            logger.info("Internet connectivity confirmed. Hub already registered (or not running), skipping pairing workflow.")
+            if request.is_json:
+                return jsonify({
+                    'status': 'success',
+                    'message': 'WiFi configured successfully',
+                    'pairing_required': False
+                })
+            return '''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Setup Complete</title>
+                <style>
+                    body { font-family: sans-serif; text-align: center; padding: 50px; }
+                    .success { color: green; font-size: 24px; margin-bottom: 20px; }
+                </style>
+            </head>
+            <body>
+                <div class="success">✓ Device configured successfully!</div>
+                <p>The device will connect to the network shortly.</p>
+            </body>
+            </html>
+            ''', 200
+
         # Step 3: Now that we have internet, validate pairing code with cloud
         logger.info("Internet connectivity confirmed. Starting cloud device registration...")
         

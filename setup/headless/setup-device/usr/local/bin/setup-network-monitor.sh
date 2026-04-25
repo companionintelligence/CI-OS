@@ -4,9 +4,12 @@
 
 CHECK_INTERVAL=3   # Check every 3 seconds (aggressive)
 FAILURE_THRESHOLD=2  # Start hotspot after 2 failed connectivity checks (~6 seconds)
+BOOT_DISCOVERY_GRACE_SECONDS=45  # Allow boot-time WiFi discovery/auto-connect before AP fallback
+SCAN_READY_MIN_SSIDS=1
 
 fail_count=0
 hotspot_active=false
+boot_started_at=$(date +%s)
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | systemd-cat -t setup-network-monitor -p info
@@ -39,7 +42,52 @@ check_connectivity() {
     return 1
 }
 
+nm_is_connecting_or_initializing() {
+    local state
+    state=$(nmcli -t -f STATE general 2>/dev/null | head -1 | tr '[:upper:]' '[:lower:]')
+    case "$state" in
+        connecting*|asleep|unknown|*)
+            # unknown/empty values are treated as still-initializing during boot grace.
+            [[ -z "$state" ]] && return 0
+            [[ "$state" == connecting* || "$state" == asleep || "$state" == unknown ]] && return 0
+            return 1
+            ;;
+    esac
+}
+
+wifi_scan_ready() {
+    local count
+    count=$(nmcli -t -f SSID device wifi list --rescan auto 2>/dev/null | sed '/^\s*$/d' | wc -l)
+    [[ "$count" -ge "$SCAN_READY_MIN_SSIDS" ]]
+}
+
+should_delay_hotspot_during_boot() {
+    local now elapsed
+    now=$(date +%s)
+    elapsed=$((now - boot_started_at))
+
+    if [[ "$elapsed" -ge "$BOOT_DISCOVERY_GRACE_SECONDS" ]]; then
+        return 1
+    fi
+
+    # If NM is still connecting/initializing or scan list is not ready, wait.
+    if nm_is_connecting_or_initializing; then
+        return 0
+    fi
+
+    if ! wifi_scan_ready; then
+        return 0
+    fi
+
+    return 1
+}
+
 start_hotspot() {
+    # Derive effective state from real service status in case services were started externally.
+    if systemctl is-active --quiet hostapd-setup.service && systemctl is-active --quiet dnsmasq-setup.service; then
+        hotspot_active=true
+    fi
+
     if [ "$hotspot_active" = false ]; then
         log "No connectivity detected. Starting hotspot via startup script..."
         if /usr/local/bin/setup-device-hotspot-start.sh >/dev/null 2>&1; then
@@ -52,7 +100,8 @@ start_hotspot() {
 }
 
 stop_hotspot() {
-    if [ "$hotspot_active" = true ]; then
+    # Stop hotspot whenever services are active, even if internal flag drifted.
+    if [ "$hotspot_active" = true ] || systemctl is-active --quiet hostapd-setup.service || systemctl is-active --quiet dnsmasq-setup.service; then
         log "Connectivity restored. Stopping hotspot services..."
         systemctl stop hostapd-setup.service 2>/dev/null || true
         systemctl stop dnsmasq-setup.service 2>/dev/null || true
@@ -62,6 +111,12 @@ stop_hotspot() {
 }
 
 log "Setup network monitor started (checking every ${CHECK_INTERVAL}s, threshold=${FAILURE_THRESHOLD})"
+
+# Initialize hotspot state from current service status.
+if systemctl is-active --quiet hostapd-setup.service && systemctl is-active --quiet dnsmasq-setup.service; then
+    hotspot_active=true
+    log "Detected active hotspot services at startup"
+fi
 
 # Initial connectivity check
 if check_connectivity; then
@@ -81,6 +136,15 @@ while true; do
         fi
         stop_hotspot
     else
+        if should_delay_hotspot_during_boot; then
+            fail_count=0
+            if [ $(( ($(date +%s) - boot_started_at) % 10 )) -lt "$CHECK_INTERVAL" ]; then
+                log "Boot grace: waiting for WiFi discovery/auto-connect before AP fallback"
+            fi
+            sleep $CHECK_INTERVAL
+            continue
+        fi
+
         # No connectivity
         fail_count=$((fail_count + 1))
         
