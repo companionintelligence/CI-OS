@@ -51,7 +51,7 @@ def _read_conf_value(key):
         return None
     return None
 
-CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://setup.companionintel.com'
+CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://portal.companionintelligence.com/api/'
 CI_HUB_REGISTRATION_STATUS_URL = os.environ.get('CI_HUB_REGISTRATION_STATUS_URL', 'http://127.0.0.1:5002/api/registration/status')
 CI_HUB_REGISTRATION_CALLBACK_URL = os.environ.get('CI_HUB_REGISTRATION_CALLBACK_URL', 'http://127.0.0.1:5002/api/registration/callback')
 
@@ -154,21 +154,24 @@ def get_device_id():
         return device_id
 
 def check_internet_connectivity(timeout=5):
-    """Check if device has internet connectivity"""
+    """Check if device has internet connectivity including DNS resolution"""
+    # Step 1: basic IP reachability
+    ip_ok = False
     try:
-        # Try pinging a public DNS server
         result = subprocess.run(
             ['ping', '-c', '1', '-W', str(timeout), '8.8.8.8'],
             capture_output=True,
             timeout=timeout + 1
         )
-        if result.returncode == 0:
-            logger.info("Internet connectivity check: OK")
-            return True
+        ip_ok = result.returncode == 0
     except Exception as e:
-        logger.debug(f"Internet connectivity check failed: {e}")
-    
-    # Also check if we can resolve DNS
+        logger.debug(f"Internet connectivity IP check failed: {e}")
+
+    if not ip_ok:
+        logger.warning("Internet connectivity check: FAILED")
+        return False
+
+    # Step 2: verify DNS is also functional (needed for cloud API calls)
     try:
         result = subprocess.run(
             ['nslookup', 'google.com'],
@@ -176,16 +179,20 @@ def check_internet_connectivity(timeout=5):
             timeout=timeout
         )
         if result.returncode == 0:
-            logger.info("Internet connectivity check: OK (DNS resolution)")
+            logger.info("Internet connectivity check: OK")
             return True
     except Exception:
         pass
-    
-    logger.warning("Internet connectivity check: FAILED")
+
+    logger.warning("Internet connectivity check: FAILED (DNS not ready)")
     return False
 
 def get_pairing_info_from_cloud(pairing_code, timeout=10):
-    """GET request to /api/devices/pair?pairing_code=XXX to get device_id and api_key"""
+    """GET request to /api/devices/pair?pairing_code=XXX to validate pairing details.
+
+    CI-Portal currently returns non-sensitive device metadata from GET /pair
+    (for example `deviceId` / `pairingCode`) and omits `api_key` by design.
+    """
     # Normalize to uppercase (removes non-alphanumeric characters)
     normalized_code = normalize_pairing_code(pairing_code)
     encoded_code = urllib.parse.quote(normalized_code)
@@ -202,14 +209,16 @@ def get_pairing_info_from_cloud(pairing_code, timeout=10):
             try:
                 parsed = json.loads(body)
                 if isinstance(parsed, dict):
-                    device_id = parsed.get('device_id')
-                    api_key = parsed.get('api_key')
-                    cloud_pairing_code = parsed.get('pairing_code', '')
-                    if device_id and api_key:
-                        logger.info(f"Retrieved device_id: {device_id}, api_key: {api_key[:8]}..., pairing_code: {cloud_pairing_code}")
+                    device_id = parsed.get('device_id') or parsed.get('deviceId')
+                    cloud_pairing_code = parsed.get('pairing_code') or parsed.get('pairingCode', '')
+                    if device_id:
+                        logger.info(
+                            f"Retrieved pairing info from cloud: device_id={device_id}, "
+                            f"pairing_code={cloud_pairing_code}"
+                        )
                         return True, parsed
                     else:
-                        logger.warning(f"Missing device_id or api_key in response: {parsed}")
+                        logger.warning(f"Missing device_id in response: {parsed}")
                         return False, parsed
                 return False, parsed
             except json.JSONDecodeError:
@@ -231,7 +240,7 @@ def get_pairing_info_from_cloud(pairing_code, timeout=10):
         logger.warning(f"Cloud pairing GET failed: {e}")
         return False, str(e)
 
-def update_device_id_in_cloud(pairing_code, device_id, api_key, timeout=10):
+def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10):
     """POST request to /api/devices/pair to upsert device_id where pairing_code matches"""
     url = _cloud_pairing_url()
     
@@ -246,8 +255,11 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key, timeout=10):
     data = json.dumps(payload).encode('utf-8')
     headers = {
         'Content-Type': 'application/json',
-        'X-API-Key': api_key  # Use api_key from GET response for authentication
     }
+    # Older flows expected api_key from GET /pair; current portal no longer returns it there.
+    # Keep header when available for backward compatibility.
+    if api_key:
+        headers['X-API-Key'] = api_key
     
     try:
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
@@ -586,45 +598,146 @@ def get_wifi_interface():
         logger.error(f"Error detecting WiFi interface: {e}")
         return 'wlan0'  # Fallback
 
-def create_wifi_connection(ssid, password):
-    """Create NetworkManager connection for WiFi"""
+def _split_nmcli_t_fields(line):
+    """Split nmcli -t fields while preserving escaped colons (\\:)."""
+    parts = re.split(r'(?<!\\):', line.strip())
+    return [p.replace('\\:', ':') for p in parts]
+
+def find_open_bssid_for_ssid(ssid):
+    """Return strongest open BSSID for an SSID, or None if none found."""
     try:
-        # Delete existing connection if it exists
-        subprocess.run(['nmcli', 'connection', 'delete', ssid], 
-                      capture_output=True, timeout=5)
-        
+        result = subprocess.run(
+            ['nmcli', '-t', '-f', 'SSID,BSSID,SIGNAL,SECURITY', 'device', 'wifi', 'list'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode != 0:
+            logger.warning(f"Failed to query BSSIDs for SSID {ssid}: {result.stderr}")
+            return None
+
+        best_bssid = None
+        best_signal = -1
+        for raw in (result.stdout or '').splitlines():
+            if not raw.strip():
+                continue
+            parts = _split_nmcli_t_fields(raw)
+            if len(parts) < 4:
+                continue
+
+            row_ssid, bssid, signal_str, security = parts[0], parts[1], parts[2], parts[3]
+            if row_ssid != ssid:
+                continue
+
+            # Empty SECURITY means open network in nmcli output.
+            if security.strip():
+                continue
+
+            signal = int(signal_str) if signal_str.isdigit() else 0
+            if signal > best_signal:
+                best_signal = signal
+                best_bssid = bssid
+
+        if best_bssid:
+            logger.info(f"Selected open BSSID for {ssid}: {best_bssid} (signal {best_signal})")
+        else:
+            logger.info(f"No explicitly open BSSID found for SSID: {ssid}")
+
+        return best_bssid
+    except Exception as e:
+        logger.warning(f"Error selecting open BSSID for {ssid}: {e}")
+        return None
+
+def delete_wifi_connections_by_name(connection_name):
+    """Delete all NetworkManager connection profiles that share the same name."""
+    try:
+        result = subprocess.run(
+            ['nmcli', '-t', '-f', 'NAME,UUID', 'connection', 'show'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        if result.returncode != 0:
+            logger.warning(f"Could not list existing connections: {result.stderr}")
+            return
+
+        for raw in (result.stdout or '').splitlines():
+            if not raw.strip():
+                continue
+            parts = _split_nmcli_t_fields(raw)
+            if len(parts) < 2:
+                continue
+            name, uuid = parts[0], parts[1]
+            if name != connection_name or not uuid:
+                continue
+
+            subprocess.run(
+                ['nmcli', 'connection', 'delete', 'uuid', uuid],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            logger.info(f"Deleted existing connection profile {name} ({uuid})")
+    except Exception as e:
+        logger.warning(f"Failed to cleanup connection profiles for {connection_name}: {e}")
+
+
+def create_wifi_connection(ssid, password):
+    """Create NetworkManager connection for WiFi and return its UUID."""
+    try:
+        # Remove duplicate profile names so activation cannot pick stale credentials.
+        delete_wifi_connections_by_name(ssid)
+
         # Detect the actual WiFi interface on this system
         wifi_ifname = get_wifi_interface()
         logger.info(f"Using WiFi interface: {wifi_ifname}")
-        
+
         # Create new connection - explicitly specify the WiFi interface
-        cmd = ['nmcli', 'connection', 'add', 'type', 'wifi', 
+        cmd = ['nmcli', 'connection', 'add', 'type', 'wifi',
                'con-name', ssid, 'ifname', wifi_ifname, 'ssid', ssid]
-        
+
         if password:
             cmd.extend(['wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', password])
         else:
             cmd.extend(['wifi-sec.key-mgmt', 'none'])
-        
+            # If SSID exists with mixed security variants, lock to an open BSSID.
+            open_bssid = find_open_bssid_for_ssid(ssid)
+            if open_bssid:
+                cmd.extend(['802-11-wireless.bssid', open_bssid])
+
+        # Always pin DNS servers so cloud registration works even when the
+        # WiFi network does not hand out DNS via DHCP.
+        cmd.extend(['ipv4.dns', '8.8.8.8 1.1.1.1', 'ipv4.ignore-auto-dns', 'no'])
+
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
-        
+
         if result.returncode != 0:
             logger.error(f"Failed to create connection: {result.stderr}")
-            return False
-        
-        logger.info(f"Created WiFi connection: {ssid}")
-        return True
-        
+            return None
+
+        match = re.search(r'\(([0-9a-fA-F-]{36})\)', result.stdout or '')
+        connection_uuid = match.group(1) if match else None
+        logger.info(f"Created WiFi connection: {ssid} (uuid={connection_uuid or 'unknown'})")
+        return connection_uuid
+
     except Exception as e:
         logger.error(f"Error creating WiFi connection: {e}")
-        return False
+        return None
 
-def connect_to_wifi(ssid):
-    """Activate NetworkManager connection"""
-    logger.info(f"[WIFI CONNECT] Attempting to connect to SSID: {ssid}")
+def connect_to_wifi(connection_target, use_uuid=False):
+    """Activate NetworkManager connection by UUID (preferred) or by name."""
+    target_desc = f"uuid={connection_target}" if use_uuid else f"SSID: {connection_target}"
+    logger.info(f"[WIFI CONNECT] Attempting to connect to {target_desc}")
     try:
+        cmd = ['nmcli', 'connection', 'up']
+        if use_uuid:
+            cmd.extend(['uuid', connection_target])
+        else:
+            cmd.append(connection_target)
+
         result = subprocess.run(
-            ['nmcli', 'connection', 'up', ssid],
+            cmd,
             capture_output=True,
             text=True,
             timeout=30
@@ -640,13 +753,16 @@ def connect_to_wifi(ssid):
             ):
                 return False, 'missing-secrets'
 
-            logger.error(f"[WIFI CONNECT] Failed to activate connection to {ssid}")
+            if 'networkmanager is not running' in stderr_lower:
+                return False, 'networkmanager-not-ready'
+
+            logger.error(f"[WIFI CONNECT] Failed to activate connection to {connection_target}")
             logger.error(f"[WIFI CONNECT] Return code: {result.returncode}")
             logger.error(f"[WIFI CONNECT] stderr: {result.stderr}")
             logger.error(f"[WIFI CONNECT] stdout: {result.stdout}")
             return False, None
         
-        logger.info(f"[WIFI CONNECT] Successfully connected to WiFi: {ssid}")
+        logger.info(f"[WIFI CONNECT] Successfully connected to WiFi: {connection_target}")
         # Verify connection status
         verify_result = subprocess.run(
             ['nmcli', '-t', '-f', 'NAME,DEVICE,TYPE,STATE', 'connection', 'show', '--active'],
@@ -659,7 +775,7 @@ def connect_to_wifi(ssid):
         return True, None
         
     except Exception as e:
-        logger.error(f"[WIFI CONNECT] Exception connecting to WiFi {ssid}: {e}", exc_info=True)
+        logger.error(f"[WIFI CONNECT] Exception connecting to WiFi {connection_target}: {e}", exc_info=True)
         return False, None
 
 def disconnect_from_wifi():
@@ -757,6 +873,38 @@ def remove_setup_netplan_config():
         logger.error(f"Error removing netplan config: {e}")
         return False
 
+def wait_for_networkmanager_ready(timeout=20):
+    """Wait until NetworkManager is active and can answer nmcli queries."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        try:
+            active = subprocess.run(
+                ['systemctl', 'is-active', 'NetworkManager.service'],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if active.returncode != 0 or active.stdout.strip() != 'active':
+                time.sleep(1)
+                continue
+
+            nmcli_ping = subprocess.run(
+                ['nmcli', '-t', '-f', 'RUNNING', 'general'],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if nmcli_ping.returncode == 0 and 'running' in (nmcli_ping.stdout or '').lower():
+                logger.info("NetworkManager is active and ready")
+                return True
+        except Exception:
+            pass
+
+        time.sleep(1)
+
+    logger.warning("NetworkManager did not become ready within timeout")
+    return False
+
 @app.route('/health', methods=['GET'])
 def health():
     """Health check endpoint"""
@@ -828,10 +976,11 @@ def configure():
         
         # Create NetworkManager connection
         logger.info(f"[CONFIGURE] Creating NetworkManager connection for {ssid}...")
-        if not create_wifi_connection(ssid, password):
+        connection_uuid = create_wifi_connection(ssid, password)
+        if not connection_uuid:
             logger.error(f"[CONFIGURE] Failed to create WiFi connection for {ssid}")
             return jsonify({'error': 'Failed to create WiFi connection'}), 500
-        logger.info(f"[CONFIGURE] NetworkManager connection created successfully")
+        logger.info(f"[CONFIGURE] NetworkManager connection created successfully (uuid={connection_uuid})")
         
         # Persist credentials securely (root-only, JSON format)
         try:
@@ -857,23 +1006,39 @@ def configure():
         # Remove netplan static IP config to allow NetworkManager to manage the interface
         time.sleep(1)
         remove_setup_netplan_config()
+
+        # netplan apply may briefly restart NetworkManager; wait until it is ready.
+        wait_for_networkmanager_ready(timeout=20)
         
         # Step 1: Connect to WiFi first
-        logger.info(f"Connecting to WiFi network: {ssid}")
+        logger.info(f"Connecting to WiFi network: {ssid} (uuid={connection_uuid})")
         wifi_connected = False
         max_wifi_wait = 30  # Wait up to 30 seconds for WiFi connection
         for i in range(max_wifi_wait):
-            connected, failure_reason = connect_to_wifi(ssid)
+            connected, failure_reason = connect_to_wifi(connection_uuid, use_uuid=True)
             if connected:
                 wifi_connected = True
                 logger.info("WiFi connection established")
                 break
 
             if failure_reason == 'missing-secrets':
-                logger.warning("Selected WiFi network requires additional credentials that were not provided")
-                return jsonify({
-                    'error': 'Selected WiFi network requires credentials that were not provided. Please re-enter WiFi details and try again.'
-                }), 400
+                if password:
+                    # Password was provided but NM still reports missing credentials - tell user
+                    logger.warning("Selected WiFi network requires additional credentials that were not provided")
+                    return jsonify({
+                        'error': 'Selected WiFi network requires credentials that were not provided. Please re-enter WiFi details and try again.'
+                    }), 400
+                else:
+                    # Open network: nmcli reports missing-secrets but the network may connect anyway
+                    # Skip the nmcli check and proceed to the internet connectivity wait below
+                    logger.info("Open network: nmcli reports missing-secrets, proceeding to connectivity wait")
+                    wifi_connected = True
+                    break
+
+            if failure_reason == 'networkmanager-not-ready':
+                logger.info("NetworkManager is restarting; retrying WiFi connection")
+                time.sleep(1)
+                continue
 
             logger.info(f"Waiting for WiFi connection... ({i+1}/{max_wifi_wait})")
             time.sleep(1)
@@ -993,13 +1158,13 @@ def configure():
                     </html>
                     ''', 500
             else:
-                # Extract device_id, api_key, and pairing_code from response
-                cloud_device_id = pairing_info.get('device_id')
+                # Extract pairing metadata from response (supports snake_case + camelCase)
+                cloud_device_id = pairing_info.get('device_id') or pairing_info.get('deviceId')
                 api_key = pairing_info.get('api_key')
-                cloud_pairing_code = pairing_info.get('pairing_code', '')
-                
-                if not cloud_device_id or not api_key:
-                    logger.warning(f"Missing device_id or api_key in cloud response: {pairing_info}")
+                cloud_pairing_code = pairing_info.get('pairing_code') or pairing_info.get('pairingCode', '')
+
+                if not cloud_device_id:
+                    logger.warning(f"Missing device_id in cloud response: {pairing_info}")
                 else:
                     # Validate pairing code matches (case-insensitive comparison)
                     user_code_normalized = normalize_pairing_code(pairing_code)
@@ -1045,11 +1210,18 @@ def configure():
                                 </html>
                                 ''', 400
                     
-                    logger.info(f"Retrieved from cloud - device_id: {cloud_device_id}, api_key: {api_key[:8]}..., pairing_code matches")
-                    
-                    # Step 2: Save API key from GET response for later use
-                    logger.info(f"[CREDENTIALS] Saving API key from cloud response for later use")
-                    save_cloud_credentials(cloud_device_id, api_key)
+                    if api_key:
+                        logger.info(
+                            f"Retrieved from cloud - device_id: {cloud_device_id}, "
+                            f"api_key: {api_key[:8]}..., pairing_code matches"
+                        )
+                        logger.info("[CREDENTIALS] Saving API key from cloud GET response")
+                        save_cloud_credentials(cloud_device_id, api_key)
+                    else:
+                        logger.info(
+                            f"Retrieved from cloud - device_id: {cloud_device_id}, "
+                            "api_key not provided by GET /pair"
+                        )
                     
                     # Step 3: Get the actual device ID from local machine
                     local_device_id = get_device_id()
@@ -1065,6 +1237,13 @@ def configure():
                     
                     if update_success:
                         logger.info(f"Device ID updated successfully in cloud: {update_resp}")
+                        # Persist api_key from POST response if it was not present in GET response.
+                        if isinstance(update_resp, dict):
+                            post_api_key = update_resp.get('api_key')
+                            post_device_id = update_resp.get('device_id') or local_device_id
+                            if post_api_key:
+                                logger.info("[CREDENTIALS] Saving API key from cloud POST response")
+                                save_cloud_credentials(post_device_id, post_api_key)
                         if hub_state.get('hub_running'):
                             callback_ok = notify_hub_registration_callback(update_resp)
                             if not callback_ok:

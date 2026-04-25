@@ -13,6 +13,31 @@ log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | systemd-cat -t setup-hotspot-start -p info
 }
 
+recover_wifi_radio() {
+    # AP mode can fail after client/AP transitions if radio is soft-blocked or NM leaves interface in a bad state.
+    rfkill unblock wifi 2>/dev/null || true
+    nmcli radio wifi on 2>/dev/null || true
+    ip link set "${WIFI_IFACE}" up 2>/dev/null || true
+}
+
+start_hostapd_with_retry() {
+    log "Starting hostapd-setup.service..."
+    if systemctl start hostapd-setup.service; then
+        return 0
+    fi
+
+    log "hostapd start failed on first attempt; applying radio recovery and retrying once"
+    systemctl stop hostapd-setup.service 2>/dev/null || true
+    recover_wifi_radio
+    sleep 1
+
+    if systemctl start hostapd-setup.service; then
+        return 0
+    fi
+
+    return 1
+}
+
 log "Starting hotspot setup sequence..."
 
 wait_for_wifi_ready_for_scan() {
@@ -87,6 +112,8 @@ systemctl stop hostapd-setup.service 2>/dev/null || true
 systemctl stop dnsmasq-setup.service 2>/dev/null || true
 sleep 1
 
+recover_wifi_radio
+
 ip link set wlp192s0 down 2>/dev/null || log "Warning: Could not bring interface down"
 sleep 1
 ip addr flush dev wlp192s0 2>/dev/null || log "Warning: Could not flush addresses"
@@ -98,9 +125,10 @@ sleep 2
 log "Assigning static IP 192.168.99.1/24..."
 ip addr add 192.168.99.1/24 dev wlp192s0 2>/dev/null || log "Warning: Could not assign IP (may already exist)"
 
-# Step 4: Start hostapd
-log "Starting hostapd-setup.service..."
-systemctl start hostapd-setup.service
+# Step 4: Start hostapd (with one-shot recovery retry)
+if ! start_hostapd_with_retry; then
+    log "✗ hostapd-setup.service failed to start after retry"
+fi
 sleep 2
 
 # Step 5: Start dnsmasq
