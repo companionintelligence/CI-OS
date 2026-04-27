@@ -119,8 +119,16 @@ stop_hotspot() {
         log "Connectivity restored. Stopping hotspot services..."
         systemctl stop hostapd-setup.service 2>/dev/null || true
         systemctl stop dnsmasq-setup.service 2>/dev/null || true
+        systemctl stop nginx.service 2>/dev/null || true
         hotspot_active=false
         fail_count=0
+        
+        # Restart Traefik now that port 80/443 are free (Hub backend was never stopped)
+        if command -v docker >/dev/null 2>&1; then
+            log "Resuming Traefik for Companion Hub..."
+            docker start traefik 2>/dev/null || true
+            log "Traefik resumed - Companion Hub accessible again"
+        fi
     fi
 }
 

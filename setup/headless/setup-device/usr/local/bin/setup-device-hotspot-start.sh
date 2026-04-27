@@ -20,6 +20,29 @@ recover_wifi_radio() {
     ip link set "${WIFI_IFACE}" up 2>/dev/null || true
 }
 
+stop_companion_hub_traefik() {
+    # Stop only Traefik reverse proxy to free port 80/443 for captive portal
+    # Keep Hub backend running so setup can still communicate with it for device registration
+    if command -v docker >/dev/null 2>&1; then
+        if docker ps 2>/dev/null | grep -q "traefik" 2>/dev/null; then
+            log "Pausing Traefik to free port 80/443 for captive portal (keeping Hub backend running)..."
+            docker stop traefik 2>/dev/null || true
+            sleep 2  # Give port time to be fully released
+            log "Traefik paused - Hub backend still available for device registration"
+        fi
+    fi
+}
+
+start_nginx_captive_portal() {
+    # Start nginx to serve captive portal on port 80 (now that Hub is stopped)
+    log "Starting nginx for captive portal on port 80..."
+    if systemctl start nginx.service; then
+        log "✓ Nginx started successfully for captive portal"
+    else
+        log "Warning: Failed to start nginx - captive portal may not be accessible"
+    fi
+}
+
 start_hostapd_with_retry() {
     log "Starting hostapd-setup.service..."
     if systemctl start hostapd-setup.service; then
@@ -39,6 +62,14 @@ start_hostapd_with_retry() {
 }
 
 log "Starting hotspot setup sequence..."
+
+# Pause Traefik to free port 80/443 for captive portal (Hub backend stays running)
+stop_companion_hub_traefik
+sleep 1
+
+# Start nginx to serve captive portal on freed port 80
+start_nginx_captive_portal
+sleep 1
 
 wait_for_wifi_ready_for_scan() {
     local max_wait=12

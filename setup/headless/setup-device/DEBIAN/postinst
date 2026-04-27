@@ -114,12 +114,20 @@ fi
 echo "Validating nginx configuration..."
 if nginx -t; then
     echo "✓ Nginx configuration is valid"
-    echo "Starting nginx service..."
-    if systemctl start nginx.service; then
-        echo "✓ Nginx service started successfully"
+    
+    # Check if port 80 is already in use (e.g., by Companion Hub)
+    if ss -tlnp 2>/dev/null | grep -q ':80 '; then
+        echo "Info: Port 80 is already in use (likely Companion Hub)"
+        echo "Nginx will be started by setup-network-monitor when hotspot activates"
+        systemctl enable nginx.service 2>/dev/null || true
     else
-        echo "Warning: Failed to start nginx.service"
-        echo "Portal UI may be unavailable until nginx is fixed and started"
+        echo "Starting nginx service..."
+        if systemctl start nginx.service; then
+            echo "✓ Nginx service started successfully"
+        else
+            echo "Warning: Failed to start nginx.service"
+            echo "Portal UI may be unavailable until nginx is fixed and started"
+        fi
     fi
 else
     echo "Warning: nginx configuration test failed"
