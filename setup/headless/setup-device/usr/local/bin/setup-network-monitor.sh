@@ -61,6 +61,20 @@ wifi_scan_ready() {
     [[ "$count" -ge "$SCAN_READY_MIN_SSIDS" ]]
 }
 
+wifi_link_active_or_connecting() {
+    local states
+    states=$(nmcli -t -f TYPE,STATE device status 2>/dev/null | awk -F: '$1=="wifi" {print tolower($2)}')
+    if [[ -z "$states" ]]; then
+        return 1
+    fi
+
+    if echo "$states" | grep -Eq '(^|\n)(connected|connecting|config|ip-config|ip-check|need-auth)($|\n)'; then
+        return 0
+    fi
+
+    return 1
+}
+
 should_delay_hotspot_during_boot() {
     local now elapsed
     now=$(date +%s)
@@ -136,6 +150,18 @@ while true; do
         fi
         stop_hotspot
     else
+        # Once a WiFi link is connected (or still negotiating), do not force AP fallback
+        # on temporary internet probe failures; this prevents setup from tearing down
+        # a valid station connection.
+        if wifi_link_active_or_connecting; then
+            if [ $fail_count -gt 0 ]; then
+                log "WiFi link active/connecting; suppressing hotspot fallback"
+            fi
+            fail_count=0
+            sleep $CHECK_INTERVAL
+            continue
+        fi
+
         if should_delay_hotspot_during_boot; then
             fail_count=0
             if [ $(( ($(date +%s) - boot_started_at) % 10 )) -lt "$CHECK_INTERVAL" ]; then

@@ -51,9 +51,31 @@ def _read_conf_value(key):
         return None
     return None
 
+
+def _read_int_env(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
 CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://portal.companionintelligence.com/api/'
 CI_HUB_REGISTRATION_STATUS_URL = os.environ.get('CI_HUB_REGISTRATION_STATUS_URL', 'http://127.0.0.1:5002/api/registration/status')
 CI_HUB_REGISTRATION_CALLBACK_URL = os.environ.get('CI_HUB_REGISTRATION_CALLBACK_URL', 'http://127.0.0.1:5002/api/registration/callback')
+REGISTRATION_CONNECTIVITY_WINDOW_SECONDS = _read_int_env('SETUP_REGISTRATION_CONNECTIVITY_WINDOW_SECONDS', 20)
+CLOUD_REQUEST_USER_AGENT = os.environ.get('SETUP_CLOUD_USER_AGENT', 'curl/8.5.0')
+
+
+def _cloud_request_headers(extra_headers=None):
+    headers = {
+        'Accept': 'application/json',
+        'User-Agent': CLOUD_REQUEST_USER_AGENT,
+    }
+    if extra_headers:
+        headers.update(extra_headers)
+    return headers
 
 
 def _hub_running():
@@ -110,6 +132,38 @@ def _cloud_pairing_url():
 
 def get_device_id():
     """Get a unique device identifier (serial number or hardware ID)"""
+    env_device_id = os.environ.get('DEVICE_ID', '').strip()
+    if env_device_id:
+        logger.info(f"Device ID obtained via env DEVICE_ID: {env_device_id}")
+        return env_device_id
+
+    invalid_ids = {
+        'not specified',
+        'to be filled by o.e.m.',
+        'default string',
+        'system serial number',
+        'chassis serial number',
+        'none',
+        'na',
+        'n/a',
+        '0',
+        '',
+    }
+
+    # Try sysfs first (fast and no dmidecode dependency).
+    for path, method_name in [
+        ('/sys/class/dmi/id/product_serial', 'product-serial'),
+        ('/sys/class/dmi/id/product_uuid', 'product-uuid'),
+    ]:
+        try:
+            with open(path, 'r') as f:
+                device_id = f.read().strip()
+            if device_id and device_id.lower() not in invalid_ids:
+                logger.info(f"Device ID obtained via {method_name}: {device_id}")
+                return device_id
+        except Exception:
+            pass
+
     # Try multiple methods to get a unique device identifier
     methods = [
         # Try to get system serial number
@@ -131,7 +185,7 @@ def get_device_id():
             )
             if result.returncode == 0 and result.stdout.strip():
                 device_id = result.stdout.strip()
-                if device_id and device_id != 'Not Specified' and device_id != 'To be filled by O.E.M.':
+                if device_id and device_id.lower() not in invalid_ids:
                     logger.info(f"Device ID obtained via {method_name}: {device_id}")
                     return device_id
         except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
@@ -200,7 +254,7 @@ def get_pairing_info_from_cloud(pairing_code, timeout=10):
     logger.info(f"[CLOUD GET] Request URL: {url}")
     logger.info(f"[CLOUD GET] Pairing code (normalized): {normalized_code}")
     try:
-        req = urllib.request.Request(url, method='GET')
+        req = urllib.request.Request(url, headers=_cloud_request_headers(), method='GET')
         logger.info(f"[CLOUD GET] Sending GET request to cloud API...")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode('utf-8', errors='replace')
@@ -253,9 +307,9 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10)
     }
     
     data = json.dumps(payload).encode('utf-8')
-    headers = {
+    headers = _cloud_request_headers({
         'Content-Type': 'application/json',
-    }
+    })
     # Older flows expected api_key from GET /pair; current portal no longer returns it there.
     # Keep header when available for backward compatibility.
     if api_key:
@@ -603,6 +657,44 @@ def _split_nmcli_t_fields(line):
     parts = re.split(r'(?<!\\):', line.strip())
     return [p.replace('\\:', ':') for p in parts]
 
+
+def _connection_name_matches_ssid(connection_name, ssid):
+    """Return True when NM connection name maps to SSID or its numeric suffix variants."""
+    escaped_name = re.escape(ssid)
+    return bool(re.match(rf"^{escaped_name}(?:\s+\d+)?$", connection_name or ''))
+
+
+def get_active_wifi_connection():
+    """Return active WiFi connection metadata (name/uuid/device), or None."""
+    try:
+        result = subprocess.run(
+            ['nmcli', '-t', '-f', 'NAME,UUID,TYPE,DEVICE', 'connection', 'show', '--active'],
+            capture_output=True,
+            text=True,
+            timeout=5
+        )
+        if result.returncode != 0:
+            return None
+
+        for raw in (result.stdout or '').splitlines():
+            if not raw.strip():
+                continue
+            parts = _split_nmcli_t_fields(raw)
+            if len(parts) < 4:
+                continue
+
+            name, uuid, con_type, device = parts[0], parts[1], parts[2], parts[3]
+            if con_type == '802-11-wireless' and uuid:
+                return {
+                    'name': name,
+                    'uuid': uuid,
+                    'device': device,
+                }
+    except Exception as e:
+        logger.warning(f"Failed to inspect active WiFi connection: {e}")
+
+    return None
+
 def find_open_bssid_for_ssid(ssid):
     """Return strongest open BSSID for an SSID, or None if none found."""
     try:
@@ -650,7 +742,7 @@ def find_open_bssid_for_ssid(ssid):
         return None
 
 def delete_wifi_connections_by_name(connection_name):
-    """Delete all NetworkManager connection profiles that share the same name."""
+    """Delete SSID profile variants (e.g. `SSID`, `SSID 1`, `SSID 2`) to avoid stale duplicates."""
     try:
         result = subprocess.run(
             ['nmcli', '-t', '-f', 'NAME,UUID', 'connection', 'show'],
@@ -662,6 +754,10 @@ def delete_wifi_connections_by_name(connection_name):
             logger.warning(f"Could not list existing connections: {result.stderr}")
             return
 
+        # NetworkManager auto-creates suffix variants like "<ssid> 1" when name collisions occur.
+        escaped_name = re.escape(connection_name)
+        name_pattern = re.compile(rf"^{escaped_name}(?:\s+\d+)?$")
+
         for raw in (result.stdout or '').splitlines():
             if not raw.strip():
                 continue
@@ -669,16 +765,21 @@ def delete_wifi_connections_by_name(connection_name):
             if len(parts) < 2:
                 continue
             name, uuid = parts[0], parts[1]
-            if name != connection_name or not uuid:
+            if not name_pattern.match(name) or not uuid:
                 continue
 
-            subprocess.run(
+            delete_result = subprocess.run(
                 ['nmcli', 'connection', 'delete', 'uuid', uuid],
                 capture_output=True,
                 text=True,
                 timeout=5
             )
-            logger.info(f"Deleted existing connection profile {name} ({uuid})")
+            if delete_result.returncode == 0:
+                logger.info(f"Deleted existing connection profile {name} ({uuid})")
+            else:
+                logger.warning(
+                    f"Failed to delete connection profile {name} ({uuid}): {delete_result.stderr}"
+                )
     except Exception as e:
         logger.warning(f"Failed to cleanup connection profiles for {connection_name}: {e}")
 
@@ -974,13 +1075,21 @@ def configure():
             logger.info("[CONFIGURE] Pairing code not required for this device state")
         logger.info(f"[CONFIGURE] Password provided: {'Yes' if password else 'No (open network)'}")
         
-        # Create NetworkManager connection
-        logger.info(f"[CONFIGURE] Creating NetworkManager connection for {ssid}...")
-        connection_uuid = create_wifi_connection(ssid, password)
-        if not connection_uuid:
-            logger.error(f"[CONFIGURE] Failed to create WiFi connection for {ssid}")
-            return jsonify({'error': 'Failed to create WiFi connection'}), 500
-        logger.info(f"[CONFIGURE] NetworkManager connection created successfully (uuid={connection_uuid})")
+        active_wifi = get_active_wifi_connection()
+        if active_wifi and _connection_name_matches_ssid(active_wifi.get('name', ''), ssid):
+            connection_uuid = active_wifi['uuid']
+            logger.info(
+                f"[CONFIGURE] Device already connected to requested SSID via "
+                f"{active_wifi.get('name')} (uuid={connection_uuid}); reusing existing profile"
+            )
+        else:
+            # Create NetworkManager connection
+            logger.info(f"[CONFIGURE] Creating NetworkManager connection for {ssid}...")
+            connection_uuid = create_wifi_connection(ssid, password)
+            if not connection_uuid:
+                logger.error(f"[CONFIGURE] Failed to create WiFi connection for {ssid}")
+                return jsonify({'error': 'Failed to create WiFi connection'}), 500
+            logger.info(f"[CONFIGURE] NetworkManager connection created successfully (uuid={connection_uuid})")
         
         # Persist credentials securely (root-only, JSON format)
         try:
@@ -1043,15 +1152,23 @@ def configure():
             logger.info(f"Waiting for WiFi connection... ({i+1}/{max_wifi_wait})")
             time.sleep(1)
         
-        if not wifi_connected:
-            logger.error("Failed to connect to WiFi network")
-            return jsonify({'error': 'Failed to connect to WiFi network. Please check your credentials and try again.'}), 500
-        
-        logger.info("WiFi connection successful")
-        
-        # Step 2: Wait for internet connectivity to be established
-        logger.info("Waiting for internet connectivity before cloud registration...")
-        max_wait = 45  # Wait up to 45 seconds for internet (longer since WiFi just connected)
+        if wifi_connected:
+            logger.info("WiFi connection successful")
+        else:
+            # Do not hard-fail here. The adapter can associate shortly after nmcli
+            # reports failure; use the connectivity window as the source of truth.
+            logger.warning(
+                "WiFi did not report connected during initial activation window; "
+                "continuing with registration connectivity window"
+            )
+
+        # Step 2: Wait for internet connectivity to be established.
+        # This catches delayed association/DHCP after retries/fallbacks.
+        max_wait = max(1, REGISTRATION_CONNECTIVITY_WINDOW_SECONDS)
+        logger.info(
+            "Waiting up to %ss for internet connectivity before cloud registration...",
+            max_wait,
+        )
         internet_available = False
         for i in range(max_wait):
             if check_internet_connectivity(timeout=3):
@@ -1063,13 +1180,13 @@ def configure():
             time.sleep(1)
         
         if not internet_available:
-            logger.warning("Internet connectivity not available after WiFi connection. Cloud registration skipped.")
-            # WiFi is connected but no internet - this is OK, return success
+            logger.warning("Internet connectivity not available within registration window. Cloud registration skipped.")
+            # Setup may still be converging; cloud registration can happen later.
             # The device will work on local network, cloud registration can happen later
             if request.is_json:
                 return jsonify({
                     'status': 'success',
-                    'message': 'WiFi configured successfully. Internet connectivity not yet available.',
+                    'message': 'WiFi configuration submitted. Internet connectivity not yet available.',
                     'internet_available': False
                 })
             else:
@@ -1131,13 +1248,10 @@ def configure():
             
             if not success:
                 logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
-                # Disconnect from WiFi to restart hotspot
-                logger.info("Disconnecting from WiFi to restart setup process...")
-                disconnect_from_wifi()
-                
-                error_msg = 'Failed to validate pairing code with cloud service. Please reconnect to setup network and try again.'
+                # Keep WiFi connected. Registration can be retried without forcing users back to AP mode.
+                error_msg = 'Failed to validate pairing code with cloud service. Device stayed connected; please verify pairing code and retry.'
                 if request.is_json:
-                    return jsonify({'error': error_msg, 'status': 'cloud_error'}), 500
+                    return jsonify({'error': error_msg, 'status': 'cloud_error', 'internet_available': True}), 500
                 else:
                     return f'''
                     <!DOCTYPE html>
@@ -1153,7 +1267,7 @@ def configure():
                     </head>
                     <body>
                         <div class="error">✗ {error_msg}</div>
-                        <p>Please reconnect to the setup network and try again.</p>
+                        <p>Please retry setup from your current network connection.</p>
                     </body>
                     </html>
                     ''', 500
@@ -1179,16 +1293,14 @@ def configure():
                     if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
                         logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
                         logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
-                        logger.info("[PAIRING VALIDATION] Disconnecting from WiFi to restart hotspot setup process...")
-                        
-                        # Disconnect from WiFi - this will trigger network monitor to restart hotspot
-                        disconnect_from_wifi()
-                        
+                        logger.info("[PAIRING VALIDATION] Pairing mismatch detected; keeping WiFi connected for retry")
+
                         # Return error response
                         if request.is_json:
                             return jsonify({
                                 'error': 'Pairing code does not match. Please try again.',
-                                'status': 'pairing_mismatch'
+                                'status': 'pairing_mismatch',
+                                'internet_available': True
                             }), 400
                         else:
                             return '''
@@ -1205,7 +1317,7 @@ def configure():
                                 </head>
                                 <body>
                                     <div class="error">✗ Pairing code does not match</div>
-                                    <p>Please reconnect to the setup network and try again.</p>
+                                    <p>Please retry setup from your current network connection.</p>
                                 </body>
                                 </html>
                                 ''', 400
