@@ -12,49 +12,64 @@
         }
         
         :root {
-            --bg-color: #1e3a5f;
-            --text-color: #f0f4f8;
-            --border-color: #0d9488;
-            --primary-color: #0f766e;
-            --primary-hover: #059669;
-            --input-bg: #1e3a5f;
-            --card-bg: #1e3a5f;
+            --bg-color: #072738;
+            --bg-accent: #0d5e66;
+            --bg-highlight: #123f58;
+            --text-color: #ecf7f8;
+            --muted-text: rgba(236, 247, 248, 0.72);
+            --border-color: rgba(94, 234, 212, 0.28);
+            --primary-color: #13918b;
+            --primary-hover: #19a79c;
+            --input-bg: rgba(7, 33, 47, 0.78);
+            --card-bg: rgba(7, 33, 47, 0.88);
+            --card-shadow: 0 24px 56px rgba(2, 12, 20, 0.46);
             --heading-color: #ffffff;
+            --success-color: #9df0d2;
+            --danger-color: #ffb4b4;
+            --field-radius: 14px;
         }
         
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background-color: var(--bg-color);
+            background:
+                radial-gradient(circle at top, rgba(39, 181, 164, 0.18), transparent 32%),
+                radial-gradient(circle at 20% 20%, rgba(19, 145, 139, 0.18), transparent 28%),
+                linear-gradient(160deg, var(--bg-highlight) 0%, var(--bg-color) 48%, #041620 100%);
             color: var(--text-color);
             line-height: 1.6;
-            padding: 20px;
+            padding: clamp(12px, 3vw, 28px);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            min-height: 100dvh;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
         
         .container {
             width: 100%;
-            max-width: 400px;
+            max-width: 420px;
             background-color: var(--card-bg);
-            border: 2px solid var(--border-color);
-            border-radius: 12px;
-            padding: 16px 20px 20px 20px;
-            box-shadow: 0 8px 32px rgba(13, 148, 136, 0.2);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 18px;
+            margin: clamp(10px, 3vh, 42px) auto;
+            box-shadow: var(--card-shadow);
+            backdrop-filter: blur(16px);
         }
         
         .logo-section {
             text-align: center;
-            margin-bottom: 16px;
+            margin-bottom: 12px;
             padding-bottom: 0;
             border-bottom: none;
         }
         
         .logo-section img {
-            height: 144px;
-            width: auto;
+            display: block;
+            width: min(95%, 360px);
+            height: auto;
+            margin: 0 auto;
             opacity: 1;
+            filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.24));
         }
         
         .company-name {
@@ -70,14 +85,14 @@
         }
         
         .form-group {
-            margin-bottom: 16px;
+            margin-bottom: 12px;
         }
         
         .ssid-controls {
             display: flex;
-            gap: 8px;
+            gap: 10px;
             align-items: flex-start;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
         
         .ssid-controls > div {
@@ -86,18 +101,20 @@
         
         .scan-btn {
             padding: 0 16px;
-            height: 44px;
+            min-width: 88px;
+            min-height: 48px;
             background-color: var(--primary-color);
             color: white;
             border: none;
-            border-radius: 8px;
-            font-weight: 500;
+            border-radius: var(--field-radius);
+            font-weight: 600;
             cursor: pointer;
             font-size: 14px;
             white-space: nowrap;
             display: flex;
             align-items: center;
             justify-content: center;
+            box-shadow: 0 14px 24px rgba(19, 145, 139, 0.22);
         }
         
         .scan-btn:hover {
@@ -115,17 +132,14 @@
         
         .network-count {
             font-size: 12px;
-            color: var(--text-color);
-            opacity: 0.6;
+            color: var(--muted-text);
             margin-top: 4px;
+            min-height: 1.2em;
             display: block;
         }
         
         label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            font-size: 14px;
+            display: none;
         }
         
         input[type="text"],
@@ -134,20 +148,21 @@
         input[type="submit"],
         button[type="submit"] {
             width: 100%;
-            padding: 12px;
-            border: 1px solid var(--border-color);
-            border-radius: 10px;
-            background-color: rgba(15, 118, 110, 0.1);
+            padding: 13px 14px;
+            border: 1px solid rgba(94, 234, 212, 0.2);
+            border-radius: var(--field-radius);
+            background-color: var(--input-bg);
             color: var(--text-color);
             font-size: 16px;
             -webkit-appearance: none;
             appearance: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
         }
         
         input[type="text"]::placeholder,
         input[type="password"]::placeholder {
             color: var(--text-color);
-            opacity: 0.6;
+            opacity: 0.58;
         }
         
         select {
@@ -163,34 +178,36 @@
         select:focus {
             outline: none;
             border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.2);
+            box-shadow: 0 0 0 3px rgba(25, 167, 156, 0.18);
+            background-color: rgba(7, 33, 47, 0.92);
         }
         
         .pairing-code-input {
             text-transform: uppercase;
             text-align: center;
             font-family: monospace;
-            font-size: 18px;
+            font-size: 17px;
+            letter-spacing: 0.22em;
         }
         
         .pairing-code-hint {
             font-size: 12px;
-            color: var(--text-color);
-            opacity: 0.6;
-            margin-top: 4px;
+            color: var(--muted-text);
+            margin-top: 6px;
         }
         
         input[type="submit"],
         button[type="submit"] {
-            background-color: var(--primary-color);
+            background: linear-gradient(135deg, #18a098 0%, var(--primary-color) 100%);
             color: white;
             border: none;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
-            margin-top: 10px;
+            margin-top: 6px;
             position: relative;
-            min-height: 44px;
+            min-height: 48px;
             font-family: inherit;
+            box-shadow: 0 16px 28px rgba(19, 145, 139, 0.28);
         }
         
         input[type="submit"]:hover:not(:disabled),
@@ -227,11 +244,11 @@
         
         .success-message {
             background-color: rgba(5, 150, 105, 0.2);
-            color: #a7f3d0;
-            padding: 16px;
-            border-radius: 6px;
-            border: 1px solid #0d9488;
-            margin-bottom: 20px;
+            color: var(--success-color);
+            padding: 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(94, 234, 212, 0.28);
+            margin-bottom: 14px;
             font-size: 14px;
             text-align: center;
             font-weight: 500;
@@ -239,38 +256,62 @@
         
         .error {
             background-color: rgba(239, 68, 68, 0.15);
-            color: #fca5a5;
+            color: var(--danger-color);
             padding: 12px;
-            border-radius: 6px;
-            border: 1px solid #f87171;
-            margin-bottom: 20px;
+            border-radius: 14px;
+            border: 1px solid rgba(248, 113, 113, 0.45);
+            margin-bottom: 14px;
             font-size: 14px;
         }
         
         .success {
             background-color: rgba(5, 150, 105, 0.2);
-            color: #a7f3d0;
+            color: var(--success-color);
             padding: 12px;
-            border-radius: 6px;
-            border: 1px solid #0d9488;
-            margin-bottom: 20px;
+            border-radius: 14px;
+            border: 1px solid rgba(94, 234, 212, 0.28);
+            margin-bottom: 14px;
             font-size: 14px;
         }
         
         @media (max-width: 480px) {
             .container {
-                padding: 20px;
-                border-radius: 0;
-                border-left: 2px solid var(--border-color);
-                border-right: 2px solid var(--border-color);
-            }
-            
-            h1 {
-                display: none;
+                padding: 16px;
+                border-radius: 22px;
             }
             
             .logo-section img {
-                height: 40px;
+                width: 95%;
+                max-width: none;
+            }
+
+            .ssid-controls {
+                gap: 8px;
+            }
+        }
+
+        @media (max-height: 720px) {
+            body {
+                padding-top: 10px;
+                padding-bottom: 14px;
+            }
+
+            .container {
+                margin-top: 8px;
+                margin-bottom: 12px;
+                padding: 15px;
+            }
+
+            .logo-section {
+                margin-bottom: 8px;
+            }
+
+            .subtitle {
+                margin-bottom: 12px;
+            }
+
+            .form-group {
+                margin-bottom: 10px;
             }
         }
     </style>
@@ -291,28 +332,29 @@
                     id="pairing_code" 
                     name="pairing_code" 
                     class="pairing-code-input"
-                    placeholder="ABC123" 
+                    placeholder="Enter pairing code" 
                     pattern="[A-Za-z0-9]{6}"
                     minlength="6"
                     maxlength="6"
                     required
                     autocomplete="off"
+                    aria-label="Pairing code"
                     onchange="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)"
                     oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)"
                 >
-                <div class="pairing-code-hint">Enter your 6-character pairing code</div>
+                <div class="pairing-code-hint">device pairing code - ABC123</div>
             </div>
             
             <div class="form-group">
                 <label for="ssid">WiFi Network (SSID)</label>
                 <div class="ssid-controls">
                     <div>
-                        <select id="ssid" name="ssid" required>
-                            <option value="">Select a network...</option>
+                        <select id="ssid" name="ssid" required aria-label="WiFi network">
+                            <option value="">Select your WiFi network</option>
                             <option value="__custom__">Enter network manually...</option>
                         </select>
                     </div>
-                    <button type="button" class="scan-btn" id="scan-btn" onclick="scanNetworks()">Scan</button>
+                    <button type="button" class="scan-btn" id="scan-btn" onclick="scanNetworks()" aria-label="Scan WiFi networks">Scan</button>
                 </div>
                 <div class="network-count" id="network-count"></div>
             </div>
@@ -325,6 +367,7 @@
                     name="custom_ssid" 
                     placeholder="Enter WiFi network name"
                     autocomplete="off"
+                    aria-label="WiFi network name"
                 >
             </div>
             
@@ -334,17 +377,18 @@
                     type="password" 
                     id="password" 
                     name="password" 
-                    placeholder="Enter password (leave blank for open networks)"
+                    placeholder="Enter WiFi password (Blank for open)"
                     autocomplete="off"
+                    aria-label="WiFi password"
                 >
             </div>
             
             <div id="error-message" class="error" style="display: none;"></div>
             <div id="success-message" class="success-message" style="display: none;">
-                ✓ Device configured successfully! Closing...
+                ✓ Device configured successfully! Redirecting...
             </div>
             
-            <button type="submit" id="submit-btn" class="submit-button">Configure Device</button>
+            <button type="submit" id="submit-btn" class="submit-button" aria-label="Configure device">Configure Device</button>
         </form>
     </div>
     
@@ -353,6 +397,8 @@
         const HEALTH_CHECK_INTERVAL = 5000;  // Check health every 5 seconds
         const SCAN_RETRY_INTERVAL = 8000;   // Retry scan every 8 seconds
         const MAX_RETRIES = 5;
+        const REDIRECT_DELAY_MS = 2500;
+        const DEFAULT_REDIRECT_URL = 'https://portal.ci.computer';
         
         // State
         let scanRetryCount = 0;
@@ -406,7 +452,7 @@
                 customSsidInput.name = 'ssid';
                 // For manual entry we don't know security; leave password optional
                 pwdInput.removeAttribute('required');
-                pwdInput.placeholder = 'Enter password (leave blank for open networks)';
+                pwdInput.placeholder = 'Enter WiFi password (Blank for open)';
             } else {
                 customSsidGroup.style.display = 'none';
                 ssidSelect.name = 'ssid';
@@ -422,13 +468,93 @@
                 // If network is open/none, do not require password. Otherwise require it.
                 if (secUpper === 'NONE' || secUpper === '' || secUpper === 'OPEN') {
                     pwdInput.removeAttribute('required');
-                    pwdInput.placeholder = 'Open network — leave password blank';
+                    pwdInput.placeholder = 'Enter WiFi password (Blank for open)';
                 } else {
                     pwdInput.setAttribute('required', 'required');
-                    pwdInput.placeholder = 'Enter password for secured network';
+                    pwdInput.placeholder = 'Enter WiFi password (Blank for open)';
                 }
             }
         });
+
+        function normalizeRedirectUrl(value) {
+            if (!value || typeof value !== 'string') {
+                return null;
+            }
+
+            const trimmedValue = value.trim();
+            if (!trimmedValue) {
+                return null;
+            }
+
+            try {
+                const candidate = trimmedValue.includes('://') ? trimmedValue : `https://${trimmedValue}`;
+                const parsed = new URL(candidate);
+
+                if (!parsed.hostname) {
+                    return null;
+                }
+
+                parsed.hash = '';
+                parsed.search = '';
+                parsed.pathname = parsed.pathname.replace(/\/+$/, '') || '';
+                return parsed.toString().replace(/\/$/, '');
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function getRedirectTarget(payload) {
+            const candidateValues = [];
+
+            if (payload && typeof payload === 'object') {
+                candidateValues.push(payload.redirect_url);
+
+                if (Array.isArray(payload.redirect_candidates)) {
+                    candidateValues.push(...payload.redirect_candidates);
+                }
+
+                candidateValues.push(payload.redirect_fallback_url);
+            }
+
+            candidateValues.push(DEFAULT_REDIRECT_URL);
+
+            for (const value of candidateValues) {
+                const normalized = normalizeRedirectUrl(value);
+                if (normalized) {
+                    return normalized;
+                }
+            }
+
+            return DEFAULT_REDIRECT_URL;
+        }
+
+        function runLegacyCaptivePortalDismissal() {
+            setTimeout(function() {
+                if (document.visibilityState === 'hidden') {
+                    return;
+                }
+
+                window.location.href = 'http://captive.apple.com/hotspot-detect.html';
+
+                setTimeout(function() {
+                    if (document.visibilityState === 'hidden') {
+                        return;
+                    }
+
+                    if (window.close) {
+                        window.close();
+                    }
+                }, 500);
+
+                setTimeout(function() {
+                    if (document.visibilityState === 'hidden') {
+                        return;
+                    }
+
+                    window.location.href = 'http://www.msftconnecttest.com/redirect';
+                }, 1000);
+            }, 1400);
+        }
         
         // Check backend health
         async function checkHealth() {
@@ -468,8 +594,8 @@
                 if (data.networks && Array.isArray(data.networks)) {
                     // Sort networks by signal strength
                     data.networks.sort((a, b) => (b.signal || 0) - (a.signal || 0));
-                                        // Preserve current focus to prevent auto-focus on first input after DOM changes
-                                        const activeFocusedElement = document.activeElement;
+                    // Preserve current focus to prevent auto-focus on first input after DOM changes
+                    const activeFocusedElement = document.activeElement;
                     
                     
                     // Get current options and keep the first two (Select/Custom)
@@ -493,13 +619,13 @@
                             const signalStr = network.signal ? ` (${network.signal}%)` : '';
                             option.textContent = network.ssid + signalStr;
                             ssidSelect.appendChild(option);
-                                            // Restore focus to previously focused element if it's still in the document
-                                            if (activeFocusedElement && activeFocusedElement.parentElement) {
-                                                activeFocusedElement.focus();
-                                            }
-                    
                         }
                     });
+
+                    // Restore focus to previously focused element if it's still in the document
+                    if (activeFocusedElement && activeFocusedElement.parentElement) {
+                        activeFocusedElement.focus();
+                    }
                     
                     networkCount.textContent = `Found ${networkNames.size} network${networkNames.size !== 1 ? 's' : ''}`;
                     lastScanSuccess = true;
@@ -601,30 +727,19 @@
                 });
                 
                 if (response.ok) {
-                    // Success - show message and close captive portal
+                    const responseData = await response.json().catch(() => ({}));
+                    const redirectTarget = getRedirectTarget(responseData);
+
+                    // Success - show message and redirect after a short delay
                     successMessage.style.display = 'block';
+                    successMessage.textContent = `✓ Device configured successfully! Redirecting to ${redirectTarget}...`;
                     
-                    // Scroll to top to show success message
-                    window.scrollTo(0, 0);
+                    successMessage.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     
-                    // Close captive portal after a short delay
-                    // Different methods for different platforms
                     setTimeout(function() {
-                        // Method 1: Redirect to success URL (works on iOS)
-                        window.location.href = 'http://captive.apple.com/hotspot-detect.html';
-                        
-                        // Method 2: Try to close window (works in some browsers)
-                        setTimeout(function() {
-                            if (window.close) {
-                                window.close();
-                            }
-                        }, 500);
-                        
-                        // Method 3: Redirect to a known success page
-                        setTimeout(function() {
-                            window.location.href = 'http://www.msftconnecttest.com/redirect';
-                        }, 1000);
-                    }, 1500);
+                        window.location.assign(redirectTarget);
+                        runLegacyCaptivePortalDismissal();
+                    }, REDIRECT_DELAY_MS);
                 } else {
                     // Error - show error message
                     const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
