@@ -66,6 +66,8 @@ CI_HUB_REGISTRATION_STATUS_URL = os.environ.get('CI_HUB_REGISTRATION_STATUS_URL'
 CI_HUB_REGISTRATION_CALLBACK_URL = os.environ.get('CI_HUB_REGISTRATION_CALLBACK_URL', 'http://127.0.0.1:5002/api/registration/callback')
 REGISTRATION_CONNECTIVITY_WINDOW_SECONDS = _read_int_env('SETUP_REGISTRATION_CONNECTIVITY_WINDOW_SECONDS', 20)
 CLOUD_REQUEST_USER_AGENT = os.environ.get('SETUP_CLOUD_USER_AGENT', 'curl/8.5.0')
+DEFAULT_PORTAL_REDIRECT_URL = 'https://portal.ci.computer'
+DEFAULT_CLOUD_DOMAIN = 'ci.computer'
 
 
 def _cloud_request_headers(extra_headers=None):
@@ -76,6 +78,67 @@ def _cloud_request_headers(extra_headers=None):
     if extra_headers:
         headers.update(extra_headers)
     return headers
+
+
+def _normalize_redirect_url(value):
+    """Normalize a redirect hostname/URL to an https URL without trailing slash."""
+    if not value:
+        return None
+
+    raw_value = str(value).strip()
+    if not raw_value:
+        return None
+
+    candidate = raw_value if '://' in raw_value else f'https://{raw_value}'
+
+    try:
+        parsed = urllib.parse.urlparse(candidate)
+    except Exception:
+        return None
+
+    hostname = (parsed.netloc or parsed.path or '').strip().strip('/')
+    if not hostname or any(ch.isspace() for ch in hostname):
+        return None
+
+    path = parsed.path if parsed.netloc else ''
+    normalized = urllib.parse.urlunparse((
+        parsed.scheme or 'https',
+        hostname,
+        path.rstrip('/'),
+        '',
+        '',
+        '',
+    )).rstrip('/')
+    return normalized or None
+
+
+def _build_redirect_metadata(*cloud_payloads):
+    """Build deterministic redirect metadata from cloud pairing responses."""
+    candidates = []
+
+    for payload in cloud_payloads:
+        if not isinstance(payload, dict):
+            continue
+
+        domain_candidate = _normalize_redirect_url(payload.get('domain'))
+        if domain_candidate and domain_candidate not in candidates:
+            candidates.append(domain_candidate)
+
+        subdomain = (payload.get('subdomain') or '').strip()
+        if subdomain:
+            subdomain_candidate = subdomain if '.' in subdomain else f'{subdomain}.{DEFAULT_CLOUD_DOMAIN}'
+            normalized_subdomain = _normalize_redirect_url(subdomain_candidate)
+            if normalized_subdomain and normalized_subdomain not in candidates:
+                candidates.append(normalized_subdomain)
+
+    if DEFAULT_PORTAL_REDIRECT_URL not in candidates:
+        candidates.append(DEFAULT_PORTAL_REDIRECT_URL)
+
+    return {
+        'redirect_url': candidates[0],
+        'redirect_candidates': candidates,
+        'redirect_fallback_url': DEFAULT_PORTAL_REDIRECT_URL,
+    }
 
 
 def _hub_running():
@@ -1179,6 +1242,8 @@ def configure():
                 logger.info(f"Waiting for internet connectivity... ({i+1}/{max_wait})")
             time.sleep(1)
         
+        redirect_metadata = _build_redirect_metadata()
+
         if not internet_available:
             logger.warning("Internet connectivity not available within registration window. Cloud registration skipped.")
             # Setup may still be converging; cloud registration can happen later.
@@ -1187,7 +1252,8 @@ def configure():
                 return jsonify({
                     'status': 'success',
                     'message': 'WiFi configuration submitted. Internet connectivity not yet available.',
-                    'internet_available': False
+                    'internet_available': False,
+                    **redirect_metadata,
                 })
             else:
                 return '''
@@ -1216,7 +1282,8 @@ def configure():
                 return jsonify({
                     'status': 'success',
                     'message': 'WiFi configured successfully',
-                    'pairing_required': False
+                    'pairing_required': False,
+                    **redirect_metadata,
                 })
             return '''
             <!DOCTYPE html>
@@ -1349,6 +1416,7 @@ def configure():
                     
                     if update_success:
                         logger.info(f"Device ID updated successfully in cloud: {update_resp}")
+                        redirect_metadata = _build_redirect_metadata(update_resp, pairing_info)
                         # Persist api_key from POST response if it was not present in GET response.
                         if isinstance(update_resp, dict):
                             post_api_key = update_resp.get('api_key')
@@ -1366,6 +1434,7 @@ def configure():
                         # API key already saved from GET response, no need to save again
                     else:
                         logger.warning(f"Device ID update failed: {update_resp}")
+                        redirect_metadata = _build_redirect_metadata(pairing_info)
                         
         except Exception as e:
             logger.error(f"Exception during cloud registration: {e}", exc_info=True)
@@ -1374,7 +1443,8 @@ def configure():
         if request.is_json:
             return jsonify({
                 'status': 'success',
-                'message': 'WiFi configured successfully'
+                'message': 'WiFi configured successfully',
+                **redirect_metadata,
             })
         else:
             # Return HTML success page for form submissions
