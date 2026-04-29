@@ -468,6 +468,9 @@
                 if (data.networks && Array.isArray(data.networks)) {
                     // Sort networks by signal strength
                     data.networks.sort((a, b) => (b.signal || 0) - (a.signal || 0));
+                                        // Preserve current focus to prevent auto-focus on first input after DOM changes
+                                        const activeFocusedElement = document.activeElement;
+                    
                     
                     // Get current options and keep the first two (Select/Custom)
                     const defaultOptions = Array.from(ssidSelect.options).slice(0, 2);
@@ -490,6 +493,11 @@
                             const signalStr = network.signal ? ` (${network.signal}%)` : '';
                             option.textContent = network.ssid + signalStr;
                             ssidSelect.appendChild(option);
+                                            // Restore focus to previously focused element if it's still in the document
+                                            if (activeFocusedElement && activeFocusedElement.parentElement) {
+                                                activeFocusedElement.focus();
+                                            }
+                    
                         }
                     });
                     
