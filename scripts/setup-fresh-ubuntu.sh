@@ -830,36 +830,60 @@ remove_telemetry() {
     log_success "Telemetry removal complete"
 }
 
-# Enable corepack (requires Node.js via asdf; corepack provides yarn/pnpm)
+# Enable corepack (requires Node.js via asdf; corepack provides yarn/pnpm).
+# pnpm only appears under ~/.asdf/shims after `corepack prepare ... --activate` + `asdf reshim nodejs`.
 enable_corepack() {
-    log_info "Enabling corepack for user $ACTUAL_USER..."
-    
-    # Check if Node.js is available via asdf
-    if ! sudo -u "$ACTUAL_USER" bash -c '[[ -f "$HOME/.asdf/asdf.sh" ]] && source "$HOME/.asdf/asdf.sh" && command -v node &>/dev/null' 2>/dev/null; then
+    log_info "Enabling corepack and pnpm for user $ACTUAL_USER..."
+
+    if ! sudo -u "$ACTUAL_USER" bash -c '[[ -f "$HOME/.asdf/asdf.sh" ]] && export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH" && . "$HOME/.asdf/asdf.sh" && command -v node &>/dev/null' 2>/dev/null; then
         log_warning "Node.js not found. Skipping corepack enable. It will be enabled when Node.js is available."
         return 0
     fi
-    
+
     sudo -u "$ACTUAL_USER" bash <<'EOF'
-# Load standalone asdf from ~/.asdf
+# Match login PATH: shims first so node/corepack/pnpm resolve like ~/.bashrc (ci-os asdf blocks).
 ASDF_DIR="$HOME/.asdf"
-if [[ -f "$ASDF_DIR/asdf.sh" ]]; then
-    export PATH="$HOME/.asdf/bin:$PATH"
-    . "$ASDF_DIR/asdf.sh"
+export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"
+if [[ ! -f "$ASDF_DIR/asdf.sh" ]]; then
+    echo "Warning: $ASDF_DIR/asdf.sh missing; skipping corepack."
+    exit 0
+fi
+. "$ASDF_DIR/asdf.sh"
+
+if ! command -v corepack &>/dev/null; then
+    echo "Warning: corepack not found next to Node; check asdf nodejs install."
+    exit 0
 fi
 
-if command -v corepack &>/dev/null; then
-    if corepack enable 2>/dev/null; then
-        echo "Corepack enabled successfully (yarn/pnpm available)"
-    else
-        echo "Warning: Failed to enable corepack. You may need to run 'corepack enable' manually after logging out and back in."
-    fi
+if corepack enable 2>/dev/null; then
+    echo "corepack enable: ok"
 else
-    echo "Warning: corepack command not found. Node.js may not be properly installed or in PATH."
+    echo "Warning: corepack enable failed; try again after a new login shell."
 fi
+
+if corepack prepare pnpm@latest --activate 2>/dev/null; then
+    echo "corepack prepare pnpm@latest --activate: ok"
+else
+    echo "Warning: corepack prepare pnpm failed (network or registry); run: corepack prepare pnpm@latest --activate && asdf reshim nodejs"
+fi
+
+if command -v asdf &>/dev/null; then
+    asdf reshim nodejs 2>/dev/null || true
+fi
+
+if command -v pnpm &>/dev/null; then
+    echo "pnpm $(pnpm --version) on PATH"
+else
+    echo "Warning: pnpm not on PATH yet; open a new shell or: source ~/.asdf/asdf.sh && asdf reshim nodejs"
+fi
+exit 0
 EOF
-    
-    log_success "Corepack enable attempted (check output above for status)"
+
+    if sudo -u "$ACTUAL_USER" bash -c 'export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"; [[ -f "$HOME/.asdf/asdf.sh" ]] && . "$HOME/.asdf/asdf.sh" && command -v pnpm &>/dev/null' 2>/dev/null; then
+        log_success "pnpm is available for $ACTUAL_USER (Corepack + asdf shims)"
+    else
+        log_warning "pnpm not detected on PATH for $ACTUAL_USER after corepack step; re-login or run: source ~/.asdf/asdf.sh && asdf reshim nodejs"
+    fi
 }
 
 # Chromium: Ubuntu's transitional chromium-browser package often pulls Snap; Snap may be
@@ -1141,7 +1165,7 @@ main() {
     echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools; for Docker without re-login run: newgrp docker"
     echo "  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group"
     echo "  • Start Ollama service: systemctl start ollama"
-    echo "  • Verify installations: docker --version, node --version, ollama --version, gh --version"
+    echo "  • Verify installations: docker --version, node --version, pnpm --version, ollama --version, gh --version"
     echo "  • Note: 'Create deploy read key' step was not specified - please add this manually if needed"
 }
 
