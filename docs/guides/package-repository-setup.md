@@ -420,7 +420,7 @@ sudo apt install companion-os-base
 
 ### Bake into ISO
 
-Add to `customize-chroot.sh`:
+Add to `scripts/customize-chroot.sh`:
 
 ```bash
 # Copy keyring package into chroot

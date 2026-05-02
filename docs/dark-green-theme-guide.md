@@ -34,7 +34,7 @@ The system uses **Yaru-prussiangreen-dark** as the base GTK theme, which provide
 
 **Installation:**
 ```bash
-sudo ./setup/os-changes/set-ci-branding.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh
 ```
 
 **Manual application:**
@@ -49,7 +49,7 @@ A custom color scheme file `CI-OS-Dark.colors` is provided for KDE Plasma users.
 
 **Installation:**
 ```bash
-./setup/os-changes/install-kde-theme.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only kde
 ```
 
 **Manual installation:**
@@ -162,7 +162,7 @@ echo ""
    # Run branding script
    cd /root/ci-setup
    chmod +x *.sh
-   ./set-ci-branding.sh
+   ./apply-ci-os-desktop.sh
    
    # Apply desktop settings
    bash /root/ci-configs/gnome-settings.sh
@@ -262,7 +262,7 @@ sudo update-grub
 # Reset dconf
 dconf reset -f /org/gnome/desktop/
 # Re-run branding script
-sudo ./setup/os-changes/set-ci-branding.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh
 # Log out and back in
 ```
 

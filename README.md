@@ -147,72 +147,32 @@ sudo systemctl start dnsmasq-setup.service
 
 ---
 
-## Ubuntu branding (wallpaper & start icon)
+## Ubuntu branding (GNOME / Plymouth / MOTD)
 
-Scripts in `setup/os-changes/` apply CI OS branding on Ubuntu (GNOME/Yaru). They use files in the same directory; the repo is intended to be moved as a whole, so no path prompts.
-
-### Complete system rebranding (recommended)
-
-**One-command rebranding:** Applies all CI OS branding in the correct order.
+Only **`setup/os-changes/apply-ci-os-desktop.sh`** lives beside `common/`; all steps are **`setup/os-changes/common/*.sh`**. Assets stay next to the script (`background.png`, logos, SVG). Dock defaults: **left**, **autohide** (dismissable). Reboot once for Plymouth.
 
 ```bash
-sudo ./setup/os-changes/complete-rebranding.sh
+# Full apply (Plymouth → dconf → wallpaper → session → start icon → os-release → MOTD)
+sudo ./setup/os-changes/apply-ci-os-desktop.sh
+
+# Interactive: prompts, optional KDE, validation, optional reboot
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard
+
+# CI / non-interactive: full apply + validate (no KDE / no reboot prompt)
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard --yes
+
+# Subset only
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only plymouth,dconf,session
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only wallpaper
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only kde
+
+# Read-only checks (no sudo)
+./setup/os-changes/apply-ci-os-desktop.sh --validate
 ```
 
-This master script runs all rebranding steps automatically:
-1. Plymouth boot splash and GNOME/KDE theme
-2. OS identity (/etc/os-release)
-3. MOTD customization
-4. Wallpaper installation
-5. Start icon replacement
-6. Validation checks
+**Official CI Dark Green Color Scheme:** `#066c80`, `#00a9a7`, `#72ddd4`, `#1b4332`
 
-**Requires reboot** for boot splash changes to take effect.
-
-### Manual/individual scripts
-
-Apply comprehensive CI OS branding including Plymouth boot splash, login screen, wallpaper, start icon, and dark green theme throughout the system.
-
-```bash
-sudo ./setup/os-changes/set-ci-branding.sh
-```
-
-**Official CI Dark Green Color Scheme:**
-- Primary Dark Green: `#066c80` (backgrounds, window frames, selection)
-- Medium Green: `#00a9a7` (highlights, links, buttons)
-- Light Green: `#72ddd4` (accents, text highlights)
-
-**Additional individual scripts:**
-- `sudo ./setup/os-changes/update-os-release.sh` - Update OS identity
-- `sudo ./setup/os-changes/setup-ci-motd.sh` - Customize MOTD
-- `sudo ./setup/os-changes/validate-ci-theme.sh` - Validate theming
-- `./setup/os-changes/install-kde-theme.sh` - Install KDE Plasma theme (for KDE users)
-
-### Start icon (Show Apps button)
-
-Replaces the Ubuntu “Show Apps” / Activities icon with the CI OS icon in all Yaru theme variants.
-
-```bash
-sudo ./setup/os-changes/replace-start-icon.sh
-```
-
-- Uses: `setup/os-changes/LogoMark_Color_StartIcon-cropped.svg`
-- Target: `start-here-symbolic.svg` in each `/usr/share/icons/Yaru*/scalable/places/`
-- **Apply changes:** Log out and back in, or Alt+F2 → `r` → Enter to restart GNOME Shell
-
-### Wallpaper
-
-Sets the current user’s desktop background and system-wide default for new users.
-
-```bash
-sudo ./setup/os-changes/replace-wallpaper.sh
-```
-
-- Uses: `setup/os-changes/background.png`
-- Copies to: `/usr/share/backgrounds/ci-os-wallpaper.png`
-- Sets `picture-uri` and `picture-uri-dark` via gsettings (and dconf for new users)
-
-Both scripts create timestamped backups under `/usr/share/icons/ubuntu-backup-*` and `/usr/share/backgrounds/ubuntu-backup-*`.
+**Assets:** `LogoMark_Color_StartIcon-cropped.svg` (start icon), `background.png` → `/usr/share/backgrounds/ci-os-wallpaper.*`, `Logo_Banner_Color.png` (Plymouth). Icon and wallpaper steps create backups under `/usr/share/icons/ubuntu-backup-*` and `/usr/share/backgrounds/ubuntu-backup-*` where applicable.
 
 ---
 
@@ -230,13 +190,13 @@ Both scripts create timestamped backups under `/usr/share/icons/ubuntu-backup-*`
 │   ├── companion-os-keyring/
 │   ├── companion-agents/
 │   └── companion-memory/
-├── scripts/               # setup-fresh-ubuntu.sh, libs
+├── scripts/               # setup-fresh-ubuntu.sh, customize-chroot.sh, libs
 ├── setup/
 │   ├── headless/          # Headless WiFi setup: build, deb, portal, backend
-│   └── os-changes/        # replace-start-icon.sh, replace-wallpaper.sh, assets
+│   └── os-changes/        # apply-ci-os-desktop.sh, common/*.sh, assets
 ├── tools/
 │   └── iso-build/         # ISO building tools and scripts
-│       ├── scripts/       # build-iso.sh, customize-chroot.sh, build-packages.sh
+│       ├── scripts/       # build-iso.sh, build-packages.sh, …
 │       └── README.md      # Tools documentation
 └── README.md              # This file
 ```
