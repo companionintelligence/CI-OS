@@ -68,7 +68,7 @@ The compiled gresource is committed to source at:
 
 1. Mounts and extracts the base Ubuntu ISO
 2. Unsquashes all three casper layers into a merged chroot
-3. Runs `customize-chroot.sh` inside the chroot to apply:
+3. Runs `scripts/customize-chroot.sh` on the extracted rootfs to apply:
    - OS identity (CI-OS name, version, first-boot rebrand service)
    - Telemetry/bloatware removal
    - **Branding**: copies the compiled gresource directly into the chroot at
@@ -107,10 +107,12 @@ tools/iso-build/
     ├── build-iso.sh                       ← Main entry point (run this)
     ├── build-packages.sh                  ← Builds all .deb packages
     ├── build-gdm-branding-gresource.sh    ← Builds branded Yaru gresource
-    ├── customize-chroot.sh                ← Chroot customization (OS identity,
-    │                                         branding, AMD GPU, installer, etc.)
     ├── stage-live-build-branding-package.sh  ← Stages .deb into config/packages.chroot
     └── setup-repository.sh                ← reprepro repository setup helper
+
+scripts/
+└── customize-chroot.sh                  ← Chroot customization (OS identity,
+                                              branding, AMD GPU, installer, etc.)
 
 packages/
 └── ci-os-branding/
@@ -184,7 +186,7 @@ plus `logo.svg` and `logo-text.svg`, are replaced with the CI logo banner:
 
 ## Iterative Development
 
-When you've already built packages and only changed `customize-chroot.sh`:
+When you've already built packages and only changed `scripts/customize-chroot.sh`:
 
 ```bash
 sudo ./tools/iso-build/scripts/build-iso.sh \

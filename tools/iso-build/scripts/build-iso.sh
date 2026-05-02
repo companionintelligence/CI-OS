@@ -276,7 +276,7 @@ apply_customizations() {
     log_info "Applying CI-OS customizations..."
     
     # Call customization scripts
-    "$SCRIPT_DIR/customize-chroot.sh" "$WORK_DIR/chroot" "$CI_OS_VERSION"
+    "$REPO_ROOT/scripts/customize-chroot.sh" "$WORK_DIR/chroot" "$CI_OS_VERSION"
     
     log_info "Customizations applied"
 }

@@ -12,7 +12,7 @@
 # 6. Configures the installer (whitelabel.yaml)
 #
 # Usage:
-#   ./customize-chroot.sh <chroot_path> <version>
+#   ./scripts/customize-chroot.sh <chroot_path> <version>
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
@@ -28,7 +28,7 @@ if [[ -z "$CHROOT_PATH" ]] || [[ ! -d "$CHROOT_PATH" ]]; then
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
@@ -695,7 +695,7 @@ for lib_script in "$REPO_ROOT/scripts/lib/"*.sh; do
 done
 
 # Copy additional setup scripts
-for setup_script in install-rocm-driver.sh remove-telemetry.sh; do
+for setup_script in install-rocm-driver.sh; do
     if [[ -f "$REPO_ROOT/scripts/$setup_script" ]]; then
         install -m 755 "$REPO_ROOT/scripts/$setup_script" \
             "$CHROOT_PATH/usr/lib/ci-os/bootstrap/$setup_script"
