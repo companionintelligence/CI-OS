@@ -713,27 +713,158 @@ EOF
     log_success "Corepack enable attempted (check output above for status)"
 }
 
-# Install VS Code (requires root for snap installation)
+# Chromium: Ubuntu's transitional chromium-browser package often pulls Snap; Snap may be
+# missing or broken on minimal / lab images (e.g. 26.04). Prefer native .deb (xtradeb PPA),
+# then Snap, then Flatpak. Keep `chromium_chromium.desktop` working for CI defaults (symlink).
 # Install Chromium browser (requires root)
-install_chromium() {
-    if package_installed chromium-browser || [[ -f /snap/bin/chromium ]]; then
-        log_info "Chromium is already installed, skipping..."
+# True if Chromium is already usable (skip reinstall).
+# Important: /usr/bin/chromium-browser may exist as an executable shell stub that only
+# delegates to /snap/bin/chromium — without the snap, the browser is not usable; do not skip.
+chromium_usable() {
+    [[ -x /snap/bin/chromium ]] && return 0
+    if command_exists flatpak && flatpak info org.chromium.Chromium &>/dev/null; then
         return 0
     fi
-
-    log_info "Installing Chromium browser..."
-    apt install -y chromium-browser
-    log_success "Chromium installed"
+    [[ -x /usr/bin/chromium ]] && return 0
+    if command_exists chromium; then
+        [[ -x "$(command -v chromium)" ]] && return 0
+    fi
+    if [[ -x /usr/bin/chromium-browser ]]; then
+        if head -n 20 /usr/bin/chromium-browser 2>/dev/null | grep -q '/snap/bin/chromium'; then
+            return 1
+        fi
+        return 0
+    fi
+    return 1
 }
 
-install_vscode() {
-    if command_exists code; then
-        log_info "VS Code is already installed, skipping installation..."
+# True if the Microsoft VS Code / code package is already on the system (skip reinstall).
+vscode_installed() {
+    command_exists code && return 0
+    [[ -x /usr/bin/code ]] && return 0
+    if dpkg-query -W -f='${Status}' code 2>/dev/null | grep -q 'ok installed'; then
         return 0
     fi
-    
-    log_info "Installing VS Code..."
-    snap install code --classic
+    return 1
+}
+
+chromium_desktop_compat_symlink() {
+    if [[ -f /var/lib/snapd/desktop/applications/chromium_chromium.desktop ]]; then
+        return 0
+    fi
+    if [[ -f /usr/share/applications/chromium.desktop ]] && [[ ! -e /usr/local/share/applications/chromium_chromium.desktop ]]; then
+        install -d -m 755 /usr/local/share/applications
+        ln -sf /usr/share/applications/chromium.desktop /usr/local/share/applications/chromium_chromium.desktop
+        log_info "Added chromium_chromium.desktop → chromium.desktop (CI defaults / favorites)"
+    fi
+}
+
+install_chromium() {
+    if chromium_usable; then
+        log_info "Chromium already available, skipping..."
+        chromium_desktop_compat_symlink || true
+        return 0
+    fi
+
+    log_info "Installing Chromium (native .deb preferred; Snap/Flatpak as fallback)..."
+
+    # 1) Native Chromium via xtradeb PPA (maintained .deb; avoids Snap-only transitional packages)
+    if ! grep -rq 'xtradeb/apps' /etc/apt/sources.list.d/ 2>/dev/null; then
+        if ! command_exists add-apt-repository; then
+            log_info "Installing software-properties-common for add-apt-repository..."
+            DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
+        fi
+        log_info "Adding PPA ppa:xtradeb/apps for Chromium .deb builds..."
+        if ! DEBIAN_FRONTEND=noninteractive add-apt-repository -y ppa:xtradeb/apps; then
+            log_warning "Could not add xtradeb PPA (unsupported release or network); will try other install methods..."
+        else
+            apt-get update -y
+        fi
+    fi
+
+    if grep -rq 'xtradeb/apps' /etc/apt/sources.list.d/ 2>/dev/null; then
+        apt-get update -y || true
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y chromium; then
+            if chromium_usable; then
+                chromium_desktop_compat_symlink || true
+                log_success "Chromium installed (xtradeb PPA .deb)"
+                return 0
+            fi
+        fi
+    else
+        log_warning "xtradeb PPA not configured; skipping apt install chromium (Ubuntu metapackage often pulls Snap)"
+    fi
+
+    # 2) Snap (only if snapd works — may be absent on trimmed images)
+    if command_exists snap; then
+        log_info "Trying Chromium via snap..."
+        if snap install chromium 2>/dev/null; then
+            chromium_desktop_compat_symlink || true
+            log_success "Chromium installed (snap)"
+            return 0
+        fi
+    else
+        log_warning "snap not available; skipping snap-based Chromium"
+    fi
+
+    # 3) Flatpak from Flathub
+    if command_exists flatpak; then
+        log_info "Trying Chromium via Flatpak (Flathub)..."
+        if flatpak remote-list 2>/dev/null | grep -q flathub; then
+            true
+        else
+            flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null || true
+        fi
+        if flatpak install -y flathub org.chromium.Chromium 2>/dev/null; then
+            log_success "Chromium installed (Flatpak: org.chromium.Chromium)"
+            log_warning "Flatpak Chromium uses a different .desktop id; update favorites if you rely on chromium_chromium.desktop"
+            return 0
+        fi
+    fi
+
+    log_error "Chromium could not be installed (tried xtradeb PPA, snap, flatpak)"
+    return 1
+}
+
+# VS Code: install latest stable official .deb (adds Microsoft apt repo; no Snap).
+install_vscode() {
+    if vscode_installed; then
+        log_info "VS Code is already installed (code on PATH or dpkg), skipping installation..."
+        return 0
+    fi
+
+    if ! command_exists curl; then
+        log_error "curl is required to download VS Code (install_curl should have run first)"
+        return 1
+    fi
+
+    local arch deb_url tmpdeb="/tmp/code_stable_linux.deb"
+    arch="$(dpkg --print-architecture)"
+    case "$arch" in
+        amd64) deb_url="https://update.code.visualstudio.com/latest/linux-deb-x64/stable" ;;
+        arm64) deb_url="https://update.code.visualstudio.com/latest/linux-deb-arm64/stable" ;;
+        *)
+            log_warning "VS Code automatic install supports amd64/arm64 only (this system: $arch). Install VS Code manually."
+            return 0
+            ;;
+    esac
+
+    log_info "Downloading latest stable VS Code (.deb) from Microsoft..."
+    # Pre-accept Microsoft apt repo prompt from the postinst (non-interactive installs)
+    echo "code code/add-microsoft-repo boolean true" | debconf-set-selections
+
+    if ! curl -fL --connect-timeout 90 --retry 3 -o "$tmpdeb" "$deb_url"; then
+        log_error "VS Code download failed from $deb_url"
+        return 1
+    fi
+
+    log_info "Installing VS Code (configures Microsoft apt repository for updates)..."
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmpdeb"; then
+        rm -f "$tmpdeb"
+        log_error "VS Code .deb install failed"
+        return 1
+    fi
+    rm -f "$tmpdeb"
     log_success "VS Code installed"
 }
 
@@ -870,8 +1001,9 @@ main() {
 main "$@"
 
 # Hook: install ROCm driver (standalone script; can also be run directly: ./scripts/install-rocm-driver.sh)
+# Non-fatal: main setup above may succeed even if ROCm download/repo fails on a given Ubuntu codename.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/install-rocm-driver.sh"
+"${SCRIPT_DIR}/install-rocm-driver.sh" || log_warning "install-rocm-driver.sh failed or was skipped; run it manually after fixing GPU/repo issues."
 
 # Install LACT GPU monitor (latest release from GitHub)
 install_lact() {
