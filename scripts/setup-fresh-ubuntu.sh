@@ -74,11 +74,11 @@ user_exists() {
     id "$1" &>/dev/null
 }
 
-# Helper function to check if a user is in a group
+# Helper function to check if a user is in a group (uses nss; reliable vs "groups" formatting)
 user_in_group() {
     local user="$1"
     local group="$2"
-    groups "$user" 2>/dev/null | grep -q "\b${group}\b"
+    id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx "$group"
 }
 
 # Helper function to check if a directory exists and is not empty
@@ -162,6 +162,73 @@ install_tailscale() {
     log_success "Tailscale installed"
 }
 
+# Ensure /var/run/docker.sock is root:docker and mode 660 (fixes some snap/partial installs)
+ensure_docker_socket_permissions() {
+    local sock="/var/run/docker.sock"
+    if [[ ! -S "$sock" ]]; then
+        log_info "Docker socket $sock not found (daemon may be stopped); skipping socket permission fix"
+        return 0
+    fi
+    local grp
+    grp=$(stat -c '%G' "$sock" 2>/dev/null || echo "")
+    if [[ "$grp" != "docker" ]]; then
+        log_warning "Docker socket group is '$grp' (expected docker); running chgrp docker on $sock"
+        chgrp docker "$sock" 2>/dev/null || log_warning "chgrp docker on $sock failed (is Docker running?)"
+    fi
+    chmod 660 "$sock" 2>/dev/null || true
+}
+
+# Add actual user to docker group (requires root for user management)
+add_user_to_docker_group() {
+    # Ensure docker group exists
+    if ! getent group docker >/dev/null 2>&1; then
+        log_info "Creating docker group..."
+        groupadd docker
+        log_success "Docker group created"
+    fi
+
+    # Idempotent: safe if the user is already a member (covers fresh install and re-runs).
+    local was_member=0
+    if user_in_group "$ACTUAL_USER" "docker"; then
+        was_member=1
+    fi
+    log_info "Ensuring user $ACTUAL_USER is in the docker group..."
+    usermod -aG docker "$ACTUAL_USER"
+    if [[ "$was_member" -eq 0 ]]; then
+        log_success "User $ACTUAL_USER added to docker group"
+        log_warning "Note: User $ACTUAL_USER must open a new login session for docker group to apply to existing terminals (or run: newgrp docker)"
+    else
+        log_info "User $ACTUAL_USER was already in the docker group (nss)"
+    fi
+}
+
+# Verify the desktop user can reach the daemon (uses nss group list, not the invoking shell)
+verify_docker_cli_for_actual_user() {
+    if ! command_exists docker; then
+        return 0
+    fi
+    if [[ ! -S /var/run/docker.sock ]]; then
+        log_warning "Docker socket missing; skipping docker CLI verification"
+        return 0
+    fi
+    if sudo -u "$ACTUAL_USER" docker info &>/dev/null; then
+        log_success "Docker CLI verified for $ACTUAL_USER (docker info as that user)"
+        return 0
+    fi
+    if sudo -u "$ACTUAL_USER" sg docker -c "docker info" &>/dev/null; then
+        log_warning "Docker works for $ACTUAL_USER via sg docker only; fix group/socket and re-login."
+        return 0
+    fi
+    log_warning "Docker CLI check failed for $ACTUAL_USER (docker info). Check: getent group docker, ls -la /var/run/docker.sock"
+}
+
+# Socket + group + verification (call after any Docker install/skip path)
+finalize_docker_access_for_actual_user() {
+    ensure_docker_socket_permissions
+    add_user_to_docker_group
+    verify_docker_cli_for_actual_user
+}
+
 # Install Docker (requires root for package installation and repository configuration)
 install_docker() {
     # Note: fix_docker_apt_conflicts() runs earlier (before update_apt) to resolve
@@ -185,69 +252,52 @@ Signed-By: /etc/apt/keyrings/docker.asc
 EOF
             apt update
         fi
-        return 0
-    fi
-    
-    log_info "Installing Docker..."
-    
-    # Install prerequisites
-    if ! package_installed ca-certificates; then
-        apt install -y ca-certificates
-    fi
-    if ! command_exists curl; then
-        apt install -y curl
-    fi
-    
-    # Add Docker's official GPG key (only if not exists)
-    install -m 0755 -d /etc/apt/keyrings
-    if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-        chmod a+r /etc/apt/keyrings/docker.asc
-    fi
-    
-    # Add the repository to Apt sources (only if not configured)
-    if ! repo_configured "/etc/apt/sources.list.d/docker.sources"; then
-        tee /etc/apt/sources.list.d/docker.sources <<EOF
+    else
+        log_info "Installing Docker..."
+
+        # Install prerequisites
+        if ! package_installed ca-certificates; then
+            apt install -y ca-certificates
+        fi
+        if ! command_exists curl; then
+            apt install -y curl
+        fi
+
+        # Add Docker's official GPG key (only if not exists)
+        install -m 0755 -d /etc/apt/keyrings
+        if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.asc
+        fi
+
+        # Add the repository to Apt sources (only if not configured)
+        if ! repo_configured "/etc/apt/sources.list.d/docker.sources"; then
+            tee /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
 URIs: https://download.docker.com/linux/ubuntu
 Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
 Components: stable
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
-    fi
-    
-    # Update apt and install Docker
-    apt update
-    apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    
-    # Ensure docker group exists (usually created by Docker installation, but ensure it exists)
-    if ! getent group docker >/dev/null 2>&1; then
-        log_info "Creating docker group..."
-        groupadd docker
-        log_success "Docker group created"
-    fi
-    
-    log_success "Docker installed"
-}
+        fi
 
-# Add actual user to docker group (requires root for user management)
-add_user_to_docker_group() {
-    # Ensure docker group exists
-    if ! getent group docker >/dev/null 2>&1; then
-        log_info "Creating docker group..."
-        groupadd docker
-        log_success "Docker group created"
+        # Update apt and install Docker
+        apt update
+        apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+        # Ensure docker group exists (usually created by Docker installation, but ensure it exists)
+        if ! getent group docker >/dev/null 2>&1; then
+            log_info "Creating docker group..."
+            groupadd docker
+            log_success "Docker group created"
+        fi
+
+        log_success "Docker installed"
     fi
-    
-    # Add actual user to docker group (if not already in group)
-    if ! user_in_group "$ACTUAL_USER" "docker"; then
-        log_info "Adding user $ACTUAL_USER to docker group..."
-        usermod -aG docker "$ACTUAL_USER"
-        log_success "User $ACTUAL_USER added to docker group"
-        log_warning "Note: User $ACTUAL_USER will need to log out and back in (or use 'newgrp docker') for docker group changes to take effect"
-    else
-        log_info "User $ACTUAL_USER is already in docker group, skipping..."
-    fi
+
+    # Always run: Docker may be pre-installed while the user was never added, or socket group wrong,
+    # or this is a re-run after usermod (verification uses fresh nss via sudo).
+    finalize_docker_access_for_actual_user
 }
 
 # Install UV
@@ -374,92 +424,190 @@ _homebrew_ensure_bashrc() {
     fi
 }
 
-# Install asdf and Node.js (standalone asdf via git clone - no Homebrew dependency)
-install_asdf_nodejs() {
-    # Check if Node.js is already installed via asdf
-    if sudo -u "$ACTUAL_USER" bash -c '[[ -f "$HOME/.asdf/asdf.sh" ]] && source "$HOME/.asdf/asdf.sh" && command -v node &>/dev/null' 2>/dev/null && \
-       sudo -u "$ACTUAL_USER" bash -c 'source "$HOME/.asdf/asdf.sh" && node --version' 2>/dev/null | grep -q "v22.15.1"; then
-        log_info "Node.js 22.15.1 is already installed via asdf, skipping installation..."
+# Apt packages for asdf-nodejs (prebuilt binaries + optional compile fallback)
+install_asdf_nodejs_apt_prereqs() {
+    log_info "Installing apt packages for asdf / Node.js (git, curl, gpg, build tools)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+        dirmngr \
+        build-essential \
+        python3
+    log_success "asdf / Node.js apt prerequisites ready"
+}
+
+# True if Node 22.15.1 is installed under asdf and binaries run (does not depend on PATH order).
+_verify_asdf_nodejs_22_15_1_installed() {
+    sudo -u "$ACTUAL_USER" bash <<'VERIFY'
+set -euo pipefail
+test -x "$HOME/.asdf/installs/nodejs/22.15.1/bin/node"
+test -x "$HOME/.asdf/installs/nodejs/22.15.1/bin/npm"
+"$HOME/.asdf/installs/nodejs/22.15.1/bin/node" -v | grep -q '^v22\.15\.1'
+"$HOME/.asdf/installs/nodejs/22.15.1/bin/npm" -v >/dev/null
+VERIFY
+}
+
+# Insert asdf before Ubuntu's "non-interactive return" so npm/node work under bash -c / CI / scripts.
+_insert_asdf_bootstrap_before_noninteractive_return() {
+    local rc="$ACTUAL_HOME/.bashrc"
+    [[ -f "$rc" ]] || return 0
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+
+    if grep -q 'asdf-before-noninteractive-return' "$rc" 2>/dev/null; then
         return 0
     fi
-    
+
+    local line
+    line=$(grep -n '^# If not running interactively' "$rc" 2>/dev/null | head -1 | cut -d: -f1 || true)
+    if [[ -z "$line" ]]; then
+        return 0
+    fi
+
+    local tmp
+    tmp=$(mktemp)
+    {
+        head -n "$((line - 1))" "$rc"
+        cat <<'ASDFTOP'
+
+# asdf (before non-interactive return): node/npm for scripts / ssh / CI (ci-os setup)
+export ASDF_DIR="${ASDF_DIR:-$HOME/.asdf}"
+if [[ -f "$ASDF_DIR/asdf.sh" ]]; then
+  # shellcheck source=/dev/null
+  . "$ASDF_DIR/asdf.sh"
+  export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"  # asdf-shims-priority asdf-before-noninteractive-return
+fi
+ASDFTOP
+        tail -n "+${line}" "$rc"
+    } > "$tmp" && mv "$tmp" "$rc"
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+    log_info "Inserted asdf bootstrap before non-interactive early return in $rc"
+}
+
+# After Homebrew / ~/.local env: prepend shims again so asdf wins over editor-bundled Node on PATH.
+_append_asdf_shim_priority_tail() {
+    local rc="$ACTUAL_HOME/.bashrc"
+    [[ -f "$rc" ]] || touch "$rc"
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+
+    if grep -q 'asdf-after-path-toolchains' "$rc" 2>/dev/null; then
+        return 0
+    fi
+
+    {
+        echo ''
+        echo '# After brew/env: asdf shims first again (node/npm vs linuxbrew, editor PATH)'
+        echo 'export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"  # asdf-shims-priority asdf-after-path-toolchains'
+    } >> "$rc"
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+    log_info "Appended asdf PATH tail to $rc"
+}
+
+# Ensure ~/.bashrc loads asdf and prepends shims so node/npm win over editor-bundled PATH entries.
+_ensure_asdf_in_bashrc_with_shim_priority() {
+    local rc="$ACTUAL_HOME/.bashrc"
+    [[ -f "$rc" ]] || touch "$rc"
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+
+    _insert_asdf_bootstrap_before_noninteractive_return
+
+    if grep -q 'asdf-after-path-toolchains' "$rc" 2>/dev/null; then
+        return 0
+    fi
+
+    if grep -q 'asdf\.sh' "$rc" 2>/dev/null; then
+        _append_asdf_shim_priority_tail
+    else
+        log_info "Adding classic asdf block to end of $rc (no asdf.sh reference yet)"
+        {
+            echo ''
+            echo '# asdf version manager (ci-os setup)'
+            echo '. "$HOME/.asdf/asdf.sh"'
+            echo 'export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"  # asdf-shims-priority asdf-after-path-toolchains'
+        } >> "$rc"
+        chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+    fi
+}
+
+# Install asdf and Node.js (standalone asdf via git clone - no Homebrew dependency)
+install_asdf_nodejs() {
+    if _verify_asdf_nodejs_22_15_1_installed 2>/dev/null; then
+        log_info "Node.js 22.15.1 is already installed via asdf, skipping install..."
+        _ensure_asdf_in_bashrc_with_shim_priority
+        return 0
+    fi
+
+    install_asdf_nodejs_apt_prereqs
+
     log_info "Installing asdf and Node.js for user $ACTUAL_USER..."
-    
-    # Ensure git is available (needed to clone asdf)
+
     if ! command_exists git; then
         apt install -y git
     fi
 
-    # Install asdf and Node.js as the actual user (standalone asdf - no Homebrew)
-    sudo -u "$ACTUAL_USER" bash <<'EOF'
+    # Install asdf and Node.js as the actual user. set -e ensures a failed install never leaves
+    # .tool-versions pointing at a missing version (which breaks npm/node shims with asdf errors).
+    if ! sudo -u "$ACTUAL_USER" bash <<'EOF'
+set -euo pipefail
 ASDF_DIR="$HOME/.asdf"
 ASDF_VERSION="v0.14.0"
 
-# Install asdf via git clone (if not already installed)
 if [[ ! -d "$ASDF_DIR" ]]; then
     git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch "$ASDF_VERSION"
 fi
 
-# Add asdf to shell (if not already there)
-if ! grep -q "asdf.sh" ~/.bashrc 2>/dev/null; then
-    echo '' >> ~/.bashrc
-    echo '# asdf version manager' >> ~/.bashrc
-    echo '. "$HOME/.asdf/asdf.sh"' >> ~/.bashrc
-fi
-
-# Source asdf for current session
 export PATH="$HOME/.asdf/bin:$PATH"
 if [[ -f "$ASDF_DIR/asdf.sh" ]]; then
     . "$ASDF_DIR/asdf.sh"
 fi
 
-# Create .asdfrc for legacy version file support
-echo 'legacy_version_file = yes' > ~/.asdfrc 2>/dev/null || true
+echo 'legacy_version_file = yes' > "$HOME/.asdfrc"
 
-# Add Node.js plugin (if not already added)
 asdf plugin add nodejs https://github.com/asdf-vm/asdf-nodejs.git 2>/dev/null || true
 
-# Install Node.js 22.15.1 (if not already installed)
-if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
-    asdf install nodejs 22.15.1
-    asdf reshim
-fi
-
-# Set as global version
+asdf install nodejs 22.15.1
+asdf reshim nodejs
 asdf global nodejs 22.15.1
+
+test -x "$HOME/.asdf/installs/nodejs/22.15.1/bin/node"
+test -x "$HOME/.asdf/installs/nodejs/22.15.1/bin/npm"
+"$HOME/.asdf/installs/nodejs/22.15.1/bin/node" -v | grep -q '^v22\.15\.1'
+"$HOME/.asdf/installs/nodejs/22.15.1/bin/npm" -v >/dev/null
 EOF
-    
+    then
+        log_error "asdf / Node.js install failed for user $ACTUAL_USER (see errors above)."
+        return 1
+    fi
+
+    _ensure_asdf_in_bashrc_with_shim_priority
+
+    if ! _verify_asdf_nodejs_22_15_1_installed 2>/dev/null; then
+        log_error "Post-install check failed: Node.js 22.15.1 not present under ~/.asdf/installs for $ACTUAL_USER"
+        return 1
+    fi
+
     log_success "asdf and Node.js installed"
 }
 
 # Set global Node.js version (standalone asdf in ~/.asdf)
 set_global_nodejs() {
     log_info "Setting global Node.js version to 22.15.1 for user $ACTUAL_USER..."
-    
-    sudo -u "$ACTUAL_USER" bash <<'EOF'
-# Load standalone asdf from ~/.asdf
+
+    if ! sudo -u "$ACTUAL_USER" bash <<'EOF'
+set -euo pipefail
 ASDF_DIR="$HOME/.asdf"
-if [[ ! -f "$ASDF_DIR/asdf.sh" ]]; then
-    exit 0
-fi
+[[ -f "$ASDF_DIR/asdf.sh" ]] || exit 0
 export PATH="$HOME/.asdf/bin:$PATH"
 . "$ASDF_DIR/asdf.sh"
-
-# Check if Node.js 22.15.1 is installed
-if ! asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
-    exit 0
-fi
-
-# Check current global version
-CURRENT_GLOBAL=$(asdf current nodejs 2>/dev/null | awk '{print $2}' || echo "")
-if [[ "$CURRENT_GLOBAL" == "22.15.1" ]]; then
-    exit 0
-fi
-
-# Set global Node.js version
+asdf list nodejs 2>/dev/null | grep -q "22.15.1" || exit 0
 asdf global nodejs 22.15.1
 EOF
-    
+    then
+        log_warning "Could not set asdf global nodejs (asdf or install missing); install_asdf_nodejs may need to run first"
+        return 0
+    fi
+
     log_success "Global Node.js version set to 22.15.1"
 }
 
@@ -468,6 +616,7 @@ EOF
 # Note about bashrc
 note_bashrc() {
     log_info "Note: User $ACTUAL_USER should start a new shell or run 'source ~/.bashrc' to use new tools"
+    log_info "Docker: if 'docker ps' says permission denied but setup verified OK, run 'newgrp docker' once, or log out and back in (GUI sessions keep old group set until then)"
 }
 
 # Get script directory and project root
@@ -964,7 +1113,6 @@ main() {
     update_apt
     install_make
     install_docker
-    add_user_to_docker_group
     install_uv
     install_homebrew
     install_asdf_nodejs
@@ -990,7 +1138,7 @@ main() {
     log_success "Setup completed successfully!"
     echo
     log_info "Next steps:"
-    echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools and activate docker group"
+    echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools; for Docker without re-login run: newgrp docker"
     echo "  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group"
     echo "  • Start Ollama service: systemctl start ollama"
     echo "  • Verify installations: docker --version, node --version, ollama --version, gh --version"
