@@ -1,12 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 #
-# CI OS Dark Green Theme Validation Script
+# CI OS Dark Green Theme Validation (read-only checks).
 #
-# Validates that the CI OS dark green theme is properly applied
-# and that Ubuntu branding has been removed.
-#
-# Usage: ./validate-ci-theme.sh
-# Can be run with or without sudo (some checks require root)
+# Usage:
+#   ./apply-ci-os-desktop.sh --validate
+#   bash setup/os-changes/common/80-validate-ci-theme.sh
 #
 
 set -euo pipefail
@@ -41,6 +39,10 @@ check_warn() {
     ((WARN_COUNT++))
 }
 
+_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# common/ -> os-changes -> setup -> repo root
+REPO_ROOT="$(cd "$_SCRIPT_DIR/../../.." && pwd)"
+
 echo ""
 echo "=========================================="
 echo " CI OS Dark Green Theme Validation"
@@ -63,7 +65,6 @@ PLYMOUTH_WATERMARK="/usr/share/plymouth/themes/spinner/watermark.png"
 PLYMOUTH_SPINNER="/usr/share/plymouth/themes/spinner/spinner.plymouth"
 
 if [[ -f "$PLYMOUTH_WATERMARK" ]]; then
-    # Check if it's been modified (different from default Ubuntu)
     if file "$PLYMOUTH_WATERMARK" | grep -q "PNG image"; then
         check_pass "Plymouth watermark exists"
     else
@@ -92,7 +93,7 @@ if [[ -f "/etc/os-release" ]]; then
     else
         check_fail "/etc/os-release still shows Ubuntu branding"
     fi
-    
+
     if grep -q "ID=ci-os" /etc/os-release 2>/dev/null; then
         check_pass "OS ID set to ci-os"
     else
@@ -106,14 +107,14 @@ fi
 log_info "Checking GNOME theme configuration..."
 
 if command -v gsettings >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
-    CURRENT_THEME=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'")
+    CURRENT_THEME=$(gsettings get org.gnome.desktop.interface gtk-theme 2>/dev/null | tr -d "'" || true)
     if [[ "$CURRENT_THEME" == *"prussiangreen"* ]] || [[ "$CURRENT_THEME" == *"sage"* ]] || [[ "$CURRENT_THEME" == *"viridian"* ]]; then
         check_pass "GNOME theme is dark green variant: $CURRENT_THEME"
     else
         check_warn "GNOME theme is: $CURRENT_THEME (expected dark green variant)"
     fi
-    
-    PRIMARY_COLOR=$(gsettings get org.gnome.desktop.background primary-color 2>/dev/null | tr -d "'")
+
+    PRIMARY_COLOR=$(gsettings get org.gnome.desktop.background primary-color 2>/dev/null | tr -d "'" || true)
     if [[ "$PRIMARY_COLOR" == *"066c80"* ]]; then
         check_pass "GNOME background primary color is CI dark green"
     else
@@ -126,20 +127,30 @@ fi
 # Check 5: GDM/dconf system settings
 log_info "Checking GDM theme configuration..."
 
-if [[ -f "/etc/dconf/db/local.d/01-ci-theme" ]]; then
-    if grep -q "066c80" /etc/dconf/db/local.d/01-ci-theme 2>/dev/null; then
+if [[ -f "/etc/dconf/db/local.d/01-ci-os-gnome-defaults" ]]; then
+    if grep -q "066c80" /etc/dconf/db/local.d/01-ci-os-gnome-defaults 2>/dev/null; then
         check_pass "dconf system theme configured with CI colors"
     else
-        check_warn "dconf system theme exists but may not have CI colors"
+        check_warn "dconf system defaults exist but may not have CI colors"
     fi
 else
-    check_warn "dconf system theme configuration not found"
+    check_warn "dconf system defaults not found (expected /etc/dconf/db/local.d/01-ci-os-gnome-defaults)"
 fi
 
-if [[ -f "/etc/dconf/db/gdm.d/01-ci-theme" ]]; then
+if [[ -f "/etc/dconf/db/gdm.d/01-ci-os-gdm" ]] || [[ -f "/etc/dconf/db/gdm.d/01-ci-theme" ]]; then
     check_pass "GDM theme configuration exists"
 else
     check_warn "GDM theme configuration not found (login screen may not be themed)"
+fi
+
+if command -v gsettings >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+    DOCK_POS=$(gsettings get org.gnome.shell.extensions.dash-to-dock dock-position 2>/dev/null | tr -d "'" || true)
+    DOCK_AUTO=$(gsettings get org.gnome.shell.extensions.dash-to-dock autohide 2>/dev/null | tr -d "'" || true)
+    if [[ "$DOCK_POS" == "LEFT" ]] && [[ "$DOCK_AUTO" == "true" ]]; then
+        check_pass "Dock on left with autohide (dismissable)"
+    else
+        check_warn "Dock position=$DOCK_POS autohide=$DOCK_AUTO (expected LEFT + true)"
+    fi
 fi
 
 # Check 6: MOTD (Message of the Day)
@@ -170,13 +181,11 @@ log_info "Checking for remaining Ubuntu branding..."
 
 UBUNTU_FOUND=0
 
-# Check for Ubuntu in key files
 if grep -i "ubuntu" /etc/os-release 2>/dev/null | grep -v "ID_LIKE\|CODENAME" | grep -q "ubuntu"; then
     check_warn "Found 'Ubuntu' reference in /etc/os-release"
     UBUNTU_FOUND=1
 fi
 
-# Check Plymouth themes for Ubuntu text
 if grep -qi "ubuntu" /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth 2>/dev/null; then
     if ! grep -q "CI OS" /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth 2>/dev/null; then
         check_warn "Plymouth text theme still references Ubuntu"
@@ -217,9 +226,6 @@ fi
 # Check 10: Brand Assets
 log_info "Checking brand assets..."
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-
 if [[ -f "$REPO_ROOT/assets/branding/brand-guidelines.md" ]]; then
     if grep -q "066c80" "$REPO_ROOT/assets/branding/brand-guidelines.md" 2>/dev/null; then
         check_pass "Brand guidelines contain CI dark green colors"
@@ -235,27 +241,25 @@ echo ""
 echo "=========================================="
 echo " Validation Summary"
 echo "=========================================="
-echo -e "${GREEN}✓ Passed:${NC} $PASS_COUNT"
-echo -e "${YELLOW}⚠ Warnings:${NC} $WARN_COUNT"
-echo -e "${RED}✗ Failed:${NC} $FAIL_COUNT"
+echo -e "${GREEN}Passed:${NC} $PASS_COUNT"
+echo -e "${YELLOW}Warnings:${NC} $WARN_COUNT"
+echo -e "${RED}Failed:${NC} $FAIL_COUNT"
 echo ""
 
+_APPLY_HINT="sudo $REPO_ROOT/setup/os-changes/apply-ci-os-desktop.sh"
+
 if [[ $FAIL_COUNT -eq 0 ]] && [[ $WARN_COUNT -eq 0 ]]; then
-    echo -e "${GREEN}🎉 Perfect! CI OS dark green theme is fully applied!${NC}"
+    echo -e "${GREEN}All checks passed.${NC}"
     exit 0
 elif [[ $FAIL_COUNT -eq 0 ]]; then
-    echo -e "${YELLOW}⚠ Theme mostly applied. Check warnings above.${NC}"
-    echo "Some checks may warn if you haven't rebooted yet or aren't in a graphical session."
+    echo -e "${YELLOW}Theme mostly applied. Check warnings above.${NC}"
+    echo "Some checks may warn if you have not rebooted yet or are not in a graphical session."
     exit 0
 else
-    echo -e "${RED}❌ Theme validation failed. See errors above.${NC}"
+    echo -e "${RED}Theme validation failed. See errors above.${NC}"
     echo ""
-    echo "To fix issues, run the following scripts:"
-    echo "  sudo ./set-ci-branding.sh        # Apply theme and colors"
-    echo "  sudo ./update-os-release.sh      # Update OS identity"
-    echo "  sudo ./setup-ci-motd.sh          # Update MOTD"
-    echo "  sudo ./replace-wallpaper.sh      # Set wallpaper"
-    echo "  sudo ./replace-start-icon.sh     # Update start icon"
+    echo "To apply or repair branding, run:"
+    echo "  $_APPLY_HINT"
     echo ""
     exit 1
 fi
