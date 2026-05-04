@@ -440,12 +440,22 @@ install_asdf_nodejs_apt_prereqs() {
 
 # True if Node 22.15.1 is installed under asdf and binaries run (does not depend on PATH order).
 _verify_asdf_nodejs_22_15_1_installed() {
-    sudo -u "$ACTUAL_USER" bash <<'VERIFY'
+    sudo -H -u "$ACTUAL_USER" HOME="$ACTUAL_HOME" USER="$ACTUAL_USER" LOGNAME="$ACTUAL_USER" bash <<'VERIFY'
 set -euo pipefail
-test -x "$HOME/.asdf/installs/nodejs/22.15.1/bin/node"
-test -x "$HOME/.asdf/installs/nodejs/22.15.1/bin/npm"
-"$HOME/.asdf/installs/nodejs/22.15.1/bin/node" -v | grep -q '^v22\.15\.1'
-"$HOME/.asdf/installs/nodejs/22.15.1/bin/npm" -v >/dev/null
+ASDF_DIR="${ASDF_DIR:-$HOME/.asdf}"
+[[ -f "$ASDF_DIR/asdf.sh" ]]
+
+export ASDF_DIR
+export ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_DIR}"
+export PATH="$ASDF_DIR/bin:$PATH"
+. "$ASDF_DIR/asdf.sh"
+
+install_dir="$(asdf where nodejs 22.15.1 2>/dev/null || true)"
+[[ -n "$install_dir" ]]
+test -x "$install_dir/bin/node"
+test -x "$install_dir/bin/npm"
+"$install_dir/bin/node" -v | grep -q '^v22\.15\.1'
+"$install_dir/bin/npm" -v >/dev/null
 VERIFY
 }
 
@@ -548,9 +558,10 @@ install_asdf_nodejs() {
 
     # Install asdf and Node.js as the actual user. set -e ensures a failed install never leaves
     # .tool-versions pointing at a missing version (which breaks npm/node shims with asdf errors).
-    if ! sudo -u "$ACTUAL_USER" bash <<'EOF'
+    if ! sudo -H -u "$ACTUAL_USER" HOME="$ACTUAL_HOME" USER="$ACTUAL_USER" LOGNAME="$ACTUAL_USER" bash <<'EOF'
 set -euo pipefail
 ASDF_DIR="$HOME/.asdf"
+ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_DIR}"
 ASDF_VERSION="v0.14.0"
 
 if [[ ! -d "$ASDF_DIR" ]]; then
@@ -561,6 +572,8 @@ export PATH="$HOME/.asdf/bin:$PATH"
 if [[ -f "$ASDF_DIR/asdf.sh" ]]; then
     . "$ASDF_DIR/asdf.sh"
 fi
+export ASDF_DIR
+export ASDF_DATA_DIR
 
 echo 'legacy_version_file = yes' > "$HOME/.asdfrc"
 
@@ -570,10 +583,12 @@ asdf install nodejs 22.15.1
 asdf reshim nodejs
 asdf global nodejs 22.15.1
 
-test -x "$HOME/.asdf/installs/nodejs/22.15.1/bin/node"
-test -x "$HOME/.asdf/installs/nodejs/22.15.1/bin/npm"
-"$HOME/.asdf/installs/nodejs/22.15.1/bin/node" -v | grep -q '^v22\.15\.1'
-"$HOME/.asdf/installs/nodejs/22.15.1/bin/npm" -v >/dev/null
+install_dir="$(asdf where nodejs 22.15.1 2>/dev/null || true)"
+[[ -n "$install_dir" ]]
+test -x "$install_dir/bin/node"
+test -x "$install_dir/bin/npm"
+"$install_dir/bin/node" -v | grep -q '^v22\.15\.1'
+"$install_dir/bin/npm" -v >/dev/null
 EOF
     then
         log_error "asdf / Node.js install failed for user $ACTUAL_USER (see errors above)."
@@ -594,10 +609,12 @@ EOF
 set_global_nodejs() {
     log_info "Setting global Node.js version to 22.15.1 for user $ACTUAL_USER..."
 
-    if ! sudo -u "$ACTUAL_USER" bash <<'EOF'
+    if ! sudo -H -u "$ACTUAL_USER" HOME="$ACTUAL_HOME" USER="$ACTUAL_USER" LOGNAME="$ACTUAL_USER" bash <<'EOF'
 set -euo pipefail
 ASDF_DIR="$HOME/.asdf"
 [[ -f "$ASDF_DIR/asdf.sh" ]] || exit 0
+export ASDF_DIR
+export ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_DIR}"
 export PATH="$HOME/.asdf/bin:$PATH"
 . "$ASDF_DIR/asdf.sh"
 asdf list nodejs 2>/dev/null | grep -q "22.15.1" || exit 0
@@ -915,9 +932,39 @@ chromium_usable() {
 vscode_installed() {
     command_exists code && return 0
     [[ -x /usr/bin/code ]] && return 0
+    [[ -x /snap/bin/code ]] && return 0
+    if command_exists snap && snap list code >/dev/null 2>&1; then
+        return 0
+    fi
     if dpkg-query -W -f='${Status}' code 2>/dev/null | grep -q 'ok installed'; then
         return 0
     fi
+    return 1
+}
+
+install_vscode_snap_fallback() {
+    log_warning "Falling back to VS Code Snap install (code --classic)..."
+
+    if ! command_exists snap; then
+        log_info "snap not detected; installing snapd for VS Code fallback..."
+        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y snapd; then
+            log_error "Could not install snapd for VS Code fallback"
+            return 1
+        fi
+        systemctl enable --now snapd.socket >/dev/null 2>&1 || true
+    fi
+
+    if ! snap install code --classic; then
+        log_error "VS Code Snap fallback failed"
+        return 1
+    fi
+
+    if vscode_installed; then
+        log_success "VS Code installed (snap fallback)"
+        return 0
+    fi
+
+    log_error "VS Code fallback reported success but code command was not detected"
     return 1
 }
 
@@ -969,12 +1016,25 @@ install_chromium() {
     fi
 
     # 2) Snap (only if snapd works — may be absent on trimmed images)
+    if ! command_exists snap; then
+        log_info "snap not detected; installing snapd for Chromium fallback..."
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y snapd; then
+            systemctl enable --now snapd.socket >/dev/null 2>&1 || true
+        else
+            log_warning "Could not install snapd; skipping snap-based Chromium"
+        fi
+    fi
+
     if command_exists snap; then
         log_info "Trying Chromium via snap..."
         if snap install chromium 2>/dev/null; then
+            if chromium_usable; then
+                chromium_desktop_compat_symlink || true
+                log_success "Chromium installed (snap)"
+                return 0
+            fi
             chromium_desktop_compat_symlink || true
-            log_success "Chromium installed (snap)"
-            return 0
+            log_warning "snap install chromium completed, but chromium is not yet usable on PATH"
         fi
     else
         log_warning "snap not available; skipping snap-based Chromium"
@@ -1027,15 +1087,18 @@ install_vscode() {
     echo "code code/add-microsoft-repo boolean true" | debconf-set-selections
 
     if ! curl -fL --connect-timeout 90 --retry 3 -o "$tmpdeb" "$deb_url"; then
-        log_error "VS Code download failed from $deb_url"
-        return 1
+        log_warning "VS Code .deb download failed from $deb_url"
+        rm -f "$tmpdeb"
+        install_vscode_snap_fallback
+        return $?
     fi
 
     log_info "Installing VS Code (configures Microsoft apt repository for updates)..."
     if ! DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmpdeb"; then
         rm -f "$tmpdeb"
-        log_error "VS Code .deb install failed"
-        return 1
+        log_warning "VS Code .deb install failed"
+        install_vscode_snap_fallback
+        return $?
     fi
     rm -f "$tmpdeb"
     log_success "VS Code installed"
@@ -1043,16 +1106,72 @@ install_vscode() {
 
 # Install Companion Hub Desktop (requires root)
 install_companion_hub() {
-    local hub_url="https://dl.ci.computer/v0.1.4/linux/deb/x64/Companion%20Hub_0.1.4_amd64.deb"
-    local hub_deb="/tmp/Companion_Hub_0.1.4_amd64.deb"
+    local base_url="https://dl.ci.computer"
+    local fallback_version="v0.1.4"
+    local version_tag="$fallback_version"
+    local clean_version latest_json manifest_json manifest_url
+    local arch deb_arch dl_arch arch_match_regex
+    local hub_url hub_deb
 
     if command_exists ci-os-hub-desktop && dpkg -s companion-hub >/dev/null 2>&1; then
         log_info "Companion Hub is already installed, skipping..."
         return 0
     fi
 
-    log_info "Installing Companion Hub Desktop..."
-    curl -L "$hub_url" -o "$hub_deb"
+    arch="$(dpkg --print-architecture)"
+    case "$arch" in
+        amd64)
+            deb_arch="amd64"
+            dl_arch="x64"
+            arch_match_regex='(amd64|x64)'
+            ;;
+        arm64)
+            deb_arch="arm64"
+            dl_arch="arm"
+            arch_match_regex='(arm64|aarch64|arm)'
+            ;;
+        *)
+            log_warning "Companion Hub install supports amd64/arm64 only (this system: $arch). Skipping."
+            return 0
+            ;;
+    esac
+
+    latest_json="$(curl -fsSL --connect-timeout 20 --retry 2 "${base_url}/latest.json" 2>/dev/null || true)"
+    if [[ -n "$latest_json" ]]; then
+        version_tag="$(echo "$latest_json" | grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n 1 | sed -E 's/.*"([^"]+)"/\1/' || true)"
+        if [[ -z "$version_tag" ]]; then
+            version_tag="$fallback_version"
+        fi
+    fi
+
+    clean_version="${version_tag#v}"
+    manifest_url="${base_url}/${version_tag}/manifest.json"
+    manifest_json="$(curl -fsSL --connect-timeout 20 --retry 2 "$manifest_url" 2>/dev/null || true)"
+    hub_url=""
+    if [[ -n "$manifest_json" ]]; then
+        hub_url="$(echo "$manifest_json" | tr '\n' ' ' | grep -Eo 'https?://[^"[:space:]]+\.deb' | grep -Ei "$arch_match_regex" | head -n 1 || true)"
+    fi
+
+    # Fallback to deterministic dl.ci.computer path if manifest parsing returns no match.
+    if [[ -z "$hub_url" ]]; then
+        hub_url="${base_url}/${version_tag}/linux/deb/${dl_arch}/Companion%20Hub_${clean_version}_${deb_arch}.deb"
+    fi
+
+    hub_deb="/tmp/Companion_Hub_${clean_version}_${deb_arch}.deb"
+
+    log_info "Installing Companion Hub Desktop for ${arch} from ${hub_url}..."
+    if ! curl -fL --connect-timeout 90 --retry 3 -o "$hub_deb" "$hub_url"; then
+        if [[ "$version_tag" != "$fallback_version" ]]; then
+            clean_version="${fallback_version#v}"
+            hub_url="${base_url}/${fallback_version}/linux/deb/${dl_arch}/Companion%20Hub_${clean_version}_${deb_arch}.deb"
+            hub_deb="/tmp/Companion_Hub_${clean_version}_${deb_arch}.deb"
+            log_warning "Primary Companion Hub download failed; retrying fallback ${hub_url}"
+            curl -fL --connect-timeout 90 --retry 3 -o "$hub_deb" "$hub_url"
+        else
+            log_error "Failed to download Companion Hub from ${hub_url}"
+            return 1
+        fi
+    fi
 
     # Prefer apt install for dependency resolution.
     if ! apt-get install -y "$hub_deb"; then
