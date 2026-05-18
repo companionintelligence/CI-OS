@@ -109,14 +109,21 @@ A systemd service (`ci-os-first-boot-setup.service`) runs after the first post-i
 - Docker CE + compose
 - Homebrew, asdf, Node.js 22.15.1, Bun, UV
 - Ollama + benchmark-recommended AI models via `ci-os-benchmark`, `ci-os-model-recommend`, and `ci-os-model-install`
+- Express Setup + privacy controls (`ci-os-express-setup`, `ci-os-privacy-status`, `ci-os-privacy-apply`)
+- Headless setup reporting (`ci-os-headless-status`)
 - GitHub CLI, cloudflared, VS Code (snap), Tailscale
 - GNOME power profile → performance
 
 Manual trigger: `sudo ci-os-setup`
+Express Setup trigger: `sudo ci-os-express-setup --yes`
 
 AI model setup writes:
 - `/var/lib/ci-os/benchmark.json`
 - `/var/lib/ci-os/model-recommendations.json`
+Express Setup writes:
+- `/var/lib/ci-os/setup-report.json`
+- `/var/lib/ci-os/privacy-status.json`
+- `/var/lib/ci-os/headless-status.json`
 
 The original scripts are also copied to `/usr/lib/ci-os/bootstrap/` for manual use.
 

@@ -695,7 +695,7 @@ for lib_script in "$REPO_ROOT/scripts/lib/"*.sh; do
 done
 
 # Copy additional setup scripts
-for setup_script in install-rocm-driver.sh ci-os-ai-setup.sh; do
+for setup_script in install-rocm-driver.sh ci-os-ai-setup.sh ci-os-privacy.sh ci-os-headless-status.sh ci-os-express-setup.sh; do
     if [[ -f "$REPO_ROOT/scripts/$setup_script" ]]; then
         install -m 755 "$REPO_ROOT/scripts/$setup_script" \
             "$CHROOT_PATH/usr/lib/ci-os/bootstrap/$setup_script"
@@ -710,6 +710,26 @@ if [[ -f "$REPO_ROOT/scripts/ci-os-ai-setup.sh" ]]; then
     ln -sf /usr/local/bin/ci-os-ai-setup "$CHROOT_PATH/usr/local/bin/ci-os-model-recommend"
     ln -sf /usr/local/bin/ci-os-ai-setup "$CHROOT_PATH/usr/local/bin/ci-os-model-install"
     echo "[+] Installed AI benchmark/model recommendation commands"
+fi
+
+if [[ -f "$REPO_ROOT/scripts/ci-os-privacy.sh" ]]; then
+    install -m 755 "$REPO_ROOT/scripts/ci-os-privacy.sh" \
+        "$CHROOT_PATH/usr/local/bin/ci-os-privacy"
+    ln -sf /usr/local/bin/ci-os-privacy "$CHROOT_PATH/usr/local/bin/ci-os-privacy-status"
+    ln -sf /usr/local/bin/ci-os-privacy "$CHROOT_PATH/usr/local/bin/ci-os-privacy-apply"
+    echo "[+] Installed privacy status/apply commands"
+fi
+
+if [[ -f "$REPO_ROOT/scripts/ci-os-headless-status.sh" ]]; then
+    install -m 755 "$REPO_ROOT/scripts/ci-os-headless-status.sh" \
+        "$CHROOT_PATH/usr/local/bin/ci-os-headless-status"
+    echo "[+] Installed headless setup status command"
+fi
+
+if [[ -f "$REPO_ROOT/scripts/ci-os-express-setup.sh" ]]; then
+    install -m 755 "$REPO_ROOT/scripts/ci-os-express-setup.sh" \
+        "$CHROOT_PATH/usr/local/bin/ci-os-express-setup"
+    echo "[+] Installed Express Setup command"
 fi
 
 # ── Create the first-boot setup script ─────────────────────────────────────

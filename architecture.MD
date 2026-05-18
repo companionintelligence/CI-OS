@@ -117,6 +117,9 @@ flowchart TB
     benchmark["ci-os-benchmark"]
     recommend["ci-os-model-recommend"]
     installModels["ci-os-model-install"]
+    privacy["ci-os-privacy-status/apply"]
+    express["ci-os-express-setup"]
+    headlessStatus["ci-os-headless-status"]
     desktop["GNOME/GDM/Plymouth/MOTD branding"]
 
     installed --> firstBootRebrand
@@ -124,6 +127,9 @@ flowchart TB
     installed --> desktop
     installed --> info
     installed --> rocm
+    installed --> privacy
+    installed --> express
+    installed --> headlessStatus
     installed --> benchmark
     benchmark --> recommend
     recommend --> installModels
@@ -145,21 +151,25 @@ flowchart TB
 | `ci-os-setup` | `customize-chroot.sh` | Manual rerun wrapper for first-boot setup |
 | `ci-os-info` | `customize-chroot.sh` | Prints OS, kernel, AMD GPU, and ROCm status |
 | `ci-os-install-rocm` | `customize-chroot.sh` | Adds ROCm repo and installs AMD ROCm components |
+| `ci-os-express-setup` | `scripts/ci-os-express-setup.sh` via `customize-chroot.sh` | Orchestrates privacy, AI, model, and headless status checks into a setup report |
+| `ci-os-privacy-status` / `ci-os-privacy-apply` | `scripts/ci-os-privacy.sh` via `customize-chroot.sh` | Reports and enforces Canonical telemetry controls |
 | `ci-os-benchmark` | `scripts/ci-os-ai-setup.sh` via `customize-chroot.sh` | Writes hardware and Ollama readiness data to `benchmark.json` |
 | `ci-os-model-recommend` | `scripts/ci-os-ai-setup.sh` via `customize-chroot.sh` | Chooses a conservative Ollama model set for the device |
 | `ci-os-model-install` | `scripts/ci-os-ai-setup.sh` via `customize-chroot.sh` | Pulls recommended Ollama models, with optional larger models behind a flag |
+| `ci-os-headless-status` | `scripts/ci-os-headless-status.sh` via `customize-chroot.sh` | Reports setup portal services, route, WiFi interface, and gateway state |
 | GNOME/GDM resource | `ci-os-branding` and chroot customization | Rebrands login shell resources |
 | MOTD and issue banners | `customize-chroot.sh` and branding scripts | CLI identity and login messaging |
 
 ---
 
-## AI Express Setup Architecture
+## Express Setup Architecture
 
-The current implementation adds the benchmark and model recommendation layer that future Express Setup can call. It avoids hardcoding a single large model for every machine and instead writes machine-readable output for UI, logs, or a setup portal.
+Express Setup is the operator-facing post-install workflow. It avoids hardcoding a single large model for every machine and writes machine-readable output for UI, logs, support, or a setup portal.
 
 ```mermaid
 flowchart TB
-    setup["Fresh setup or first boot"]
+    setup["ci-os-express-setup"]
+    privacy["ci-os-privacy-status/apply"]
     ollama["Install/start Ollama"]
     bench["ci-os-benchmark"]
     facts["/var/lib/ci-os/benchmark.json"]
@@ -167,15 +177,20 @@ flowchart TB
     recs["/var/lib/ci-os/model-recommendations.json"]
     install["ci-os-model-install --yes"]
     models["Recommended Ollama models"]
-    report["Future Express Setup report"]
+    headless["ci-os-headless-status"]
+    report["/var/lib/ci-os/setup-report.json"]
 
+    setup --> privacy
     setup --> ollama
+    setup --> headless
     ollama --> bench
     bench --> facts
     facts --> recommend
     recommend --> recs
     recs --> install
     install --> models
+    privacy --> report
+    headless --> report
     facts --> report
     recs --> report
 ```
@@ -203,9 +218,20 @@ flowchart TB
 
 Optional models are only installed when an operator explicitly passes `--include-optional`.
 
+### Express Setup Outputs
+
+| Output | Purpose |
+|---|---|
+| `/var/lib/ci-os/setup-report.json` | Top-level Express Setup outcome |
+| `/var/lib/ci-os/express-setup.log` | Human-readable step log |
+| `/var/lib/ci-os/privacy-status.json` | Telemetry/privacy state |
+| `/var/lib/ci-os/benchmark.json` | Hardware and Ollama readiness facts |
+| `/var/lib/ci-os/model-recommendations.json` | Recommended model tier and model list |
+| `/var/lib/ci-os/headless-status.json` | Setup portal and hotspot service status |
+
 ### Express Setup Next Step
 
-The next implementation layer should introduce `ci-os-express-setup` as an orchestrator instead of adding more logic directly into `setup-fresh-ubuntu.sh` or the generated first-boot script.
+The next implementation layer should move more first-boot setup actions behind `ci-os-express-setup` so `setup-fresh-ubuntu.sh` and the generated first-boot script become wrappers rather than separate setup implementations.
 
 ```mermaid
 flowchart LR
@@ -301,6 +327,7 @@ sequenceDiagram
 | Hotspot AP | `hostapd-setup.service` | Runs hostapd with setup SSID |
 | DHCP/DNS | `dnsmasq-setup.service` | Serves setup subnet and captive DNS redirects |
 | Portal server | `nginx.service` | Serves UI and proxies API calls |
+| Status command | `ci-os-headless-status` | Reports service state, default route, WiFi interfaces, portal URL, and gateway |
 
 ### Headless Network Defaults
 

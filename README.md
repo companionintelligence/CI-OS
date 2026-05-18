@@ -34,6 +34,8 @@ The detailed architecture, data flows, and improvement assessment are in [archit
 | Build local packages | `tools/iso-build/scripts/build-packages.sh` | Builds `.deb` files from `packages/*` |
 | Apply desktop branding to an existing install | `setup/os-changes/apply-ci-os-desktop.sh` | Rebrands Plymouth, GNOME/GDM, wallpaper, start icon, MOTD, and OS identity |
 | Prepare a fresh Ubuntu install | `scripts/setup-fresh-ubuntu.sh` | Installs Docker, Node/asdf, UV, Homebrew, Ollama, GitHub CLI, cloudflared, VS Code, Chromium, Companion Hub, telemetry removal, and LACT |
+| Run Express Setup | `scripts/ci-os-express-setup.sh` | Orchestrates privacy checks, AI benchmark/model setup, and headless status reporting |
+| Apply privacy controls | `scripts/ci-os-privacy.sh` | Reports or applies Canonical telemetry package/domain/MOTD controls |
 | Benchmark AI readiness | `scripts/ci-os-ai-setup.sh` | Writes hardware benchmark and Ollama model recommendation JSON |
 | Build headless setup package | `setup/headless/build.sh` | Produces `setup-device_<version>_amd64.deb` |
 | Headless WiFi setup | `setup/headless/setup-device/` | Installs hotspot, captive portal, Flask API, and network monitor services |
@@ -196,6 +198,70 @@ Important: this script downloads software from third-party repositories and modi
 
 ---
 
+## Express Setup
+
+CI-OS now has a lightweight Express Setup orchestrator that ties the privacy, AI benchmark, model recommendation, model install, and headless status surfaces together.
+
+Local development usage:
+
+```bash
+./scripts/ci-os-express-setup.sh --dry-run --yes
+```
+
+Installed-system usage:
+
+```bash
+sudo ci-os-express-setup --yes
+```
+
+It writes:
+
+| File | Purpose |
+|---|---|
+| `/var/lib/ci-os/setup-report.json` | Express Setup summary |
+| `/var/lib/ci-os/express-setup.log` | Step-by-step setup log |
+| `/var/lib/ci-os/privacy-status.json` | Telemetry/privacy status |
+| `/var/lib/ci-os/benchmark.json` | AI hardware benchmark |
+| `/var/lib/ci-os/model-recommendations.json` | Ollama model recommendations |
+| `/var/lib/ci-os/headless-status.json` | Headless setup service/network status |
+
+Useful options:
+
+| Option | Effect |
+|---|---|
+| `--yes` | Pull recommended Ollama models without prompting |
+| `--dry-run` | Show the orchestration plan and write a report without making changes |
+| `--skip-models` | Skip model installation |
+| `--skip-privacy` | Skip privacy enforcement |
+
+---
+
+## Privacy and Telemetry
+
+CI-OS privacy controls are exposed as installed commands:
+
+| Command | Purpose |
+|---|---|
+| `ci-os-privacy-status` | Reports telemetry package, hold, domain-block, and MOTD news state |
+| `sudo ci-os-privacy-apply` | Removes/holds telemetry packages, blocks telemetry domains, and disables MOTD news/help text |
+
+Local development usage:
+
+```bash
+./scripts/ci-os-privacy.sh status
+```
+
+Installed-system usage:
+
+```bash
+ci-os-privacy-status
+sudo ci-os-privacy-apply
+```
+
+The privacy layer targets `ubuntu-report`, `popularity-contest`, `apport`, `whoopsie`, `apport-symptoms`, `landscape-common`, Ubuntu metrics/popcon domains, and MOTD news/help scripts.
+
+---
+
 ## AI Benchmark and Model Recommendations
 
 CI-OS now includes the first piece of the smart AI setup path: a hardware-aware benchmark and Ollama model recommendation helper. The ISO builder installs it into the image as:
@@ -267,6 +333,7 @@ sudo dpkg -i setup-device_*.deb
 | `nginx.service` | Serves the setup portal and proxies `/api/*` |
 | `setup-backend.service` | Flask backend for status, WiFi scan, and WiFi configuration |
 | NetworkManager | Creates and activates the selected WiFi profile |
+| `ci-os-headless-status` | Reports service, route, WiFi interface, gateway, and portal state |
 
 Default setup network:
 
@@ -287,6 +354,13 @@ Key API endpoints:
 | `/api/status` | `GET` | Setup and Hub registration status |
 | `/api/scan-networks` | `GET` | Nearby WiFi scan results |
 | `/api/configure` | `POST` | Submit SSID, password, and optional pairing code |
+
+Installed status command:
+
+```bash
+ci-os-headless-status
+ci-os-headless-status --json
+```
 
 ---
 
