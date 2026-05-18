@@ -34,6 +34,7 @@ The detailed architecture, data flows, and improvement assessment are in [archit
 | Build local packages | `tools/iso-build/scripts/build-packages.sh` | Builds `.deb` files from `packages/*` |
 | Apply desktop branding to an existing install | `setup/os-changes/apply-ci-os-desktop.sh` | Rebrands Plymouth, GNOME/GDM, wallpaper, start icon, MOTD, and OS identity |
 | Prepare a fresh Ubuntu install | `scripts/setup-fresh-ubuntu.sh` | Installs Docker, Node/asdf, UV, Homebrew, Ollama, GitHub CLI, cloudflared, VS Code, Chromium, Companion Hub, telemetry removal, and LACT |
+| Benchmark AI readiness | `scripts/ci-os-ai-setup.sh` | Writes hardware benchmark and Ollama model recommendation JSON |
 | Build headless setup package | `setup/headless/build.sh` | Produces `setup-device_<version>_amd64.deb` |
 | Headless WiFi setup | `setup/headless/setup-device/` | Installs hotspot, captive portal, Flask API, and network monitor services |
 
@@ -189,7 +190,57 @@ The script is root-oriented and performs user-specific work as the real desktop 
 - Tailscale when available
 - LACT GPU tooling
 
+When `scripts/ci-os-ai-setup.sh` is present, fresh setup benchmarks the machine and pulls a recommended Ollama model set instead of blindly pulling a large default model.
+
 Important: this script downloads software from third-party repositories and modifies APT sources, user shell configuration, sudoers, services, groups, and installed desktop applications. Review it before running on production machines.
+
+---
+
+## AI Benchmark and Model Recommendations
+
+CI-OS now includes the first piece of the smart AI setup path: a hardware-aware benchmark and Ollama model recommendation helper. The ISO builder installs it into the image as:
+
+| Command | Purpose |
+|---|---|
+| `ci-os-benchmark` | Collect CPU, RAM, disk, GPU, VRAM, OS, kernel, and Ollama readiness into `benchmark.json` |
+| `ci-os-model-recommend` | Convert benchmark results into a model tier and recommended Ollama model list |
+| `ci-os-model-install` | Pull the default recommended Ollama model set; supports `--dry-run`, `--yes`, and `--include-optional` |
+
+Local development usage:
+
+```bash
+./scripts/ci-os-ai-setup.sh benchmark
+./scripts/ci-os-ai-setup.sh recommend
+./scripts/ci-os-ai-setup.sh install --dry-run
+```
+
+Installed-system usage:
+
+```bash
+ci-os-benchmark
+ci-os-model-recommend
+sudo ci-os-model-install --yes
+```
+
+Output files:
+
+| File | Purpose |
+|---|---|
+| `/var/lib/ci-os/benchmark.json` | Root/system benchmark output |
+| `/var/lib/ci-os/model-recommendations.json` | Root/system recommendation output |
+| `~/.local/state/ci-os/benchmark.json` | Non-root benchmark output |
+| `~/.local/state/ci-os/model-recommendations.json` | Non-root recommendation output |
+
+Recommendation tiers are intentionally conservative:
+
+| Tier | Typical Hardware | Default Model Set |
+|---|---|---|
+| Small | Less than 12 GB RAM | `nomic-embed-text`, `gemma3:1b`, `qwen2.5:1.5b` |
+| Balanced | 12-23 GB RAM | `nomic-embed-text`, `gemma3:1b`, `llama3.2:3b`, `qwen2.5:3b` |
+| Workstation | 24-47 GB RAM | `nomic-embed-text`, `gemma3:1b`, `llama3.1:8b`, `qwen2.5:7b` |
+| Large | 48 GB+ RAM | `nomic-embed-text`, `gemma3:1b`, `llama3.1:8b`, `qwen2.5:14b` |
+
+Optional models are kept out of the default install unless `--include-optional` is passed.
 
 ---
 

@@ -114,6 +114,9 @@ flowchart TB
     manualSetup["ci-os-setup"]
     info["ci-os-info"]
     rocm["ci-os-install-rocm"]
+    benchmark["ci-os-benchmark"]
+    recommend["ci-os-model-recommend"]
+    installModels["ci-os-model-install"]
     desktop["GNOME/GDM/Plymouth/MOTD branding"]
 
     installed --> firstBootRebrand
@@ -121,11 +124,14 @@ flowchart TB
     installed --> desktop
     installed --> info
     installed --> rocm
+    installed --> benchmark
+    benchmark --> recommend
+    recommend --> installModels
     firstBootSetup --> manualSetup
 
     firstBootSetup --> docker["Docker CE"]
     firstBootSetup --> node["Homebrew, asdf, Node.js, Bun, UV"]
-    firstBootSetup --> ai["Ollama and local models"]
+    firstBootSetup --> ai["Ollama and benchmark-recommended local models"]
     firstBootSetup --> devtools["GitHub CLI, cloudflared, VS Code, Chromium"]
     firstBootSetup --> network["Tailscale"]
 ```
@@ -139,8 +145,83 @@ flowchart TB
 | `ci-os-setup` | `customize-chroot.sh` | Manual rerun wrapper for first-boot setup |
 | `ci-os-info` | `customize-chroot.sh` | Prints OS, kernel, AMD GPU, and ROCm status |
 | `ci-os-install-rocm` | `customize-chroot.sh` | Adds ROCm repo and installs AMD ROCm components |
+| `ci-os-benchmark` | `scripts/ci-os-ai-setup.sh` via `customize-chroot.sh` | Writes hardware and Ollama readiness data to `benchmark.json` |
+| `ci-os-model-recommend` | `scripts/ci-os-ai-setup.sh` via `customize-chroot.sh` | Chooses a conservative Ollama model set for the device |
+| `ci-os-model-install` | `scripts/ci-os-ai-setup.sh` via `customize-chroot.sh` | Pulls recommended Ollama models, with optional larger models behind a flag |
 | GNOME/GDM resource | `ci-os-branding` and chroot customization | Rebrands login shell resources |
 | MOTD and issue banners | `customize-chroot.sh` and branding scripts | CLI identity and login messaging |
+
+---
+
+## AI Express Setup Architecture
+
+The current implementation adds the benchmark and model recommendation layer that future Express Setup can call. It avoids hardcoding a single large model for every machine and instead writes machine-readable output for UI, logs, or a setup portal.
+
+```mermaid
+flowchart TB
+    setup["Fresh setup or first boot"]
+    ollama["Install/start Ollama"]
+    bench["ci-os-benchmark"]
+    facts["/var/lib/ci-os/benchmark.json"]
+    recommend["ci-os-model-recommend"]
+    recs["/var/lib/ci-os/model-recommendations.json"]
+    install["ci-os-model-install --yes"]
+    models["Recommended Ollama models"]
+    report["Future Express Setup report"]
+
+    setup --> ollama
+    ollama --> bench
+    bench --> facts
+    facts --> recommend
+    recommend --> recs
+    recs --> install
+    install --> models
+    facts --> report
+    recs --> report
+```
+
+### Benchmark Signals
+
+| Signal | Source | Used For |
+|---|---|---|
+| CPU model | `/proc/cpuinfo` | Human-readable report |
+| CPU cores | `nproc` | Future throughput expectations |
+| RAM | `/proc/meminfo` | Primary model-size tiering |
+| Root disk free | `df -Pk /` | Suppress optional models on tight disks |
+| GPU summary | `lspci` | Detect AMD, NVIDIA, Intel, or no GPU |
+| VRAM | `rocm-smi` or `nvidia-smi` when available | Optional vision/larger-model hints |
+| Ollama readiness | `ollama list` | Decide whether model install can proceed |
+
+### Recommendation Policy
+
+| Tier | Rule | Default Models |
+|---|---|---|
+| Small | Less than 12 GB RAM | `nomic-embed-text`, `gemma3:1b`, `qwen2.5:1.5b` |
+| Balanced | 12-23 GB RAM | `nomic-embed-text`, `gemma3:1b`, `llama3.2:3b`, `qwen2.5:3b` |
+| Workstation | 24-47 GB RAM | `nomic-embed-text`, `gemma3:1b`, `llama3.1:8b`, `qwen2.5:7b` |
+| Large | 48 GB+ RAM | `nomic-embed-text`, `gemma3:1b`, `llama3.1:8b`, `qwen2.5:14b` |
+
+Optional models are only installed when an operator explicitly passes `--include-optional`.
+
+### Express Setup Next Step
+
+The next implementation layer should introduce `ci-os-express-setup` as an orchestrator instead of adding more logic directly into `setup-fresh-ubuntu.sh` or the generated first-boot script.
+
+```mermaid
+flowchart LR
+    express["ci-os-express-setup"]
+    privacy["ci-os-privacy-apply"]
+    hardware["ci-os-benchmark"]
+    models["ci-os-model-recommend/install"]
+    headless["setup-device status"]
+    report["/var/lib/ci-os/setup-report.json"]
+
+    express --> privacy
+    express --> hardware
+    express --> models
+    express --> headless
+    express --> report
+```
 
 ---
 

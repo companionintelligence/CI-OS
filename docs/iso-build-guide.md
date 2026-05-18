@@ -108,11 +108,15 @@ sudo ./tools/iso-build/scripts/build-iso.sh --skip-packages
 A systemd service (`ci-os-first-boot-setup.service`) runs after the first post-install boot:
 - Docker CE + compose
 - Homebrew, asdf, Node.js 22.15.1, Bun, UV
-- Ollama + AI models (nomic-embed-text, gemma3:1b, qwen3-vl:32b)
+- Ollama + benchmark-recommended AI models via `ci-os-benchmark`, `ci-os-model-recommend`, and `ci-os-model-install`
 - GitHub CLI, cloudflared, VS Code (snap), Tailscale
 - GNOME power profile → performance
 
 Manual trigger: `sudo ci-os-setup`
+
+AI model setup writes:
+- `/var/lib/ci-os/benchmark.json`
+- `/var/lib/ci-os/model-recommendations.json`
 
 The original scripts are also copied to `/usr/lib/ci-os/bootstrap/` for manual use.
 

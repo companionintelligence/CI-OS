@@ -753,8 +753,19 @@ pull_ollama_models() {
         sudo -u "$ACTUAL_USER" nohup ollama serve >/tmp/ollama.log 2>&1 &
         sleep 5
     fi
+
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    if [[ -f "$script_dir/ci-os-ai-setup.sh" ]]; then
+        log_info "Benchmarking system and installing recommended Ollama models..."
+        CI_OS_DATA_DIR="/var/lib/ci-os" bash "$script_dir/ci-os-ai-setup.sh" benchmark || true
+        CI_OS_DATA_DIR="/var/lib/ci-os" bash "$script_dir/ci-os-ai-setup.sh" recommend || true
+        CI_OS_DATA_DIR="/var/lib/ci-os" bash "$script_dir/ci-os-ai-setup.sh" install --yes || log_warning "Recommended model install failed; continuing..."
+        return 0
+    fi
     
-    # Check and pull models as the actual user (ollama stores models in user's home)
+    # Fallback for older checkouts that do not include ci-os-ai-setup.sh.
+    # Check and pull small default models as the actual user (ollama stores models in user's home)
     sudo -u "$ACTUAL_USER" bash <<EOF || log_warning "Failed to pull some Ollama models"
 # Check if models are already pulled
 if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
@@ -769,14 +780,6 @@ if ollama list 2>/dev/null | grep -q "gemma3:1b"; then
 else
     echo "Pulling gemma3:1b..."
     ollama pull gemma3:1b
-fi
-
-# Add qwen3-vl:32b model
-if ollama list 2>/dev/null | grep -q "qwen3-vl:32b"; then
-     echo "qwen3-vl:32b already installed"
-else
-     echo "Pulling qwen3-vl:32b..."
-     ollama pull qwen3-vl:32b
 fi
 EOF
     

@@ -695,13 +695,22 @@ for lib_script in "$REPO_ROOT/scripts/lib/"*.sh; do
 done
 
 # Copy additional setup scripts
-for setup_script in install-rocm-driver.sh; do
+for setup_script in install-rocm-driver.sh ci-os-ai-setup.sh; do
     if [[ -f "$REPO_ROOT/scripts/$setup_script" ]]; then
         install -m 755 "$REPO_ROOT/scripts/$setup_script" \
             "$CHROOT_PATH/usr/lib/ci-os/bootstrap/$setup_script"
         echo "[+] Copied $setup_script"
     fi
 done
+
+if [[ -f "$REPO_ROOT/scripts/ci-os-ai-setup.sh" ]]; then
+    install -m 755 "$REPO_ROOT/scripts/ci-os-ai-setup.sh" \
+        "$CHROOT_PATH/usr/local/bin/ci-os-ai-setup"
+    ln -sf /usr/local/bin/ci-os-ai-setup "$CHROOT_PATH/usr/local/bin/ci-os-benchmark"
+    ln -sf /usr/local/bin/ci-os-ai-setup "$CHROOT_PATH/usr/local/bin/ci-os-model-recommend"
+    ln -sf /usr/local/bin/ci-os-ai-setup "$CHROOT_PATH/usr/local/bin/ci-os-model-install"
+    echo "[+] Installed AI benchmark/model recommendation commands"
+fi
 
 # ── Create the first-boot setup script ─────────────────────────────────────
 # This script runs on first boot AFTER the OS has been installed to disk.
@@ -717,7 +726,7 @@ cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-setup.sh" << 'BOOTSTRAP_SCRIPT'
 #   sudo ci-os-setup
 #
 # Tools installed: Docker CE, Node.js (via asdf), Bun, UV, Homebrew,
-#                  Ollama + models, GitHub CLI, cloudflared, VS Code,
+#                  Ollama + benchmark-recommended models, GitHub CLI, cloudflared, VS Code,
 #                  Tailscale, LACT GPU monitor
 #
 # © Companion Intelligence — Lifescope Inc
@@ -870,11 +879,15 @@ if command -v ollama &>/dev/null; then
     systemctl enable ollama 2>/dev/null || true
     systemctl start ollama 2>/dev/null || true
     sleep 3
-    echo "[CI-OS] Pulling Ollama models (this may take a while)..."
-    ollama pull nomic-embed-text 2>/dev/null || true
-    ollama pull gemma3:1b 2>/dev/null || true
-    # Large model — pull in background
-    nohup ollama pull qwen3-vl:32b &>/dev/null &
+    echo "[CI-OS] Benchmarking system and installing recommended Ollama models..."
+    if command -v ci-os-benchmark &>/dev/null && command -v ci-os-model-recommend &>/dev/null && command -v ci-os-model-install &>/dev/null; then
+        ci-os-benchmark || true
+        ci-os-model-recommend || true
+        ci-os-model-install --yes || true
+    else
+        ollama pull nomic-embed-text 2>/dev/null || true
+        ollama pull gemma3:1b 2>/dev/null || true
+    fi
 fi
 
 # ── GitHub CLI ────────────────────────────────────────────────────────────
