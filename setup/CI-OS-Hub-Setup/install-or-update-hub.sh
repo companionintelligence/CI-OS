@@ -145,6 +145,66 @@ install_package() {
     dpkg -i "$TMP_DEB"
 }
 
+pin_to_dock() {
+    local desktop_id="ci-os-hub-desktop.desktop"
+    local target_user
+
+    # Determine the target user: prefer SUDO_USER (i.e. the person who ran sudo).
+    if [[ -n "${SUDO_USER:-}" ]] && [[ "$SUDO_USER" != "root" ]]; then
+        target_user="$SUDO_USER"
+    elif [[ -n "${TARGET_USER:-}" ]]; then
+        target_user="$TARGET_USER"
+    else
+        log_warn "Could not determine a non-root desktop user; skipping dock pin."
+        log_warn "Re-run as: sudo TARGET_USER=<your-user> $0"
+        return 0
+    fi
+
+    local uid_num runtime_dir dbus_addr
+    uid_num="$(id -u "$target_user" 2>/dev/null || true)"
+    runtime_dir="/run/user/${uid_num}"
+    dbus_addr="unix:path=${runtime_dir}/bus"
+
+    if [[ ! -S "${runtime_dir}/bus" ]]; then
+        log_warn "No active D-Bus session found for $target_user (not logged in to a desktop session?)."
+        log_warn "Companion Hub was NOT pinned to the dock. Log in as $target_user and re-run to pin it."
+        return 0
+    fi
+
+    local env_args=(
+        DISPLAY=:0
+        XAUTHORITY="/home/$target_user/.Xauthority"
+        DBUS_SESSION_BUS_ADDRESS="$dbus_addr"
+    )
+
+    local current_favs
+    current_favs="$(sudo -u "$target_user" env "${env_args[@]}" \
+        gsettings get org.gnome.shell favorite-apps 2>/dev/null || true)"
+
+    if [[ "$current_favs" == *"$desktop_id"* ]]; then
+        log_info "Companion Hub is already pinned to the dock for $target_user."
+        return 0
+    fi
+
+    local favs_clean new_favs
+    favs_clean="$(echo "$current_favs" | sed -e "s/^\[//" -e "s/\]$//" -e "s/'//g" -e 's/, /,/g')"
+
+    if [[ -z "$favs_clean" ]]; then
+        new_favs="['$desktop_id']"
+    else
+        # Rebuild the GVariant array, appending the new entry.
+        new_favs="['$(echo "$favs_clean" | sed "s/,/', '/g")', '$desktop_id']"
+    fi
+
+    sudo -u "$target_user" env "${env_args[@]}" \
+        gsettings set org.gnome.shell favorite-apps "$new_favs" 2>/dev/null || {
+        log_warn "gsettings call failed; Companion Hub was NOT pinned to the dock."
+        return 0
+    }
+
+    log_info "Companion Hub pinned to the dock for $target_user."
+}
+
 main() {
     local version_tag hub_url
 
@@ -163,6 +223,7 @@ main() {
 
     download_package "$hub_url" "$version_tag"
     install_package
+    pin_to_dock
 
     log_info "Companion Hub install/update complete"
 }
