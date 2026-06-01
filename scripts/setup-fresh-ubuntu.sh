@@ -591,15 +591,15 @@ test -x "$install_dir/bin/npm"
 "$install_dir/bin/npm" -v >/dev/null
 EOF
     then
-        log_error "asdf / Node.js install failed for user $ACTUAL_USER (see errors above)."
-        return 1
+        log_warning "asdf / Node.js install failed for user $ACTUAL_USER (see errors above); continuing setup."
+        return 0
     fi
 
     _ensure_asdf_in_bashrc_with_shim_priority
 
     if ! _verify_asdf_nodejs_22_15_1_installed 2>/dev/null; then
-        log_error "Post-install check failed: Node.js 22.15.1 not present under ~/.asdf/installs for $ACTUAL_USER"
-        return 1
+        log_warning "Post-install check failed: Node.js 22.15.1 not present under ~/.asdf/installs for $ACTUAL_USER; continuing setup."
+        return 0
     fi
 
     log_success "asdf and Node.js installed"
