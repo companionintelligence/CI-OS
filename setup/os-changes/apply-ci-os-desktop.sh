@@ -68,7 +68,7 @@ Usage:
   $0 --validate                 Run validation only (no root).
   sudo $0 --wizard [options]    Interactive full apply + validate + reboot prompt.
 
-Steps: plymouth, dconf, wallpaper, session, start-icon, os-release, motd, kde
+Steps: plymouth, dconf, terminal, wallpaper, session, start-icon, os-release, motd, kde
 
 Examples:
   sudo $0
@@ -112,6 +112,7 @@ run_step() {
 run_full_apply() {
   run_step plymouth "$SCRIPT_DIR/common/10-plymouth.sh"
   run_step dconf "$SCRIPT_DIR/common/20-dconf-system.sh"
+  run_step terminal "$SCRIPT_DIR/common/27-terminal-theme.sh"
   run_step wallpaper "$SCRIPT_DIR/common/30-wallpaper.sh"
   run_step session "$SCRIPT_DIR/common/25-session-gsettings.sh"
   run_step start-icon "$SCRIPT_DIR/common/40-start-icon.sh"

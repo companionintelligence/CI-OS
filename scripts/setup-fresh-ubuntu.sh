@@ -107,12 +107,68 @@ install_curl() {
 # Different machines may have docker.list (docker.gpg) AND docker.sources (docker.asc);
 # both target the same repo and cause: "Conflicting values set for option Signed-By"
 fix_docker_apt_conflicts() {
-    for f in /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/docker.sources; do
-        if [[ -f "$f" ]]; then
-            log_info "Removing conflicting Docker apt source: $f"
-            rm -f "$f"
+    local docker_list="/etc/apt/sources.list.d/docker.list"
+    local docker_sources="/etc/apt/sources.list.d/docker.sources"
+
+    # Keep a valid single source file; only remove when both coexist.
+    if [[ -f "$docker_list" && -f "$docker_sources" ]]; then
+        log_info "Removing legacy conflicting Docker apt source: $docker_list"
+        rm -f "$docker_list"
+    fi
+}
+
+# Disable stale installer media apt sources (common after USB/CD installs)
+# that break apt update with: "file:/cdrom ... no longer has a Release file".
+disable_stale_media_apt_sources() {
+    local changed=0
+    local file
+    local disabled_dir="/etc/apt/disabled-sources.d"
+
+    for file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+        [[ -f "$file" ]] || continue
+
+        if grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*(cdrom:|file:/+cdrom)' "$file"; then
+            sed -i -E '/^[[:space:]]*deb(-src)?[[:space:]].*(cdrom:|file:\/+cdrom)/ s/^/# ci-os disabled stale installer media repo: /' "$file"
+            log_info "Disabled stale installer media apt source(s) in $file"
+            changed=1
         fi
     done
+
+    # Handle deb822 source files (Ubuntu 24.04+ often uses *.sources).
+    # Prefer in-place disable via "Enabled: no" to avoid apt filename warnings.
+    for file in /etc/apt/sources.list.d/*.sources; do
+        [[ -f "$file" ]] || continue
+
+        if grep -Eqi '^[[:space:]]*URIs:[[:space:]].*(cdrom:|file:/+cdrom)' "$file"; then
+            if grep -Eq '^[[:space:]]*Enabled:[[:space:]]*no' "$file"; then
+                continue
+            fi
+
+            if grep -Eq '^[[:space:]]*Enabled:' "$file"; then
+                sed -i -E 's/^[[:space:]]*Enabled:.*/Enabled: no/' "$file"
+            else
+                sed -i '1i Enabled: no' "$file"
+            fi
+
+            log_info "Disabled stale installer media deb822 source file: $file"
+            changed=1
+        fi
+    done
+
+    # Migrate older .disabled-by-ci-os files out of sources.list.d to silence apt notices.
+    if compgen -G '/etc/apt/sources.list.d/*.disabled-by-ci-os' > /dev/null; then
+        mkdir -p "$disabled_dir"
+        for file in /etc/apt/sources.list.d/*.disabled-by-ci-os; do
+            [[ -f "$file" ]] || continue
+            mv "$file" "$disabled_dir/$(basename "$file")"
+            log_info "Moved disabled apt source out of sources.list.d: $file"
+            changed=1
+        done
+    fi
+
+    if [[ "$changed" -eq 0 ]]; then
+        log_info "No stale installer media apt sources detected"
+    fi
 }
 
 # Update apt packages (requires root)
@@ -237,11 +293,16 @@ install_docker() {
     # Check if Docker is already installed
     if command_exists docker && docker --version &>/dev/null; then
         log_info "Docker is already installed, skipping installation..."
-        # Still ensure repository is configured (we removed any old conflicting sources above)
+        # Keep setup idempotent: best effort to ensure repo is configured, but do not fail
+        # the whole setup on transient network/DNS errors when Docker is already usable.
         if ! repo_configured "/etc/apt/sources.list.d/docker.sources"; then
             log_info "Configuring Docker repository..."
             install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            if ! curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; then
+                log_warning "Could not download Docker GPG key (network/DNS). Continuing because Docker is already installed."
+                finalize_docker_access_for_actual_user
+                return 0
+            fi
             chmod a+r /etc/apt/keyrings/docker.asc
             tee /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
@@ -250,7 +311,9 @@ Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
 Components: stable
 Signed-By: /etc/apt/keyrings/docker.asc
 EOF
-            apt update
+            if ! apt update; then
+                log_warning "Docker repo apt update failed. Continuing because Docker is already installed."
+            fi
         fi
     else
         log_info "Installing Docker..."
@@ -1253,6 +1316,7 @@ main() {
     install_curl
     fix_docker_apt_conflicts
     enable_apt_force_ipv4
+    disable_stale_media_apt_sources
     update_apt
     install_make
     install_docker
