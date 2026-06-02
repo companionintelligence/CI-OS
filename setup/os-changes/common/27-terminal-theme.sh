@@ -108,7 +108,7 @@ set_bash_prompt_for_user() {
 
 # >>> CI-OS prompt theme >>>
 if [[ -n "${BASH_VERSION:-}" && "${CI_OS_DISABLE_PROMPT_THEME:-0}" != "1" ]]; then
-	PS1='\[\e[38;2;122;231;226m\]\u@\h\[\e[0m\]:\[\e[38;2;190;234;240m\]\w\[\e[0m\]\$ '
+	PS1='\[\e[38;2;0;148;136m\]\u@\h\[\e[0m\]:\[\e[38;2;190;234;240m\]\w\[\e[0m\]\$ '
 fi
 # <<< CI-OS prompt theme <<<
 PROMPT_EOF
