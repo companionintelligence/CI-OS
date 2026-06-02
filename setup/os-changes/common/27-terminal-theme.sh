@@ -43,6 +43,60 @@ EOF
 
 dconf_update_safe
 
+install_terminal_theme_autostart_enforcer() {
+	local helper="/usr/local/bin/ci-os-enforce-terminal-theme"
+	local desktop_file="/etc/xdg/autostart/ci-os-terminal-theme-enforcer.desktop"
+
+	cat > "$helper" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+command -v gsettings >/dev/null 2>&1 || exit 0
+
+# Ptyxis (Ubuntu default terminal app on newer releases)
+ptyxis_profile_id="$(gsettings get org.gnome.Ptyxis default-profile-uuid 2>/dev/null | tr -d "'" || true)"
+if [[ -n "$ptyxis_profile_id" ]]; then
+	ptyxis_profile="org.gnome.Ptyxis.Profile:/org/gnome/Ptyxis/Profiles/${ptyxis_profile_id}/"
+	gsettings set "$ptyxis_profile" palette 'Blue' 2>/dev/null || true
+	gsettings set "$ptyxis_profile" opacity 1.0 2>/dev/null || true
+fi
+
+# GNOME Terminal (for systems still using it)
+gt_profile_id="$(gsettings get org.gnome.Terminal.ProfilesList default 2>/dev/null | tr -d "'" || true)"
+if [[ -n "$gt_profile_id" ]]; then
+	gt_profile_path="/org/gnome/terminal/legacy/profiles:/:${gt_profile_id}/"
+	gsettings set "org.gnome.Terminal.Legacy.Profile:${gt_profile_path}" use-theme-colors false 2>/dev/null || true
+	gsettings set "org.gnome.Terminal.Legacy.Profile:${gt_profile_path}" use-theme-transparency false 2>/dev/null || true
+	gsettings set "org.gnome.Terminal.Legacy.Profile:${gt_profile_path}" background-color '#071A23' 2>/dev/null || true
+	gsettings set "org.gnome.Terminal.Legacy.Profile:${gt_profile_path}" foreground-color '#D7F3F0' 2>/dev/null || true
+	gsettings set "org.gnome.Terminal.Legacy.Profile:${gt_profile_path}" bold-color '#D7F3F0' 2>/dev/null || true
+	gsettings set "org.gnome.Terminal.Legacy.Profile:${gt_profile_path}" cursor-colors-set true 2>/dev/null || true
+	gsettings set "org.gnome.Terminal.Legacy.Profile:${gt_profile_path}" cursor-background-color '#7AE7D8' 2>/dev/null || true
+	gsettings set "org.gnome.Terminal.Legacy.Profile:${gt_profile_path}" cursor-foreground-color '#071A23' 2>/dev/null || true
+	gsettings set "org.gnome.Terminal.Legacy.Profile:${gt_profile_path}" palette "['#0F2430', '#FF6B6B', '#3DD6B5', '#FFD166', '#4EA8DE', '#C77DFF', '#34D1BF', '#D7F3F0', '#46606F', '#FF8787', '#63E6BE', '#FFE08A', '#74C0FC', '#D0A2FF', '#66E9D2', '#F1FFFD']" 2>/dev/null || true
+fi
+
+exit 0
+EOF
+
+	chmod 755 "$helper"
+
+	mkdir -p /etc/xdg/autostart
+	cat > "$desktop_file" <<EOF
+[Desktop Entry]
+Type=Application
+Name=CI-OS Terminal Theme Enforcer
+Comment=Re-apply CI-OS terminal colors at login
+Exec=$helper
+OnlyShowIn=GNOME;Unity;
+NoDisplay=true
+X-GNOME-Autostart-enabled=true
+EOF
+
+	chmod 644 "$desktop_file"
+	log_info "Installed login-time terminal theme enforcer"
+}
+
 apply_live_terminal_profile_for_user() {
 	local user="$1"
 	local uid runtime_dir dbus_addr xauth profile_id profile_path
@@ -157,6 +211,8 @@ if [[ -n "$ACTUAL_USER" && "$ACTUAL_USER" != "root" ]]; then
 	apply_live_ptyxis_profile_for_user "$ACTUAL_USER"
 	set_bash_prompt_for_user "$ACTUAL_USER"
 fi
+
+install_terminal_theme_autostart_enforcer
 
 log_success "GNOME Terminal blue/teal profile defaults written"
 log_info "Open a new terminal window (or re-login) to pick up profile and prompt updates"
