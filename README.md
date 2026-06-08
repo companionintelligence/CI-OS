@@ -67,9 +67,16 @@ See `.github/workflows/build-companion-os-iso.yml` for configuration.
 
 ## Fresh Ubuntu setup
 
+For a typical desktop machine, the main setup flow is:
+
+1. Make `scripts/setup-fresh-ubuntu.sh` executable and run it with `sudo`
+2. Make `setup/os-changes/apply-ci-os-desktop.sh` executable and run it with `sudo`
+3. Reboot after both scripts complete
+
 Use the main setup script to prepare a fresh Ubuntu system with Docker, Node.js (via asdf), Bun, Ollama, GitHub CLI, VS Code, and related tooling:
 
 ```bash
+chmod +x ./scripts/setup-fresh-ubuntu.sh
 sudo ./scripts/setup-fresh-ubuntu.sh
 ```
 
@@ -153,7 +160,11 @@ Only **`setup/os-changes/apply-ci-os-desktop.sh`** lives beside `common/`; all s
 
 ```bash
 # Full apply (Plymouth → dconf → wallpaper → session → start icon → os-release → MOTD)
+chmod +x ./setup/os-changes/apply-ci-os-desktop.sh
 sudo ./setup/os-changes/apply-ci-os-desktop.sh
+
+# Reboot after both main setup scripts finish
+sudo reboot
 
 # Interactive: prompts, optional KDE, validation, optional reboot
 sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard
