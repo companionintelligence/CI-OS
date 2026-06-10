@@ -22,7 +22,7 @@ on:
 env:
   UBUNTU_VERSION: "24.04"
   UBUNTU_CODENAME: "noble"
-  BASE_ISO_URL: "https://releases.ubuntu.com/24.04/ubuntu-24.04.1-desktop-amd64.iso"
+  BASE_ISO_URL: "https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
