@@ -62,11 +62,11 @@ echo "[*] Step 1: Updating OS identity..."
 #    the installer has finished and the system first boots into the desktop.
 
 cat > "$CHROOT_PATH/etc/os-release" << EOF
-NAME="CI-OS"
-VERSION="$CI_OS_VERSION"
+NAME="CI OS"
+VERSION="24.04 LTS (Companion Intelligence ${CI_OS_VERSION})"
 ID=ubuntu
-ID_LIKE=ubuntu
-PRETTY_NAME="CI-OS $CI_OS_VERSION"
+ID_LIKE=debian
+PRETTY_NAME="CI OS ${CI_OS_VERSION} (Ubuntu Noble)"
 VERSION_ID="24.04"
 HOME_URL="https://ci.computer"
 SUPPORT_URL="https://ci.computer/support"
@@ -74,8 +74,10 @@ BUG_REPORT_URL="https://ci.computer/bugs"
 PRIVACY_POLICY_URL="https://ci.computer/privacy"
 UBUNTU_CODENAME=noble
 VERSION_CODENAME=noble
-CI_OS_VERSION="$CI_OS_VERSION"
+CI_OS_ID=ci-os
+CI_OS_VERSION="${CI_OS_VERSION}"
 CI_OS_BUILD="$(date -u +%Y%m%d)"
+LOGO=ci-os-logo
 EOF
 
 # lsb-release: keep DISTRIB_ID=Ubuntu and DISTRIB_RELEASE=24.04 so that
@@ -96,38 +98,40 @@ mkdir -p "$CHROOT_PATH/usr/lib/ci-os"
 
 cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-rebrand.sh" << 'REBRAND'
 #!/bin/bash
-# CI-OS first-boot identity rebranding
-# Replaces the Ubuntu-compatible IDs used during installation with real CI-OS IDs.
+# CI-OS first-boot branding refresh — keeps Ubuntu-compatible machine identity.
+set -euo pipefail
 
-CI_OS_VERSION="$(grep '^CI_OS_VERSION=' /etc/os-release | cut -d= -f2 | tr -d '"')"
-CI_OS_VERSION="${CI_OS_VERSION:-1.0}"
-
-cat > /etc/os-release << __EOF__
-NAME="CI-OS"
-VERSION="${CI_OS_VERSION}"
-ID=ci-os
-ID_LIKE=ubuntu
-PRETTY_NAME="CI-OS ${CI_OS_VERSION}"
-VERSION_ID="${CI_OS_VERSION}"
+if [[ -f /usr/lib/ci-os/os-release.sh ]]; then
+  # shellcheck source=/dev/null
+  source /usr/lib/ci-os/os-release.sh
+  ci_os_write_branded_os_release /etc/os-release
+  ci_os_write_branded_lsb_release /etc/lsb-release
+else
+  CI_OS_VERSION="$(grep '^CI_OS_VERSION=' /etc/os-release | cut -d= -f2 | tr -d '"' || true)"
+  CI_OS_VERSION="${CI_OS_VERSION:-1.0}"
+  UBUNTU_CODENAME="$(grep '^UBUNTU_CODENAME=' /etc/os-release | cut -d= -f2 | tr -d '"' || echo noble)"
+  UBUNTU_VER="$(grep '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"' || echo 24.04)"
+  cat > /etc/os-release << __EOF__
+NAME="CI OS"
+VERSION="${UBUNTU_VER} LTS (Companion Intelligence ${CI_OS_VERSION})"
+ID=ubuntu
+ID_LIKE=debian
+PRETTY_NAME="CI OS ${CI_OS_VERSION} (Ubuntu ${UBUNTU_CODENAME})"
+VERSION_ID="${UBUNTU_VER}"
+VERSION_CODENAME=${UBUNTU_CODENAME}
+UBUNTU_CODENAME=${UBUNTU_CODENAME}
+CI_OS_ID=ci-os
+CI_OS_VERSION="${CI_OS_VERSION}"
 HOME_URL="https://ci.computer"
 SUPPORT_URL="https://ci.computer/support"
 BUG_REPORT_URL="https://ci.computer/bugs"
 PRIVACY_POLICY_URL="https://ci.computer/privacy"
-UBUNTU_CODENAME=noble
-VERSION_CODENAME=noble
+LOGO=ci-os-logo
 __EOF__
+fi
 
-cat > /etc/lsb-release << __EOF__
-DISTRIB_ID=CI-OS
-DISTRIB_RELEASE=${CI_OS_VERSION}
-DISTRIB_CODENAME=noble
-DISTRIB_DESCRIPTION="CI-OS ${CI_OS_VERSION}"
-__EOF__
-
-# Disable this service so it only runs once
 systemctl disable ci-os-first-boot-rebrand.service
-
-echo "[CI-OS] First-boot rebrand complete: ID=ci-os VERSION_ID=${CI_OS_VERSION}"
+echo "[CI-OS] First-boot branding refresh complete (ID=ubuntu, CI_OS_ID=ci-os)"
 REBRAND
 
 chmod +x "$CHROOT_PATH/usr/lib/ci-os/first-boot-rebrand.sh"
@@ -401,48 +405,20 @@ rm "$CHROOT_PATH/tmp/install-amd.sh"
 mkdir -p "$CHROOT_PATH/usr/local/bin"
 cat > "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm" << 'EOFSCRIPT'
 #!/bin/bash
-#=============================================================================
-# CI-OS ROCm Installation Helper
-# Installs ROCm 7.2+ and AMD GPU tools
-#
-# Usage: sudo ci-os-install-rocm
-#=============================================================================
-
-set -e
-
+# Delegates to the maintained CI OS ROCm installer (Ubuntu codename + AMDGPU repo probe).
+set -euo pipefail
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root"
-   exit 1
+  exec sudo "$0" "$@"
 fi
-
-# Check for required tools
-for cmd in wget gpg; do
-    if ! command -v "$cmd" &> /dev/null; then
-        echo "Error: $cmd is required but not installed. Please install it first."
-        exit 1
-    fi
-done
-
-echo "[*] Installing ROCm for CI-OS..."
-
-# Add ROCm repository using keyring and signed-by (apt-key is deprecated)
-ROCM_KEYRING="/usr/share/keyrings/rocm-archive-keyring.gpg"
-install -d -m 0755 "$(dirname "$ROCM_KEYRING")"
-wget -qO - https://repo.radeon.com/rocm/rocm.gpg.key | gpg --dearmor -o "$ROCM_KEYRING"
-echo "deb [arch=amd64 signed-by=$ROCM_KEYRING] https://repo.radeon.com/rocm/apt/latest ubuntu main" > /etc/apt/sources.list.d/rocm.list
-
-# Update and install
-apt-get update
-apt-get install -y rocm-hip-sdk rocm-smi-lib
-
-# Add user to video and render groups
-if [[ -n "${SUDO_USER:-}" ]]; then
-    usermod -a -G video,render "$SUDO_USER"
-    echo "[+] Added $SUDO_USER to video and render groups"
+if [[ -x /usr/lib/ci-os/bootstrap/install-rocm-driver.sh ]]; then
+  exec /usr/lib/ci-os/bootstrap/install-rocm-driver.sh "$@"
 fi
-
-echo "[+] ROCm installed successfully"
-echo "[!] Please log out and back in for group changes to take effect"
+if [[ -x /usr/lib/ci-os/bootstrap/lib/os-release.sh ]]; then
+  # shellcheck source=/dev/null
+  source /usr/lib/ci-os/bootstrap/lib/os-release.sh
+fi
+echo "[ci-os-install-rocm] bootstrap installer missing; install ROCm manually." >&2
+exit 1
 EOFSCRIPT
 
 chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm"
@@ -683,6 +659,13 @@ if [[ -f "$REPO_ROOT/scripts/setup-fresh-ubuntu.sh" ]]; then
     install -m 755 "$REPO_ROOT/scripts/setup-fresh-ubuntu.sh" \
         "$CHROOT_PATH/usr/lib/ci-os/bootstrap/setup-fresh-ubuntu.sh"
     echo "[+] Copied setup-fresh-ubuntu.sh"
+fi
+
+# Copy shared libraries used outside bootstrap (first-boot rebrand, etc.)
+if [[ -f "$REPO_ROOT/scripts/lib/os-release.sh" ]]; then
+    install -m 644 "$REPO_ROOT/scripts/lib/os-release.sh" \
+        "$CHROOT_PATH/usr/lib/ci-os/os-release.sh"
+    echo "[+] Copied os-release.sh"
 fi
 
 # Copy library scripts

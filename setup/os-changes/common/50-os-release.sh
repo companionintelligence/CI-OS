@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# /etc/os-release and /etc/lsb-release CI identity.
+# /etc/os-release and /etc/lsb-release — CI OS branding + Ubuntu-compatible machine identity.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
 require_root
@@ -12,39 +12,11 @@ if [[ -f "$OS_RELEASE" ]]; then
   log_info "Backup: $OS_RELEASE_BACKUP"
 fi
 
-log_info "Updating $OS_RELEASE..."
-cat > "$OS_RELEASE" <<'EOF'
-NAME="CI OS"
-VERSION="0.0.1 (Companion Intelligence)"
-ID=ci-os
-ID_LIKE=ubuntu
-PRETTY_NAME="CI OS 0.0.1"
-VERSION_ID="0.0.1"
-HOME_URL="https://ci.computer"
-SUPPORT_URL="https://ci.computer/support"
-BUG_REPORT_URL="https://ci.computer/bugs"
-PRIVACY_POLICY_URL="https://ci.computer/privacy"
-VERSION_CODENAME=ci
-UBUNTU_CODENAME=noble
-LOGO=ci-os-logo
+# shellcheck source=../../scripts/lib/os-release.sh
+source "${REPO_ROOT}/scripts/lib/os-release.sh"
 
-# CI OS - Companion Intelligence Operating System
-# Based on Ubuntu 24.04 LTS (Noble Numbat)
-# Official dark green color scheme: #066c80, #00a9a7, #72ddd4
-EOF
-chmod 644 "$OS_RELEASE"
+log_info "Updating $OS_RELEASE (CI OS branding, Ubuntu-compatible ID for apt/ROCm)..."
+ci_os_write_branded_os_release "$OS_RELEASE"
+ci_os_write_branded_lsb_release "/etc/lsb-release"
 
-LSB_RELEASE="/etc/lsb-release"
-if [[ -f "$LSB_RELEASE" ]]; then
-  LSB_RELEASE_BACKUP="/etc/lsb-release.ubuntu-backup-$(date +%Y%m%d-%H%M%S)"
-  cp "$LSB_RELEASE" "$LSB_RELEASE_BACKUP"
-  cat > "$LSB_RELEASE" <<'EOF'
-DISTRIB_ID=CI-OS
-DISTRIB_RELEASE=0.0.1
-DISTRIB_CODENAME=ci
-DISTRIB_DESCRIPTION="CI OS 0.0.1 - Companion Intelligence"
-EOF
-  chmod 644 "$LSB_RELEASE"
-fi
-
-log_success "OS identity updated"
+log_success "OS identity updated (PRETTY_NAME=CI OS, ID=ubuntu, UBUNTU_CODENAME=$(ci_os_ubuntu_codename))"

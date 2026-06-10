@@ -94,10 +94,22 @@ if [[ -f "/etc/os-release" ]]; then
         check_fail "/etc/os-release still shows Ubuntu branding"
     fi
 
-    if grep -q "ID=ci-os" /etc/os-release 2>/dev/null; then
-        check_pass "OS ID set to ci-os"
+    if grep -qE '^ID=ubuntu' /etc/os-release 2>/dev/null; then
+        check_pass "Machine OS ID is ubuntu (apt/ROCm compatible)"
+    elif grep -q "ID=ci-os" /etc/os-release 2>/dev/null; then
+        check_warn "OS ID is ci-os — run setup/os-changes/common/50-os-release.sh to restore Ubuntu-compatible ID"
     else
-        check_warn "OS ID not set to ci-os"
+        check_warn "Unexpected OS ID in /etc/os-release"
+    fi
+
+    if grep -qE '^CI_OS_ID=ci-os' /etc/os-release 2>/dev/null; then
+        check_pass "CI_OS_ID=ci-os branding field present"
+    fi
+
+    if grep -qE '^UBUNTU_CODENAME=(noble|resolute|jammy)' /etc/os-release 2>/dev/null; then
+        check_pass "UBUNTU_CODENAME set to a real Ubuntu suite"
+    else
+        check_warn "UBUNTU_CODENAME missing or set to marketing codename 'ci'"
     fi
 else
     check_fail "/etc/os-release not found"

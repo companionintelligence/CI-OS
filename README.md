@@ -4,7 +4,8 @@
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
 **© Companion Intelligence — Lifescope Inc**  
-*In development. Do not distribute. Private and confidential.*
+*In development. Do not distribute. Private and confidential.*  
+*Licensed under the [Commercial Standard License](LICENSE.md) (CI-Commercial-1.0).*
 
 ---
 
@@ -134,7 +135,14 @@ ISOs build automatically via [`.github/workflows/build-companion-os-iso.yml`](.g
 Convert any Ubuntu 24.04 machine into a CI appliance without reimaging. This is the
 same script the ISO runs on first boot, so it is **idempotent** — safe to re-run.
 
+For a typical desktop machine, the full setup flow is:
+
+1. Run `scripts/setup-fresh-ubuntu.sh` with `sudo` (this section)
+2. Run `setup/os-changes/apply-ci-os-desktop.sh` with `sudo` ([next section](#apply-ci-desktop-branding-to-a-running-system))
+3. Reboot after both scripts complete
+
 ```bash
+chmod +x ./scripts/setup-fresh-ubuntu.sh
 sudo ./scripts/setup-fresh-ubuntu.sh
 ```
 
@@ -164,12 +172,17 @@ in the script header.
 
 Branding only — no packages, no stack. Use this to re-skin a desktop you already
 have. All steps live under `setup/os-changes/common/*.sh` and run in a fixed order:
-**plymouth → dconf → wallpaper → session → start-icon → os-release → motd** (+ optional **kde**).
-Assets sit beside the script. Reboot once for Plymouth to take effect.
+**plymouth → dconf → terminal → wallpaper → session → start-icon → os-release → motd** (+ optional **kde**).
+Assets sit beside the script. Dock defaults: **left**, **autohide** (dismissable).
+Reboot once after applying for Plymouth to take effect.
 
 ```bash
 # Full apply
+chmod +x ./setup/os-changes/apply-ci-os-desktop.sh
 sudo ./setup/os-changes/apply-ci-os-desktop.sh
+
+# Reboot after both main setup scripts finish
+sudo reboot
 
 # Interactive: prompts, optional KDE, validation, optional reboot
 sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard
@@ -286,11 +299,11 @@ sudo systemctl start hostapd-setup.service dnsmasq-setup.service
 │   ├── setup-fresh-ubuntu.sh  # B: provision a machine / first-boot bootstrap
 │   ├── customize-chroot.sh    # called by the ISO builder against the rootfs
 │   ├── install-rocm-driver.sh # AMD ROCm/amdgpu (standalone or hooked)
-│   └── lib/                   # shared helpers (docker, nodejs, ollama, postgres, telemetry)
+│   └── lib/                   # shared helpers (docker, nodejs, ollama, postgres, os-release, telemetry)
 ├── setup/
 │   ├── os-changes/            # C: apply-ci-os-desktop.sh + common/*.sh + assets
 │   ├── headless/              # D: captive-portal WiFi onboarding (build.sh → .deb)
-│   ├── CI-OS-Hub-Setup/       # Hub staging env notes
+│   ├── CI-OS-Hub-Setup/       # install-or-update-hub.sh + staging env notes
 │   └── CI-Server/             # Server staging env notes
 └── tools/
     └── iso-build/             # A: build-iso.sh, build-packages.sh, gresource + repo helpers
