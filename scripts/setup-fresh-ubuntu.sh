@@ -779,15 +779,16 @@ configure_ollama_gpu() {
     local ctx
     ctx="$(recommend_ollama_context_length)"
 
-    # AMD APU/iGPU (e.g. Ryzen AI MAX / Strix Halo) is exposed via /dev/kfd.
-    # Ollama drops integrated GPUs unless OLLAMA_IGPU_ENABLE=1, and its Vulkan
-    # backend is the most reliable path for these parts. A discrete NVIDIA GPU
-    # (if actually present) needs no extra env — Ollama auto-selects CUDA — so
-    # we only force the AMD path when there is no functional NVIDIA GPU.
+    # /dev/kfd means the AMD amdgpu/ROCm kernel driver is present (a discrete
+    # Radeon or a Ryzen-AI / Strix-Halo APU). Ollama drops integrated GPUs unless
+    # OLLAMA_IGPU_ENABLE=1, and its Vulkan backend is the most reliable path on
+    # these parts. A discrete NVIDIA GPU (if actually present) needs no extra env
+    # — Ollama auto-selects CUDA — so we only force the AMD path when there is no
+    # functional NVIDIA GPU.
     if [[ -e /dev/kfd ]] && ! has_nvidia_gpu; then
-        log_info "AMD GPU/APU detected (/dev/kfd); enabling Vulkan + integrated-GPU inference for Ollama"
+        log_info "AMD GPU detected (/dev/kfd); enabling Vulkan + integrated-GPU inference for Ollama"
         cat > "$gpu_dropin" <<EOF
-# Managed by CI-OS setup-fresh-ubuntu.sh — AMD GPU/APU inference for Ollama.
+# Managed by CI-OS setup-fresh-ubuntu.sh — AMD GPU inference for Ollama.
 [Service]
 Environment="OLLAMA_VULKAN=1"
 Environment="OLLAMA_IGPU_ENABLE=1"
