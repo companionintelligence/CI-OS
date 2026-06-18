@@ -761,6 +761,13 @@ recommend_ollama_context_length() {
     else echo 4096; fi
 }
 
+# True only when a *functional* NVIDIA GPU is present. The binary alone (e.g.
+# nvidia-utils installed without a card) is not enough, so query the hardware.
+has_nvidia_gpu() {
+    command_exists nvidia-smi || return 1
+    nvidia-smi -L 2>/dev/null | grep -q '^GPU'
+}
+
 # Detect inference accelerator and emit a hardware-aware Ollama systemd drop-in.
 # Written as a dedicated drop-in (10-ci-gpu.conf) so it merges with — and never
 # clobbers — the base override.conf or any hand-tuned settings.
@@ -774,9 +781,10 @@ configure_ollama_gpu() {
 
     # AMD APU/iGPU (e.g. Ryzen AI MAX / Strix Halo) is exposed via /dev/kfd.
     # Ollama drops integrated GPUs unless OLLAMA_IGPU_ENABLE=1, and its Vulkan
-    # backend is the most reliable path for these parts. Discrete NVIDIA needs
-    # no extra env (Ollama auto-selects CUDA); we still pin a sane context.
-    if [[ -e /dev/kfd ]] && ! command_exists nvidia-smi; then
+    # backend is the most reliable path for these parts. A discrete NVIDIA GPU
+    # (if actually present) needs no extra env — Ollama auto-selects CUDA — so
+    # we only force the AMD path when there is no functional NVIDIA GPU.
+    if [[ -e /dev/kfd ]] && ! has_nvidia_gpu; then
         log_info "AMD GPU/APU detected (/dev/kfd); enabling Vulkan + integrated-GPU inference for Ollama"
         cat > "$gpu_dropin" <<EOF
 # Managed by CI-OS setup-fresh-ubuntu.sh — AMD GPU/APU inference for Ollama.
@@ -845,10 +853,9 @@ EOF
         log_info "Ollama service override already configured, skipping..."
     fi
     
-    # Reload daemon (always safe to do)
-    systemctl daemon-reload
-
     # Enable GPU/APU inference and a hardware-aware default context length.
+    # configure_ollama_gpu runs the single `systemctl daemon-reload` after all
+    # drop-ins (override.conf + 10-ci-gpu.conf) are written.
     configure_ollama_gpu
 
     log_success "Ollama service configured"
