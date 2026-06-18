@@ -854,9 +854,10 @@ EOF
         log_info "Ollama service override already configured, skipping..."
     fi
     
-    # Enable GPU/APU inference and a hardware-aware default context length.
-    # configure_ollama_gpu runs the single `systemctl daemon-reload` after all
-    # drop-ins (override.conf + 10-ci-gpu.conf) are written.
+    # Enable AMD GPU inference (when /dev/kfd is present and no functional NVIDIA
+    # GPU) and set a hardware-aware default context length. configure_ollama_gpu
+    # runs the single `systemctl daemon-reload` after all drop-ins (override.conf
+    # + 10-ci-gpu.conf) are written.
     configure_ollama_gpu
 
     log_success "Ollama service configured"
