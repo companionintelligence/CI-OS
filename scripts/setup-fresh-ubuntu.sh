@@ -747,6 +747,61 @@ ollama_systemd_unit_exists() {
     [[ -f /usr/lib/systemd/system/ollama.service ]]
 }
 
+# Pick an Ollama default context length appropriate for installed memory. On
+# unified-memory APUs Ollama otherwise defaults to the model's full window
+# (e.g. 262144), which wastes memory and slows prefill for interactive use.
+recommend_ollama_context_length() {
+    local mem_kb mem_mb
+    mem_kb="$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)"
+    mem_mb=$(( ${mem_kb:-0} / 1024 ))
+    if   (( mem_mb >= 49152 )); then echo 65536
+    elif (( mem_mb >= 24576 )); then echo 32768
+    elif (( mem_mb >= 12288 )); then echo 16384
+    elif (( mem_mb >= 6144 ));  then echo 8192
+    else echo 4096; fi
+}
+
+# Detect inference accelerator and emit a hardware-aware Ollama systemd drop-in.
+# Written as a dedicated drop-in (10-ci-gpu.conf) so it merges with — and never
+# clobbers — the base override.conf or any hand-tuned settings.
+configure_ollama_gpu() {
+    local dropin_dir="/etc/systemd/system/ollama.service.d"
+    local gpu_dropin="${dropin_dir}/10-ci-gpu.conf"
+    mkdir -p "$dropin_dir"
+
+    local ctx
+    ctx="$(recommend_ollama_context_length)"
+
+    # AMD APU/iGPU (e.g. Ryzen AI MAX / Strix Halo) is exposed via /dev/kfd.
+    # Ollama drops integrated GPUs unless OLLAMA_IGPU_ENABLE=1, and its Vulkan
+    # backend is the most reliable path for these parts. Discrete NVIDIA needs
+    # no extra env (Ollama auto-selects CUDA); we still pin a sane context.
+    if [[ -e /dev/kfd ]] && ! command_exists nvidia-smi; then
+        log_info "AMD GPU/APU detected (/dev/kfd); enabling Vulkan + integrated-GPU inference for Ollama"
+        cat > "$gpu_dropin" <<EOF
+# Managed by CI-OS setup-fresh-ubuntu.sh — AMD GPU/APU inference for Ollama.
+[Service]
+Environment="OLLAMA_VULKAN=1"
+Environment="OLLAMA_IGPU_ENABLE=1"
+Environment="OLLAMA_NEW_ENGINE=1"
+Environment="OLLAMA_CONTEXT_LENGTH=${ctx}"
+EOF
+    else
+        log_info "Setting hardware-aware Ollama default context length (${ctx})"
+        cat > "$gpu_dropin" <<EOF
+# Managed by CI-OS setup-fresh-ubuntu.sh — hardware-aware Ollama defaults.
+[Service]
+Environment="OLLAMA_CONTEXT_LENGTH=${ctx}"
+EOF
+    fi
+
+    systemctl daemon-reload
+    if systemctl is-active --quiet ollama 2>/dev/null; then
+        systemctl restart ollama 2>/dev/null || log_warning "Could not restart ollama to apply GPU settings"
+    fi
+    log_success "Ollama GPU/context drop-in configured (context_length=${ctx})"
+}
+
 # Configure Ollama service (requires root for systemd operations)
 configure_ollama() {
     if ! command_exists ollama; then
@@ -792,7 +847,10 @@ EOF
     
     # Reload daemon (always safe to do)
     systemctl daemon-reload
-    
+
+    # Enable GPU/APU inference and a hardware-aware default context length.
+    configure_ollama_gpu
+
     log_success "Ollama service configured"
 }
 
