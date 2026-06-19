@@ -50,6 +50,14 @@ ufw default allow outgoing
 ufw allow ssh
 ufw allow 80/tcp
 ufw allow 443/tcp
+# Allow Docker bridge networks to reach host-side Ollama. The Hub runs in a
+# container and talks to Ollama via host.docker.internal (the docker bridge
+# gateway). Without this, `default deny incoming` drops that traffic and the Hub
+# reports "Ollama not detected" (connection timeout). Scoped to Ollama's port so
+# we don't broadly open all host ports to the 172.16/12 range (which a LAN/VPC
+# could also use); add further explicit rules only if other host services are
+# needed.
+ufw allow in from 172.16.0.0/12 to any port 11434 proto tcp comment 'docker bridge -> host Ollama'
 
 # Create CI OS user
 useradd -m -s /bin/bash -G sudo,docker,adm cios
