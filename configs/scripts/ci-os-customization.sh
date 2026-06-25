@@ -54,10 +54,19 @@ ufw allow 443/tcp
 # container and talks to Ollama via host.docker.internal (the docker bridge
 # gateway). Without this, `default deny incoming` drops that traffic and the Hub
 # reports "Ollama not detected" (connection timeout). Scoped to Ollama's port so
-# we don't broadly open all host ports to the 172.16/12 range (which a LAN/VPC
-# could also use); add further explicit rules only if other host services are
-# needed.
+# we don't broadly open all host ports to these ranges (which a LAN/VPC could
+# also use); add further explicit rules only if other host services are needed.
+#
+# Two source ranges:
+#  - 172.16.0.0/12 covers the default docker bridge (172.17) and the Hub stack
+#    network (172.18).
+#  - 10.128.0.0/9 covers marketplace app subnets. CI-Hub's SubnetManagerService
+#    allocates these from 10.128.10.0/24 up to 10.254.254.0/24 (see
+#    packages/backend/src/modules/network/subnet-manager.service.ts:
+#    STARTING_OCTET_2=128, MAX_OCTET_VALUE=254). If that allocator range ever
+#    changes, this rule must be widened to match or apps lose host.docker.internal.
 ufw allow in from 172.16.0.0/12 to any port 11434 proto tcp comment 'docker bridge -> host Ollama'
+ufw allow in from 10.128.0.0/9 to any port 11434 proto tcp comment 'marketplace app subnets -> host Ollama'
 
 # Create CI OS user
 useradd -m -s /bin/bash -G sudo,docker,adm cios
