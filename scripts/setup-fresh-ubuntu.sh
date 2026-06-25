@@ -770,9 +770,11 @@ has_nvidia_gpu() {
 
 # Detect inference accelerator and emit hardware-aware Ollama systemd drop-ins.
 # GPU selection (AMD Vulkan/iGPU) is written to 10-ci-gpu.conf; the default
-# context length is written SEPARATELY by write_ollama_context_dropin so it
-# reliably overrides any earlier drop-in that also sets OLLAMA_CONTEXT_LENGTH.
-# Both drop-ins merge with — and never clobber — hand-tuned override.conf.
+# context length is written SEPARATELY by write_ollama_context_dropin. The
+# context drop-in is deliberately authoritative: it overrides any earlier
+# OLLAMA_CONTEXT_LENGTH assignment, including one in override.conf. Any OTHER
+# settings in a hand-tuned override.conf are left intact — only the context
+# value is superseded (and a warning is logged when that happens).
 configure_ollama_gpu() {
     local dropin_dir="/etc/systemd/system/ollama.service.d"
     local gpu_dropin="${dropin_dir}/10-ci-gpu.conf"
@@ -793,6 +795,12 @@ Environment="OLLAMA_VULKAN=1"
 Environment="OLLAMA_IGPU_ENABLE=1"
 Environment="OLLAMA_NEW_ENGINE=1"
 EOF
+    elif [[ -f "$gpu_dropin" ]]; then
+        # Hardware/driver situation changed (e.g. /dev/kfd gone, or a functional
+        # NVIDIA GPU now present): remove our stale managed AMD drop-in so it no
+        # longer forces Vulkan/iGPU. Only our own managed file is touched.
+        log_info "No AMD iGPU path; removing stale managed drop-in ${gpu_dropin}"
+        rm -f "$gpu_dropin"
     fi
 
     write_ollama_context_dropin "$dropin_dir"
