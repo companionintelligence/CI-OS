@@ -107,8 +107,55 @@ rocm_stack_satisfied() {
 }
 
 ensure_video_groups() {
-  echo "[ROCm] Adding user ${ACTUAL_USER} to render and video groups (if needed)..."
-  usermod -a -G render,video "${ACTUAL_USER}" 2>/dev/null || true
+  local users=("$ACTUAL_USER")
+  if id -u ci >/dev/null 2>&1; then
+    users+=("ci")
+  fi
+
+  local u
+  for u in "${users[@]}"; do
+    echo "[ROCm] Adding user ${u} to render and video groups (if needed)..."
+    usermod -a -G render,video "${u}" 2>/dev/null || true
+  done
+}
+
+run_amdgpu_install_rocm() {
+  echo "[ROCm] Running amdgpu-install --usecase=rocm (unified driver + ROCm stack)..."
+  if ci_os_with_ubuntu_toolchain_id amdgpu-install -y --usecase=rocm; then
+    return 0
+  fi
+  echo "[ROCm] WARN: amdgpu-install --usecase=rocm failed; falling back to package installs." >&2
+  return 1
+}
+
+verify_rocm_after_install() {
+  local needs_reboot=0
+
+  if [[ ! -e /dev/kfd ]] || [[ ! -d /dev/dri ]]; then
+    echo "[ROCm] WARN: /dev/kfd or /dev/dri not ready — reboot required before ROCm Docker workloads (e.g. ComfyUI)." >&2
+    needs_reboot=1
+  fi
+
+  if command -v rocminfo >/dev/null 2>&1; then
+    echo "[ROCm] rocminfo: $(rocminfo 2>/dev/null | grep -E 'Marketing Name|Name:' | head -n4 | tr '\n' ' ')"
+  else
+    echo "[ROCm] WARN: rocminfo not available after install." >&2
+    needs_reboot=1
+  fi
+
+  # shellcheck source=lib/gpu-detect.sh
+  source "${SCRIPT_DIR}/lib/gpu-detect.sh"
+  if is_strix_halo_from_system; then
+    print_comfyui_strix_halo_hint
+  fi
+
+  if (( needs_reboot != 0 )); then
+    echo "[ROCm] Reboot your system, then verify ROCm in Companion Hub before running GPU apps."
+    return 1
+  fi
+
+  echo "[ROCm] ROCm stack appears ready (/dev/kfd and /dev/dri present)."
+  return 0
 }
 
 install_kernel_build_deps() {
@@ -167,6 +214,7 @@ if rocm_stack_satisfied "$TARGET_PKG_VER"; then
   inst=$(dpkg-query -W -f='${Version}' amdgpu-install)
   echo "[ROCm] Stack already satisfies target (amdgpu-install ${inst} >= ${TARGET_PKG_VER}; amdgpu-dkms and rocm present)."
   ensure_video_groups
+  verify_rocm_after_install || true
   echo "[ROCm] Complete. Log out and back in if group membership changed."
   exit 0
 fi
@@ -188,27 +236,25 @@ apt install -y python3-setuptools python3-wheel
 
 install_kernel_build_deps
 
-echo "[ROCm] Installing amdgpu-dkms..."
-if ! apt install -y amdgpu-dkms; then
+ensure_video_groups
+
+if run_amdgpu_install_rocm; then
+  :
+elif apt install -y amdgpu-dkms; then
+  echo "[ROCm] Installing rocm packages after amdgpu-dkms..."
+  apt install -y rocm rocminfo rocm-smi-lib 2>/dev/null || apt install -y rocm
+else
   echo "[ROCm] WARN: amdgpu-dkms install failed; trying Ubuntu rocm metapackage..." >&2
   if try_ubuntu_rocm_metapackage; then
     ensure_video_groups
+    verify_rocm_after_install || true
     echo "[ROCm] Installed via Ubuntu rocm metapackage."
     exit 0
   fi
   exit 1
 fi
 
-ensure_video_groups
-
-echo "[ROCm] Installing rocm..."
-if ! apt install -y rocm rocminfo rocm-smi-lib 2>/dev/null; then
-  apt install -y rocm
-fi
-
-if command -v rocminfo >/dev/null 2>&1; then
-  echo "[ROCm] rocminfo: $(rocminfo 2>/dev/null | head -n3 | tr '\n' ' ')"
-fi
+verify_rocm_after_install || true
 
 echo "[ROCm] ROCm driver and stack installation finished."
-echo "  User ${ACTUAL_USER} was added to render and video groups; log out and back in for that to take effect."
+echo "  Users were added to render and video groups; log out and back in for that to take effect."
