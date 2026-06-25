@@ -52,14 +52,18 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 # Allow Docker bridge networks to reach host-side Ollama. The Hub and marketplace
 # apps run in containers and talk to Ollama via host.docker.internal, which Docker
-# maps (host-gateway) to the docker0 bridge gateway 172.17.0.1. Without an allow
-# rule, `default deny incoming` drops that hairpin and the Hub reports "Ollama not
-# detected" (connection timeout).
+# maps (host-gateway) to the docker0 bridge gateway. On a default install that
+# gateway is 172.17.0.1, which is what these rules target; CI-OS does not override
+# Docker's default bridge subnet or --host-gateway-ip. If a custom daemon.json ever
+# changes the default bridge subnet (bip) or host-gateway IP, update the destination
+# below to match or containers lose Ollama. Without an allow rule, `default deny
+# incoming` drops the hairpin and the Hub reports "Ollama not detected" (timeout).
 #
 # Scoped two ways for least privilege:
-#  - destination 172.17.0.1: only container-originated traffic targets the bridge
-#    gateway, so LAN/VPC hosts (which would hit the appliance's own IP) can't match
-#    these rules even if their addresses fall in the source ranges below.
+#  - destination 172.17.0.1 (the bridge gateway, see caveat above): only container-
+#    originated traffic targets it, so LAN/VPC hosts (which would hit the appliance's
+#    own IP) can't match these rules even if their addresses fall in the source
+#    ranges below.
 #  - port 11434 only: no other host ports are opened.
 #
 # Source ranges:
