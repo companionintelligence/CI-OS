@@ -768,16 +768,17 @@ has_nvidia_gpu() {
     nvidia-smi -L 2>/dev/null | grep -q '^GPU'
 }
 
-# Detect inference accelerator and emit a hardware-aware Ollama systemd drop-in.
-# Written as a dedicated drop-in (10-ci-gpu.conf) so it merges with — and never
-# clobbers — the base override.conf or any hand-tuned settings.
+# Detect inference accelerator and emit hardware-aware Ollama systemd drop-ins.
+# GPU selection (AMD Vulkan/iGPU) is written to 10-ci-gpu.conf; the default
+# context length is written SEPARATELY by write_ollama_context_dropin. The
+# context drop-in is deliberately authoritative: it overrides any earlier
+# OLLAMA_CONTEXT_LENGTH assignment, including one in override.conf. Any OTHER
+# settings in a hand-tuned override.conf are left intact — only the context
+# value is superseded (and a warning is logged when that happens).
 configure_ollama_gpu() {
     local dropin_dir="/etc/systemd/system/ollama.service.d"
     local gpu_dropin="${dropin_dir}/10-ci-gpu.conf"
     mkdir -p "$dropin_dir"
-
-    local ctx
-    ctx="$(recommend_ollama_context_length)"
 
     # /dev/kfd means the AMD amdgpu/ROCm kernel driver is present (a discrete
     # Radeon or a Ryzen-AI / Strix-Halo APU). Ollama drops integrated GPUs unless
@@ -793,22 +794,63 @@ configure_ollama_gpu() {
 Environment="OLLAMA_VULKAN=1"
 Environment="OLLAMA_IGPU_ENABLE=1"
 Environment="OLLAMA_NEW_ENGINE=1"
-Environment="OLLAMA_CONTEXT_LENGTH=${ctx}"
 EOF
-    else
-        log_info "Setting hardware-aware Ollama default context length (${ctx})"
-        cat > "$gpu_dropin" <<EOF
-# Managed by CI-OS setup-fresh-ubuntu.sh — hardware-aware Ollama defaults.
-[Service]
-Environment="OLLAMA_CONTEXT_LENGTH=${ctx}"
-EOF
+    elif [[ -f "$gpu_dropin" ]]; then
+        # Hardware/driver situation changed (e.g. /dev/kfd gone, or a functional
+        # NVIDIA GPU now present): remove our stale managed AMD drop-in so it no
+        # longer forces Vulkan/iGPU. Only our own managed file is touched.
+        log_info "No AMD iGPU path; removing stale managed drop-in ${gpu_dropin}"
+        rm -f "$gpu_dropin"
     fi
+
+    write_ollama_context_dropin "$dropin_dir"
 
     systemctl daemon-reload
     if systemctl is-active --quiet ollama 2>/dev/null; then
-        systemctl restart ollama 2>/dev/null || log_warning "Could not restart ollama to apply GPU settings"
+        systemctl restart ollama 2>/dev/null || log_warning "Could not restart ollama to apply context/GPU settings"
     fi
-    log_success "Ollama GPU/context drop-in configured (context_length=${ctx})"
+    log_success "Ollama GPU/context drop-ins configured"
+}
+
+# Write the hardware-aware OLLAMA_CONTEXT_LENGTH default to its own drop-in.
+#
+# Ollama's OpenAI-compatible /v1 endpoint IGNORES the per-request `num_ctx`
+# option, so this server-level default is the only lever for /v1 consumers
+# (e.g. CI-Hermes). Left unset, Ollama sizes context from available memory and
+# on unified-memory APUs picks the model's full window (e.g. 131072), wasting
+# memory and slowing prefill. Native-API consumers (e.g. CI-OpenClaw) can still
+# request a smaller num_ctx; they just cannot exceed this default.
+#
+# The filename is intentionally last-sorting ("zz-"): systemd merges drop-ins in
+# lexical order and the final assignment of a variable wins, so this overrides
+# any earlier file that also sets OLLAMA_CONTEXT_LENGTH (override.conf,
+# 10-ci-tuning.conf, a stale 10-ci-gpu.conf from an older CI-OS, …). This makes
+# the function idempotent and authoritative on re-run — do NOT rename it to sort
+# earlier.
+write_ollama_context_dropin() {
+    local dropin_dir="$1"
+    local ctx_dropin="${dropin_dir}/zz-ci-ollama-context.conf"
+
+    local ctx
+    ctx="$(recommend_ollama_context_length)"
+
+    log_info "Setting hardware-aware Ollama default context length (${ctx})"
+    cat > "$ctx_dropin" <<EOF
+# Managed by CI-OS setup-fresh-ubuntu.sh — hardware-aware Ollama default context
+# length for the OpenAI-compatible (/v1) surface. Last-sorting filename so it
+# overrides any earlier drop-in that also sets OLLAMA_CONTEXT_LENGTH. See
+# write_ollama_context_dropin() in scripts/setup-fresh-ubuntu.sh.
+[Service]
+Environment="OLLAMA_CONTEXT_LENGTH=${ctx}"
+EOF
+
+    # Flag any other drop-in that still sets a (now-shadowed) value, so a stale
+    # hand-tuned default like 8192 does not silently confuse future operators.
+    local conflicts
+    conflicts="$(grep -rlE '^[[:space:]]*Environment="?OLLAMA_CONTEXT_LENGTH=' "$dropin_dir" 2>/dev/null | grep -vF "$ctx_dropin" | paste -sd, - || true)"
+    if [[ -n "$conflicts" ]]; then
+        log_warning "OLLAMA_CONTEXT_LENGTH is also set in: ${conflicts} — now overridden by ${ctx_dropin} (=${ctx}). Remove the stale entries to avoid confusion."
+    fi
 }
 
 # Configure Ollama service (requires root for systemd operations)
