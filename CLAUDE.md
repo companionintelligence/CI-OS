@@ -12,33 +12,36 @@ Issues: <https://github.com/companionintelligence/CI-Engineering/issues>
 
 ## What this repo does
 
-Base OS image for the Companion Intelligence appliance. Likely NixOS or a custom Linux distro configured to host CI-Hub and CI-Server.
+Base OS for the Companion Intelligence appliance. **Not a from-scratch distro** — it is
+**Ubuntu 24.04 LTS (Noble)** rebranded as CI-OS, with telemetry removed, AMD/ROCm support,
+and the CI stack (Docker, Node, Ollama, CI-Hub, CI-Server) installed on first boot. The repo
+builds branded installer ISOs and provisions machines/devices via Bash scripts.
 
 ## Stack
 
-- NixOS / Bash / shell scripts
-- Docker Compose (for service bootstrap)
-- Package configs in config/
+- **Ubuntu 24.04 (Noble)** base — no Nix
+- **Bash** scripts for everything (ISO build, provisioning, branding)
+- ISO tooling: `debootstrap`, `squashfs-tools`, `xorriso`; `.deb` packaging; systemd first-boot services
+- Docker Compose for service bootstrap
 
 ## Key commands
 
 ```bash
-# Install dependencies
-# see scripts/ for setup helpers
+# Build a branded CI-OS ISO (on an Ubuntu 24.04 build host, as root)
+sudo ./tools/iso-build/scripts/build-iso.sh --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
 
-# Start development server / service
-bash scripts/build.sh
+# Provision a fresh/existing Ubuntu into a CI appliance (idempotent)
+sudo ./scripts/setup-fresh-ubuntu.sh
 
-# Run tests
-# validation via scripts/test.sh
+# Apply CI desktop branding only (no packages)
+sudo ./setup/os-changes/apply-ci-os-desktop.sh
 
-# Build for production
-# flash / provision
+# See README.md for the four customization entry points.
 ```
 
 ## Package manager
 
-**nix** — use exclusively; do not mix with npm/yarn/pnpm/bun unless the repo explicitly requires it.
+**apt / dpkg** plus plain Bash. There is no Nix here — do not introduce it.
 
 ## Cross-repo connections
 
