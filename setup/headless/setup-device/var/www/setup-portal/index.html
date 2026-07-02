@@ -5,38 +5,81 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Device Setup</title>
     <style>
+        /* Montserrat — vendored locally for offline captive-portal use.
+           Do NOT replace with a Google Fonts <link>; the portal must work
+           with no internet access. woff2 files live in ./fonts/. */
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 200;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-200-normal.woff2") format("woff2");
+        }
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-400-normal.woff2") format("woff2");
+        }
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-500-normal.woff2") format("woff2");
+        }
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-600-normal.woff2") format("woff2");
+        }
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-700-normal.woff2") format("woff2");
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         :root {
-            --bg-color: #072738;
+            /* Canonical CI tokens (dark theme). Non-canonical concepts keep
+               descriptive helper names below. */
+            --background: #072738;
+            --foreground: #ecf7f8;
+            --card: rgba(7, 33, 47, 0.88);
+            --primary: #0f717a;
+            --primary-foreground: #041620;
+            --radius: 14px;
+
+            /* Helper values with no canonical token equivalent. */
             --bg-accent: #0d5e66;
             --bg-highlight: #123f58;
-            --text-color: #ecf7f8;
             --muted-text: rgba(236, 247, 248, 0.72);
             --border-color: rgba(94, 234, 212, 0.28);
-            --primary-color: #0f717a;
             --primary-hover: #abd4d8;
-            --primary-foreground: #041620;
             --input-bg: rgba(7, 33, 47, 0.78);
-            --card-bg: rgba(7, 33, 47, 0.88);
             --card-shadow: 0 24px 56px rgba(2, 12, 20, 0.46);
             --heading-color: #ffffff;
             --success-color: #9df0d2;
             --danger-color: #ffb4b4;
-            --field-radius: 14px;
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-family: "Montserrat", system-ui, sans-serif;
             background:
                 radial-gradient(circle at top, rgba(39, 181, 164, 0.18), transparent 32%),
                 radial-gradient(circle at 20% 20%, rgba(15, 113, 122, 0.18), transparent 28%),
-                linear-gradient(160deg, var(--bg-highlight) 0%, var(--bg-color) 48%, #041620 100%);
-            color: var(--text-color);
+                linear-gradient(160deg, var(--bg-highlight) 0%, var(--background) 48%, #041620 100%);
+            color: var(--foreground);
             line-height: 1.6;
             padding: clamp(12px, 3vw, 28px);
             min-height: 100vh;
@@ -48,7 +91,7 @@
         .container {
             width: 100%;
             max-width: 420px;
-            background-color: var(--card-bg);
+            background-color: var(--card);
             border: 1px solid var(--border-color);
             border-radius: 24px;
             padding: 18px;
@@ -104,10 +147,10 @@
             padding: 0 16px;
             min-width: 88px;
             min-height: 48px;
-            background-color: var(--primary-color);
+            background-color: var(--primary);
             color: var(--primary-foreground);
             border: none;
-            border-radius: var(--field-radius);
+            border-radius: var(--radius);
             font-weight: 600;
             cursor: pointer;
             font-size: 14px;
@@ -151,9 +194,9 @@
             width: 100%;
             padding: 13px 14px;
             border: 1px solid rgba(94, 234, 212, 0.2);
-            border-radius: var(--field-radius);
+            border-radius: var(--radius);
             background-color: var(--input-bg);
-            color: var(--text-color);
+            color: var(--foreground);
             font-size: 16px;
             -webkit-appearance: none;
             appearance: none;
@@ -162,7 +205,7 @@
         
         input[type="text"]::placeholder,
         input[type="password"]::placeholder {
-            color: var(--text-color);
+            color: var(--foreground);
             opacity: 0.58;
         }
         
@@ -178,7 +221,7 @@
         input[type="password"]:focus,
         select:focus {
             outline: none;
-            border-color: var(--primary-color);
+            border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(15, 113, 122, 0.18);
             background-color: rgba(7, 33, 47, 0.92);
         }
@@ -199,7 +242,7 @@
         
         input[type="submit"],
         button[type="submit"] {
-            background: linear-gradient(135deg, #abd4d8 0%, var(--primary-color) 100%);
+            background: linear-gradient(135deg, #abd4d8 0%, var(--primary) 100%);
             color: var(--primary-foreground);
             border: none;
             font-weight: 600;
