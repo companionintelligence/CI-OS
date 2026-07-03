@@ -11,14 +11,30 @@
 
 ## Contents
 
-1. [What this repo is](#what-this-repo-is)
-2. [Four ways to customize Ubuntu](#four-ways-to-customize-ubuntu)
-3. [Build a branded CI-OS ISO](#build-a-branded-ci-os-iso)
-4. [Provision a fresh / existing Ubuntu](#provision-a-fresh--existing-ubuntu)
-5. [Apply CI desktop branding to a running system](#apply-ci-desktop-branding-to-a-running-system)
-6. [Headless device WiFi setup](#headless-device-wifi-setup)
-7. [Repo layout](#repo-layout)
-8. [Documentation](#documentation)
+1. [Interface](#interface)
+2. [What this repo is](#what-this-repo-is)
+3. [Four ways to customize Ubuntu](#four-ways-to-customize-ubuntu)
+4. [Build a branded CI-OS ISO](#build-a-branded-ci-os-iso)
+5. [Provision a fresh / existing Ubuntu](#provision-a-fresh--existing-ubuntu)
+6. [Apply CI desktop branding to a running system](#apply-ci-desktop-branding-to-a-running-system)
+7. [Headless device WiFi setup](#headless-device-wifi-setup)
+8. [Repo layout](#repo-layout)
+9. [Documentation](#documentation)
+
+---
+
+## Interface
+
+The only user-facing surface CI-OS ships is the **headless WiFi setup portal** — the
+captive page a new appliance serves over its own access point on first boot, so you can
+hand it your WiFi credentials and pairing code from any phone or laptop. It is a
+single-theme (dark) captive portal by design.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-dark.png" alt="CI-OS headless WiFi setup portal (dark)" width="720">
+</p>
+
+On the [Companion Intelligence design system](https://github.com/companionintelligence/CI-Common/tree/main/style) — teal primary, Montserrat, light + dark.
 
 ---
 
