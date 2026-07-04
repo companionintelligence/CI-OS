@@ -27,14 +27,86 @@
 
 The only user-facing surface CI-OS ships is the **headless WiFi setup portal** — the
 captive page a new appliance serves over its own access point on first boot, so you can
-hand it your WiFi credentials and pairing code from any phone or laptop. It is a
-single-theme (dark) captive portal by design.
+hand it your WiFi credentials and pairing code from any phone or laptop. It is one page
+whose several states are driven entirely by the on-device setup backend
+(`/opt/setup-backend/setup_service.py`); the gallery below walks through each of them.
+
+It is a **single-theme (dark) captive portal by design** — there is no light mode and no
+theme toggle. It follows the
+[Companion Intelligence design system](https://github.com/companionintelligence/CI-Common/tree/main/style):
+teal `--primary` (`#0f717a`), Montserrat, and the enriched-palette tokens.
+
+> **How these were captured.** The portal HTML/CSS/JS in
+> [`setup/.../var/www/setup-portal/`](setup/headless/setup-device/var/www/setup-portal/)
+> renders offline; each screen was shot headlessly with Playwright. The states below the
+> first one are normally reached in response to the setup backend
+> (`/api/status`, `/api/scan-networks`, `/api/configure`). To capture them without a live
+> appliance, those backend responses were stubbed **only to trigger the portal's own
+> rendering code paths** — the layout, styling, and copy are exactly what the shipped page
+> produces. Sample network names (`Companion-Home`, `Studio-5G`, …) stand in for a real
+> `nmcli` scan. No pixels are hand-drawn or faked.
+
+### First-boot form (pairing required)
+
+The default state on first boot: a pairing-code field, the WiFi-network selector, a
+password field, and **Configure Device**. A background scan runs on load, so the network
+count populates automatically.
 
 <p align="center">
-  <img src="docs/ui/setup-portal-dark.png" alt="CI-OS headless WiFi setup portal (dark)" width="720">
+  <img src="docs/ui/setup-portal-dark.png" alt="CI-OS setup portal — first-boot pairing form (dark)" width="640">
 </p>
 
-On the [Companion Intelligence design system](https://github.com/companionintelligence/CI-Common/tree/main/style) — teal primary, Montserrat, light + dark.
+### Network scan results
+
+Tapping **Scan** (or the automatic scan on load) fills the selector with nearby networks,
+sorted by signal strength, with the signal percentage beside each SSID.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-networks-dark.png" alt="CI-OS setup portal — expanded scanned-network list (dark)" width="640">
+</p>
+
+### Manual network entry
+
+Choosing **Enter network manually…** reveals a free-text field for hidden or
+out-of-range SSIDs.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-manual-dark.png" alt="CI-OS setup portal — manual SSID entry (dark)" width="640">
+</p>
+
+### No-pairing variant
+
+When the backend reports `require_pairing: false` (via `/api/status`), the pairing-code
+field is hidden and the flow drops straight to network selection.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-nopairing-dark.png" alt="CI-OS setup portal — pairing-not-required variant (dark)" width="640">
+</p>
+
+### Success
+
+After the backend accepts the configuration, the portal shows a success banner and
+counts down to the redirect target (the Portal, `https://portal.ci.computer`) while the
+button shows a **Configuring…** spinner.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-success-dark.png" alt="CI-OS setup portal — configuration success (dark)" width="640">
+</p>
+
+### Error
+
+If configuration fails (bad pairing code, wrong password, backend/network error) the
+portal surfaces an inline error and re-enables the form for another attempt.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-error-dark.png" alt="CI-OS setup portal — configuration error (dark)" width="640">
+</p>
+
+> **Backend-gated / not shown.** CI-OS ships no other rendered UI. Everything else the OS
+> does — the ISO build, the branding scripts, the setup service itself — is CLI/systemd
+> with no graphical surface, so there are no additional screens to capture. The scan-list,
+> success, and error states above require the on-device setup backend at runtime; they are
+> reproduced here from the portal's own render paths, not from a live appliance.
 
 ---
 
