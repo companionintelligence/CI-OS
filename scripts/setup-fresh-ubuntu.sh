@@ -74,11 +74,11 @@ user_exists() {
     id "$1" &>/dev/null
 }
 
-# Helper function to check if a user is in a group
+# Helper function to check if a user is in a group (uses nss; reliable vs "groups" formatting)
 user_in_group() {
     local user="$1"
     local group="$2"
-    groups "$user" 2>/dev/null | grep -q "\b${group}\b"
+    id -nG "$user" 2>/dev/null | tr ' ' '\n' | grep -qx "$group"
 }
 
 # Helper function to check if a directory exists and is not empty
@@ -103,11 +103,91 @@ install_curl() {
     log_success "curl installed"
 }
 
+# Fix Docker apt source conflicts before any apt-get update.
+# Different machines may have docker.list (docker.gpg) AND docker.sources (docker.asc);
+# both target the same repo and cause: "Conflicting values set for option Signed-By"
+fix_docker_apt_conflicts() {
+    local docker_list="/etc/apt/sources.list.d/docker.list"
+    local docker_sources="/etc/apt/sources.list.d/docker.sources"
+
+    # Keep a valid single source file; only remove when both coexist.
+    if [[ -f "$docker_list" && -f "$docker_sources" ]]; then
+        log_info "Removing legacy conflicting Docker apt source: $docker_list"
+        rm -f "$docker_list"
+    fi
+}
+
+# Disable stale installer media apt sources (common after USB/CD installs)
+# that break apt update with: "file:/cdrom ... no longer has a Release file".
+disable_stale_media_apt_sources() {
+    local changed=0
+    local file
+    local disabled_dir="/etc/apt/disabled-sources.d"
+
+    for file in /etc/apt/sources.list /etc/apt/sources.list.d/*.list; do
+        [[ -f "$file" ]] || continue
+
+        if grep -Eq '^[[:space:]]*deb(-src)?[[:space:]].*(cdrom:|file:/+cdrom)' "$file"; then
+            sed -i -E '/^[[:space:]]*deb(-src)?[[:space:]].*(cdrom:|file:\/+cdrom)/ s/^/# ci-os disabled stale installer media repo: /' "$file"
+            log_info "Disabled stale installer media apt source(s) in $file"
+            changed=1
+        fi
+    done
+
+    # Handle deb822 source files (Ubuntu 24.04+ often uses *.sources).
+    # Prefer in-place disable via "Enabled: no" to avoid apt filename warnings.
+    for file in /etc/apt/sources.list.d/*.sources; do
+        [[ -f "$file" ]] || continue
+
+        if grep -Eqi '^[[:space:]]*URIs:[[:space:]].*(cdrom:|file:/+cdrom)' "$file"; then
+            if grep -Eq '^[[:space:]]*Enabled:[[:space:]]*no' "$file"; then
+                continue
+            fi
+
+            if grep -Eq '^[[:space:]]*Enabled:' "$file"; then
+                sed -i -E 's/^[[:space:]]*Enabled:.*/Enabled: no/' "$file"
+            else
+                sed -i '1i Enabled: no' "$file"
+            fi
+
+            log_info "Disabled stale installer media deb822 source file: $file"
+            changed=1
+        fi
+    done
+
+    # Migrate older .disabled-by-ci-os files out of sources.list.d to silence apt notices.
+    if compgen -G '/etc/apt/sources.list.d/*.disabled-by-ci-os' > /dev/null; then
+        mkdir -p "$disabled_dir"
+        for file in /etc/apt/sources.list.d/*.disabled-by-ci-os; do
+            [[ -f "$file" ]] || continue
+            mv "$file" "$disabled_dir/$(basename "$file")"
+            log_info "Moved disabled apt source out of sources.list.d: $file"
+            changed=1
+        done
+    fi
+
+    if [[ "$changed" -eq 0 ]]; then
+        log_info "No stale installer media apt sources detected"
+    fi
+}
+
 # Update apt packages (requires root)
 update_apt() {
     log_info "Updating apt package lists..."
     apt-get update
     log_success "apt package lists updated"
+}
+
+# Enforce apt to prefer IPv4 to avoid failures on systems with broken IPv6
+enable_apt_force_ipv4() {
+    log_info "Ensuring apt uses IPv4 (workaround for IPv6 network issues)"
+    local conf_file="/etc/apt/apt.conf.d/99force-ipv4"
+    if [[ ! -f "$conf_file" ]] || ! grep -q 'Acquire::ForceIPv4 "true";' "$conf_file" 2>/dev/null; then
+        echo 'Acquire::ForceIPv4 "true";' > "$conf_file"
+        log_info "Wrote apt IPv4 config to $conf_file"
+    else
+        log_info "APT IPv4 enforcement already configured"
+    fi
 }
 
 # Install make (requires root)
@@ -122,69 +202,36 @@ install_make() {
     log_success "make installed"
 }
 
-# Install Docker (requires root for package installation and repository configuration)
-install_docker() {
-    # Check if Docker is already installed
-    if command_exists docker && docker --version &>/dev/null; then
-        log_info "Docker is already installed, skipping installation..."
-        # Still check if repository is configured
-        if ! repo_configured "/etc/apt/sources.list.d/docker.sources"; then
-            log_info "Configuring Docker repository..."
-            install -m 0755 -d /etc/apt/keyrings
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-            chmod a+r /etc/apt/keyrings/docker.asc
-            tee /etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/ubuntu
-Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
-Components: stable
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
-            apt update
-        fi
+# Install Tailscale (requires root)
+install_tailscale() {
+    if command_exists tailscale; then
+        log_info "Tailscale is already installed, skipping..."
         return 0
     fi
-    
-    log_info "Installing Docker..."
-    
-    # Install prerequisites
-    if ! package_installed ca-certificates; then
-        apt install -y ca-certificates
+
+    log_info "Installing Tailscale..."
+    # Import Tailscale GPG key and repo
+    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+    apt-get update
+    apt-get install -y tailscale
+    log_success "Tailscale installed"
+}
+
+# Ensure /var/run/docker.sock is root:docker and mode 660 (fixes some snap/partial installs)
+ensure_docker_socket_permissions() {
+    local sock="/var/run/docker.sock"
+    if [[ ! -S "$sock" ]]; then
+        log_info "Docker socket $sock not found (daemon may be stopped); skipping socket permission fix"
+        return 0
     fi
-    if ! command_exists curl; then
-        apt install -y curl
+    local grp
+    grp=$(stat -c '%G' "$sock" 2>/dev/null || echo "")
+    if [[ "$grp" != "docker" ]]; then
+        log_warning "Docker socket group is '$grp' (expected docker); running chgrp docker on $sock"
+        chgrp docker "$sock" 2>/dev/null || log_warning "chgrp docker on $sock failed (is Docker running?)"
     fi
-    
-    # Add Docker's official GPG key (only if not exists)
-    install -m 0755 -d /etc/apt/keyrings
-    if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
-        curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-        chmod a+r /etc/apt/keyrings/docker.asc
-    fi
-    
-    # Add the repository to Apt sources (only if not configured)
-    if ! repo_configured "/etc/apt/sources.list.d/docker.sources"; then
-        tee /etc/apt/sources.list.d/docker.sources <<EOF
-Types: deb
-URIs: https://download.docker.com/linux/ubuntu
-Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
-Components: stable
-Signed-By: /etc/apt/keyrings/docker.asc
-EOF
-    fi
-    
-    # Update apt and install Docker
-    apt update
-    apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-    
-    # Ensure docker group exists (usually created by Docker installation, but ensure it exists)
-    if ! getent group docker >/dev/null 2>&1; then
-        log_info "Creating docker group..."
-        groupadd docker
-        log_success "Docker group created"
-    fi
-    
-    log_success "Docker installed"
+    chmod 660 "$sock" 2>/dev/null || true
 }
 
 # Add actual user to docker group (requires root for user management)
@@ -195,16 +242,125 @@ add_user_to_docker_group() {
         groupadd docker
         log_success "Docker group created"
     fi
-    
-    # Add actual user to docker group (if not already in group)
-    if ! user_in_group "$ACTUAL_USER" "docker"; then
-        log_info "Adding user $ACTUAL_USER to docker group..."
-        usermod -aG docker "$ACTUAL_USER"
-        log_success "User $ACTUAL_USER added to docker group"
-        log_warning "Note: User $ACTUAL_USER will need to log out and back in (or use 'newgrp docker') for docker group changes to take effect"
-    else
-        log_info "User $ACTUAL_USER is already in docker group, skipping..."
+
+    # Idempotent: safe if the user is already a member (covers fresh install and re-runs).
+    local was_member=0
+    if user_in_group "$ACTUAL_USER" "docker"; then
+        was_member=1
     fi
+    log_info "Ensuring user $ACTUAL_USER is in the docker group..."
+    usermod -aG docker "$ACTUAL_USER"
+    if [[ "$was_member" -eq 0 ]]; then
+        log_success "User $ACTUAL_USER added to docker group"
+        log_warning "Note: User $ACTUAL_USER must open a new login session for docker group to apply to existing terminals (or run: newgrp docker)"
+    else
+        log_info "User $ACTUAL_USER was already in the docker group (nss)"
+    fi
+}
+
+# Verify the desktop user can reach the daemon (uses nss group list, not the invoking shell)
+verify_docker_cli_for_actual_user() {
+    if ! command_exists docker; then
+        return 0
+    fi
+    if [[ ! -S /var/run/docker.sock ]]; then
+        log_warning "Docker socket missing; skipping docker CLI verification"
+        return 0
+    fi
+    if sudo -u "$ACTUAL_USER" docker info &>/dev/null; then
+        log_success "Docker CLI verified for $ACTUAL_USER (docker info as that user)"
+        return 0
+    fi
+    if sudo -u "$ACTUAL_USER" sg docker -c "docker info" &>/dev/null; then
+        log_warning "Docker works for $ACTUAL_USER via sg docker only; fix group/socket and re-login."
+        return 0
+    fi
+    log_warning "Docker CLI check failed for $ACTUAL_USER (docker info). Check: getent group docker, ls -la /var/run/docker.sock"
+}
+
+# Socket + group + verification (call after any Docker install/skip path)
+finalize_docker_access_for_actual_user() {
+    ensure_docker_socket_permissions
+    add_user_to_docker_group
+    verify_docker_cli_for_actual_user
+}
+
+# Install Docker (requires root for package installation and repository configuration)
+install_docker() {
+    # Note: fix_docker_apt_conflicts() runs earlier (before update_apt) to resolve
+    # Signed-By conflicts from mixed docker.list/docker.sources on pre-configured machines
+
+    # Check if Docker is already installed
+    if command_exists docker && docker --version &>/dev/null; then
+        log_info "Docker is already installed, skipping installation..."
+        # Keep setup idempotent: best effort to ensure repo is configured, but do not fail
+        # the whole setup on transient network/DNS errors when Docker is already usable.
+        if ! repo_configured "/etc/apt/sources.list.d/docker.sources"; then
+            log_info "Configuring Docker repository..."
+            install -m 0755 -d /etc/apt/keyrings
+            if ! curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; then
+                log_warning "Could not download Docker GPG key (network/DNS). Continuing because Docker is already installed."
+                finalize_docker_access_for_actual_user
+                return 0
+            fi
+            chmod a+r /etc/apt/keyrings/docker.asc
+            tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+            if ! apt update; then
+                log_warning "Docker repo apt update failed. Continuing because Docker is already installed."
+            fi
+        fi
+    else
+        log_info "Installing Docker..."
+
+        # Install prerequisites
+        if ! package_installed ca-certificates; then
+            apt install -y ca-certificates
+        fi
+        if ! command_exists curl; then
+            apt install -y curl
+        fi
+
+        # Add Docker's official GPG key (only if not exists)
+        install -m 0755 -d /etc/apt/keyrings
+        if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
+            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+            chmod a+r /etc/apt/keyrings/docker.asc
+        fi
+
+        # Add the repository to Apt sources (only if not configured)
+        if ! repo_configured "/etc/apt/sources.list.d/docker.sources"; then
+            tee /etc/apt/sources.list.d/docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+        fi
+
+        # Update apt and install Docker
+        apt update
+        apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+        # Ensure docker group exists (usually created by Docker installation, but ensure it exists)
+        if ! getent group docker >/dev/null 2>&1; then
+            log_info "Creating docker group..."
+            groupadd docker
+            log_success "Docker group created"
+        fi
+
+        log_success "Docker installed"
+    fi
+
+    # Always run: Docker may be pre-installed while the user was never added, or socket group wrong,
+    # or this is a re-run after usermod (verification uses fresh nss via sudo).
+    finalize_docker_access_for_actual_user
 }
 
 # Install UV
@@ -252,23 +408,32 @@ configure_passwordless_sudo() {
 
 # Install Homebrew
 install_homebrew() {
+    local brew_bin="/home/linuxbrew/.linuxbrew/bin/brew"
+
+    # Check if brew is already available (in PATH)
     if sudo -u "$ACTUAL_USER" bash -c "command -v brew" &>/dev/null; then
-        log_info "Homebrew is already installed for user $ACTUAL_USER, skipping installation..."
-        # Still ensure bashrc is configured
-        RC="$ACTUAL_HOME/.bashrc"
-        if ! grep -q "linuxbrew" "$RC"; then
-            echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> "$RC"
-            chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
-            log_info "Added Homebrew to bashrc"
-        fi
+        log_info "Homebrew is already installed and available for user $ACTUAL_USER, skipping installation..."
+        _homebrew_ensure_bashrc
         return 0
     fi
-    
+
+    # Check if brew binary exists (e.g. from a previous run that failed at brew update)
+    if [[ -f "$brew_bin" ]]; then
+        log_info "Homebrew binary found at $brew_bin (partial install or permission issue). Fixing and verifying..."
+        chown -R "$ACTUAL_USER:$ACTUAL_USER" /home/linuxbrew/.linuxbrew 2>/dev/null || true
+        if sudo -u "$ACTUAL_USER" "$brew_bin" update --force --quiet 2>/dev/null; then
+            log_success "Homebrew recovered and verified."
+            _homebrew_ensure_bashrc
+            return 0
+        fi
+        log_warning "Could not recover existing Homebrew. Will attempt reinstall..."
+    fi
+
     log_info "Installing Homebrew for user $ACTUAL_USER..."
-    
+
     # Configure passwordless sudo first (required for noninteractive Homebrew installation)
     configure_passwordless_sudo
-    
+
     # Install Homebrew dependencies
     log_info "Installing Homebrew dependencies..."
     local deps=("build-essential" "git" "file" "procps")
@@ -277,170 +442,261 @@ install_homebrew() {
             apt-get install -y "$dep"
         fi
     done
-    
-    # Install Homebrew as the actual user with proper environment
+
+    # Install Homebrew as the actual user with proper environment (allow installer failure; we fix perms after)
     log_info "Running Homebrew installer..."
-    sudo -u "$ACTUAL_USER" bash <<EOF
+    sudo -u "$ACTUAL_USER" bash <<EOF || true
 export NONINTERACTIVE=1
 export CI=1
 /bin/bash -c "\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 EOF
-    
+
+    # Fix lock directory permissions (Homebrew installer can leave var/homebrew owned by root)
+    if [[ -d /home/linuxbrew/.linuxbrew ]]; then
+        log_info "Ensuring Homebrew directory permissions for $ACTUAL_USER..."
+        chown -R "$ACTUAL_USER:$ACTUAL_USER" /home/linuxbrew/.linuxbrew
+    fi
+
+    # Complete brew update if installer failed mid-way (e.g. due to lock permissions)
+    if [[ -f "$brew_bin" ]]; then
+        log_info "Running brew update to complete installation..."
+        sudo -u "$ACTUAL_USER" "$brew_bin" update --force --quiet 2>/dev/null || true
+    fi
+
     # Verify Homebrew installation
-    if ! sudo -u "$ACTUAL_USER" bash -c "command -v brew" &>/dev/null; then
-        # Try to source brew environment and check again
-        if [[ -f /home/linuxbrew/.linuxbrew/bin/brew ]]; then
-            sudo -u "$ACTUAL_USER" bash -c "eval \"\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)\" && command -v brew" &>/dev/null || {
-                log_warning "Homebrew installed but not in PATH yet. Will be available after shell restart."
-            }
+    if ! sudo -u "$ACTUAL_USER" bash -c "eval \"\$($brew_bin shellenv)\" && command -v brew" &>/dev/null; then
+        if [[ -f "$brew_bin" ]]; then
+            log_warning "Homebrew installed but not in PATH yet. Will be available after shell restart."
         else
             log_error "Homebrew installation may have failed. Please check the output above."
             return 1
         fi
     fi
-    
-    # Finalize homebrew and set path variable in user's bashrc
+
+    _homebrew_ensure_bashrc
+    log_success "Homebrew installed and configured"
+}
+
+# Ensure Homebrew eval is in user's bashrc (helper used by install_homebrew)
+_homebrew_ensure_bashrc() {
     RC="$ACTUAL_HOME/.bashrc"
     if ! grep -q "linuxbrew" "$RC"; then
         echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> "$RC"
         chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
+        log_info "Added Homebrew to bashrc"
     fi
-    
-    log_success "Homebrew installed and configured"
 }
 
-# Install asdf and Node.js
-install_asdf_nodejs() {
-    # Check if Node.js is already installed via asdf
-    if sudo -u "$ACTUAL_USER" bash -c "command -v node" &>/dev/null && \
-       sudo -u "$ACTUAL_USER" bash -c "node --version" 2>/dev/null | grep -q "v22.15.1"; then
-        log_info "Node.js 22.15.1 is already installed, skipping installation..."
+# Apt packages for asdf-nodejs (prebuilt binaries + optional compile fallback)
+install_asdf_nodejs_apt_prereqs() {
+    log_info "Installing apt packages for asdf / Node.js (git, curl, gpg, build tools)..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        ca-certificates \
+        curl \
+        git \
+        gnupg \
+        dirmngr \
+        build-essential \
+        python3
+    log_success "asdf / Node.js apt prerequisites ready"
+}
+
+# True if Node 22.15.1 is installed under asdf and binaries run (does not depend on PATH order).
+_verify_asdf_nodejs_22_15_1_installed() {
+    sudo -H -u "$ACTUAL_USER" HOME="$ACTUAL_HOME" USER="$ACTUAL_USER" LOGNAME="$ACTUAL_USER" bash <<'VERIFY'
+set -euo pipefail
+ASDF_DIR="${ASDF_DIR:-$HOME/.asdf}"
+[[ -f "$ASDF_DIR/asdf.sh" ]]
+
+export ASDF_DIR
+export ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_DIR}"
+export PATH="$ASDF_DIR/bin:$PATH"
+. "$ASDF_DIR/asdf.sh"
+
+install_dir="$(asdf where nodejs 22.15.1 2>/dev/null || true)"
+[[ -n "$install_dir" ]]
+test -x "$install_dir/bin/node"
+test -x "$install_dir/bin/npm"
+"$install_dir/bin/node" -v | grep -q '^v22\.15\.1'
+"$install_dir/bin/npm" -v >/dev/null
+VERIFY
+}
+
+# Insert asdf before Ubuntu's "non-interactive return" so npm/node work under bash -c / CI / scripts.
+_insert_asdf_bootstrap_before_noninteractive_return() {
+    local rc="$ACTUAL_HOME/.bashrc"
+    [[ -f "$rc" ]] || return 0
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+
+    if grep -q 'asdf-before-noninteractive-return' "$rc" 2>/dev/null; then
         return 0
     fi
-    
-    log_info "Installing asdf and Node.js for user $ACTUAL_USER..."
-    
-    # Install npm first (system-wide)
-    if ! command_exists npm; then
-        apt install -y npm
+
+    local line
+    line=$(grep -n '^# If not running interactively' "$rc" 2>/dev/null | head -1 | cut -d: -f1 || true)
+    if [[ -z "$line" ]]; then
+        return 0
     fi
-    
-    # Install asdf and Node.js as the actual user
-    sudo -u "$ACTUAL_USER" bash <<EOF
-# Source brew environment
-eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
 
-# Install asdf (if not already installed)
-if ! command -v asdf &>/dev/null; then
-    brew install asdf
+    local tmp
+    tmp=$(mktemp)
+    {
+        head -n "$((line - 1))" "$rc"
+        cat <<'ASDFTOP'
+
+# asdf (before non-interactive return): node/npm for scripts / ssh / CI (ci-os setup)
+export ASDF_DIR="${ASDF_DIR:-$HOME/.asdf}"
+if [[ -f "$ASDF_DIR/asdf.sh" ]]; then
+  # shellcheck source=/dev/null
+  . "$ASDF_DIR/asdf.sh"
+  export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"  # asdf-shims-priority asdf-before-noninteractive-return
+fi
+ASDFTOP
+        tail -n "+${line}" "$rc"
+    } > "$tmp" && mv "$tmp" "$rc"
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+    log_info "Inserted asdf bootstrap before non-interactive early return in $rc"
+}
+
+# After Homebrew / ~/.local env: prepend shims again so asdf wins over editor-bundled Node on PATH.
+_append_asdf_shim_priority_tail() {
+    local rc="$ACTUAL_HOME/.bashrc"
+    [[ -f "$rc" ]] || touch "$rc"
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+
+    if grep -q 'asdf-after-path-toolchains' "$rc" 2>/dev/null; then
+        return 0
+    fi
+
+    {
+        echo ''
+        echo '# After brew/env: asdf shims first again (node/npm vs linuxbrew, editor PATH)'
+        echo 'export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"  # asdf-shims-priority asdf-after-path-toolchains'
+    } >> "$rc"
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+    log_info "Appended asdf PATH tail to $rc"
+}
+
+# Ensure ~/.bashrc loads asdf and prepends shims so node/npm win over editor-bundled PATH entries.
+_ensure_asdf_in_bashrc_with_shim_priority() {
+    local rc="$ACTUAL_HOME/.bashrc"
+    [[ -f "$rc" ]] || touch "$rc"
+    chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+
+    _insert_asdf_bootstrap_before_noninteractive_return
+
+    if grep -q 'asdf-after-path-toolchains' "$rc" 2>/dev/null; then
+        return 0
+    fi
+
+    if grep -q 'asdf\.sh' "$rc" 2>/dev/null; then
+        _append_asdf_shim_priority_tail
+    else
+        log_info "Adding classic asdf block to end of $rc (no asdf.sh reference yet)"
+        {
+            echo ''
+            echo '# asdf version manager (ci-os setup)'
+            echo '. "$HOME/.asdf/asdf.sh"'
+            echo 'export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"  # asdf-shims-priority asdf-after-path-toolchains'
+        } >> "$rc"
+        chown "$ACTUAL_USER:$ACTUAL_USER" "$rc"
+    fi
+}
+
+# Install asdf and Node.js (standalone asdf via git clone - no Homebrew dependency)
+install_asdf_nodejs() {
+    if _verify_asdf_nodejs_22_15_1_installed 2>/dev/null; then
+        log_info "Node.js 22.15.1 is already installed via asdf, skipping install..."
+        _ensure_asdf_in_bashrc_with_shim_priority
+        return 0
+    fi
+
+    install_asdf_nodejs_apt_prereqs
+
+    log_info "Installing asdf and Node.js for user $ACTUAL_USER..."
+
+    if ! command_exists git; then
+        apt install -y git
+    fi
+
+    # Install asdf and Node.js as the actual user. set -e ensures a failed install never leaves
+    # .tool-versions pointing at a missing version (which breaks npm/node shims with asdf errors).
+    if ! sudo -H -u "$ACTUAL_USER" HOME="$ACTUAL_HOME" USER="$ACTUAL_USER" LOGNAME="$ACTUAL_USER" bash <<'EOF'
+set -euo pipefail
+ASDF_DIR="$HOME/.asdf"
+ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_DIR}"
+ASDF_VERSION="v0.14.0"
+
+if [[ ! -d "$ASDF_DIR" ]]; then
+    git clone https://github.com/asdf-vm/asdf.git "$ASDF_DIR" --branch "$ASDF_VERSION"
 fi
 
-# Add asdf to shell (if not already there)
-if ! grep -q "asdf.sh" ~/.bashrc; then
-    echo '. "\$(brew --prefix asdf)/libexec/asdf.sh"' >> ~/.bashrc
+export PATH="$HOME/.asdf/bin:$PATH"
+if [[ -f "$ASDF_DIR/asdf.sh" ]]; then
+    . "$ASDF_DIR/asdf.sh"
 fi
+export ASDF_DIR
+export ASDF_DATA_DIR
 
-# Source bashrc to load asdf
-source ~/.bashrc 2>/dev/null || true
+echo 'legacy_version_file = yes' > "$HOME/.asdfrc"
 
-# Add Node.js plugin (if not already added)
-sudo asdf plugin add nodejs 2>/dev/null || true
+asdf plugin add nodejs https://github.com/asdf-vm/asdf-nodejs.git 2>/dev/null || true
 
-# Install Node.js (if not already installed)
-if ! sudo asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
-    sudo asdf install nodejs 22.15.1
-fi
+asdf install nodejs 22.15.1
+asdf reshim nodejs
+asdf global nodejs 22.15.1
 
-# Install yarn globally (if not already installed)
-if ! command -v yarn &>/dev/null; then
-    sudo npm install --global yarn
-fi
+install_dir="$(asdf where nodejs 22.15.1 2>/dev/null || true)"
+[[ -n "$install_dir" ]]
+test -x "$install_dir/bin/node"
+test -x "$install_dir/bin/npm"
+"$install_dir/bin/node" -v | grep -q '^v22\.15\.1'
+"$install_dir/bin/npm" -v >/dev/null
 EOF
-    
+    then
+        log_warning "asdf / Node.js install failed for user $ACTUAL_USER (see errors above); continuing setup."
+        return 0
+    fi
+
+    _ensure_asdf_in_bashrc_with_shim_priority
+
+    if ! _verify_asdf_nodejs_22_15_1_installed 2>/dev/null; then
+        log_warning "Post-install check failed: Node.js 22.15.1 not present under ~/.asdf/installs for $ACTUAL_USER; continuing setup."
+        return 0
+    fi
+
     log_success "asdf and Node.js installed"
 }
 
-# Set global Node.js version
+# Set global Node.js version (standalone asdf in ~/.asdf)
 set_global_nodejs() {
     log_info "Setting global Node.js version to 22.15.1 for user $ACTUAL_USER..."
-    
-    # Check if Node.js 22.15.1 is already set as global
-    sudo -u "$ACTUAL_USER" bash <<EOF
-# Source brew environment
-eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
 
-# Source bashrc to load asdf
-source ~/.bashrc 2>/dev/null || true
-
-# Check if asdf is available
-if ! command -v asdf &>/dev/null; then
-    echo "asdf not found, skipping global Node.js version setting"
-    exit 0
-fi
-
-# Check if Node.js 22.15.1 is installed
-if ! sudo asdf list nodejs 2>/dev/null | grep -q "22.15.1"; then
-    echo "Node.js 22.15.1 is not installed, skipping global version setting"
-    exit 0
-fi
-
-# Check current global version
-CURRENT_GLOBAL=\$(sudo asdf current nodejs 2>/dev/null | grep -oP '22\.15\.1' || echo "")
-if [[ "\$CURRENT_GLOBAL" == "22.15.1" ]]; then
-    echo "Node.js 22.15.1 is already set as global version"
-    exit 0
-fi
-
-# Set global Node.js version
-sudo asdf set global nodejs 22.15.1
+    if ! sudo -H -u "$ACTUAL_USER" HOME="$ACTUAL_HOME" USER="$ACTUAL_USER" LOGNAME="$ACTUAL_USER" bash <<'EOF'
+set -euo pipefail
+ASDF_DIR="$HOME/.asdf"
+[[ -f "$ASDF_DIR/asdf.sh" ]] || exit 0
+export ASDF_DIR
+export ASDF_DATA_DIR="${ASDF_DATA_DIR:-$ASDF_DIR}"
+export PATH="$HOME/.asdf/bin:$PATH"
+. "$ASDF_DIR/asdf.sh"
+asdf list nodejs 2>/dev/null | grep -q "22.15.1" || exit 0
+asdf global nodejs 22.15.1
 EOF
-    
+    then
+        log_warning "Could not set asdf global nodejs (asdf or install missing); install_asdf_nodejs may need to run first"
+        return 0
+    fi
+
     log_success "Global Node.js version set to 22.15.1"
 }
 
-# Install Bun
-install_bun() {
-    if sudo -u "$ACTUAL_USER" bash -c "command -v bun" &>/dev/null; then
-        log_info "Bun is already installed for user $ACTUAL_USER, skipping installation..."
-        # Still ensure bashrc is configured
-        RC="$ACTUAL_HOME/.bashrc"
-        if ! grep -q "bun" "$RC"; then
-            echo '' >> "$RC"
-            echo '# Bun' >> "$RC"
-            echo 'export BUN_INSTALL="$HOME/.bun"' >> "$RC"
-            echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> "$RC"
-            chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
-            log_info "Added Bun to bashrc"
-        fi
-        return 0
-    fi
-    
-    log_info "Installing Bun for user $ACTUAL_USER..."
-    
-    # Install Bun as the actual user using the official installer
-    sudo -u "$ACTUAL_USER" bash <<EOF
-curl -fsSL https://bun.com/install | bash
-EOF
-    
-    # Add Bun to PATH in user's bashrc if not already there
-    RC="$ACTUAL_HOME/.bashrc"
-    if ! grep -q "bun" "$RC"; then
-        echo '' >> "$RC"
-        echo '# Bun' >> "$RC"
-        echo 'export BUN_INSTALL="$HOME/.bun"' >> "$RC"
-        echo 'export PATH="$BUN_INSTALL/bin:$PATH"' >> "$RC"
-        chown "$ACTUAL_USER:$ACTUAL_USER" "$RC"
-    fi
-    
-    # Source bashrc to load Bun
-    sudo -u "$ACTUAL_USER" bash -c "source ~/.bashrc" 2>/dev/null || true
-    
-    log_success "Bun installed"
-}
+# Bun installation removed — Bun is no longer required
 
 # Note about bashrc
 note_bashrc() {
     log_info "Note: User $ACTUAL_USER should start a new shell or run 'source ~/.bashrc' to use new tools"
+    log_info "Docker: if 'docker ps' says permission denied but setup verified OK, run 'newgrp docker' once, or log out and back in (GUI sessions keep old group set until then)"
 }
 
 # Get script directory and project root
@@ -484,6 +740,119 @@ install_ollama() {
     log_success "Ollama installed"
 }
 
+# Check if ollama systemd unit exists (official installer creates it; Homebrew/manual installs may not)
+ollama_systemd_unit_exists() {
+    systemctl cat ollama.service &>/dev/null || \
+    [[ -f /etc/systemd/system/ollama.service ]] || \
+    [[ -f /usr/lib/systemd/system/ollama.service ]]
+}
+
+# Pick an Ollama default context length appropriate for installed memory. On
+# unified-memory APUs Ollama otherwise defaults to the model's full window
+# (e.g. 262144), which wastes memory and slows prefill for interactive use.
+recommend_ollama_context_length() {
+    local mem_kb mem_mb
+    mem_kb="$(awk '/^MemTotal:/{print $2}' /proc/meminfo 2>/dev/null)"
+    mem_mb=$(( ${mem_kb:-0} / 1024 ))
+    if   (( mem_mb >= 49152 )); then echo 65536
+    elif (( mem_mb >= 24576 )); then echo 32768
+    elif (( mem_mb >= 12288 )); then echo 16384
+    elif (( mem_mb >= 6144 ));  then echo 8192
+    else echo 4096; fi
+}
+
+# True only when a *functional* NVIDIA GPU is present. The binary alone (e.g.
+# nvidia-utils installed without a card) is not enough, so query the hardware.
+has_nvidia_gpu() {
+    command_exists nvidia-smi || return 1
+    nvidia-smi -L 2>/dev/null | grep -q '^GPU'
+}
+
+# Detect inference accelerator and emit hardware-aware Ollama systemd drop-ins.
+# GPU selection (AMD Vulkan/iGPU) is written to 10-ci-gpu.conf; the default
+# context length is written SEPARATELY by write_ollama_context_dropin. The
+# context drop-in is deliberately authoritative: it overrides any earlier
+# OLLAMA_CONTEXT_LENGTH assignment, including one in override.conf. Any OTHER
+# settings in a hand-tuned override.conf are left intact — only the context
+# value is superseded (and a warning is logged when that happens).
+configure_ollama_gpu() {
+    local dropin_dir="/etc/systemd/system/ollama.service.d"
+    local gpu_dropin="${dropin_dir}/10-ci-gpu.conf"
+    mkdir -p "$dropin_dir"
+
+    # /dev/kfd means the AMD amdgpu/ROCm kernel driver is present (a discrete
+    # Radeon or a Ryzen-AI / Strix-Halo APU). Ollama drops integrated GPUs unless
+    # OLLAMA_IGPU_ENABLE=1, and its Vulkan backend is the most reliable path on
+    # these parts. A discrete NVIDIA GPU (if actually present) needs no extra env
+    # — Ollama auto-selects CUDA — so we only force the AMD path when there is no
+    # functional NVIDIA GPU.
+    if [[ -e /dev/kfd ]] && ! has_nvidia_gpu; then
+        log_info "AMD GPU detected (/dev/kfd); enabling Vulkan + integrated-GPU inference for Ollama"
+        cat > "$gpu_dropin" <<EOF
+# Managed by CI-OS setup-fresh-ubuntu.sh — AMD GPU inference for Ollama.
+[Service]
+Environment="OLLAMA_VULKAN=1"
+Environment="OLLAMA_IGPU_ENABLE=1"
+Environment="OLLAMA_NEW_ENGINE=1"
+EOF
+    elif [[ -f "$gpu_dropin" ]]; then
+        # Hardware/driver situation changed (e.g. /dev/kfd gone, or a functional
+        # NVIDIA GPU now present): remove our stale managed AMD drop-in so it no
+        # longer forces Vulkan/iGPU. Only our own managed file is touched.
+        log_info "No AMD iGPU path; removing stale managed drop-in ${gpu_dropin}"
+        rm -f "$gpu_dropin"
+    fi
+
+    write_ollama_context_dropin "$dropin_dir"
+
+    systemctl daemon-reload
+    if systemctl is-active --quiet ollama 2>/dev/null; then
+        systemctl restart ollama 2>/dev/null || log_warning "Could not restart ollama to apply context/GPU settings"
+    fi
+    log_success "Ollama GPU/context drop-ins configured"
+}
+
+# Write the hardware-aware OLLAMA_CONTEXT_LENGTH default to its own drop-in.
+#
+# Ollama's OpenAI-compatible /v1 endpoint IGNORES the per-request `num_ctx`
+# option, so this server-level default is the only lever for /v1 consumers
+# (e.g. CI-Hermes). Left unset, Ollama sizes context from available memory and
+# on unified-memory APUs picks the model's full window (e.g. 131072), wasting
+# memory and slowing prefill. Native-API consumers (e.g. CI-OpenClaw) can still
+# request a smaller num_ctx; they just cannot exceed this default.
+#
+# The filename is intentionally last-sorting ("zz-"): systemd merges drop-ins in
+# lexical order and the final assignment of a variable wins, so this overrides
+# any earlier file that also sets OLLAMA_CONTEXT_LENGTH (override.conf,
+# 10-ci-tuning.conf, a stale 10-ci-gpu.conf from an older CI-OS, …). This makes
+# the function idempotent and authoritative on re-run — do NOT rename it to sort
+# earlier.
+write_ollama_context_dropin() {
+    local dropin_dir="$1"
+    local ctx_dropin="${dropin_dir}/zz-ci-ollama-context.conf"
+
+    local ctx
+    ctx="$(recommend_ollama_context_length)"
+
+    log_info "Setting hardware-aware Ollama default context length (${ctx})"
+    cat > "$ctx_dropin" <<EOF
+# Managed by CI-OS setup-fresh-ubuntu.sh — hardware-aware Ollama default context
+# length for the OpenAI-compatible (/v1) surface. Last-sorting filename so it
+# overrides any earlier drop-in that also sets OLLAMA_CONTEXT_LENGTH. See
+# write_ollama_context_dropin() in scripts/setup-fresh-ubuntu.sh.
+[Service]
+Environment="OLLAMA_CONTEXT_LENGTH=${ctx}"
+EOF
+
+    # Flag any other drop-in that still sets a (now-shadowed) value, so a stale
+    # hand-tuned default like 8192 does not silently confuse future operators.
+    local conflicts
+    conflicts="$(grep -rlE '^[[:space:]]*Environment="?OLLAMA_CONTEXT_LENGTH=' "$dropin_dir" 2>/dev/null | grep -vF "$ctx_dropin" | paste -sd, - || true)"
+    if [[ -n "$conflicts" ]]; then
+        log_warning "OLLAMA_CONTEXT_LENGTH is also set in: ${conflicts} — now overridden by ${ctx_dropin} (=${ctx}). Remove the stale entries to avoid confusion."
+    fi
+}
+
 # Configure Ollama service (requires root for systemd operations)
 configure_ollama() {
     if ! command_exists ollama; then
@@ -491,12 +860,23 @@ configure_ollama() {
         return 0
     fi
     
+    # Skip systemd configuration if no ollama.service unit exists (e.g. Homebrew install)
+    if ! ollama_systemd_unit_exists; then
+        log_info "Ollama is installed but no systemd unit found (e.g. Homebrew/manual install). Skipping systemd configuration."
+        log_info "To run Ollama, use 'ollama serve' or reinstall via: curl -fsSL https://ollama.com/install.sh | sh"
+        log_success "Ollama configured (user-managed)"
+        return 0
+    fi
+    
     log_info "Configuring Ollama service..."
     
     # Enable ollama service (if not already enabled)
     if ! service_enabled ollama; then
-        systemctl enable ollama
-        log_info "Ollama service enabled"
+        if systemctl enable ollama 2>/dev/null; then
+            log_info "Ollama service enabled"
+        else
+            log_warning "Could not enable ollama service (unit may not support it), continuing..."
+        fi
     else
         log_info "Ollama service is already enabled, skipping..."
     fi
@@ -516,9 +896,12 @@ EOF
         log_info "Ollama service override already configured, skipping..."
     fi
     
-    # Reload daemon (always safe to do)
-    systemctl daemon-reload
-    
+    # Enable AMD GPU inference (when /dev/kfd is present and no functional NVIDIA
+    # GPU) and set a hardware-aware default context length. configure_ollama_gpu
+    # runs the single `systemctl daemon-reload` after all drop-ins (override.conf
+    # + 10-ci-gpu.conf) are written.
+    configure_ollama_gpu
+
     log_success "Ollama service configured"
 }
 
@@ -531,9 +914,15 @@ pull_ollama_models() {
     
     log_info "Checking Ollama models..."
     
-    # Start ollama service if not running
-    if ! systemctl is-active --quiet ollama; then
-        systemctl start ollama || true
+    # Start ollama if not running (systemd or background)
+    if ollama_systemd_unit_exists && systemctl is-active --quiet ollama 2>/dev/null; then
+        :
+    elif ollama_systemd_unit_exists; then
+        systemctl start ollama 2>/dev/null || true
+        sleep 5
+    elif ! pgrep -f "ollama serve" >/dev/null 2>&1; then
+        log_info "Starting Ollama in background (no systemd unit)..."
+        sudo -u "$ACTUAL_USER" nohup ollama serve >/tmp/ollama.log 2>&1 &
         sleep 5
     fi
     
@@ -552,6 +941,14 @@ if ollama list 2>/dev/null | grep -q "gemma3:1b"; then
 else
     echo "Pulling gemma3:1b..."
     ollama pull gemma3:1b
+fi
+
+# Add qwen3-vl:32b model
+if ollama list 2>/dev/null | grep -q "qwen3-vl:32b"; then
+     echo "qwen3-vl:32b already installed"
+else
+     echo "Pulling qwen3-vl:32b..."
+     ollama pull qwen3-vl:32b
 fi
 EOF
     
@@ -617,62 +1014,383 @@ remove_telemetry() {
     log_info "Removing Ubuntu telemetry..."
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    "${script_dir}/remove-telemetry.sh" --from-setup
+    # Use bash explicitly so it works even if remove-telemetry.sh lacks execute bit (e.g. fresh clone)
+    bash "${script_dir}/lib/remove-telemetry.sh" --from-setup
     log_success "Telemetry removal complete"
 }
 
-# Enable corepack (requires Node.js to be installed and proper permissions)
+# Enable corepack (requires Node.js via asdf; corepack provides yarn/pnpm).
+# pnpm only appears under ~/.asdf/shims after `corepack prepare ... --activate` + `asdf reshim nodejs`.
 enable_corepack() {
-    log_info "Enabling corepack for user $ACTUAL_USER..."
-    
-    # Check if Node.js is available
-    if ! sudo -u "$ACTUAL_USER" bash -c "command -v node" &>/dev/null; then
+    log_info "Enabling corepack and pnpm for user $ACTUAL_USER..."
+
+    if ! sudo -u "$ACTUAL_USER" bash -c '[[ -f "$HOME/.asdf/asdf.sh" ]] && export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH" && . "$HOME/.asdf/asdf.sh" && command -v node &>/dev/null' 2>/dev/null; then
         log_warning "Node.js not found. Skipping corepack enable. It will be enabled when Node.js is available."
         return 0
     fi
-    
-    # Enable corepack as the actual user with proper environment
-    # Corepack may need sudo permissions to create symlinks in system directories
-    sudo -u "$ACTUAL_USER" bash <<EOF
-# Source brew environment if available
-eval "\$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null || true
 
-# Source asdf if available
-if [[ -f "\$(brew --prefix asdf)/libexec/asdf.sh" ]]; then
-    . "\$(brew --prefix asdf)/libexec/asdf.sh" 2>/dev/null || true
+    sudo -u "$ACTUAL_USER" bash <<'EOF'
+# Match login PATH: shims first so node/corepack/pnpm resolve like ~/.bashrc (ci-os asdf blocks).
+ASDF_DIR="$HOME/.asdf"
+export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"
+if [[ ! -f "$ASDF_DIR/asdf.sh" ]]; then
+    echo "Warning: $ASDF_DIR/asdf.sh missing; skipping corepack."
+    exit 0
+fi
+. "$ASDF_DIR/asdf.sh"
+
+if ! command -v corepack &>/dev/null; then
+    echo "Warning: corepack not found next to Node; check asdf nodejs install."
+    exit 0
 fi
 
-# Enable corepack with sudo if needed
-if command -v corepack &>/dev/null; then
-    # Try enabling without sudo first
-    if corepack enable 2>/dev/null; then
-        echo "Corepack enabled successfully"
-    else
-        # If that fails, try with sudo (user should have passwordless sudo)
-        if sudo corepack enable 2>/dev/null; then
-            echo "Corepack enabled with sudo"
-        else
-            echo "Warning: Failed to enable corepack. You may need to run 'corepack enable' manually after logging out and back in."
-        fi
-    fi
+if corepack enable 2>/dev/null; then
+    echo "corepack enable: ok"
 else
-    echo "Warning: corepack command not found. Node.js may not be properly installed or in PATH."
+    echo "Warning: corepack enable failed; try again after a new login shell."
 fi
+
+if corepack prepare pnpm@latest --activate 2>/dev/null; then
+    echo "corepack prepare pnpm@latest --activate: ok"
+else
+    echo "Warning: corepack prepare pnpm failed (network or registry); run: corepack prepare pnpm@latest --activate && asdf reshim nodejs"
+fi
+
+if command -v asdf &>/dev/null; then
+    asdf reshim nodejs 2>/dev/null || true
+fi
+
+if command -v pnpm &>/dev/null; then
+    echo "pnpm $(pnpm --version) on PATH"
+else
+    echo "Warning: pnpm not on PATH yet; open a new shell or: source ~/.asdf/asdf.sh && asdf reshim nodejs"
+fi
+exit 0
 EOF
-    
-    log_success "Corepack enable attempted (check output above for status)"
+
+    if sudo -u "$ACTUAL_USER" bash -c 'export PATH="$HOME/.asdf/shims:$HOME/.asdf/bin:$PATH"; [[ -f "$HOME/.asdf/asdf.sh" ]] && . "$HOME/.asdf/asdf.sh" && command -v pnpm &>/dev/null' 2>/dev/null; then
+        log_success "pnpm is available for $ACTUAL_USER (Corepack + asdf shims)"
+    else
+        log_warning "pnpm not detected on PATH for $ACTUAL_USER after corepack step; re-login or run: source ~/.asdf/asdf.sh && asdf reshim nodejs"
+    fi
 }
 
-# Install VS Code (requires root for snap installation)
-install_vscode() {
-    if command_exists code; then
-        log_info "VS Code is already installed, skipping installation..."
+# Chromium: Ubuntu's transitional chromium-browser package often pulls Snap; Snap may be
+# missing or broken on minimal / lab images (e.g. 26.04). Prefer native .deb (xtradeb PPA),
+# then Snap, then Flatpak. Keep `chromium_chromium.desktop` working for CI defaults (symlink).
+# Install Chromium browser (requires root)
+# True if Chromium is already usable (skip reinstall).
+# Important: /usr/bin/chromium-browser may exist as an executable shell stub that only
+# delegates to /snap/bin/chromium — without the snap, the browser is not usable; do not skip.
+chromium_usable() {
+    [[ -x /snap/bin/chromium ]] && return 0
+    if command_exists flatpak && flatpak info org.chromium.Chromium &>/dev/null; then
         return 0
     fi
-    
-    log_info "Installing VS Code..."
-    snap install code --classic
+    [[ -x /usr/bin/chromium ]] && return 0
+    if command_exists chromium; then
+        [[ -x "$(command -v chromium)" ]] && return 0
+    fi
+    if [[ -x /usr/bin/chromium-browser ]]; then
+        if head -n 20 /usr/bin/chromium-browser 2>/dev/null | grep -q '/snap/bin/chromium'; then
+            return 1
+        fi
+        return 0
+    fi
+    return 1
+}
+
+# True if the Microsoft VS Code / code package is already on the system (skip reinstall).
+vscode_installed() {
+    command_exists code && return 0
+    [[ -x /usr/bin/code ]] && return 0
+    [[ -x /snap/bin/code ]] && return 0
+    if command_exists snap && snap list code >/dev/null 2>&1; then
+        return 0
+    fi
+    if dpkg-query -W -f='${Status}' code 2>/dev/null | grep -q 'ok installed'; then
+        return 0
+    fi
+    return 1
+}
+
+install_vscode_snap_fallback() {
+    log_warning "Falling back to VS Code Snap install (code --classic)..."
+
+    if ! command_exists snap; then
+        log_info "snap not detected; installing snapd for VS Code fallback..."
+        if ! DEBIAN_FRONTEND=noninteractive apt-get install -y snapd; then
+            log_error "Could not install snapd for VS Code fallback"
+            return 1
+        fi
+        systemctl enable --now snapd.socket >/dev/null 2>&1 || true
+    fi
+
+    if ! snap install code --classic; then
+        log_error "VS Code Snap fallback failed"
+        return 1
+    fi
+
+    if vscode_installed; then
+        log_success "VS Code installed (snap fallback)"
+        return 0
+    fi
+
+    log_error "VS Code fallback reported success but code command was not detected"
+    return 1
+}
+
+chromium_desktop_compat_symlink() {
+    if [[ -f /var/lib/snapd/desktop/applications/chromium_chromium.desktop ]]; then
+        return 0
+    fi
+    if [[ -f /usr/share/applications/chromium.desktop ]] && [[ ! -e /usr/local/share/applications/chromium_chromium.desktop ]]; then
+        install -d -m 755 /usr/local/share/applications
+        ln -sf /usr/share/applications/chromium.desktop /usr/local/share/applications/chromium_chromium.desktop
+        log_info "Added chromium_chromium.desktop → chromium.desktop (CI defaults / favorites)"
+    fi
+}
+
+install_chromium() {
+    if chromium_usable; then
+        log_info "Chromium already available, skipping..."
+        chromium_desktop_compat_symlink || true
+        return 0
+    fi
+
+    log_info "Installing Chromium (native .deb preferred; Snap/Flatpak as fallback)..."
+
+    # 1) Native Chromium via xtradeb PPA (maintained .deb; avoids Snap-only transitional packages)
+    if ! grep -rq 'xtradeb/apps' /etc/apt/sources.list.d/ 2>/dev/null; then
+        if ! command_exists add-apt-repository; then
+            log_info "Installing software-properties-common for add-apt-repository..."
+            DEBIAN_FRONTEND=noninteractive apt-get install -y software-properties-common
+        fi
+        log_info "Adding PPA ppa:xtradeb/apps for Chromium .deb builds..."
+        if ! DEBIAN_FRONTEND=noninteractive add-apt-repository -y ppa:xtradeb/apps; then
+            log_warning "Could not add xtradeb PPA (unsupported release or network); will try other install methods..."
+        else
+            apt-get update -y
+        fi
+    fi
+
+    if grep -rq 'xtradeb/apps' /etc/apt/sources.list.d/ 2>/dev/null; then
+        apt-get update -y || true
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y chromium; then
+            if chromium_usable; then
+                chromium_desktop_compat_symlink || true
+                log_success "Chromium installed (xtradeb PPA .deb)"
+                return 0
+            fi
+        fi
+    else
+        log_warning "xtradeb PPA not configured; skipping apt install chromium (Ubuntu metapackage often pulls Snap)"
+    fi
+
+    # 2) Snap (only if snapd works — may be absent on trimmed images)
+    if ! command_exists snap; then
+        log_info "snap not detected; installing snapd for Chromium fallback..."
+        if DEBIAN_FRONTEND=noninteractive apt-get install -y snapd; then
+            systemctl enable --now snapd.socket >/dev/null 2>&1 || true
+        else
+            log_warning "Could not install snapd; skipping snap-based Chromium"
+        fi
+    fi
+
+    if command_exists snap; then
+        log_info "Trying Chromium via snap..."
+        if snap install chromium 2>/dev/null; then
+            if chromium_usable; then
+                chromium_desktop_compat_symlink || true
+                log_success "Chromium installed (snap)"
+                return 0
+            fi
+            chromium_desktop_compat_symlink || true
+            log_warning "snap install chromium completed, but chromium is not yet usable on PATH"
+        fi
+    else
+        log_warning "snap not available; skipping snap-based Chromium"
+    fi
+
+    # 3) Flatpak from Flathub
+    if command_exists flatpak; then
+        log_info "Trying Chromium via Flatpak (Flathub)..."
+        if flatpak remote-list 2>/dev/null | grep -q flathub; then
+            true
+        else
+            flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo 2>/dev/null || true
+        fi
+        if flatpak install -y flathub org.chromium.Chromium 2>/dev/null; then
+            log_success "Chromium installed (Flatpak: org.chromium.Chromium)"
+            log_warning "Flatpak Chromium uses a different .desktop id; update favorites if you rely on chromium_chromium.desktop"
+            return 0
+        fi
+    fi
+
+    log_error "Chromium could not be installed (tried xtradeb PPA, snap, flatpak)"
+    return 1
+}
+
+# VS Code: install latest stable official .deb (adds Microsoft apt repo; no Snap).
+install_vscode() {
+    if vscode_installed; then
+        log_info "VS Code is already installed (code on PATH or dpkg), skipping installation..."
+        return 0
+    fi
+
+    if ! command_exists curl; then
+        log_error "curl is required to download VS Code (install_curl should have run first)"
+        return 1
+    fi
+
+    local arch deb_url tmpdeb="/tmp/code_stable_linux.deb"
+    arch="$(dpkg --print-architecture)"
+    case "$arch" in
+        amd64) deb_url="https://update.code.visualstudio.com/latest/linux-deb-x64/stable" ;;
+        arm64) deb_url="https://update.code.visualstudio.com/latest/linux-deb-arm64/stable" ;;
+        *)
+            log_warning "VS Code automatic install supports amd64/arm64 only (this system: $arch). Install VS Code manually."
+            return 0
+            ;;
+    esac
+
+    log_info "Downloading latest stable VS Code (.deb) from Microsoft..."
+    # Pre-accept Microsoft apt repo prompt from the postinst (non-interactive installs)
+    echo "code code/add-microsoft-repo boolean true" | debconf-set-selections
+
+    if ! curl -fL --connect-timeout 90 --retry 3 -o "$tmpdeb" "$deb_url"; then
+        log_warning "VS Code .deb download failed from $deb_url"
+        rm -f "$tmpdeb"
+        install_vscode_snap_fallback
+        return $?
+    fi
+
+    log_info "Installing VS Code (configures Microsoft apt repository for updates)..."
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y "$tmpdeb"; then
+        rm -f "$tmpdeb"
+        log_warning "VS Code .deb install failed"
+        install_vscode_snap_fallback
+        return $?
+    fi
+    rm -f "$tmpdeb"
     log_success "VS Code installed"
+}
+
+# Install Companion Hub Desktop (requires root)
+install_companion_hub() {
+    local base_url="https://dl.ci.computer"
+    local fallback_version="v0.1.4"
+    local version_tag="$fallback_version"
+    local clean_version latest_json manifest_json manifest_url
+    local arch deb_arch dl_arch arch_match_regex
+    local hub_url hub_deb
+
+    if command_exists ci-os-hub-desktop && dpkg -s companion-hub >/dev/null 2>&1; then
+        log_info "Companion Hub is already installed, skipping..."
+        return 0
+    fi
+
+    arch="$(dpkg --print-architecture)"
+    case "$arch" in
+        amd64)
+            deb_arch="amd64"
+            dl_arch="x64"
+            arch_match_regex='(amd64|x64)'
+            ;;
+        arm64)
+            deb_arch="arm64"
+            dl_arch="arm"
+            arch_match_regex='(arm64|aarch64|arm)'
+            ;;
+        *)
+            log_warning "Companion Hub install supports amd64/arm64 only (this system: $arch). Skipping."
+            return 0
+            ;;
+    esac
+
+    latest_json="$(curl -fsSL --connect-timeout 20 --retry 2 "${base_url}/latest.json" 2>/dev/null || true)"
+    if [[ -n "$latest_json" ]]; then
+        version_tag="$(echo "$latest_json" | grep -oE '"version"[[:space:]]*:[[:space:]]*"[^"]+"' | head -n 1 | sed -E 's/.*"([^"]+)"/\1/' || true)"
+        if [[ -z "$version_tag" ]]; then
+            version_tag="$fallback_version"
+        fi
+    fi
+
+    clean_version="${version_tag#v}"
+    manifest_url="${base_url}/${version_tag}/manifest.json"
+    manifest_json="$(curl -fsSL --connect-timeout 20 --retry 2 "$manifest_url" 2>/dev/null || true)"
+    hub_url=""
+    if [[ -n "$manifest_json" ]]; then
+        hub_url="$(echo "$manifest_json" | tr '\n' ' ' | grep -Eo 'https?://[^"[:space:]]+\.deb' | grep -Ei "$arch_match_regex" | head -n 1 || true)"
+    fi
+
+    # Fallback to deterministic dl.ci.computer path if manifest parsing returns no match.
+    if [[ -z "$hub_url" ]]; then
+        hub_url="${base_url}/${version_tag}/linux/deb/${dl_arch}/Companion%20Hub_${clean_version}_${deb_arch}.deb"
+    fi
+
+    hub_deb="/tmp/Companion_Hub_${clean_version}_${deb_arch}.deb"
+
+    log_info "Installing Companion Hub Desktop for ${arch} from ${hub_url}..."
+    if ! curl -fL --connect-timeout 90 --retry 3 -o "$hub_deb" "$hub_url"; then
+        if [[ "$version_tag" != "$fallback_version" ]]; then
+            clean_version="${fallback_version#v}"
+            hub_url="${base_url}/${fallback_version}/linux/deb/${dl_arch}/Companion%20Hub_${clean_version}_${deb_arch}.deb"
+            hub_deb="/tmp/Companion_Hub_${clean_version}_${deb_arch}.deb"
+            log_warning "Primary Companion Hub download failed; retrying fallback ${hub_url}"
+            curl -fL --connect-timeout 90 --retry 3 -o "$hub_deb" "$hub_url"
+        else
+            log_error "Failed to download Companion Hub from ${hub_url}"
+            return 1
+        fi
+    fi
+
+    # Prefer apt install for dependency resolution.
+    if ! apt-get install -y "$hub_deb"; then
+        dpkg -i "$hub_deb" || true
+        apt-get install -f -y
+        dpkg -i "$hub_deb"
+    fi
+
+    rm -f "$hub_deb"
+    log_success "Companion Hub Desktop installed"
+}
+
+# Configure Companion Hub to auto-launch for desktop sessions and at boot.
+configure_companion_hub_autostart() {
+    if ! command_exists ci-os-hub-desktop; then
+        log_warning "Companion Hub binary not found, skipping autostart configuration"
+        return 0
+    fi
+
+    log_info "Configuring Companion Hub autostart..."
+
+    # Ensure launcher appears in system autostart for graphical login sessions.
+    install -d -m 755 /etc/xdg/autostart
+    cat > /etc/xdg/autostart/companion-hub.desktop <<EOF
+[Desktop Entry]
+Type=Application
+Name=Companion Hub
+Comment=Start Companion Hub Desktop
+Exec=ci-os-hub-desktop
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+
+    # Ensure Hub runtime directories are writable by the actual desktop user.
+    if [[ -d "${ACTUAL_HOME}/.local/share/companion-hub" ]]; then
+        chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.local/share/companion-hub" || true
+    fi
+
+    # Disable/remove legacy system service autostart. GUI apps are more reliable
+    # via desktop-session autostart than root-managed system services.
+    if systemctl list-unit-files | grep -q '^companion-hub-autostart.service'; then
+        systemctl disable --now companion-hub-autostart.service 2>/dev/null || true
+        rm -f /etc/systemd/system/companion-hub-autostart.service
+        systemctl daemon-reload
+    fi
+
+    log_success "Companion Hub autostart configured"
 }
 
 # Main function
@@ -705,15 +1423,17 @@ main() {
     echo
     
     install_curl
+    fix_docker_apt_conflicts
+    enable_apt_force_ipv4
+    disable_stale_media_apt_sources
     update_apt
     install_make
     install_docker
-    add_user_to_docker_group
     install_uv
     install_homebrew
     install_asdf_nodejs
     set_global_nodejs
-    install_bun
+    # Bun removed from setup — no longer installed
     note_bashrc
     create_ci_user
     install_github_cli
@@ -721,18 +1441,23 @@ main() {
     configure_ollama
     pull_ollama_models
     install_cloudflared
+    install_chromium
     install_vscode
+    install_companion_hub
+    configure_companion_hub_autostart
     enable_corepack
     remove_telemetry
+
+        install_tailscale
     
     echo
     log_success "Setup completed successfully!"
     echo
     log_info "Next steps:"
-    echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools and activate docker group"
+    echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools; for Docker without re-login run: newgrp docker"
     echo "  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group"
     echo "  • Start Ollama service: systemctl start ollama"
-    echo "  • Verify installations: docker --version, node --version, bun --version, ollama --version, gh --version"
+    echo "  • Verify installations: docker --version, node --version, pnpm --version, ollama --version, gh --version"
     echo "  • Note: 'Create deploy read key' step was not specified - please add this manually if needed"
 }
 
@@ -740,5 +1465,81 @@ main() {
 main "$@"
 
 # Hook: install ROCm driver (standalone script; can also be run directly: ./scripts/install-rocm-driver.sh)
+# Non-fatal: main setup above may succeed even if ROCm download/repo fails on a given Ubuntu codename.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/install-rocm-driver.sh"
+"${SCRIPT_DIR}/install-rocm-driver.sh" || log_warning "install-rocm-driver.sh failed or was skipped; run it manually after fixing GPU/repo issues."
+
+# Install LACT GPU monitor (latest release from GitHub)
+install_lact() {
+    if command_exists lact; then
+        log_info "LACT GPU monitor is already installed, skipping..."
+        return 0
+    fi
+
+    log_info "Downloading and installing LACT GPU monitor..."
+    # Get latest .deb release URL from GitHub API
+    LACT_DEB_URL=$(curl -s https://api.github.com/repos/ilya-zlobintsev/LACT/releases/latest | grep browser_download_url | grep 'amd64.deb' | cut -d '"' -f 4 | head -n 1)
+    if [[ -z "$LACT_DEB_URL" ]]; then
+        log_error "Could not find LACT .deb package URL."
+        return 1
+    fi
+    TMP_DEB="/tmp/lact-latest.deb"
+    curl -L "$LACT_DEB_URL" -o "$TMP_DEB"
+    apt-get install -y "$TMP_DEB" || dpkg -i "$TMP_DEB"
+    rm -f "$TMP_DEB"
+    log_success "LACT GPU monitor installed. Run 'lact-gui' to launch."
+        # Pin LACT to GNOME favorites bar for the user
+        if command_exists gsettings && [[ -n "$ACTUAL_USER" ]] && [[ "$ACTUAL_USER" != "root" ]]; then
+            UID_NUM="$(id -u "$ACTUAL_USER" 2>/dev/null || true)"
+            RUNTIME_DIR="/run/user/${UID_NUM}"
+            DBUS_ADDRESS="unix:path=${RUNTIME_DIR}/bus"
+            if [[ -S "${RUNTIME_DIR}/bus" ]]; then
+                log_info "Pinning LACT to GNOME favorites bar for $ACTUAL_USER"
+                CURRENT_FAVS=$(sudo -u "$ACTUAL_USER" env DISPLAY=:0 XAUTHORITY="/home/$ACTUAL_USER/.Xauthority" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" \
+                    gsettings get org.gnome.shell favorite-apps 2>/dev/null)
+                if [[ "$CURRENT_FAVS" != *"lact-gui.desktop"* ]]; then
+                    # Remove brackets and quotes, then add lact-gui.desktop
+                    FAVS_CLEAN=$(echo "$CURRENT_FAVS" | sed -e "s/^\[//" -e "s/\]$//" -e "s/'//g" -e 's/, /,/g')
+                    if [[ -z "$FAVS_CLEAN" ]]; then
+                        NEW_FAVS="['lact-gui.desktop']"
+                    else
+                        NEW_FAVS="[$(echo "$FAVS_CLEAN" | sed 's/$/,lact-gui.desktop/')]"
+                        NEW_FAVS=$(echo "$NEW_FAVS" | sed "s/,/, /g" | sed "s/\[/['/g" | sed "s/\]/']/g" | sed "s/, '/, '/g")
+                    fi
+                    sudo -u "$ACTUAL_USER" env DISPLAY=:0 XAUTHORITY="/home/$ACTUAL_USER/.Xauthority" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" \
+                        gsettings set org.gnome.shell favorite-apps "$NEW_FAVS" 2>/dev/null || true
+                    log_success "Pinned LACT to GNOME favorites bar for $ACTUAL_USER"
+                else
+                    log_info "LACT already pinned to favorites bar for $ACTUAL_USER"
+                fi
+            else
+                log_warning "No D-Bus session for ${ACTUAL_USER}. User may not be logged in. Cannot pin LACT to favorites bar."
+            fi
+        else
+            log_warning "gsettings not available or no valid user detected. Skipping LACT pinning."
+        fi
+}
+
+# Call LACT install at the end
+install_lact
+
+# Set GNOME Power Mode to 'performance' for the user
+set_gnome_power_performance() {
+    if command_exists gsettings && [[ -n "$ACTUAL_USER" ]] && [[ "$ACTUAL_USER" != "root" ]]; then
+        UID_NUM="$(id -u "$ACTUAL_USER" 2>/dev/null || true)"
+        RUNTIME_DIR="/run/user/${UID_NUM}"
+        DBUS_ADDRESS="unix:path=${RUNTIME_DIR}/bus"
+        if [[ -S "${RUNTIME_DIR}/bus" ]]; then
+            log_info "Setting GNOME Power Mode to 'performance' for $ACTUAL_USER"
+            sudo -u "$ACTUAL_USER" env DISPLAY=:0 XAUTHORITY="/home/$ACTUAL_USER/.Xauthority" DBUS_SESSION_BUS_ADDRESS="$DBUS_ADDRESS" \
+                gsettings set org.gnome.settings-daemon.plugins.power power-profile 'performance' 2>/dev/null || true
+            log_success "GNOME Power Mode set to 'performance' for $ACTUAL_USER"
+        else
+            log_warning "No D-Bus session for ${ACTUAL_USER}. User may not be logged in. Power mode will apply on next login if set via dconf defaults."
+        fi
+    else
+        log_warning "gsettings not available or no valid user detected. Skipping GNOME Power Mode setting."
+    fi
+}
+
+set_gnome_power_performance

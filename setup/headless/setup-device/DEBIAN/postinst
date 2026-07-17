@@ -67,6 +67,17 @@ chmod 755 /opt/setup-device/scripts/pull-dev.sh 2>/dev/null || true
 # Create required directories
 mkdir -p /var/lib/setup-device
 mkdir -p /var/log
+mkdir -p /etc/hostapd
+mkdir -p /etc/dnsmasq.d
+
+# Restore AP config files from packaged defaults if they are missing.
+if [ ! -f /etc/hostapd/hostapd-setup.conf ] && [ -f /usr/share/setup-device/defaults/hostapd-setup.conf ]; then
+    cp /usr/share/setup-device/defaults/hostapd-setup.conf /etc/hostapd/hostapd-setup.conf
+fi
+if [ ! -f /etc/dnsmasq.d/setup-portal.conf ] && [ -f /usr/share/setup-device/defaults/setup-portal.conf ]; then
+    cp /usr/share/setup-device/defaults/setup-portal.conf /etc/dnsmasq.d/setup-portal.conf
+fi
+
 chmod 600 /etc/setup-device/device.conf 2>/dev/null || true
 chmod 644 /etc/hostapd/hostapd-setup.conf 2>/dev/null || true
 chmod 644 /etc/dnsmasq.d/setup-portal.conf 2>/dev/null || true
@@ -81,19 +92,50 @@ if [ -f /etc/nginx/sites-available/setup-portal ]; then
     rm -f /etc/nginx/sites-enabled/default
 fi
 
-# Apply netplan configuration
+# Keep setup netplan file in place, but do not apply during package install.
+# The hotspot startup script configures the interface directly, and applying
+# netplan here can conflict with existing host definitions on target images.
 if [ -f /etc/netplan/50-setup-mode.yaml ]; then
-    echo "Applying netplan configuration..."
-    netplan apply || echo "Warning: netplan apply failed"
+    echo "Setup netplan profile installed (apply deferred)."
 fi
 
 # Add setup.ci.computer to /etc/hosts
 echo "Configuring hosts mapping..."
 if ! grep -q "setup.ci.computer" /etc/hosts; then
-    echo "192.168.99.1 setup.ci.computer" | sudo tee -a /etc/hosts > /dev/null
+    echo "192.168.99.1 setup.ci.computer" >> /etc/hosts
 fi
 
 # Setup portal uses HTTP only (no SSL) - acceptable for isolated setup network
+
+# Remove dangling site symlinks that can break nginx -t/start
+if [ -d /etc/nginx/sites-enabled ]; then
+    find /etc/nginx/sites-enabled -maxdepth 1 -xtype l -delete 2>/dev/null || true
+fi
+
+# Validate and start nginx first so portal and API proxy are available
+echo "Validating nginx configuration..."
+if nginx -t; then
+    echo "✓ Nginx configuration is valid"
+    
+    # Check if port 80 is already in use (e.g., by Companion Hub)
+    if ss -tlnp 2>/dev/null | grep -q ':80 '; then
+        echo "Info: Port 80 is already in use (likely Companion Hub)"
+        echo "Nginx will be started by setup-network-monitor when hotspot activates"
+        systemctl enable nginx.service 2>/dev/null || true
+    else
+        echo "Starting nginx service..."
+        if systemctl start nginx.service; then
+            echo "✓ Nginx service started successfully"
+        else
+            echo "Warning: Failed to start nginx.service"
+            echo "Portal UI may be unavailable until nginx is fixed and started"
+        fi
+    fi
+else
+    echo "Warning: nginx configuration test failed"
+    echo "Portal UI may be unavailable until nginx configuration issues are fixed"
+fi
+sleep 1
 
 # Start backend service
 echo "Starting backend service..."
@@ -120,15 +162,6 @@ else
     exit 1
 fi
 sleep 1
-
-# Start nginx
-echo "Starting nginx service..."
-if systemctl start nginx.service; then
-    echo "✓ Nginx service started successfully"
-else
-    echo "ERROR: Failed to start nginx.service"
-    exit 1
-fi
 
 # Verify services are active and enabled
 echo ""

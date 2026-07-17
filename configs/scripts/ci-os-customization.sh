@@ -50,6 +50,31 @@ ufw default allow outgoing
 ufw allow ssh
 ufw allow 80/tcp
 ufw allow 443/tcp
+# Allow Docker bridge networks to reach host-side Ollama. The Hub and marketplace
+# apps run in containers and talk to Ollama via host.docker.internal, which Docker
+# maps (host-gateway) to the docker0 bridge gateway. On a default install that
+# gateway is 172.17.0.1, which is what these rules target; CI-OS does not override
+# Docker's default bridge subnet or --host-gateway-ip. If a custom daemon.json ever
+# changes the default bridge subnet (bip) or host-gateway IP, update the destination
+# below to match or containers lose Ollama. Without an allow rule, `default deny
+# incoming` drops the hairpin and the Hub reports "Ollama not detected" (timeout).
+#
+# Scoped two ways for least privilege:
+#  - destination 172.17.0.1 (the bridge gateway, see caveat above): only container-
+#    originated traffic targets it, so LAN/VPC hosts (which would hit the appliance's
+#    own IP) can't match these rules even if their addresses fall in the source
+#    ranges below.
+#  - port 11434 only: no other host ports are opened.
+#
+# Source ranges:
+#  - 172.16.0.0/12: default docker bridge (172.17) and the Hub stack network (172.18).
+#  - 10.128.0.0/9: marketplace app subnets. CI-Hub's SubnetManagerService (in the
+#    CI-Hub repo, packages/backend/src/modules/network/subnet-manager.service.ts)
+#    allocates these from 10.128.10.0/24 up to 10.254.254.0/24 (STARTING_OCTET_2=128,
+#    MAX_OCTET_VALUE=254). If that allocator range changes, widen this rule to match
+#    or apps lose host.docker.internal.
+ufw allow in from 172.16.0.0/12 to 172.17.0.1 port 11434 proto tcp comment 'docker bridge -> host Ollama'
+ufw allow in from 10.128.0.0/9 to 172.17.0.1 port 11434 proto tcp comment 'marketplace app subnets -> host Ollama'
 
 # Create CI OS user
 useradd -m -s /bin/bash -G sudo,docker,adm cios
