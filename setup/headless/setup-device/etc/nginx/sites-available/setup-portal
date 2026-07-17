@@ -1,0 +1,57 @@
+# Nginx configuration for setup portal (HTTP only - temporary captive WiFi)
+# Serves on port 80. No HTTPS; acceptable for isolated setup network.
+
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+
+    server_name setup.ci.computer _;
+
+    root /var/www/setup-portal;
+    index index.html;
+
+    # Security headers (no HSTS - we use HTTP)
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "no-referrer" always;
+
+    # Captive portal detection - redirect to setup portal
+    # Apple iOS
+    location /hotspot-detect.html {
+        return 302 http://setup.ci.computer/;
+    }
+
+    # Microsoft Windows
+    location /ncsi.txt {
+        return 302 http://setup.ci.computer/;
+    }
+
+    # Android
+    location /generate_204 {
+        return 302 http://setup.ci.computer/;
+    }
+
+    # Generic captive detection fallback
+    location = / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # API proxy
+    location /api/ {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # Static files
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Logging
+    access_log /var/log/nginx/setup-portal-access.log;
+    error_log /var/log/nginx/setup-portal-error.log;
+}

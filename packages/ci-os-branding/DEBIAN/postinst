@@ -1,0 +1,14 @@
+#!/bin/sh
+set -e
+
+TARGET="/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
+
+# Only add the diversion if it does not already exist (idempotent)
+if ! dpkg-divert --list ci-os-branding | grep -q "$TARGET" 2>/dev/null; then
+    dpkg-divert --package ci-os-branding \
+                --add --rename \
+                --divert ${TARGET}.distrib \
+                ${TARGET}
+fi
+
+exit 0

@@ -1,0 +1,21 @@
+[Unit]
+Description=Setup Device Backend Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/setup-backend
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/setup-backend/setup_service.py
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+KillMode=mixed
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

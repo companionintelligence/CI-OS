@@ -5,8 +5,60 @@
 
 set -e
 
+SCAN_CACHE_DIR="/var/lib/setup-device"
+SCAN_CACHE_FILE="${SCAN_CACHE_DIR}/last_scan_networks.txt"
+WIFI_IFACE="wlp192s0"
+
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | systemd-cat -t setup-hotspot-start -p info
+}
+
+recover_wifi_radio() {
+    # AP mode can fail after client/AP transitions if radio is soft-blocked or NM leaves interface in a bad state.
+    rfkill unblock wifi 2>/dev/null || true
+    nmcli radio wifi on 2>/dev/null || true
+    ip link set "${WIFI_IFACE}" up 2>/dev/null || true
+}
+
+stop_companion_hub_traefik() {
+    # Stop only Traefik reverse proxy to free port 80/443 for captive portal
+    # Keep Hub backend running so setup can still communicate with it for device registration
+    if command -v docker >/dev/null 2>&1; then
+        if docker ps 2>/dev/null | grep -q "traefik" 2>/dev/null; then
+            log "Pausing Traefik to free port 80/443 for captive portal (keeping Hub backend running)..."
+            docker stop traefik 2>/dev/null || true
+            sleep 2  # Give port time to be fully released
+            log "Traefik paused - Hub backend still available for device registration"
+        fi
+    fi
+}
+
+start_nginx_captive_portal() {
+    # Start nginx to serve captive portal on port 80 (now that Hub is stopped)
+    log "Starting nginx for captive portal on port 80..."
+    if systemctl start nginx.service; then
+        log "✓ Nginx started successfully for captive portal"
+    else
+        log "Warning: Failed to start nginx - captive portal may not be accessible"
+    fi
+}
+
+start_hostapd_with_retry() {
+    log "Starting hostapd-setup.service..."
+    if systemctl start hostapd-setup.service; then
+        return 0
+    fi
+
+    log "hostapd start failed on first attempt; applying radio recovery and retrying once"
+    systemctl stop hostapd-setup.service 2>/dev/null || true
+    recover_wifi_radio
+    sleep 1
+
+    if systemctl start hostapd-setup.service; then
+        return 0
+    fi
+
+    return 1
 }
 
 log "Starting hotspot setup sequence..."
@@ -28,57 +80,61 @@ if [ -z "$WIFI_IFACE" ]; then
 fi
 log "Using WiFi interface: ${WIFI_IFACE}"
 
-# If hostapd config missing, create a reasonable default
-if [ ! -f /etc/hostapd/hostapd-setup.conf ]; then
-    log "No /etc/hostapd/hostapd-setup.conf found - creating default config"
-    cat > /etc/hostapd/hostapd-setup.conf <<'EOF'
-interface=wlp192s0
-driver=nl80211
-ssid=Companion-Setup
-wpa=2
-wpa_passphrase=SetupDevice123
-wpa_key_mgmt=WPA-PSK
-wpa_pairwise=TKIP CCMP
-rsn_pairwise=CCMP
-hw_mode=g
-channel=6
-max_num_sta=10
-country_code=US
-ieee80211n=1
-ht_capab=[SHORT-GI-20]
-wps_state=0
-logger_syslog=-1
-logger_syslog_level=2
-logger_stdout=-1
-logger_stdout_level=2
-EOF
-    chmod 644 /etc/hostapd/hostapd-setup.conf 2>/dev/null || true
-fi
+# Pause Traefik to free port 80/443 for captive portal (Hub backend stays running)
+stop_companion_hub_traefik
+sleep 1
 
-# If dnsmasq config missing, create a default
+# Start nginx to serve captive portal on freed port 80
+start_nginx_captive_portal
+sleep 1
+
+wait_for_wifi_ready_for_scan() {
+    local max_wait=12
+    local i=0
+
+    ip link set "${WIFI_IFACE}" up 2>/dev/null || true
+
+    while [ "$i" -lt "$max_wait" ]; do
+        # Consider these states scan-ready for nmcli wifi list.
+        local state
+        state=$(nmcli -t -f DEVICE,TYPE,STATE device 2>/dev/null | awk -F: -v iface="${WIFI_IFACE}" '$1==iface && $2=="wifi" {print $3; exit}')
+
+        case "$state" in
+            connected|connecting|disconnected)
+                return 0
+                ;;
+        esac
+
+        sleep 1
+        i=$((i + 1))
+    done
+
+    return 1
+}
+
+# Step 2: Validate required runtime config files installed by the package
+log "Validating required config files..."
+mkdir -p /etc/hostapd /etc/dnsmasq.d
+
+if [ ! -f /etc/hostapd/hostapd-setup.conf ]; then
+    if [ -f /usr/share/setup-device/defaults/hostapd-setup.conf ]; then
+        cp /usr/share/setup-device/defaults/hostapd-setup.conf /etc/hostapd/hostapd-setup.conf
+        chmod 644 /etc/hostapd/hostapd-setup.conf
+        log "Restored missing /etc/hostapd/hostapd-setup.conf from defaults"
+    else
+        log "Error: /etc/hostapd/hostapd-setup.conf is missing"
+        exit 1
+    fi
+fi
 if [ ! -f /etc/dnsmasq.d/setup-portal.conf ]; then
-    log "No /etc/dnsmasq.d/setup-portal.conf found - creating default config"
-    cat > /etc/dnsmasq.d/setup-portal.conf <<'EOF'
-interface=wlp192s0
-bind-interfaces
-dhcp-range=192.168.99.10,192.168.99.250,255.255.255.0,12h
-dhcp-option=3,192.168.99.1
-dhcp-option=6,192.168.99.1
-dhcp-option=option:dns-server,192.168.99.1
-no-resolv
-no-poll
-address=/setup.ci.computer/192.168.99.1
-address=/captive.apple.com/192.168.99.1
-address=/gstatic.com/192.168.99.1
-address=/www.msftconnecttest.com/192.168.99.1
-address=/connectivitycheck.gstatic.com/192.168.99.1
-address=/clients3.google.com/192.168.99.1
-address=/www.google.com/192.168.99.1
-address=/#/192.168.99.1
-log-queries
-log-facility=/var/log/dnsmasq-setup.log
-EOF
-    chmod 644 /etc/dnsmasq.d/setup-portal.conf 2>/dev/null || true
+    if [ -f /usr/share/setup-device/defaults/setup-portal.conf ]; then
+        cp /usr/share/setup-device/defaults/setup-portal.conf /etc/dnsmasq.d/setup-portal.conf
+        chmod 644 /etc/dnsmasq.d/setup-portal.conf
+        log "Restored missing /etc/dnsmasq.d/setup-portal.conf from defaults"
+    else
+        log "Error: /etc/dnsmasq.d/setup-portal.conf is missing"
+        exit 1
+    fi
 fi
 
 # Generate a random 4-letter uppercase suffix and update SSID to avoid collisions
@@ -97,13 +153,30 @@ if [ -f /etc/hostapd/hostapd-setup.conf ]; then
     echo "${SUFFIX}" > /var/lib/setup-device/hotspot-suffix 2>/dev/null || true
 fi
 
-# Step 2: Reset WiFi interface (disconnect from any existing connection)
+# Step 3: Capture nearby WiFi networks before switching interface into AP mode
+mkdir -p "${SCAN_CACHE_DIR}"
+log "Capturing pre-AP WiFi scan results for setup dropdown fallback..."
+if ! wait_for_wifi_ready_for_scan; then
+    log "Warning: WiFi interface did not become scan-ready before timeout; attempting scan anyway"
+fi
+if nmcli -t -f SSID,SIGNAL,SECURITY device wifi list --rescan yes > "${SCAN_CACHE_FILE}.tmp" 2>/dev/null; then
+    mv "${SCAN_CACHE_FILE}.tmp" "${SCAN_CACHE_FILE}"
+    chmod 644 "${SCAN_CACHE_FILE}"
+    log "Saved pre-AP WiFi scan cache to ${SCAN_CACHE_FILE}"
+else
+    rm -f "${SCAN_CACHE_FILE}.tmp"
+    log "Warning: Could not capture pre-AP WiFi scan results"
+fi
+
+# Step 4: Reset WiFi interface (disconnect from any existing connection)
 log "Resetting WiFi interface ${WIFI_IFACE}..."
 # Commands run as root by systemd service; avoid internal sudo to prevent extra PAM sessions
 # Stop any running hostapd/dnsmasq processes from previous attempts
 systemctl stop hostapd-setup.service 2>/dev/null || true
 systemctl stop dnsmasq-setup.service 2>/dev/null || true
 sleep 1
+
+recover_wifi_radio
 
 ip link set "${WIFI_IFACE}" down 2>/dev/null || log "Warning: Could not bring interface down"
 sleep 1
@@ -112,16 +185,17 @@ sleep 1
 ip link set "${WIFI_IFACE}" up 2>/dev/null || log "Warning: Could not bring interface up"
 sleep 2
 
-# Step 3: Assign static IP
+# Step 5: Assign static IP
 log "Assigning static IP 192.168.99.1/24..."
 ip addr add 192.168.99.1/24 dev "${WIFI_IFACE}" 2>/dev/null || log "Warning: Could not assign IP (may already exist)"
 
-# Step 4: Start hostapd
-log "Starting hostapd-setup.service..."
-systemctl start hostapd-setup.service
+# Step 6: Start hostapd (with one-shot recovery retry)
+if ! start_hostapd_with_retry; then
+    log "✗ hostapd-setup.service failed to start after retry"
+fi
 sleep 2
 
-# Step 5: Start dnsmasq
+# Step 7: Start dnsmasq
 log "Starting dnsmasq-setup.service..."
 systemctl start dnsmasq-setup.service
 sleep 1
@@ -144,13 +218,6 @@ fi
 # Wait briefly for hostapd to stabilize and broadcast SSID
 sleep 3
 log "Hotspot setup complete - Companion-Setup network should be available"
-
-if systemctl is-active --quiet dnsmasq-setup.service; then
-    log "✓ dnsmasq-setup.service started successfully"
-else
-    log "✗ dnsmasq-setup.service failed to start - checking logs"
-    journalctl -u dnsmasq-setup.service -n 5 | systemd-cat -t setup-hotspot-start -p warning
-fi
 
 # Verify interface has IP
 IP_CHECK=$(ip addr show wlp192s0 | grep "inet 192.168.99" || echo "")
