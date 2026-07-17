@@ -3,109 +3,224 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#061512">
-    <meta name="color-scheme" content="dark">
-    <title>CI OS Setup</title>
+    <title>Device Setup</title>
     <style>
+        /* Montserrat — vendored locally for offline captive-portal use.
+           Do NOT replace with a Google Fonts <link>; the portal must work
+           with no internet access. woff2 files live in ./fonts/. */
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 200;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-200-normal.woff2") format("woff2");
+        }
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-400-normal.woff2") format("woff2");
+        }
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-500-normal.woff2") format("woff2");
+        }
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 600;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-600-normal.woff2") format("woff2");
+        }
+        @font-face {
+            font-family: "Montserrat";
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url("./fonts/montserrat-latin-700-normal.woff2") format("woff2");
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
-        /* CI OS Brand: Primary #066c80, Medium #00a9a7, Light #72ddd4, Deep #1b4332 */
         :root {
-            --bg-color: #061512;
-            --bg-secondary: #0a1f1a;
-            --text-color: #e8f4f2;
-            --border-color: #1b4332;
-            --primary-color: #066c80;
-            --primary-hover: #00a9a7;
-            --accent-color: #72ddd4;
-            --input-bg: #0d2620;
-            --card-bg: #0f211c;
-            --card-border: #1b4332;
-        }
-        
-        html {
-            background: var(--bg-color);
-            min-height: 100%;
+            /* Canonical CI tokens (dark theme). Non-canonical concepts keep
+               descriptive helper names below. */
+            --background: #072738;
+            --foreground: #ecf7f8;
+            --card: rgba(7, 33, 47, 0.88);
+            --primary: #0f717a;
+            --primary-foreground: #041620;
+            --radius: 14px;
+
+            /* Helper values with no canonical token equivalent. */
+            --bg-accent: #0d5e66;
+            --bg-highlight: #123f58;
+            --muted-text: rgba(236, 247, 248, 0.72);
+            --border-color: rgba(94, 234, 212, 0.28);
+            --primary-hover: #abd4d8;
+            --input-bg: rgba(7, 33, 47, 0.78);
+            --card-shadow: 0 24px 56px rgba(2, 12, 20, 0.46);
+            --heading-color: #ffffff;
+            --success-color: #9df0d2;
+            --danger-color: #ffb4b4;
+
+            /* CI enriched palette v0.2.0 — brand teal ramp + accent hues + radius scale (mode-independent) */
+            --teal-50: #eef7f8;
+            --teal-100: #d3e9ec;
+            --teal-200: #abd4d8;
+            --teal-300: #7fbcc2;
+            --teal-400: #4c9aa3;
+            --teal-500: #1c8791;
+            --teal-600: #0f717a;
+            --teal-700: #0d5f67;
+            --teal-800: #0e4a52;
+            --teal-900: #0a222e;
+            --teal-950: #041620;
+            --aqua: #00a9a7;
+            --aqua-light: #72ddd4;
+            --mint: #58ebbf;
+            --teal-accent: #2c676d;
+            --teal-mid: #409b9b;
+            --radius-sm: calc(var(--radius, 0.625rem) - 4px);
+            --radius-md: calc(var(--radius, 0.625rem) - 2px);
+            --radius-lg: var(--radius, 0.625rem);
+            --radius-xl: calc(var(--radius, 0.625rem) + 4px);
+            --radius-2xl: calc(var(--radius, 0.625rem) + 10px);
+
+            /* CI enriched palette v0.2.0 — semantic status + gradients + elevation (dark) */
+            --success: #4ade80;
+            --success-foreground: #052e16;
+            --warning: #fbbf24;
+            --warning-foreground: #422006;
+            --info: #38bdf8;
+            --info-foreground: #082f49;
+            --gradient-brand: linear-gradient(135deg, #0f717a, #00a9a7);
+            --gradient-hero: linear-gradient(135deg, #e8f9f8, #abd4d8);
+            --gradient-aurora: radial-gradient(120% 90% at 50% -10%, rgba(64, 155, 155, 0.28), transparent 60%);
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+            --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+            --shadow-lg: 0 12px 30px rgba(0, 0, 0, 0.45);
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background: linear-gradient(160deg, var(--bg-color) 0%, var(--bg-secondary) 50%, #0d2620 100%);
-            color: var(--text-color);
+            font-family: "Montserrat", system-ui, sans-serif;
+            background:
+                radial-gradient(circle at top, rgba(39, 181, 164, 0.18), transparent 32%),
+                radial-gradient(circle at 20% 20%, rgba(15, 113, 122, 0.18), transparent 28%),
+                linear-gradient(160deg, var(--bg-highlight) 0%, var(--background) 48%, #041620 100%);
+            color: var(--foreground);
             line-height: 1.6;
-            padding: 20px;
+            padding: clamp(12px, 3vw, 28px);
             min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            min-height: 100dvh;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
-
+        
         .container {
             width: 100%;
             max-width: 420px;
-            background-color: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
-            padding: 28px;
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            background-color: var(--card);
+            border: 1px solid var(--border-color);
+            border-radius: 24px;
+            padding: 18px;
+            margin: clamp(10px, 3vh, 42px) auto;
+            box-shadow: var(--card-shadow);
+            backdrop-filter: blur(16px);
         }
-
-        .ci-logo {
-            font-size: 22px;
-            font-weight: 700;
-            color: var(--accent-color);
+        
+        .logo-section {
             text-align: center;
-            margin-bottom: 8px;
-            letter-spacing: 0.1em;
+            margin-bottom: 12px;
+            padding-bottom: 0;
+            border-bottom: none;
         }
-
-        .ssid-banner {
-            background: linear-gradient(90deg, var(--primary-color), var(--primary-hover));
-            color: white;
-            padding: 14px 18px;
-            border-radius: 8px;
-            margin-bottom: 24px;
-            text-align: center;
-            font-size: 15px;
+        
+        .logo-section img {
+            display: block;
+            width: min(95%, 360px);
+            height: auto;
+            margin: 0 auto;
+            opacity: 1;
+            filter: drop-shadow(0 10px 24px rgba(0, 0, 0, 0.24));
         }
-        .ssid-banner strong { font-family: monospace; font-size: 17px; }
-
+        
+        .company-name {
+            display: none;
+        }
+        
         h1 {
-            font-size: 20px;
-            margin-bottom: 6px;
-            text-align: center;
-            color: var(--accent-color);
+            display: none;
         }
-
+        
         .subtitle {
-            font-size: 13px;
-            color: var(--text-color);
-            opacity: 0.8;
-            text-align: center;
-            margin-bottom: 24px;
+            display: none;
         }
         
         .form-group {
-            margin-bottom: 20px;
+            margin-bottom: 12px;
+        }
+        
+        .ssid-controls {
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+            margin-bottom: 6px;
+        }
+        
+        .ssid-controls > div {
+            flex: 1;
+        }
+        
+        .scan-btn {
+            padding: 0 16px;
+            min-width: 88px;
+            min-height: 48px;
+            background-color: var(--primary);
+            color: var(--primary-foreground);
+            border: none;
+            border-radius: var(--radius);
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 14px;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 14px 24px rgba(15, 113, 122, 0.22);
+        }
+        
+        .scan-btn:hover {
+            background-color: var(--primary-hover);
+        }
+        
+        .scan-btn:active {
+            transform: scale(0.98);
+        }
+        
+        .scan-btn.loading {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
         
         .network-count {
             font-size: 12px;
-            color: var(--text-color);
-            opacity: 0.6;
+            color: var(--muted-text);
             margin-top: 4px;
+            min-height: 1.2em;
             display: block;
         }
         
         label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 500;
-            font-size: 14px;
+            display: none;
         }
         
         input[type="text"],
@@ -114,19 +229,26 @@
         input[type="submit"],
         button[type="submit"] {
             width: 100%;
-            padding: 12px;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
+            padding: 13px 14px;
+            border: 1px solid rgba(94, 234, 212, 0.2);
+            border-radius: var(--radius);
             background-color: var(--input-bg);
-            color: var(--text-color);
+            color: var(--foreground);
             font-size: 16px;
             -webkit-appearance: none;
             appearance: none;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+        }
+        
+        input[type="text"]::placeholder,
+        input[type="password"]::placeholder {
+            color: var(--foreground);
+            opacity: 0.58;
         }
         
         select {
             cursor: pointer;
-            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2372ddd4' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23abd4d8' d='M6 9L1 4h10z'/%3E%3C/svg%3E");
             background-repeat: no-repeat;
             background-position: right 12px center;
             padding-right: 36px;
@@ -136,35 +258,37 @@
         input[type="password"]:focus,
         select:focus {
             outline: none;
-            border-color: var(--primary-color);
-            box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(15, 113, 122, 0.18);
+            background-color: rgba(7, 33, 47, 0.92);
         }
         
         .pairing-code-input {
             text-transform: uppercase;
             text-align: center;
             font-family: monospace;
-            font-size: 18px;
+            font-size: 17px;
+            letter-spacing: 0.22em;
         }
         
         .pairing-code-hint {
             font-size: 12px;
-            color: var(--text-color);
-            opacity: 0.6;
-            margin-top: 4px;
+            color: var(--muted-text);
+            margin-top: 6px;
         }
         
         input[type="submit"],
         button[type="submit"] {
-            background-color: var(--primary-color);
-            color: white;
+            background: linear-gradient(135deg, #abd4d8 0%, var(--primary) 100%);
+            color: var(--primary-foreground);
             border: none;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
-            margin-top: 10px;
+            margin-top: 6px;
             position: relative;
-            min-height: 44px;
+            min-height: 48px;
             font-family: inherit;
+            box-shadow: 0 16px 28px rgba(15, 113, 122, 0.28);
         }
         
         input[type="submit"]:hover:not(:disabled),
@@ -200,82 +324,119 @@
         }
         
         .success-message {
-            background: linear-gradient(90deg, #066c80, #00a9a7);
-            color: white;
-            padding: 16px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            background-color: rgba(5, 150, 105, 0.2);
+            color: var(--success-color);
+            padding: 14px;
+            border-radius: 14px;
+            border: 1px solid rgba(94, 234, 212, 0.28);
+            margin-bottom: 14px;
             font-size: 14px;
             text-align: center;
             font-weight: 500;
         }
-
+        
         .error {
-            background-color: #8b2020;
-            color: white;
+            background-color: rgba(239, 68, 68, 0.15);
+            color: var(--danger-color);
             padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            border-radius: 14px;
+            border: 1px solid rgba(248, 113, 113, 0.45);
+            margin-bottom: 14px;
             font-size: 14px;
-            border: 1px solid #a03030;
         }
-
+        
         .success {
-            background: linear-gradient(90deg, #066c80, #00a9a7);
-            color: white;
+            background-color: rgba(5, 150, 105, 0.2);
+            color: var(--success-color);
             padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 20px;
+            border-radius: 14px;
+            border: 1px solid rgba(94, 234, 212, 0.28);
+            margin-bottom: 14px;
             font-size: 14px;
         }
         
         @media (max-width: 480px) {
             .container {
-                padding: 20px;
-                border-radius: 0;
-                border-left: none;
-                border-right: none;
+                padding: 16px;
+                border-radius: 22px;
             }
             
-            h1 {
-                font-size: 20px;
+            .logo-section img {
+                width: 95%;
+                max-width: none;
+            }
+
+            .ssid-controls {
+                gap: 8px;
+            }
+        }
+
+        @media (max-height: 720px) {
+            body {
+                padding-top: 10px;
+                padding-bottom: 14px;
+            }
+
+            .container {
+                margin-top: 8px;
+                margin-bottom: 12px;
+                padding: 15px;
+            }
+
+            .logo-section {
+                margin-bottom: 8px;
+            }
+
+            .subtitle {
+                margin-bottom: 12px;
+            }
+
+            .form-group {
+                margin-bottom: 10px;
             }
         }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="ci-logo">CI OS</div>
-        <div class="ssid-banner" id="ssid-banner">Connect to <strong id="ssid-display">Companion-Setup</strong></div>
-        <h1>WiFi Setup</h1>
-        <p class="subtitle">Enter pairing code and choose your network</p>
+        <div class="logo-section">
+            <img src="./logo-banner.png" alt="Companion Intelligence">
+        </div>
+        <h1>Device Setup</h1>
+        <p class="subtitle">Configure your device's WiFi connection</p>
         
         <form method="POST" action="/api/configure" enctype="application/x-www-form-urlencoded">
-            <div class="form-group">
+            <div class="form-group" id="pairing-group">
                 <label for="pairing_code">Pairing Code</label>
                 <input 
                     type="text" 
                     id="pairing_code" 
                     name="pairing_code" 
                     class="pairing-code-input"
-                    placeholder="ABC123" 
+                    placeholder="Enter pairing code" 
                     pattern="[A-Za-z0-9]{6}"
                     minlength="6"
                     maxlength="6"
                     required
                     autocomplete="off"
+                    aria-label="Pairing code"
                     onchange="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)"
                     oninput="this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6)"
                 >
-                <div class="pairing-code-hint">Enter your 6-character pairing code</div>
+                <div class="pairing-code-hint">device pairing code - ABC123</div>
             </div>
             
             <div class="form-group">
                 <label for="ssid">WiFi Network (SSID)</label>
-                <select id="ssid" name="ssid" required>
-                    <option value="">Select a network...</option>
-                    <option value="__custom__">Enter network manually...</option>
-                </select>
+                <div class="ssid-controls">
+                    <div>
+                        <select id="ssid" name="ssid" required aria-label="WiFi network">
+                            <option value="">Select your WiFi network</option>
+                            <option value="__custom__">Enter network manually...</option>
+                        </select>
+                    </div>
+                    <button type="button" class="scan-btn" id="scan-btn" onclick="scanNetworks()" aria-label="Scan WiFi networks">Scan</button>
+                </div>
                 <div class="network-count" id="network-count"></div>
             </div>
             
@@ -287,6 +448,7 @@
                     name="custom_ssid" 
                     placeholder="Enter WiFi network name"
                     autocomplete="off"
+                    aria-label="WiFi network name"
                 >
             </div>
             
@@ -296,22 +458,64 @@
                     type="password" 
                     id="password" 
                     name="password" 
-                    placeholder="Enter password (leave blank for open networks)"
+                    placeholder="Enter WiFi password (Blank for open)"
                     autocomplete="off"
+                    aria-label="WiFi password"
                 >
             </div>
             
             <div id="error-message" class="error" style="display: none;"></div>
             <div id="success-message" class="success-message" style="display: none;">
-                ✓ Device configured successfully! Closing...
+                ✓ Device configured successfully! Redirecting...
             </div>
             
-            <button type="submit" id="submit-btn" class="submit-button">Configure Device</button>
+            <button type="submit" id="submit-btn" class="submit-button" aria-label="Configure device">Configure Device</button>
         </form>
     </div>
     
     <script>
-        // No periodic requests - only initial load (ssid-suffix, networks) then submit
+        // Configuration
+        const HEALTH_CHECK_INTERVAL = 5000;  // Check health every 5 seconds
+        const SCAN_RETRY_INTERVAL = 8000;   // Retry scan every 8 seconds
+        const MAX_RETRIES = 5;
+        const REDIRECT_DELAY_MS = 2500;
+        const DEFAULT_REDIRECT_URL = 'https://portal.ci.computer';
+        
+        // State
+        let scanRetryCount = 0;
+        let healthCheckInterval = null;
+        let scanRetryInterval = null;
+        let lastScanSuccess = false;
+        let pairingRequired = true;
+
+        async function loadSetupState() {
+            try {
+                const response = await fetch('/api/status');
+                if (!response.ok) return;
+
+                const data = await response.json();
+                pairingRequired = Boolean(data.require_pairing);
+
+                const pairingGroup = document.getElementById('pairing-group');
+                const pairingInput = document.getElementById('pairing_code');
+                const subtitle = document.querySelector('.subtitle');
+
+                if (pairingRequired) {
+                    pairingGroup.style.display = 'block';
+                    pairingInput.setAttribute('required', 'required');
+                    pairingInput.disabled = false;
+                    subtitle.textContent = 'Configure your device\'s WiFi connection';
+                } else {
+                    pairingGroup.style.display = 'none';
+                    pairingInput.removeAttribute('required');
+                    pairingInput.disabled = true;
+                    pairingInput.value = '';
+                    subtitle.textContent = 'Configure your device\'s WiFi connection (pairing not required)';
+                }
+            } catch (error) {
+                console.log('Status check failed:', error.message);
+            }
+        }
         
         // Handle SSID dropdown changes
         const ssidSelect = document.getElementById('ssid');
@@ -329,53 +533,249 @@
                 customSsidInput.name = 'ssid';
                 // For manual entry we don't know security; leave password optional
                 pwdInput.removeAttribute('required');
-                pwdInput.placeholder = 'Enter password (leave blank for open networks)';
+                pwdInput.placeholder = 'Enter WiFi password (Blank for open)';
             } else {
                 customSsidGroup.style.display = 'none';
                 ssidSelect.name = 'ssid';
                 customSsidInput.name = 'custom_ssid';
 
-                // Password is always optional; leave blank for open networks
-                pwdInput.removeAttribute('required');
-                pwdInput.placeholder = 'Enter password (leave blank for open networks)';
+                // Determine security from the selected option's data attribute
+                const selectedOption = ssidSelect.options[ssidSelect.selectedIndex];
+                const security = (selectedOption && selectedOption.getAttribute('data-security')) || 'none';
+
+                // Normalize security string for checks
+                const secUpper = (security || '').toString().toUpperCase();
+
+                // If network is open/none, do not require password. Otherwise require it.
+                if (secUpper === 'NONE' || secUpper === '' || secUpper === 'OPEN') {
+                    pwdInput.removeAttribute('required');
+                    pwdInput.placeholder = 'Enter WiFi password (Blank for open)';
+                } else {
+                    pwdInput.setAttribute('required', 'required');
+                    pwdInput.placeholder = 'Enter WiFi password (Blank for open)';
+                }
             }
         });
-        
-        // One-time load: cached networks + SSID. No further requests until submit.
-        async function loadSetupData() {
-            const networkCount = document.getElementById('network-count');
-            const ssidDisplay = document.getElementById('ssid-display');
+
+        function normalizeRedirectUrl(value) {
+            if (!value || typeof value !== 'string') {
+                return null;
+            }
+
+            const trimmedValue = value.trim();
+            if (!trimmedValue) {
+                return null;
+            }
+
             try {
-                const response = await fetch('/api/setup-data');
+                const candidate = trimmedValue.includes('://') ? trimmedValue : `https://${trimmedValue}`;
+                const parsed = new URL(candidate);
+
+                if (!parsed.hostname) {
+                    return null;
+                }
+
+                parsed.hash = '';
+                parsed.search = '';
+                parsed.pathname = parsed.pathname.replace(/\/+$/, '') || '';
+                return parsed.toString().replace(/\/$/, '');
+            } catch (error) {
+                return null;
+            }
+        }
+
+        function getRedirectTarget(payload) {
+            const candidateValues = [];
+
+            if (payload && typeof payload === 'object') {
+                candidateValues.push(payload.redirect_url);
+
+                if (Array.isArray(payload.redirect_candidates)) {
+                    candidateValues.push(...payload.redirect_candidates);
+                }
+
+                candidateValues.push(payload.redirect_fallback_url);
+            }
+
+            candidateValues.push(DEFAULT_REDIRECT_URL);
+
+            for (const value of candidateValues) {
+                const normalized = normalizeRedirectUrl(value);
+                if (normalized) {
+                    return normalized;
+                }
+            }
+
+            return DEFAULT_REDIRECT_URL;
+        }
+
+        function runLegacyCaptivePortalDismissal() {
+            setTimeout(function() {
+                if (document.visibilityState === 'hidden') {
+                    return;
+                }
+
+                window.location.href = 'http://captive.apple.com/hotspot-detect.html';
+
+                setTimeout(function() {
+                    if (document.visibilityState === 'hidden') {
+                        return;
+                    }
+
+                    if (window.close) {
+                        window.close();
+                    }
+                }, 500);
+
+                setTimeout(function() {
+                    if (document.visibilityState === 'hidden') {
+                        return;
+                    }
+
+                    window.location.href = 'http://www.msftconnecttest.com/redirect';
+                }, 1000);
+            }, 1400);
+        }
+        
+        // Check backend health
+        async function checkHealth() {
+            try {
+                const response = await fetch('/api/health');
+                if (response.ok) {
+                    // Backend is healthy, try scanning if we haven't succeeded yet
+                    if (!lastScanSuccess) {
+                        scanNetworksWithRetry();
+                    }
+                    return true;
+                }
+            } catch (error) {
+                console.log('Health check failed:', error.message);
+            }
+            return false;
+        }
+        
+        // Scan with automatic retry on failure
+        async function scanNetworksWithRetry() {
+            if (scanRetryCount >= MAX_RETRIES) {
+                return; // Stop retrying after max attempts
+            }
+            
+            const scanBtn = document.getElementById('scan-btn');
+            const networkCount = document.getElementById('network-count');
+            
+            try {
+                const response = await fetch('/api/scan-networks');
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                
                 const data = await response.json();
-                if (ssidDisplay && data.ssid) ssidDisplay.textContent = data.ssid;
-                const defaultOptions = Array.from(ssidSelect.options).slice(0, 2);
-                ssidSelect.innerHTML = '';
-                defaultOptions.forEach(opt => ssidSelect.appendChild(opt));
-                const networkNames = new Set();
+                
                 if (data.networks && Array.isArray(data.networks)) {
+                    // Sort networks by signal strength
                     data.networks.sort((a, b) => (b.signal || 0) - (a.signal || 0));
+                    // Preserve current focus to prevent auto-focus on first input after DOM changes
+                    const activeFocusedElement = document.activeElement;
+                    
+                    
+                    // Get current options and keep the first two (Select/Custom)
+                    const defaultOptions = Array.from(ssidSelect.options).slice(0, 2);
+                    ssidSelect.innerHTML = '';
+                    
+                    // Re-add default options
+                    defaultOptions.forEach(opt => {
+                        ssidSelect.appendChild(opt);
+                    });
+                    
+                    // Add scanned networks (attach security metadata)
+                    const networkNames = new Set();
                     data.networks.forEach(network => {
-                        if (network.ssid && network.ssid !== '(hidden)' && !networkNames.has(network.ssid)) {
+                        if (network.ssid && !networkNames.has(network.ssid)) {
                             networkNames.add(network.ssid);
                             const option = document.createElement('option');
                             option.value = network.ssid;
+                            // Store security so UI can decide whether password is required
                             option.setAttribute('data-security', network.security || 'none');
-                            const sig = network.signal;
-                            const sigStr = (sig && sig !== 0) ? ` (${sig} dBm)` : '';
-                            option.textContent = network.ssid + sigStr;
+                            const signalStr = network.signal ? ` (${network.signal}%)` : '';
+                            option.textContent = network.ssid + signalStr;
                             ssidSelect.appendChild(option);
                         }
                     });
-                    networkCount.textContent = networkNames.size > 0 ? `${networkNames.size} network${networkNames.size !== 1 ? 's' : ''} available` : '';
+
+                    // Restore focus to previously focused element if it's still in the document
+                    if (activeFocusedElement && activeFocusedElement.parentElement) {
+                        activeFocusedElement.focus();
+                    }
+                    
+                    networkCount.textContent = `Found ${networkNames.size} network${networkNames.size !== 1 ? 's' : ''}`;
+                    lastScanSuccess = true;
+                    scanRetryCount = 0;
+                    
+                    // Stop retry interval once successful
+                    if (scanRetryInterval) {
+                        clearInterval(scanRetryInterval);
+                        scanRetryInterval = null;
+                    }
                 } else {
-                    networkCount.textContent = 'Enter network manually if your network is not listed';
+                    throw new Error('No networks in response');
                 }
-            } catch (e) {
-                networkCount.textContent = 'Enter network manually to type your network name';
+            } catch (error) {
+                console.log('Scan attempt', scanRetryCount + 1, 'failed:', error.message);
+                scanRetryCount++;
+                
+                if (scanRetryCount < MAX_RETRIES) {
+                    networkCount.textContent = 'Scanning...';
+                } else {
+                    networkCount.textContent = 'Unable to scan networks - try manual entry';
+                }
             }
         }
         
+        // Manual scan button click
+        async function scanNetworks() {
+            const scanBtn = document.getElementById('scan-btn');
+            const networkCount = document.getElementById('network-count');
+            
+            if (scanBtn.classList.contains('loading')) return;
+            
+            scanBtn.classList.add('loading');
+            scanBtn.disabled = true;
+            scanBtn.textContent = 'Scanning...';
+            networkCount.textContent = '';
+            scanRetryCount = 0;
+            lastScanSuccess = false;
+            
+            await scanNetworksWithRetry();
+        }
+        
+        // Start periodic health checks and auto-retry
+        function startHealthMonitoring() {
+            // Initial scan attempt
+            scanNetworksWithRetry();
+            
+            // Health check every 5 seconds
+            healthCheckInterval = setInterval(checkHealth, HEALTH_CHECK_INTERVAL);
+            
+            // Auto-retry scan every 8 seconds if not successful
+            scanRetryInterval = setInterval(function() {
+                if (!lastScanSuccess && scanRetryCount < MAX_RETRIES) {
+                    scanNetworksWithRetry();
+                }
+            }, SCAN_RETRY_INTERVAL);
+        }
+        
+        // Stop monitoring (e.g., on form submit)
+        function stopHealthMonitoring() {
+            if (healthCheckInterval) {
+                clearInterval(healthCheckInterval);
+                healthCheckInterval = null;
+            }
+            if (scanRetryInterval) {
+                clearInterval(scanRetryInterval);
+                scanRetryInterval = null;
+            }
+        }
         
         // Handle form submission with AJAX
         const form = document.querySelector('form');
@@ -386,6 +786,8 @@
         form.addEventListener('submit', async function(e) {
             e.preventDefault();
             
+            // Stop monitoring
+            stopHealthMonitoring();
             
             // Hide previous messages
             errorMessage.style.display = 'none';
@@ -406,30 +808,19 @@
                 });
                 
                 if (response.ok) {
-                    // Success - show message and close captive portal
+                    const responseData = await response.json().catch(() => ({}));
+                    const redirectTarget = getRedirectTarget(responseData);
+
+                    // Success - show message and redirect after a short delay
                     successMessage.style.display = 'block';
+                    successMessage.textContent = `✓ Device configured successfully! Redirecting to ${redirectTarget}...`;
                     
-                    // Scroll to top to show success message
-                    window.scrollTo(0, 0);
+                    successMessage.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     
-                    // Close captive portal after a short delay
-                    // Different methods for different platforms
                     setTimeout(function() {
-                        // Method 1: Redirect to success URL (works on iOS)
-                        window.location.href = 'http://captive.apple.com/hotspot-detect.html';
-                        
-                        // Method 2: Try to close window (works in some browsers)
-                        setTimeout(function() {
-                            if (window.close) {
-                                window.close();
-                            }
-                        }, 500);
-                        
-                        // Method 3: Redirect to a known success page
-                        setTimeout(function() {
-                            window.location.href = 'http://www.msftconnecttest.com/redirect';
-                        }, 1000);
-                    }, 1500);
+                        window.location.assign(redirectTarget);
+                        runLegacyCaptivePortalDismissal();
+                    }, REDIRECT_DELAY_MS);
                 } else {
                     // Error - show error message
                     const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
@@ -451,8 +842,12 @@
             }
         });
         
-        // On load: single fetch for all cached data (networks + SSID). No further requests until submit.
+        // Start monitoring on page load
         window.addEventListener('load', function() {
-            loadSetupData();
+            loadSetupState();
+            startHealthMonitoring();
         });
+        
+        // Stop monitoring when leaving page
+        window.addEventListener('beforeunload', stopHealthMonitoring);
     </script>

@@ -201,7 +201,7 @@ This allows package management and system configuration inside the chroot.
 
 ### 4. Customizations Applied
 
-The `customize-chroot.sh` script applies all CI-OS customizations:
+The `scripts/customize-chroot.sh` script applies all CI-OS customizations:
 
 #### OS Identity
 - Rewrites `/etc/os-release` with CI-OS branding
@@ -295,7 +295,7 @@ Generated files:
 
 #### Change OS Identity
 
-Edit `tools/iso-build/scripts/customize-chroot.sh`:
+Edit `scripts/customize-chroot.sh`:
 
 ```bash
 # Around line 40
@@ -308,7 +308,7 @@ EOF
 
 #### Add/Remove Packages
 
-Edit the package removal section in `customize-chroot.sh`:
+Edit the package removal section in `scripts/customize-chroot.sh`:
 
 ```bash
 # Add packages
@@ -326,7 +326,7 @@ Replace files in:
 
 #### Customize Installer
 
-Edit `tools/iso-build/scripts/customize-chroot.sh`:
+Edit `scripts/customize-chroot.sh`:
 
 ```bash
 # Around line 280
@@ -339,11 +339,11 @@ EOF
 
 #### Add Custom Scripts
 
-Place scripts in `tools/iso-build/scripts/` and call them from `customize-chroot.sh`:
+Place scripts under the repo (for example `scripts/`) and call them from `scripts/customize-chroot.sh`:
 
 ```bash
-# In customize-chroot.sh
-copy_to_chroot "$SCRIPT_DIR/your-custom-script.sh" "/tmp/custom.sh"
+# In scripts/customize-chroot.sh
+copy_to_chroot "$REPO_ROOT/scripts/your-custom-script.sh" "/tmp/custom.sh"
 chroot_exec "/tmp/custom.sh"
 ```
 
@@ -382,7 +382,7 @@ cp your-binary packages/your-package/usr/local/bin/
 
 5. **Install in chroot**:
 
-Modify `customize-chroot.sh` to copy and install your .deb.
+Modify `scripts/customize-chroot.sh` to copy and install your .deb.
 
 ---
 

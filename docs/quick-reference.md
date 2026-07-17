@@ -5,7 +5,7 @@
 Apply complete CI OS dark green branding to Ubuntu 24.04:
 
 ```bash
-sudo ./setup/os-changes/complete-rebranding.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh
 sudo reboot
 ```
 
@@ -20,34 +20,26 @@ Deep Green:          #1b4332  (dark backgrounds)
 
 ## Quick Commands
 
-### One-Command Rebranding
+### One entry script
 ```bash
-# Apply everything (recommended)
-sudo ./setup/os-changes/complete-rebranding.sh
+# Full apply (recommended)
+sudo ./setup/os-changes/apply-ci-os-desktop.sh
 
-# Validate
-./setup/os-changes/validate-ci-theme.sh
+# Interactive wizard (optional KDE, validate, reboot prompt)
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard
+
+# Validate only (no sudo)
+./setup/os-changes/apply-ci-os-desktop.sh --validate
 ```
 
-### Individual Components
+### Partial apply (`--only` is comma-separated)
 ```bash
-# Plymouth + GNOME theme + wallpaper
-sudo ./setup/os-changes/set-ci-branding.sh
-
-# OS identity
-sudo ./setup/os-changes/update-os-release.sh
-
-# MOTD customization
-sudo ./setup/os-changes/setup-ci-motd.sh
-
-# Start icon
-sudo ./setup/os-changes/replace-start-icon.sh
-
-# Wallpaper only
-sudo ./setup/os-changes/replace-wallpaper.sh
-
-# KDE theme (KDE users only)
-./setup/os-changes/install-kde-theme.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only plymouth,dconf,session
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only wallpaper
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only start-icon
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only os-release
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only motd
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only kde
 ```
 
 ## What Gets Changed
@@ -66,12 +58,8 @@ sudo ./setup/os-changes/replace-wallpaper.sh
 ## File Locations
 
 ### Scripts
-- `setup/os-changes/complete-rebranding.sh` - Master installer
-- `setup/os-changes/validate-ci-theme.sh` - Validation
-- `setup/os-changes/set-ci-branding.sh` - Core theme
-- `setup/os-changes/update-os-release.sh` - OS identity
-- `setup/os-changes/setup-ci-motd.sh` - MOTD
-- `setup/os-changes/install-kde-theme.sh` - KDE support
+- `setup/os-changes/apply-ci-os-desktop.sh` — only top-level script (`--wizard`, `--validate`, `--only`)
+- `setup/os-changes/common/*.sh` — Plymouth, dconf, wallpaper, session, icon, os-release, MOTD, KDE, validate
 
 ### Assets
 - `assets/branding/brand-guidelines.md` - Color specs
@@ -93,8 +81,8 @@ sudo ./setup/os-changes/replace-wallpaper.sh
 /usr/share/plymouth/themes/spinner/              # Boot splash
 /usr/share/plymouth/themes/bgrt/                 # UEFI boot
 /usr/share/plymouth/themes/ubuntu-text/          # Text boot
-/etc/dconf/db/local.d/01-ci-theme                # User defaults
-/etc/dconf/db/gdm.d/01-ci-theme                  # Login screen
+/etc/dconf/db/local.d/01-ci-os-gnome-defaults     # User defaults
+/etc/dconf/db/gdm.d/01-ci-os-gdm                  # Login screen
 /etc/update-motd.d/00-ci-header                  # MOTD header
 /etc/update-motd.d/10-ci-sysinfo                 # System info
 /usr/share/backgrounds/ci-os-wallpaper.png       # Wallpaper
@@ -125,7 +113,7 @@ sudo plymouth quit
 run-parts /etc/update-motd.d/
 
 # Automated validation
-./setup/os-changes/validate-ci-theme.sh
+./setup/os-changes/apply-ci-os-desktop.sh --validate
 ```
 
 ## Revert Changes
@@ -149,7 +137,7 @@ sudo cp /etc/os-release.ubuntu-backup-YYYYMMDD-HHMMSS /etc/os-release
 sudo apt install cubic
 cubic
 # Select Ubuntu 24.04 ISO
-# In chroot: git clone repo, run complete-rebranding.sh
+# In chroot: git clone repo, run apply-ci-os-desktop.sh (or --wizard)
 # Generate ISO
 ```
 
@@ -172,7 +160,7 @@ See `docs/iso-build-guide.md` for complete instructions.
 
 ### KDE Plasma
 - Custom CI-OS-Dark.colors scheme
-- Run: `./setup/os-changes/install-kde-theme.sh`
+- Run: `sudo ./setup/os-changes/apply-ci-os-desktop.sh --only kde` (from Plasma session)
 - Full support ✅
 
 ### Others (XFCE, MATE, etc.)
@@ -191,23 +179,23 @@ sudo reboot
 ### Theme not applying in GNOME
 ```bash
 dconf reset -f /org/gnome/desktop/
-sudo ./setup/os-changes/set-ci-branding.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only plymouth,dconf,session
 # Log out and back in
 ```
 
 ### "Permission denied" errors
 ```bash
 # All main scripts require sudo
-sudo ./setup/os-changes/complete-rebranding.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard
 ```
 
 ### Colors look wrong
 ```bash
 # Verify correct colors applied
-./setup/os-changes/validate-ci-theme.sh
+./setup/os-changes/apply-ci-os-desktop.sh --validate
 
 # Re-apply if needed
-sudo ./setup/os-changes/set-ci-branding.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only plymouth,dconf,session
 ```
 
 ## Testing Checklist
@@ -225,19 +213,17 @@ sudo ./setup/os-changes/set-ci-branding.sh
 ## Architecture
 
 ```
-complete-rebranding.sh (master)
-├── set-ci-branding.sh
-│   ├── Plymouth theme (dark green #066c80)
-│   ├── GNOME/dconf config
-│   └── Wallpaper + start icon
-├── update-os-release.sh
-│   ├── /etc/os-release
-│   └── /etc/lsb-release
-├── setup-ci-motd.sh
-│   ├── Disable Ubuntu MOTD
-│   └── Create CI MOTD
-└── validate-ci-theme.sh
-    └── Verify all changes
+apply-ci-os-desktop.sh   (only script beside common/; flags: --wizard, --validate, --only)
+└── common/
+    ├── 10-plymouth.sh
+    ├── 20-dconf-system.sh
+    ├── 30-wallpaper.sh
+    ├── 25-session-gsettings.sh
+    ├── 40-start-icon.sh
+    ├── 50-os-release.sh
+    ├── 60-motd.sh
+    ├── 65-kde-theme.sh
+    └── 80-validate-ci-theme.sh
 ```
 
 ## Support

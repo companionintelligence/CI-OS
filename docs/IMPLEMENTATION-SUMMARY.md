@@ -10,7 +10,7 @@ This implementation provides a complete, production-ready toolchain for building
 
 ### 1. Core ISO Build System ✅
 
-**Location**: `tools/iso-build/scripts/`
+**Location**: `tools/iso-build/scripts/` (`build-iso.sh`, package helpers); chroot customization: `scripts/customize-chroot.sh`
 
 #### build-iso.sh
 Main orchestration script that:
@@ -29,7 +29,7 @@ Main orchestration script that:
 - GPG signing support for production releases
 - Automatic cleanup on errors
 
-#### customize-chroot.sh
+#### customize-chroot.sh (`scripts/customize-chroot.sh`)
 Comprehensive customization script that applies:
 
 1. **OS Identity Changes**:
@@ -207,7 +207,7 @@ Ubuntu 24.04 ISO
       ↓
 Extract ISO → Extract squashfs → Setup chroot
       ↓
-Apply customizations (customize-chroot.sh)
+Apply customizations (`scripts/customize-chroot.sh`)
       ↓
 Repack squashfs → Regenerate ISO → Sign & publish
 ```
@@ -265,7 +265,7 @@ Repack squashfs → Regenerate ISO → Sign & publish
 ### 5. Developer Experience
 
 **Easy Customization**:
-- Single script to modify (customize-chroot.sh)
+- Single script to modify (`scripts/customize-chroot.sh`)
 - Clear separation of concerns
 - Well-documented code
 - Modular design
@@ -324,7 +324,7 @@ Optional improvements for future releases:
 
 **Scripts**:
 - `tools/iso-build/scripts/build-iso.sh` (10.2KB)
-- `tools/iso-build/scripts/customize-chroot.sh` (15.3KB)
+- `scripts/customize-chroot.sh` (chroot customization)
 - `tools/iso-build/scripts/build-packages.sh` (1.5KB)
 - `tools/iso-build/scripts/setup-repository.sh` (4.5KB)
 

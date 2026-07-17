@@ -5,12 +5,23 @@ set -e
 
 # Update dconf database for system-wide settings
 if command -v dconf > /dev/null 2>&1; then
-    dconf update
+    dconf update || true
 fi
 
-# Update GRUB if installed
-if command -v update-grub > /dev/null 2>&1; then
-    update-grub
+# Update GRUB only when running on a real booted system, NOT inside a
+# chroot / live-build / installer container. Calling update-grub during
+# squashfs build or curtin installation causes os-prober to scan real
+# block devices which can crash the namespace and trigger a kernel panic.
+in_real_system() {
+    # True only when systemd is PID 1 AND we are not in a container
+    [ "$(cat /proc/1/comm 2>/dev/null)" = "systemd" ] || return 1
+    systemd-detect-virt --quiet 2>/dev/null && return 1
+    [ -d /run/systemd/system ] || return 1
+    return 0
+}
+
+if command -v update-grub > /dev/null 2>&1 && in_real_system; then
+    update-grub || true
 fi
 
 echo "CI-OS base system configured successfully"

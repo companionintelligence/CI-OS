@@ -1,57 +1,43 @@
 ## Companion Intelligence OS
-### UnCloud Debian Linux
+### UnCloud Linux · built on Ubuntu 24.04 LTS (Noble)
 
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
 **© Companion Intelligence — Lifescope Inc**  
-*In development. Do not distribute. Private and confidential.*
+*In development. Do not distribute. Private and confidential.*  
+*Licensed under the [Commercial Standard License](LICENSE.md) (CI-Commercial-1.0).*
 
 ---
 
 ## Contents
 
-1. [One-command setup (flashed Ubuntu)](#one-command-setup-flashed-ubuntu)
-2. [Building CI-OS ISOs](#building-ci-os-isos)
-3. [Fresh Ubuntu setup](#fresh-ubuntu-setup)
-4. [Headless device WiFi setup](#headless-device-wifi-setup)
-5. [Ubuntu branding (wallpaper & start icon)](#ubuntu-branding-wallpaper--start-icon)
-6. [Repo layout](#repo-layout)
-7. [Documentation](#documentation)
+1. [Interface](#interface)
+2. [What this repo is](#what-this-repo-is)
+3. [One-command setup (flashed Ubuntu)](#one-command-setup-flashed-ubuntu)
+4. [Four ways to customize Ubuntu](#four-ways-to-customize-ubuntu)
+5. [Build a branded CI-OS ISO](#build-a-branded-ci-os-iso)
+6. [Provision a fresh / existing Ubuntu](#provision-a-fresh--existing-ubuntu)
+7. [Apply CI desktop branding to a running system](#apply-ci-desktop-branding-to-a-running-system)
+8. [Headless device WiFi setup](#headless-device-wifi-setup)
+9. [Repo layout](#repo-layout)
+10. [Documentation](#documentation)
 
 ---
 
 ## One-command setup (flashed Ubuntu)
 
-On a machine freshly flashed with Ubuntu, run one command to set up headless WiFi, CI OS branding, Chromium, and all UI changes.
+On a machine freshly flashed with Ubuntu, `scripts/bootstrap-ci-os.sh` wraps the
+[fresh-Ubuntu provisioning](#provision-a-fresh--existing-ubuntu) and
+[desktop branding](#apply-ci-desktop-branding-to-a-running-system) steps below,
+plus the [headless WiFi setup](#headless-device-wifi-setup) package, into a single
+command:
 
-**One-liner** (clone + bootstrap, non-interactive):
 ```bash
 git clone https://github.com/companionintelligence/CI-OS.git && cd CI-OS && sudo ./scripts/bootstrap-ci-os.sh --yes
 ```
 
-**Or**, if the repo is already in your home folder (e.g. `~/CI-OS`; zip download may create `CI-OS-main`):
-
-```bash
-cd ~/CI-OS/scripts   # or cd ~/CI-OS-main/scripts
-chmod +x ./bootstrap-ci-os.sh
-sudo ./bootstrap-ci-os.sh --yes
-```
-
-Then **reboot** to see Plymouth boot splash and full branding.
-
-**Interactive mode** (prompts before each step and reboot):
-```bash
-cd ~/CI-OS/scripts
-sudo ./bootstrap-ci-os.sh
-```
-
-### What it does (in order)
-
-1. **Headless device setup** — Builds and installs the `setup-device` package (WiFi captive portal). Requires internet for `apt` (dependencies). If behind a captive portal or without internet, apt will fail; bootstrap continues with rebranding—re-run with `--no-rebrand` once connected.
-
-2. **Complete rebranding** — Plymouth boot splash, Chromium as default browser, wallpaper, start icon, MOTD, OS identity. Works offline on a fresh Ubuntu Desktop.
-
-### Options
+Then **reboot** to see the Plymouth boot splash and full branding. Run without
+`--yes` for an interactive mode that prompts before each step and the reboot.
 
 | Option | Description |
 |--------|-------------|
@@ -60,79 +46,301 @@ sudo ./bootstrap-ci-os.sh
 | `--yes`, `-y` | Non-interactive (skip prompts, no reboot) |
 | `--no-reboot` | Skip reboot prompt |
 
-**Reboot** after setup to see Plymouth boot splash changes.
+Steps are idempotent, so a failed run (e.g. no internet for the headless step's
+`apt` dependencies) can simply be re-run.
 
 ---
 
-## Building CI-OS ISOs
+## Interface
 
-Create custom CI-OS ISOs from Ubuntu 24.04 with complete branding, privacy features, and AMD GPU support.
+The only user-facing surface CI-OS ships is the **headless WiFi setup portal** — the
+captive page a new appliance serves over its own access point on first boot, so you can
+hand it your WiFi credentials and pairing code from any phone or laptop. It is one page
+whose several states are driven entirely by the on-device setup backend
+(`/opt/setup-backend/setup_service.py`); the gallery below walks through each of them.
 
-### Quick Start
+It is a **single-theme (dark) captive portal by design** — there is no light mode and no
+theme toggle. It follows the
+[Companion Intelligence design system](https://github.com/companionintelligence/CI-Common/tree/main/style):
+teal `--primary` (`#0f717a`), Montserrat, and the enriched-palette tokens.
+
+> **How these were captured.** The portal HTML/CSS/JS in
+> [`setup/.../var/www/setup-portal/`](setup/headless/setup-device/var/www/setup-portal/)
+> renders offline; each screen was shot headlessly with Playwright. The states below the
+> first one are normally reached in response to the setup backend
+> (`/api/status`, `/api/scan-networks`, `/api/configure`). To capture them without a live
+> appliance, those backend responses were stubbed **only to trigger the portal's own
+> rendering code paths** — the layout, styling, and copy are exactly what the shipped page
+> produces. Sample network names (`Companion-Home`, `Studio-5G`, …) stand in for a real
+> `nmcli` scan. No pixels are hand-drawn or faked.
+
+### First-boot form (pairing required)
+
+The default state on first boot: a pairing-code field, the WiFi-network selector, a
+password field, and **Configure Device**. A background scan runs on load, so the network
+count populates automatically.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-dark.png" alt="CI-OS setup portal — first-boot pairing form (dark)" width="640">
+</p>
+
+### Network scan results
+
+Tapping **Scan** (or the automatic scan on load) fills the selector with nearby networks,
+sorted by signal strength, with the signal percentage beside each SSID.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-networks-dark.png" alt="CI-OS setup portal — expanded scanned-network list (dark)" width="640">
+</p>
+
+### Manual network entry
+
+Choosing **Enter network manually…** reveals a free-text field for hidden or
+out-of-range SSIDs.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-manual-dark.png" alt="CI-OS setup portal — manual SSID entry (dark)" width="640">
+</p>
+
+### No-pairing variant
+
+When the backend reports `require_pairing: false` (via `/api/status`), the pairing-code
+field is hidden and the flow drops straight to network selection.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-nopairing-dark.png" alt="CI-OS setup portal — pairing-not-required variant (dark)" width="640">
+</p>
+
+### Success
+
+After the backend accepts the configuration, the portal shows a success banner and
+counts down to the redirect target (the Portal, `https://portal.ci.computer`) while the
+button shows a **Configuring…** spinner.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-success-dark.png" alt="CI-OS setup portal — configuration success (dark)" width="640">
+</p>
+
+### Error
+
+If configuration fails (bad pairing code, wrong password, backend/network error) the
+portal surfaces an inline error and re-enables the form for another attempt.
+
+<p align="center">
+  <img src="docs/ui/setup-portal-error-dark.png" alt="CI-OS setup portal — configuration error (dark)" width="640">
+</p>
+
+> **Backend-gated / not shown.** CI-OS ships no other rendered UI. Everything else the OS
+> does — the ISO build, the branding scripts, the setup service itself — is CLI/systemd
+> with no graphical surface, so there are no additional screens to capture. The scan-list,
+> success, and error states above require the on-device setup backend at runtime; they are
+> reproduced here from the portal's own render paths, not from a live appliance.
+
+---
+
+## What this repo is
+
+CI-OS is the base operating system for the Companion Intelligence appliance. It is
+**not** a from-scratch distro — it is **Ubuntu 24.04 LTS (Noble)** with:
+
+- a CI-OS identity and teal/dark-green rebrand (GRUB, Plymouth, GDM/GNOME Shell, MOTD, wallpaper, `os-release`),
+- Ubuntu telemetry and bloatware removed,
+- AMD GPU / ROCm support, and
+- the full CI developer + appliance stack (Docker, Node, Ollama, Companion Hub, …) installed automatically on first boot.
+
+Everything is plain **Bash** — there is no Nix, no build system to learn. You pick
+one of the entry-point scripts below depending on *what* you want to customize.
+
+---
+
+## Four ways to customize Ubuntu
+
+| Goal | Entry point | Run on |
+|------|-------------|--------|
+| **A. Ship a branded installer ISO** | [`tools/iso-build/scripts/build-iso.sh`](tools/iso-build/scripts/build-iso.sh) | An Ubuntu 24.04 *build host* |
+| **B. Turn a fresh/existing Ubuntu into a CI appliance** (dev + service stack) | [`scripts/setup-fresh-ubuntu.sh`](scripts/setup-fresh-ubuntu.sh) | The *target* machine, as root |
+| **C. Re-skin a running Ubuntu desktop** (branding only, no packages) | [`setup/os-changes/apply-ci-os-desktop.sh`](setup/os-changes/apply-ci-os-desktop.sh) | The *target* machine, as root |
+| **D. First-time headless WiFi onboarding** (captive portal) | [`setup/headless/build.sh`](setup/headless/build.sh) → `.deb` | The *target* device |
+
+**How A relates to B and C:** the ISO builder (A) bakes the branding (C) directly
+into the squashfs and embeds the provisioning script (B) at
+`/usr/lib/ci-os/bootstrap/`. When someone installs the ISO, two systemd units fire
+on first boot:
+
+- `ci-os-first-boot-rebrand.service` — rewrites `os-release` IDs to `ci-os`.
+- `ci-os-first-boot-setup.service` — runs the embedded `setup-fresh-ubuntu.sh` once (idempotent, network-failure-tolerant) to install the full stack.
+
+So a clean ISO install ends up identical to running B + C by hand. Use B/C directly
+when you want to convert a machine you already have without reimaging it.
+
+---
+
+## Build a branded CI-OS ISO
+
+Produces a bootable, installable `companion-os-<version>-amd64.iso` from a stock
+Ubuntu 24.04 Desktop ISO. This is the primary "customize Ubuntu" workflow.
+
+### Build-host requirements
+
+The build host **must be Ubuntu 24.04 (Noble) with the Yaru theme installed** — the
+branding step extracts the Yaru GNOME Shell gresource from the host, so its version
+must match the target. You also need **~30 GB free** and **root**.
 
 ```bash
-# Download Ubuntu 24.04 base ISO
-wget https://releases.ubuntu.com/24.04/ubuntu-24.04.1-desktop-amd64.iso
-
-# Build CI-OS ISO
-sudo ./tools/iso-build/scripts/build-iso.sh \
-  --base-iso ubuntu-24.04.1-desktop-amd64.iso \
-  --version 1.0
+sudo apt-get install \
+  squashfs-tools xorriso glib2.0-bin libglib2.0-bin \
+  yaru-theme-gnome-shell debootstrap rsync gpg
 ```
 
-Output: `./output/companion-os-1.0-amd64.iso`
+### Quick start
 
-### Features
+```bash
+# 1. Download the Ubuntu 24.04 base ISO (any 24.04.x point release works)
+wget https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso
 
-✅ **Complete Ubuntu Rebrand** - All Ubuntu identity replaced with CI-OS  
-✅ **Privacy First** - Telemetry removed, metrics blocked  
-✅ **AMD GPU Ready** - ROCm installation helper included  
-✅ **Custom Branding** - Dark green theme (#066c80, #00a9a7, #72ddd4)  
-✅ **Developer Tools** - Pre-configured for Docker, Node.js, VS Code  
-✅ **Bootable ISO** - BIOS + UEFI + Secure Boot compatible
+# 2. Build — single entry point, runs as root
+sudo ./tools/iso-build/scripts/build-iso.sh \
+  --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
+```
 
-### Documentation
+Output: `./output/companion-os-1.0-amd64.iso` (+ `SHA256SUMS` / `MD5SUMS`).
 
-- **[ISO Build Guide](docs/guides/iso-build-guide.md)** - Complete build documentation
-- **[Installation Guide](docs/guides/installation-guide.md)** - End-user installation steps
-- **[Quick Start Guide](docs/guides/quick-start-guide.md)** - Get started fast
-- **[Package Repository Setup](docs/guides/package-repository-setup.md)** - Host your own packages
-- **[Tools README](tools/iso-build/README.md)** - Script reference
+`build-iso.sh` runs in two steps: it first builds the `.deb` packages and the
+branded GNOME Shell gresource (`build-packages.sh`), then extracts the base ISO,
+runs [`scripts/customize-chroot.sh`](scripts/customize-chroot.sh) on the rootfs
+(identity, telemetry removal, branding, GRUB, ROCm helper, installer whitelabel,
+MOTD, first-boot bootstrap), and repacks a bootable ISO with `xorriso`.
+
+### Common flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--base-iso PATH` | *(required)* | Path to the Ubuntu 24.04 Desktop ISO |
+| `--output-dir PATH` | `./output` | Where the finished ISO is written |
+| `--work-dir PATH` | `./work` | Scratch space (~25 GB) |
+| `--version VERSION` | `1.0` | CI-OS version embedded in the ISO |
+| `--skip-packages` | off | Reuse existing `.deb`s/gresource (fast iteration on chroot changes only) |
+| `--clean` | off | Wipe the work directory first |
+| `--sign` | off | GPG-sign `SHA256SUMS` / `MD5SUMS` |
+
+Full reference, branding color map, and iterative-dev tips:
+**[`tools/iso-build/README.md`](tools/iso-build/README.md)** and the
+**[ISO Build Guide](docs/guides/iso-build-guide.md)**.
+
+### Features baked into the ISO
+
+✅ **Ubuntu rebranded as CI-OS** — GRUB, Plymouth, GDM/GNOME Shell, MOTD, `os-release`  
+✅ **Privacy first** — telemetry removed, metric endpoints blocked  
+✅ **AMD GPU ready** — ROCm 7.2+ installer helper included  
+✅ **CI teal / dark-green theme** — `#00a9a7`, `#066c80`, `#72ddd4`, `#1b4332`  
+✅ **Full stack on first boot** — Docker, Node (asdf), Ollama, VS Code, Companion Hub  
+✅ **Bootable** — inherits BIOS + UEFI + Secure Boot from the base ISO
 
 ### CI/CD
 
-ISOs are automatically built via GitHub Actions:
-- **Weekly**: Sundays at 2 AM UTC
-- **On Tags**: Push `v*` tag to trigger release
-- **Manual**: Workflow dispatch in Actions tab
+ISOs build automatically via [`.github/workflows/build-companion-os-iso.yml`](.github/workflows/build-companion-os-iso.yml):
 
-See `.github/workflows/build-companion-os-iso.yml` for configuration.
+- **Weekly** — Sundays at 2 AM UTC
+- **On tags** — push a `v*` tag to trigger a release
+- **Manual** — Workflow dispatch (choose version + optional GPG signing)
 
 ---
 
-## Fresh Ubuntu setup
+## Provision a fresh / existing Ubuntu
 
-Use the main setup script to prepare a fresh Ubuntu system with Docker, Node.js (via asdf), Bun, Ollama, GitHub CLI, VS Code, and related tooling:
+Convert any Ubuntu 24.04 machine into a CI appliance without reimaging. This is the
+same script the ISO runs on first boot, so it is **idempotent** — safe to re-run.
+
+For a typical desktop machine, the full setup flow is:
+
+1. Run `scripts/setup-fresh-ubuntu.sh` with `sudo` (this section)
+2. Run `setup/os-changes/apply-ci-os-desktop.sh` with `sudo` ([next section](#apply-ci-desktop-branding-to-a-running-system))
+3. Reboot after both scripts complete
 
 ```bash
+chmod +x ./scripts/setup-fresh-ubuntu.sh
 sudo ./scripts/setup-fresh-ubuntu.sh
 ```
 
-Requires root. See script header and `configs/` for package lists and options.
+Requires root. Installs and configures (in order):
+
+- **Docker** (engine + compose, adds your user to the `docker` group)
+- **uv** (Python), **Homebrew**, **make**
+- **Node.js via asdf** (with corepack/pnpm), sets a global Node version
+- a dedicated **`ci`** service user
+- **GitHub CLI**, **cloudflared**, **Tailscale**
+- **Ollama** (service + pulls default models)
+- **Chromium** and **VS Code** (Snap fallback if apt fails)
+- **Companion Hub** (+ autostart)
+- **telemetry removal** (`scripts/lib/remove-telemetry.sh`)
+- **ROCm / amdgpu** driver (`scripts/install-rocm-driver.sh`, non-fatal) and **LACT** GPU monitor
+- GNOME power profile set to *performance*
+
+After it finishes, log out/in (or `newgrp docker`) so group changes take effect.
+Shared helpers live in [`scripts/lib/`](scripts/lib/); package/tooling details are
+in the script header.
+
+> **Note:** Bun is no longer installed by this script.
+
+---
+
+## Apply CI desktop branding to a running system
+
+Branding only — no packages, no stack. Use this to re-skin a desktop you already
+have. All steps live under `setup/os-changes/common/*.sh` and run in a fixed order:
+**plymouth → dconf → terminal → wallpaper → session → start-icon → os-release → motd** (+ optional **kde**).
+Assets sit beside the script. Dock defaults: **left**, **autohide** (dismissable).
+Reboot once after applying for Plymouth to take effect.
+
+```bash
+# Full apply
+chmod +x ./setup/os-changes/apply-ci-os-desktop.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh
+
+# Reboot after both main setup scripts finish
+sudo reboot
+
+# Interactive: prompts, optional KDE, validation, optional reboot
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard
+
+# CI / non-interactive: full apply + validate (no KDE, no reboot prompt)
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard --yes
+
+# Run only specific steps
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only wallpaper,session
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only plymouth,dconf
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard --yes --with-kde
+
+# Read-only checks (no sudo)
+./setup/os-changes/apply-ci-os-desktop.sh --validate
+```
+
+Session-only tweaks for the current user (no sudo, no system changes):
+[`configs/desktop/gnome-settings.sh`](configs/desktop/gnome-settings.sh).
+
+**Palette:** `#00a9a7`, `#066c80`, `#72ddd4`, `#1b4332` — see the
+**[Dark Green Theme Guide](docs/dark-green-theme-guide.md)**.
+**Assets:** `LogoMark_Color_StartIcon-cropped.svg` (start icon),
+`background.png` → `/usr/share/backgrounds/ci-os-wallpaper.*`,
+`Logo_Banner_Color.png` (Plymouth). The icon/wallpaper steps back up the Ubuntu
+originals under `/usr/share/icons/ubuntu-backup-*` and `/usr/share/backgrounds/ubuntu-backup-*`.
 
 ---
 
 ## Headless device WiFi setup
 
-Headless first-time WiFi setup via a **captive portal**: device broadcasts a hotspot when it has no network; you connect, open the portal, enter a pairing code and WiFi credentials; the device then joins your network and stops the hotspot.
+First-time WiFi onboarding for a headless device via a **captive portal**: the
+device broadcasts a hotspot when it has no network; you connect, open the portal,
+enter a pairing code + WiFi credentials, and the device joins your network and
+stops the hotspot.
 
 ### Stack
 
 - **hostapd** — WiFi AP (SSID: `Companion-Setup`)
-- **dnsmasq** — DHCP (192.168.99.0/24) and DNS redirect for captive portal
-- **nginx** — Serves portal and proxies API
-- **Flask backend** — WiFi scan, config validation, NetworkManager integration
-- **setup-network-monitor** — Starts hotspot when **both** Ethernet and WiFi are disconnected
+- **dnsmasq** — DHCP (192.168.99.0/24) + DNS redirect for the captive portal
+- **nginx** — serves the portal and proxies the API
+- **Flask backend** — WiFi scan, validation, NetworkManager integration
+- **setup-network-monitor** — starts the hotspot when **both** Ethernet and WiFi are down
 
 ### Build and install
 
@@ -145,169 +353,97 @@ sudo dpkg -i setup-device_*.deb
 Verify:
 
 ```bash
-systemctl status setup-backend.service setup-network-monitor.service hostapd-setup.service dnsmasq-setup.service nginx.service
+systemctl status setup-backend.service setup-network-monitor.service \
+  hostapd-setup.service dnsmasq-setup.service nginx.service
 sudo cat /etc/setup-device/pairing_code.json
 ```
 
 ### Quick usage
 
 1. **Hotspot:** `Companion-Setup` — password: `SetupDevice123`
-2. **Portal:** https://setup.ci.computer or http://192.168.99.1 (captive portal may open automatically)
-3. **Pairing code:** Device code in `/etc/setup-device/pairing_code.json`, or test code `abc-123` (always accepted)
-4. **Form:** Select WiFi, enter password, submit. Device connects and stops the hotspot.
+2. **Portal:** https://setup.ci.computer or http://192.168.99.1 (may open automatically)
+3. **Pairing code:** from `/etc/setup-device/pairing_code.json`, or test code `abc-123` (always accepted)
+4. **Form:** pick WiFi, enter password, submit. The device connects and stops the hotspot.
 
-| Setting        | Value                    |
-|----------------|--------------------------|
-| Gateway        | 192.168.99.1             |
-| DHCP range     | 192.168.99.10–250        |
-| Portal URL     | https://setup.ci.computer |
+| Setting | Value |
+|---------|-------|
+| Gateway | 192.168.99.1 |
+| DHCP range | 192.168.99.10–250 |
+| Portal URL | https://setup.ci.computer |
 
-### When the hotspot starts
+**Key paths:** config in `/etc/{hostapd,dnsmasq.d,nginx,setup-device}/`;
+backend `/opt/setup-backend/setup_service.py`; portal `/var/www/setup-portal/`;
+completion flag `/var/lib/setup-device/setup-complete`.
 
-- **Automatic:** `setup-network-monitor.service` starts the hotspot when **both** Ethernet and WiFi are disconnected (checks every ~3 s; typically ~6 s after disconnect).
-- **Manual trigger:** Disconnect all connections, wait ~10 s, or start services by hand:
-
-```bash
-sudo nmcli connection down --active
-# wait ~10 s for monitor to start hotspot
-
-# Or manual start (if config already in place):
-sudo systemctl start hostapd-setup.service
-sudo systemctl start dnsmasq-setup.service
-```
-
-### Key paths
-
-- Config: `/etc/hostapd/`, `/etc/dnsmasq.d/`, `/etc/nginx/`, `/etc/setup-device/`
-- Backend: `/opt/setup-backend/setup_service.py`
-- Portal: `/var/www/setup-portal/`
-- Completion flag: `/var/lib/setup-device/setup-complete`
-- Pairing code: `/etc/setup-device/pairing_code.json`
-
-### Troubleshooting
-
-- **Hotspot not visible:** Ensure both Ethernet and WiFi are disconnected; check `journalctl -u setup-network-monitor.service -u hostapd-setup.service -n 30`.
-- **Portal unreachable:** Confirm `192.168.99.1` on the WiFi interface (`ip addr`), and that `dnsmasq-setup` and `nginx` are running.
-- **Reset and re-run setup:** `sudo rm /var/lib/setup-device/setup-complete` then restart `setup-network-monitor.service` (and optionally nginx, setup-backend). Disconnect network and wait for hotspot.
-
----
-
-## Ubuntu branding (wallpaper & start icon)
-
-Scripts in `setup/os-changes/` apply CI OS branding on Ubuntu (GNOME/Yaru). They use files in the same directory; the repo is intended to be moved as a whole, so no path prompts.
-
-### Complete system rebranding (recommended)
-
-**One-command rebranding:** Applies all CI OS branding in the correct order.
+**When the hotspot starts:** `setup-network-monitor.service` checks every ~3 s and
+brings the hotspot up ~6 s after both interfaces disconnect. To trigger manually:
 
 ```bash
-sudo ./setup/os-changes/complete-rebranding.sh
+sudo nmcli connection down --active      # wait ~10 s for the monitor, or:
+sudo systemctl start hostapd-setup.service dnsmasq-setup.service
 ```
 
-This master script runs all rebranding steps automatically:
-1. Plymouth boot splash and GNOME/KDE theme
-2. OS identity (/etc/os-release)
-3. MOTD customization
-4. Wallpaper installation
-5. Start icon replacement
-6. Validation checks
-
-**Requires reboot** for boot splash changes to take effect.
-
-### Manual/individual scripts
-
-Apply comprehensive CI OS branding including Plymouth boot splash, login screen, wallpaper, start icon, and dark green theme throughout the system.
-
-```bash
-sudo ./setup/os-changes/set-ci-branding.sh
-```
-
-**Official CI Dark Green Color Scheme:**
-- Primary Dark Green: `#066c80` (backgrounds, window frames, selection)
-- Medium Green: `#00a9a7` (highlights, links, buttons)
-- Light Green: `#72ddd4` (accents, text highlights)
-
-**Additional individual scripts:**
-- `sudo ./setup/os-changes/set-chromium-default.sh` - Install Chromium and set as default browser
-- `sudo ./setup/os-changes/update-os-release.sh` - Update OS identity
-- `sudo ./setup/os-changes/setup-ci-motd.sh` - Customize MOTD
-- `sudo ./setup/os-changes/validate-ci-theme.sh` - Validate theming
-- `./setup/os-changes/install-kde-theme.sh` - Install KDE Plasma theme (for KDE users)
-
-### Start icon (Show Apps button)
-
-Replaces the Ubuntu “Show Apps” / Activities icon with the CI OS icon in all Yaru theme variants.
-
-```bash
-sudo ./setup/os-changes/replace-start-icon.sh
-```
-
-- Uses: `setup/os-changes/LogoMark_Color_StartIcon-cropped.svg`
-- Target: `start-here-symbolic.svg` in each `/usr/share/icons/Yaru*/scalable/places/`
-- **Apply changes:** Log out and back in, or Alt+F2 → `r` → Enter to restart GNOME Shell
-
-### Wallpaper
-
-Sets the current user’s desktop background and system-wide default for new users.
-
-```bash
-sudo ./setup/os-changes/replace-wallpaper.sh
-```
-
-- Uses: `setup/os-changes/background.png`
-- Copies to: `/usr/share/backgrounds/ci-os-wallpaper.png`
-- Sets `picture-uri` and `picture-uri-dark` via gsettings (and dconf for new users)
-
-Both scripts create timestamped backups under `/usr/share/icons/ubuntu-backup-*` and `/usr/share/backgrounds/ubuntu-backup-*`.
+**Reset and re-run:** `sudo rm /var/lib/setup-device/setup-complete`, restart
+`setup-network-monitor.service`, then disconnect the network. Full walkthrough:
+[`docs/Create-headless-setup.md`](docs/Create-headless-setup.md).
 
 ---
 
 ## Repo layout
 
 ```
-├── .github/
-│   └── workflows/         # CI/CD: build-companion-os-iso.yml
-├── assets/                # Logos, wallpapers, branding
-├── configs/               # Boot, desktop, packages, preseed, scripts
+├── .github/workflows/        # CI/CD: build-companion-os-iso.yml
+├── assets/                    # Logos, wallpapers, theme assets
+├── config/
+│   └── packages.chroot/       # Legacy live-build staging (stale — see tools README)
+├── configs/                   # Boot, desktop, packages, preseed, post-install scripts
+│   ├── boot/                  # grub-default
+│   ├── desktop/               # CI-OS-Dark.colors, gnome-settings.sh (session-only)
+│   ├── packages/              # package-list.txt
+│   ├── preseed/               # ci-os.preseed
+│   └── scripts/               # ci-os-customization.sh (Cubic-style post-install)
 ├── docs/
-│   └── guides/            # ISO build, installation, quick start, repository setup
-├── packages/              # .deb package sources
+│   ├── guides/                # ISO build, installation, quick start, repo setup, GDM branding
+│   └── *.md                   # theme guide, headless setup, quick reference, impl summary
+├── packages/                  # .deb sources
+│   ├── ci-os-branding/        # Branded GNOME Shell gresource (regenerated by build)
 │   ├── companion-os-base/
 │   ├── companion-os-keyring/
 │   ├── companion-agents/
 │   └── companion-memory/
-├── scripts/               # setup-fresh-ubuntu.sh, libs
+├── scripts/
+│   ├── setup-fresh-ubuntu.sh  # B: provision a machine / first-boot bootstrap
+│   ├── customize-chroot.sh    # called by the ISO builder against the rootfs
+│   ├── install-rocm-driver.sh # AMD ROCm/amdgpu (standalone or hooked)
+│   └── lib/                   # shared helpers (docker, nodejs, ollama, postgres, os-release, telemetry)
 ├── setup/
-│   ├── headless/          # Headless WiFi setup: build, deb, portal, backend
-│   └── os-changes/        # replace-start-icon.sh, replace-wallpaper.sh, assets
-├── tools/
-│   └── iso-build/         # ISO building tools and scripts
-│       ├── scripts/       # build-iso.sh, customize-chroot.sh, build-packages.sh
-│       └── README.md      # Tools documentation
-└── README.md              # This file
+│   ├── os-changes/            # C: apply-ci-os-desktop.sh + common/*.sh + assets
+│   ├── headless/              # D: captive-portal WiFi onboarding (build.sh → .deb)
+│   ├── CI-OS-Hub-Setup/       # install-or-update-hub.sh + staging env notes
+│   └── CI-Server/             # Server staging env notes
+└── tools/
+    └── iso-build/             # A: build-iso.sh, build-packages.sh, gresource + repo helpers
+        ├── scripts/
+        └── README.md          # ISO build + branding reference
 ```
 
 ---
 
 ## Documentation
 
-### For Users
+### Building & installing
+- **[ISO Build Guide](docs/guides/iso-build-guide.md)** — build custom ISOs
+- **[Tools README](tools/iso-build/README.md)** — script reference, branding color map, iterative dev
+- **[Installation Guide](docs/guides/installation-guide.md)** — install CI-OS
+- **[Quick Start Guide](docs/guides/quick-start-guide.md)** — get going fast
 
-- **[Installation Guide](docs/guides/installation-guide.md)** - How to install CI-OS
-- **[Quick Start Guide](docs/guides/quick-start-guide.md)** - Get up and running fast
+### Branding & theming
+- **[Dark Green Theme Guide](docs/dark-green-theme-guide.md)** — palette, assets, dconf
+- **[GDM Branding Package](docs/guides/gdm-branding-package.md)** — how the gresource is built
 
-### For Developers
-
-- **[ISO Build Guide](docs/guides/iso-build-guide.md)** - Build custom ISOs
-- **[Package Repository Setup](docs/guides/package-repository-setup.md)** - Host package repo
-- **[Tools README](tools/iso-build/README.md)** - Script reference and customization
-
-### Features
-
-- **No Ads, No Surveillance** - Privacy-first computing
-- **AMD GPU Support** - ROCm 7.2+ for AI workloads
-- **Developer Ready** - Docker, Node.js, VS Code, Ollama included
-- **Sovereign Computing** - Your data, your control
+### Devices & packages
+- **[Headless Setup Guide](docs/Create-headless-setup.md)** — captive-portal onboarding
+- **[Package Repository Setup](docs/guides/package-repository-setup.md)** — host your own `.deb` repo
 
 ---
 
@@ -317,3 +453,5 @@ Both scripts create timestamped backups under `/usr/share/icons/ubuntu-backup-*`
 - **Website**: https://ci.computer
 
 © Companion Intelligence — Lifescope Inc
+</content>
+</invoke>

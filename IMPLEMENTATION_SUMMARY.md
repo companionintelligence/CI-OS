@@ -29,47 +29,15 @@
 
 ## Deliverables
 
-### 1. Production Scripts (11 Total)
+### 1. Production Scripts (single entry + `common/`)
 
-#### Master Installation
-- **complete-rebranding.sh** - One-command orchestration of all rebranding steps
-  - Runs all scripts in correct order
-  - Interactive with user confirmation
-  - Automatic reboot prompt
-  - Comprehensive logging
+- **`setup/os-changes/apply-ci-os-desktop.sh`** — only orchestrator beside `common/`
+  - Default: ordered apply (Plymouth, dconf, wallpaper, session GNOME, start icon, `/etc/os-release`, MOTD)
+  - `--only step,...` for partial runs (includes optional `kde`)
+  - `--validate` runs `common/80-validate-ci-theme.sh`
+  - `--wizard` for interactive flow (optional KDE, validate, reboot prompt); `--yes` for automation
 
-#### Core Components
-- **set-ci-branding.sh** - Plymouth + GNOME theme + wallpaper + colors
-  - Plymouth boot splash with dark green (#066c80)
-  - GNOME/GDM theme configuration
-  - Wallpaper installation
-  - Start icon replacement (calls existing script)
-  - Color scheme application
-
-- **update-os-release.sh** - OS identity updater
-  - Updates `/etc/os-release` → "CI OS 0.0.1"
-  - Updates `/etc/lsb-release`
-  - Sets proper CI OS identity
-
-- **setup-ci-motd.sh** - MOTD customization
-  - Disables Ubuntu news/ads
-  - Creates CI OS welcome banner
-  - Removes promotional content
-
-- **install-kde-theme.sh** - KDE Plasma support
-  - Installs CI-OS-Dark.colors
-  - Applies theme to KDE
-  - Wallpaper configuration
-
-- **validate-ci-theme.sh** - Automated validation
-  - 10 comprehensive checks
-  - Pass/Fail/Warning system
-  - Detailed reporting
-  - Troubleshooting guidance
-
-#### Existing Scripts (Enhanced)
-- **replace-start-icon.sh** - Start menu icon (existing, now called by master)
-- **replace-wallpaper.sh** - Wallpaper installer (existing, now called by master)
+- **`setup/os-changes/common/*.sh`** — one job per file (`10`–`60` steps, `65` KDE, `80` validate) plus `lib.sh` and `gnome-defaults.inc.sh`
 
 ### 2. Configuration Files
 
@@ -206,7 +174,7 @@ gtk-theme="Yaru-prussiangreen-dark"
 ## Quality Assurance
 
 ### Validation Framework
-- ✅ Automated validation script (validate-ci-theme.sh)
+- ✅ Automated validation (`apply-ci-os-desktop.sh --validate` / `common/80-validate-ci-theme.sh`)
 - ✅ 10 comprehensive checks
 - ✅ Pass/Fail/Warning reporting
 - ✅ Troubleshooting guidance
@@ -237,13 +205,13 @@ gtk-theme="Yaru-prussiangreen-dark"
 # On Ubuntu 24.04 system
 git clone https://github.com/companionintelligence/CI-OS.git
 cd CI-OS
-sudo ./setup/os-changes/complete-rebranding.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh
 sudo reboot
 ```
 
 ### Validation
 ```bash
-./setup/os-changes/validate-ci-theme.sh
+./setup/os-changes/apply-ci-os-desktop.sh --validate
 ```
 
 ### ISO Building
@@ -251,7 +219,7 @@ sudo reboot
 # Using Cubic (GUI)
 sudo apt install cubic
 cubic
-# Select Ubuntu 24.04 ISO, run complete-rebranding.sh in chroot
+# Select Ubuntu 24.04 ISO, run apply-ci-os-desktop.sh (or --wizard) in chroot
 
 # Using GitHub Actions
 # Trigger workflow: .github/workflows/build-companion-os-iso.yml
@@ -261,28 +229,11 @@ cubic
 
 ## File Changes Summary
 
-### Modified Files (8)
-1. `assets/branding/brand-guidelines.md` - Color palette update
-2. `configs/desktop/gnome-settings.sh` - Dark green colors
-3. `setup/os-changes/set-ci-branding.sh` - Official colors applied
-4. `README.md` - Complete documentation update
-5. `setup/os-changes/replace-start-icon.sh` - Integration
-6. `setup/os-changes/replace-wallpaper.sh` - Integration
+### Current layout (`setup/os-changes/`)
 
-### Created Files (11)
-1. `configs/desktop/CI-OS-Dark.colors` - KDE theme
-2. `setup/os-changes/complete-rebranding.sh` - Master installer
-3. `setup/os-changes/validate-ci-theme.sh` - Validation
-4. `setup/os-changes/install-kde-theme.sh` - KDE support
-5. `setup/os-changes/update-os-release.sh` - OS identity
-6. `setup/os-changes/setup-ci-motd.sh` - MOTD setup
-7. `docs/dark-green-theme-guide.md` - Implementation guide
-8. `docs/iso-build-guide.md` - ISO building guide
-9. `docs/quick-reference.md` - Quick reference
-10. `.github/workflows/build-companion-os-iso.yml` - Build automation
-11. `IMPLEMENTATION_SUMMARY.md` - This file
-
-**Total:** 19 files (8 modified, 11 created)
+- **`apply-ci-os-desktop.sh`** — public entry
+- **`common/`** — numbered step scripts, KDE, validation, shared `lib.sh` / `gnome-defaults.inc.sh`
+- Legacy per-task scripts at repo root of `os-changes/` were removed; use `--only` or `--wizard` instead.
 
 ---
 
@@ -345,7 +296,7 @@ From original issue checklist:
 1. **Test on Ubuntu 24.04**
    ```bash
    # Install Ubuntu 24.04 in VM
-   # Run complete-rebranding.sh
+   # Run apply-ci-os-desktop.sh
    # Validate all visual elements
    ```
 

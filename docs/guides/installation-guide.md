@@ -428,7 +428,7 @@ System Settings → Appearance → Background
 Or use the existing wallpaper replacement script (from the repository root):
 
 ```bash
-sudo ./setup/os-changes/replace-wallpaper.sh
+sudo ./setup/os-changes/apply-ci-os-desktop.sh --only wallpaper
 ```
 
 #### Install Additional Themes

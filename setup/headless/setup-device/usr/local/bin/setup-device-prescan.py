@@ -54,6 +54,8 @@ def parse_iw_scan(output: str) -> list[dict]:
             try:
                 current['signal'] = int(float(s.split()[1]))
             except (ValueError, IndexError):
+                # Malformed or missing signal token on this line is expected for some
+                # scan entries; keep the default signal of 0 and continue parsing.
                 pass
         elif s.startswith('SSID:'):
             current['ssid'] = s[5:].strip() or '(hidden)'

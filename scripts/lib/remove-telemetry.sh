@@ -8,7 +8,7 @@
 # Can be run standalone or invoked from setup-fresh-ubuntu.sh.
 #
 # Usage:
-#   sudo ./scripts/remove-telemetry.sh
+#   sudo ./scripts/lib/remove-telemetry.sh
 #
 # Requires root. When run standalone without root, exits with error.
 #=============================================================================

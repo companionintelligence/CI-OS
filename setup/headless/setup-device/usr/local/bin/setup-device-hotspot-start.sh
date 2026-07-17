@@ -11,6 +11,7 @@ DATA_DIR="/var/lib/setup-device"
 SSID_SUFFIX_FILE="$DATA_DIR/ssid-suffix"
 HOSTAPD_CONF="/etc/hostapd/hostapd-setup.conf"
 DNSMASQ_CONF="/etc/dnsmasq.d/setup-portal.conf"
+WIFI_IFACE=""
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | systemd-cat -t setup-hotspot-start -p info
@@ -47,6 +48,54 @@ generate_ssid_suffix() {
     printf "%04X" $((RANDOM % 65536))
 }
 
+recover_wifi_radio() {
+    # AP mode can fail after client/AP transitions if radio is soft-blocked or NM leaves interface in a bad state.
+    rfkill unblock wifi 2>/dev/null || true
+    nmcli radio wifi on 2>/dev/null || true
+    ip link set "${WIFI_IFACE}" up 2>/dev/null || true
+}
+
+stop_companion_hub_traefik() {
+    # Stop only Traefik reverse proxy to free port 80/443 for captive portal
+    # Keep Hub backend running so setup can still communicate with it for device registration
+    if command -v docker >/dev/null 2>&1; then
+        if docker ps 2>/dev/null | grep -q "traefik" 2>/dev/null; then
+            log "Pausing Traefik to free port 80/443 for captive portal (keeping Hub backend running)..."
+            docker stop traefik 2>/dev/null || true
+            sleep 2  # Give port time to be fully released
+            log "Traefik paused - Hub backend still available for device registration"
+        fi
+    fi
+}
+
+start_nginx_captive_portal() {
+    # Start nginx to serve captive portal on port 80 (now that Hub is stopped)
+    log "Starting nginx for captive portal on port 80..."
+    if systemctl start nginx.service; then
+        log "✓ Nginx started successfully for captive portal"
+    else
+        log "Warning: Failed to start nginx - captive portal may not be accessible"
+    fi
+}
+
+start_hostapd_with_retry() {
+    log "Starting hostapd-setup.service..."
+    if systemctl start hostapd-setup.service; then
+        return 0
+    fi
+
+    log "hostapd start failed on first attempt; applying radio recovery and retrying once"
+    systemctl stop hostapd-setup.service 2>/dev/null || true
+    recover_wifi_radio
+    sleep 1
+
+    if systemctl start hostapd-setup.service; then
+        return 0
+    fi
+
+    return 1
+}
+
 log "Starting hotspot setup sequence..."
 
 # Step 1: Detect WiFi interface
@@ -56,6 +105,14 @@ if [ -z "$WIFI_IFACE" ]; then
     log "ERROR: No WiFi interface found"
     exit 1
 fi
+
+# Pause Traefik to free port 80/443 for captive portal (Hub backend stays running)
+stop_companion_hub_traefik
+sleep 1
+
+# Start nginx to serve captive portal on freed port 80
+start_nginx_captive_portal
+sleep 1
 
 # Step 2: Unblock WiFi (rfkill)
 if command -v rfkill &>/dev/null; then
@@ -150,6 +207,7 @@ if command -v nmcli &>/dev/null; then
     nmcli device disconnect "$WIFI_IFACE" 2>/dev/null || true
     sleep 1
 fi
+recover_wifi_radio
 
 # Step 7: Reset WiFi interface (disconnect from any existing connection)
 log "Resetting WiFi interface $WIFI_IFACE..."
@@ -177,9 +235,10 @@ fi
 log "Assigning static IP 192.168.99.1/24..."
 ip addr add 192.168.99.1/24 dev "$WIFI_IFACE" 2>/dev/null || log "Warning: Could not assign IP (may already exist)"
 
-# Step 9: Start hostapd
-log "Starting hostapd-setup.service..."
-systemctl start hostapd-setup.service
+# Step 9: Start hostapd (with one-shot recovery retry)
+if ! start_hostapd_with_retry; then
+    log "✗ hostapd-setup.service failed to start after retry"
+fi
 sleep 2
 
 # Step 10: Start dnsmasq
