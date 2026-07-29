@@ -1469,6 +1469,16 @@ main "$@"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "${SCRIPT_DIR}/install-rocm-driver.sh" || log_warning "install-rocm-driver.sh failed or was skipped; run it manually after fixing GPU/repo issues."
 
+# Hook: tune AMD Strix Halo unified-memory boot params (iommu=pt, amdgpu.gttsize,
+# ttm.pages_limit). Runs at first-boot/provisioning time (not ISO build time)
+# because it depends on detecting the *target* hardware (CPU model / rocminfo)
+# and total RAM, neither of which is known when the ISO is built. Standalone
+# script; can also be run directly: ./scripts/lib/strix-halo-boot-params.sh
+# Gated on confidently-detected Strix Halo-class hardware + large RAM (see
+# script header); no-ops on everything else. Idempotent — safe to re-run.
+# Non-fatal: a GRUB/detection hiccup here should not fail the rest of setup.
+bash "${SCRIPT_DIR}/lib/strix-halo-boot-params.sh" || log_warning "strix-halo-boot-params.sh failed or was skipped; run it manually to enable large-GTT boot params on Strix Halo hardware."
+
 # Install LACT GPU monitor (latest release from GitHub)
 install_lact() {
     if command_exists lact; then
