@@ -133,6 +133,16 @@ fi
 
 current_value="$(sed -E 's/^GRUB_CMDLINE_LINUX_DEFAULT="(.*)"$/\1/' <<< "$current_line")"
 
+# Guard against formats the extraction above can't actually handle (e.g.
+# single-quoted GRUB_CMDLINE_LINUX_DEFAULT='...'). If the line isn't in the
+# expected double-quoted form, the sed above is a no-op and current_value
+# would silently become the entire raw line, which we must not tokenize and
+# re-wrap. Refuse to guess, same as the missing-line case above.
+if [[ "$current_line" != "GRUB_CMDLINE_LINUX_DEFAULT=\"${current_value}\"" ]]; then
+  echo "[-] ${GRUB_DEFAULT_FILE}'s GRUB_CMDLINE_LINUX_DEFAULT line is not in the expected double-quoted format; refusing to guess a format: ${current_line}" >&2
+  exit 1
+fi
+
 # Idempotent rebuild: drop any tokens we manage (from a prior run, possibly
 # with stale RAM-based values), keep everything else untouched, then append
 # the freshly computed set.
