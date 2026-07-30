@@ -246,6 +246,7 @@ Requires root. Installs and configures (in order):
 - **Companion Hub** (+ autostart)
 - **telemetry removal** (`scripts/lib/remove-telemetry.sh`)
 - **ROCm / amdgpu** driver (`scripts/install-rocm-driver.sh`, non-fatal) and **LACT** GPU monitor
+- **Strix Halo unified-memory boot params** (`scripts/lib/strix-halo-boot-params.sh`, non-fatal) — see note below
 - GNOME power profile set to *performance*
 
 After it finishes, log out/in (or `newgrp docker`) so group changes take effect.
@@ -253,6 +254,20 @@ Shared helpers live in [`scripts/lib/`](scripts/lib/); package/tooling details a
 in the script header.
 
 > **Note:** Bun is no longer installed by this script.
+
+> **AMD Strix Halo (Ryzen AI Max) unified memory.** On confidently-detected
+> Strix Halo-class hardware (Ryzen AI Max / gfx1151 / Radeon 8060S) with a
+> large-RAM configuration, setup adds `iommu=pt amdgpu.gttsize=<N>
+> ttm.pages_limit=<M>` to `GRUB_CMDLINE_LINUX_DEFAULT` so the amdgpu driver
+> can address most of system RAM as GPU-visible GTT memory instead of a small
+> fixed VRAM carve-out — needed for local-LLM/ROCm/Vulkan workloads on these
+> unified-memory APUs. `<N>`/`<M>` scale with total RAM; see the script
+> header for the exact formula. It's a no-op on everything else, and a
+> **reboot is required** for the new boot params to take effect. This only
+> covers the OS/kernel side — the BIOS-side integrated-graphics UMA/VGM
+> framebuffer size also matters and can't be set from software; set it to
+> its smallest option (e.g. 1 GiB) in firmware setup rather than a large
+> static carve-out.
 
 ---
 
