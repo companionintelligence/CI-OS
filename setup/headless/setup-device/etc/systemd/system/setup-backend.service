@@ -8,7 +8,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/setup-backend
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 /opt/setup-backend/setup_service.py
+ExecStart=/usr/bin/gunicorn --bind 127.0.0.1:5000 --workers 1 --threads 2 --timeout 120 --access-logfile - --error-logfile - setup_service:app
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal

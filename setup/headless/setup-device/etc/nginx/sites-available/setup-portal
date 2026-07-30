@@ -16,24 +16,39 @@ server {
     add_header X-XSS-Protection "1; mode=block" always;
     add_header Referrer-Policy "no-referrer" always;
 
-    # Captive portal detection - redirect to setup portal
-    # Apple iOS
+    # Captive portal detection (CDC) - redirect to setup portal so OS auto-opens it
+    # Use gateway IP (192.168.99.1) for reliability - avoids DNS delays on first connect
+    # Apple iOS/macOS: captive.apple.com/hotspot-detect.html
     location /hotspot-detect.html {
-        return 302 http://setup.ci.computer/;
+        return 302 http://192.168.99.1/;
     }
 
-    # Microsoft Windows
+    # Microsoft Windows 10+: www.msftconnecttest.com/connecttest.txt
+    location /connecttest.txt {
+        return 302 http://192.168.99.1/;
+    }
+    # Microsoft Windows (legacy): ncsi.txt
     location /ncsi.txt {
-        return 302 http://setup.ci.computer/;
+        return 302 http://192.168.99.1/;
     }
 
-    # Android
+    # Android: connectivitycheck.gstatic.com/generate_204 (expects 204; redirect = captive)
     location /generate_204 {
-        return 302 http://setup.ci.computer/;
+        return 302 http://192.168.99.1/;
     }
 
-    # Generic captive detection fallback
+    # Firefox: detectportal.firefox.com/canonical.html and success.txt
+    location = /canonical.html {
+        return 302 http://192.168.99.1/;
+    }
+    location = /success.txt {
+        return 302 http://192.168.99.1/;
+    }
+
+    # Main portal page - no cache so captive sheet always gets fresh content
     location = / {
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
+        add_header Pragma "no-cache";
         try_files $uri $uri/ /index.html;
     }
 
@@ -46,12 +61,31 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 
-    # Static files
+    # Static files and SPA fallback - no cache for portal
     location / {
+        add_header Cache-Control "no-store, no-cache, must-revalidate";
         try_files $uri $uri/ /index.html;
     }
 
     # Logging
     access_log /var/log/nginx/setup-portal-access.log;
     error_log /var/log/nginx/setup-portal-error.log;
+}
+
+# CI OS Hub proxy - setup.ci.computer:5002 -> Hub (when on setup network)
+server {
+    listen 5002;
+    listen [::]:5002;
+    server_name setup.ci.computer _;
+
+    location / {
+        proxy_pass http://127.0.0.1:5002;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }

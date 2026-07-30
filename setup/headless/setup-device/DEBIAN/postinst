@@ -59,8 +59,13 @@ echo "Final systemd daemon reload..."
 systemctl daemon-reload
 sleep 1
 
-# Make network monitor script executable
+# Make scripts executable
 chmod 755 /usr/local/bin/setup-network-monitor.sh 2>/dev/null || true
+chmod 755 /usr/local/bin/setup-device-hotspot-start.sh 2>/dev/null || true
+chmod 755 /usr/local/bin/setup-device-prescan.py 2>/dev/null || true
+chmod 755 /usr/local/bin/setup-wifi-recover 2>/dev/null || true
+chmod 755 /usr/local/bin/ci-os-hub-start.sh 2>/dev/null || true
+chmod 755 /usr/local/bin/ci-os-post-validation.sh 2>/dev/null || true
 
 # Create required directories
 mkdir -p /var/lib/setup-device
@@ -114,7 +119,7 @@ fi
 echo "Validating nginx configuration..."
 if nginx -t; then
     echo "✓ Nginx configuration is valid"
-    
+
     # Check if port 80 is already in use (e.g., by Companion Hub)
     if ss -tlnp 2>/dev/null | grep -q ':80 '; then
         echo "Info: Port 80 is already in use (likely Companion Hub)"
@@ -140,24 +145,20 @@ echo "Starting backend service..."
 if systemctl start setup-backend.service; then
     echo "✓ Backend service started successfully"
 else
-    echo "ERROR: Failed to start setup-backend.service"
-    echo "Debug info:"
+    echo "WARNING: Failed to start setup-backend.service (continuing - network monitor is independent)"
     systemctl status setup-backend.service 2>&1 || true
-    journalctl -u setup-backend.service -n 20 --no-pager 2>&1 || true
-    exit 1
+    journalctl -u setup-backend.service -n 10 --no-pager 2>&1 || true
 fi
 sleep 2
 
-# Start network monitor (this is critical - it manages hotspot startup)
+# Start network monitor (critical - manages hotspot when no connectivity; independent of backend)
 echo "Starting network monitor service..."
 if systemctl start setup-network-monitor.service; then
     echo "✓ Network monitor service started successfully"
 else
-    echo "ERROR: Failed to start setup-network-monitor.service"
-    echo "Debug info:"
+    echo "WARNING: Failed to start setup-network-monitor.service (package install will complete)"
+    echo "Debug: systemctl status setup-network-monitor.service"
     systemctl status setup-network-monitor.service 2>&1 || true
-    journalctl -u setup-network-monitor.service -n 20 --no-pager 2>&1 || true
-    exit 1
 fi
 sleep 1
 

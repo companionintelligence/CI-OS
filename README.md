@@ -13,13 +13,41 @@
 
 1. [Interface](#interface)
 2. [What this repo is](#what-this-repo-is)
-3. [Four ways to customize Ubuntu](#four-ways-to-customize-ubuntu)
-4. [Build a branded CI-OS ISO](#build-a-branded-ci-os-iso)
-5. [Provision a fresh / existing Ubuntu](#provision-a-fresh--existing-ubuntu)
-6. [Apply CI desktop branding to a running system](#apply-ci-desktop-branding-to-a-running-system)
-7. [Headless device WiFi setup](#headless-device-wifi-setup)
-8. [Repo layout](#repo-layout)
-9. [Documentation](#documentation)
+3. [One-command setup (flashed Ubuntu)](#one-command-setup-flashed-ubuntu)
+4. [Four ways to customize Ubuntu](#four-ways-to-customize-ubuntu)
+5. [Build a branded CI-OS ISO](#build-a-branded-ci-os-iso)
+6. [Provision a fresh / existing Ubuntu](#provision-a-fresh--existing-ubuntu)
+7. [Apply CI desktop branding to a running system](#apply-ci-desktop-branding-to-a-running-system)
+8. [Headless device WiFi setup](#headless-device-wifi-setup)
+9. [Repo layout](#repo-layout)
+10. [Documentation](#documentation)
+
+---
+
+## One-command setup (flashed Ubuntu)
+
+On a machine freshly flashed with Ubuntu, `scripts/bootstrap-ci-os.sh` wraps the
+[fresh-Ubuntu provisioning](#provision-a-fresh--existing-ubuntu) and
+[desktop branding](#apply-ci-desktop-branding-to-a-running-system) steps below,
+plus the [headless WiFi setup](#headless-device-wifi-setup) package, into a single
+command:
+
+```bash
+git clone https://github.com/companionintelligence/CI-OS.git && cd CI-OS && sudo ./scripts/bootstrap-ci-os.sh --yes
+```
+
+Then **reboot** to see the Plymouth boot splash and full branding. Run without
+`--yes` for an interactive mode that prompts before each step and the reboot.
+
+| Option | Description |
+|--------|-------------|
+| `--no-headless` | Skip headless WiFi setup |
+| `--no-rebrand` | Skip branding |
+| `--yes`, `-y` | Non-interactive (skip prompts, no reboot) |
+| `--no-reboot` | Skip reboot prompt |
+
+Steps are idempotent, so a failed run (e.g. no internet for the headless step's
+`apt` dependencies) can simply be re-run.
 
 ---
 

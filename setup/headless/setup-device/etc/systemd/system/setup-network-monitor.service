@@ -1,7 +1,8 @@
 [Unit]
 Description=Setup Device Network Monitor
-After=network-online.target
-Wants=network-online.target
+# Use network.target - network-online can hang on first boot with no connectivity.
+# Monitor must start to detect no connectivity and launch hotspot.
+After=network.target
 
 [Service]
 Type=simple

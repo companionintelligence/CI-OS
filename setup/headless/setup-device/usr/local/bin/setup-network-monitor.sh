@@ -6,10 +6,12 @@ CHECK_INTERVAL=3   # Check every 3 seconds (aggressive)
 FAILURE_THRESHOLD=2  # Start hotspot after 2 failed connectivity checks (~6 seconds)
 BOOT_DISCOVERY_GRACE_SECONDS=45  # Allow boot-time WiFi discovery/auto-connect before AP fallback
 SCAN_READY_MIN_SSIDS=1
+START_BACKOFF_SEC=45  # After failed start, wait 45s before retrying (avoids constant restart loop)
 
 fail_count=0
 hotspot_active=false
 boot_started_at=$(date +%s)
+last_start_fail_time=0
 
 log() {
     echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | systemd-cat -t setup-network-monitor -p info
@@ -97,40 +99,36 @@ should_delay_hotspot_during_boot() {
 }
 
 start_hotspot() {
-    # Derive effective state from real service status in case services were started externally.
-    if systemctl is-active --quiet hostapd-setup.service && systemctl is-active --quiet dnsmasq-setup.service; then
+    if [ "$hotspot_active" = true ]; then
+        return 0
+    fi
+    # Sync state: if services are already running externally, we're good (avoids restart loop)
+    if systemctl is-active --quiet hostapd-setup.service 2>/dev/null && systemctl is-active --quiet dnsmasq-setup.service 2>/dev/null; then
+        log "Hostapd/dnsmasq already active - syncing state"
         hotspot_active=true
+        return 0
     fi
-
-    if [ "$hotspot_active" = false ]; then
-        log "No connectivity detected. Starting hotspot via startup script..."
-        if /usr/local/bin/setup-device-hotspot-start.sh >/dev/null 2>&1; then
-            log "Hotspot started successfully"
-            hotspot_active=true
-        else
-            log "Failed to start hotspot - will retry"
+    # Backoff: avoid retrying immediately after failure (prevents constant restart loop)
+    local now
+    now=$(date +%s)
+    if [ $last_start_fail_time -gt 0 ]; then
+        local since_fail=$((now - last_start_fail_time))
+        if [ $since_fail -lt $START_BACKOFF_SEC ]; then
+            return 1  # Still in backoff, skip
         fi
+    fi
+    log "No connectivity detected. Starting hotspot via startup script..."
+    if /usr/local/bin/setup-device-hotspot-start.sh >/dev/null 2>&1; then
+        log "Hotspot started (stays on until successful setup or error)"
+        hotspot_active=true
+        last_start_fail_time=0
+    else
+        last_start_fail_time=$(date +%s)
+        log "Failed to start hotspot - will retry in ${START_BACKOFF_SEC}s"
     fi
 }
 
-stop_hotspot() {
-    # Stop hotspot whenever services are active, even if internal flag drifted.
-    if [ "$hotspot_active" = true ] || systemctl is-active --quiet hostapd-setup.service || systemctl is-active --quiet dnsmasq-setup.service; then
-        log "Connectivity restored. Stopping hotspot services..."
-        systemctl stop hostapd-setup.service 2>/dev/null || true
-        systemctl stop dnsmasq-setup.service 2>/dev/null || true
-        systemctl stop nginx.service 2>/dev/null || true
-        hotspot_active=false
-        fail_count=0
-        
-        # Restart Traefik now that port 80/443 are free (Hub backend was never stopped)
-        if command -v docker >/dev/null 2>&1; then
-            log "Resuming Traefik for Companion Hub..."
-            docker start traefik 2>/dev/null || true
-            log "Traefik resumed - Companion Hub accessible again"
-        fi
-    fi
-}
+# stop_hotspot removed - monitor NEVER stops the hotspot; only /api/configure does on success
 
 log "Setup network monitor started (checking every ${CHECK_INTERVAL}s, threshold=${FAILURE_THRESHOLD})"
 
@@ -151,12 +149,8 @@ fi
 while true; do
     # Check connectivity
     if check_connectivity; then
-        # Connected - reset failure count and stop hotspot if running
-        if [ $fail_count -gt 0 ]; then
-            log "Connectivity restored after $fail_count failed checks"
-            fail_count=0
-        fi
-        stop_hotspot
+        fail_count=0
+        # NEVER stop the hotspot - user needs time to fill form and hit Configure
     else
         # Once a WiFi link is connected (or still negotiating), do not force AP fallback
         # on temporary internet probe failures; this prevents setup from tearing down
@@ -179,19 +173,23 @@ while true; do
             continue
         fi
 
-        # No connectivity
+        # No connectivity - increment failure count
         fail_count=$((fail_count + 1))
-        
+
         if [ $fail_count -eq 1 ]; then
             log "Lost connectivity (check $fail_count/$FAILURE_THRESHOLD)"
         elif [ $((fail_count % 10)) -eq 0 ]; then
-            # Log periodically so we know monitor is still running
             log "Still no connectivity (check $fail_count/$FAILURE_THRESHOLD)"
         fi
-        
-        # Start hotspot after threshold reached
+
+        # Start hotspot after threshold reached (backoff handled inside start_hotspot)
         if [ $fail_count -ge $FAILURE_THRESHOLD ]; then
-            start_hotspot
+            if start_hotspot; then
+                :  # Success or already running
+            else
+                # Failed or in backoff - don't reset fail_count so we retry after backoff
+                :
+            fi
         fi
     fi
     

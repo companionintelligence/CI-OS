@@ -6,8 +6,18 @@
 # - This script MUST be run as root (use: sudo ./setup-fresh-ubuntu.sh)
 # - All system-level operations require root privileges
 # - User-specific operations run as the actual user via sudo -u
+#
+# OPTIONS:
+#   --light    Phase 1 mode: skip ROCm, Ollama model pulls, LACT (defer to post-validation)
+#
+# © Companion Intelligence — Lifescope Inc
 
 set -euo pipefail
+
+LIGHT_MODE=0
+for arg in "$@"; do
+    [[ "$arg" == "--light" ]] && LIGHT_MODE=1
+done
 
 # Color definitions
 RED='\033[0;31m'
@@ -209,13 +219,18 @@ install_tailscale() {
         return 0
     fi
 
-    log_info "Installing Tailscale..."
-    # Import Tailscale GPG key and repo
-    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-    curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
-    apt-get update
-    apt-get install -y tailscale
-    log_success "Tailscale installed"
+    log_info "Installing Tailscale via snap..."
+    if command -v snap >/dev/null 2>&1; then
+        snap install tailscale
+        log_success "Tailscale installed"
+    else
+        log_warning "snap not available; installing Tailscale via apt..."
+        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+        apt-get update
+        apt-get install -y tailscale
+        log_success "Tailscale installed"
+    fi
 }
 
 # Ensure /var/run/docker.sock is root:docker and mode 660 (fixes some snap/partial installs)
@@ -468,8 +483,8 @@ EOF
         if [[ -f "$brew_bin" ]]; then
             log_warning "Homebrew installed but not in PATH yet. Will be available after shell restart."
         else
-            log_error "Homebrew installation may have failed. Please check the output above."
-            return 1
+            log_warning "Homebrew installation may have failed. Node.js/Bun will use apt instead."
+            return 0
         fi
     fi
 
@@ -1430,9 +1445,12 @@ main() {
     install_make
     install_docker
     install_uv
-    install_homebrew
+    # Homebrew is optional; don't fail bootstrap if it has issues (Node/Bun use apt)
+    set +e
+    install_homebrew || log_warning "Homebrew had issues; Node.js will use apt"
+    set -e
     install_asdf_nodejs
-    set_global_nodejs
+    set_global_nodejs || true
     # Bun removed from setup — no longer installed
     note_bashrc
     create_ci_user
@@ -1464,10 +1482,12 @@ main() {
 # Run main function
 main "$@"
 
-# Hook: install ROCm driver (standalone script; can also be run directly: ./scripts/install-rocm-driver.sh)
+# Post-main: ROCm and LACT (skipped in --light mode; run ci-os-setup.sh --phase2 after validation)
 # Non-fatal: main setup above may succeed even if ROCm download/repo fails on a given Ubuntu codename.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-"${SCRIPT_DIR}/install-rocm-driver.sh" || log_warning "install-rocm-driver.sh failed or was skipped; run it manually after fixing GPU/repo issues."
+if [[ $LIGHT_MODE -eq 0 ]] && [[ -f "${SCRIPT_DIR}/install-rocm-driver.sh" ]]; then
+    "${SCRIPT_DIR}/install-rocm-driver.sh" || log_warning "install-rocm-driver.sh failed or was skipped; run it manually after fixing GPU/repo issues."
+fi
 
 # Hook: tune AMD Strix Halo unified-memory boot params (iommu=pt, amdgpu.gttsize,
 # ttm.pages_limit). Runs at first-boot/provisioning time (not ISO build time)
@@ -1530,8 +1550,8 @@ install_lact() {
         fi
 }
 
-# Call LACT install at the end
-install_lact
+# Call LACT install at the end (skip in --light mode)
+[[ $LIGHT_MODE -eq 0 ]] && install_lact || true
 
 # Set GNOME Power Mode to 'performance' for the user
 set_gnome_power_performance() {
