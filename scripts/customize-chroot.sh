@@ -857,7 +857,7 @@ if command -v ollama &>/dev/null; then
     ollama pull nomic-embed-text 2>/dev/null || true
     ollama pull gemma3:1b 2>/dev/null || true
     # Large model — pull in background
-    nohup ollama pull qwen3-vl:32b &>/dev/null &
+    nohup ollama pull qwen3.6:27b &>/dev/null &
 fi
 
 # ── GitHub CLI ────────────────────────────────────────────────────────────

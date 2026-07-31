@@ -119,10 +119,10 @@ run_phase2() {
 
     # Ollama models (heavy)
     if command -v ollama >/dev/null 2>&1; then
-        log_info "Pulling Ollama models (nomic-embed-text, gemma3:1b, qwen3-vl:32b)..."
+        log_info "Pulling Ollama models (nomic-embed-text, gemma3:1b, qwen3.6:27b)..."
         systemctl start ollama 2>/dev/null || true
         sleep 5
-        for model in nomic-embed-text gemma3:1b qwen3-vl:32b; do
+        for model in nomic-embed-text gemma3:1b qwen3.6:27b; do
             ollama list 2>/dev/null | grep -q "$model" || ollama pull "$model" 2>/dev/null || log_warn "Could not pull $model"
         done
     else
