@@ -352,11 +352,13 @@ sudo ci-os-install-rocm
 ```
 
 This installs:
-- ROCm 7.2+ SDK
+- ROCm **7.2.4** (newest Ryzen-compatible apt line; there is no 7.3 on repo.radeon.com)
+- On **Strix Halo / gfx1151**: `amdgpu-install --usecase=rocm --no-dkms` (inbox amdgpu; DKMS is removed if present)
+- On other AMD GPUs: `amdgpu-install --usecase=rocm` (DKMS allowed)
 - AMD GPU tools (rocm-smi, rocminfo)
 - Adds user to `video` and `render` groups
 
-**Log out and back in** after installation for group changes to take effect.
+**Log out and back in** after installation for group changes to take effect. Prefer Ubuntu 24.04 HWE ≥ `6.17.0-19…` or OEM ≥ `6.14.0-1018` on Strix Halo.
 
 #### 4. Verify GPU Support
 
@@ -473,7 +475,7 @@ sudo ubuntu-drivers autoinstall
 sudo reboot
 ```
 
-For AMD (ROCm):
+For AMD (ROCm 7.2.4; Strix Halo uses `--no-dkms`):
 ```bash
 sudo ci-os-install-rocm
 sudo reboot
@@ -548,7 +550,7 @@ echo "amdgpu" | sudo tee -a /etc/modules
 
 Check compatibility: https://rocm.docs.amd.com/en/latest/release/gpu_os_support.html
 
-Ensure your GPU is supported by ROCm 7.2+.
+Ensure your GPU is supported by ROCm 7.2.4 (Strix Halo / gfx1151: inbox amdgpu, `--no-dkms`).
 
 ### Performance Issues
 

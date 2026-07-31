@@ -140,13 +140,17 @@ portal surfaces an inline error and re-enables the form for another attempt.
 
 ## What this repo is
 
-CI-OS is the base operating system for the Companion Intelligence appliance. It is
-**not** a from-scratch distro — it is **Ubuntu 24.04 LTS (Noble)** with:
+CI-OS is **Companion Ubuntu** — provisioning and branding scripts that turn stock
+**Ubuntu 24.04 LTS (Noble)** into a Companion Intelligence appliance. It is **not**
+a from-scratch or shipped OS; the primary workflow is run-these-scripts-on-Ubuntu.
+An ISO builder exists in-tree but is secondary and not the product path.
+
+Scripts typically apply:
 
 - a CI-OS identity and teal/dark-green rebrand (GRUB, Plymouth, GDM/GNOME Shell, MOTD, wallpaper, `os-release`),
 - Ubuntu telemetry and bloatware removed,
-- AMD GPU / ROCm support, and
-- the full CI developer + appliance stack (Docker, Node, Ollama, Companion Hub, …) installed automatically on first boot.
+- AMD GPU / ROCm support (Strix Halo / gfx1151 via ROCm **7.2.4**, `--no-dkms`), and
+- the full CI developer + appliance stack (Docker, Node, Ollama, Companion Hub, …).
 
 Everything is plain **Bash** — there is no Nix, no build system to learn. You pick
 one of the entry-point scripts below depending on *what* you want to customize.
@@ -231,7 +235,7 @@ Full reference, branding color map, and iterative-dev tips:
 
 ✅ **Ubuntu rebranded as CI-OS** — GRUB, Plymouth, GDM/GNOME Shell, MOTD, `os-release`  
 ✅ **Privacy first** — telemetry removed, metric endpoints blocked  
-✅ **AMD GPU ready** — ROCm 7.2+ installer helper included  
+✅ **AMD GPU ready** — ROCm 7.2.4 helper (`--no-dkms` on Strix Halo / gfx1151) 
 ✅ **CI teal / dark-green theme** — `#00a9a7`, `#066c80`, `#72ddd4`, `#1b4332`  
 ✅ **Full stack on first boot** — Docker, Node (asdf), Ollama, VS Code, Companion Hub  
 ✅ **Bootable** — inherits BIOS + UEFI + Secure Boot from the base ISO
@@ -273,7 +277,7 @@ Requires root. Installs and configures (in order):
 - **Chromium** and **VS Code** (Snap fallback if apt fails)
 - **Companion Hub** (+ autostart)
 - **telemetry removal** (`scripts/lib/remove-telemetry.sh`)
-- **ROCm / amdgpu** driver (`scripts/install-rocm-driver.sh`, non-fatal) and **LACT** GPU monitor
+- **ROCm 7.2.4** (`scripts/install-rocm-driver.sh`, non-fatal) — Strix Halo / Ryzen AI Max uses official `--no-dkms` inbox amdgpu; other AMD GPUs may use DKMS — and **LACT** GPU monitor
 - **Strix Halo unified-memory boot params** (`scripts/lib/strix-halo-boot-params.sh`, non-fatal) — see note below
 - GNOME power profile set to *performance*
 

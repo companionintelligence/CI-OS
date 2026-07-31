@@ -52,11 +52,11 @@ sudo apt update && sudo apt upgrade -y
 # Check CI-OS info
 ci-os-info
 
-# Install AMD ROCm (if you have AMD GPU)
+# Install AMD ROCm 7.2.4 (Strix Halo / gfx1151 uses --no-dkms)
 sudo ci-os-install-rocm
 ```
 
-**Done!** You're running CI-OS.
+**Done!** You're running Companion Ubuntu (CI-OS provisioning on Ubuntu).
 
 ---
 
@@ -66,7 +66,7 @@ sudo ci-os-install-rocm
 
 ✅ **Based on Ubuntu 24.04 LTS** - Solid, stable foundation  
 ✅ **No Telemetry** - Privacy-first, no tracking  
-✅ **AMD GPU Support** - ROCm 7.2+ ready for AI workloads  
+✅ **AMD GPU Support** - ROCm 7.2.4 ready (Strix Halo: inbox amdgpu / `--no-dkms`)  
 ✅ **Developer Friendly** - Compatible with Docker, Node.js, VS Code, Ollama (install post-install)  
 ✅ **Custom Branding** - Dark green CI theme  
 ✅ **Secure Boot Compatible** - Works with modern systems
@@ -108,13 +108,13 @@ sudo apt autoremove
 ### AMD GPU
 
 ```bash
-# Install ROCm
+# Install ROCm 7.2.4 (Strix Halo / Ryzen AI Max: --no-dkms inbox driver)
 sudo ci-os-install-rocm
 
 # Check GPU
 lspci | grep -i vga
 
-# ROCm info (after install)
+# ROCm info (after install) — expect gfx1151 on Strix Halo
 rocminfo
 ```
 

@@ -177,7 +177,7 @@ jobs:
           - 🚀 **Based on Ubuntu 24.04 (Noble Numbat)** - Latest LTS release
           - 🎨 **Custom Branding** - CI-OS identity with dark green color scheme (#066c80, #00a9a7, #72ddd4)
           - 🔒 **Privacy First** - No ads, no surveillance, telemetry disabled
-          - 💻 **AMD GPU Ready** - ROCm 7.2+ support with easy installation
+          - 💻 **AMD GPU Ready** - ROCm 7.2.4 (Strix Halo: --no-dkms inbox amdgpu)
           - 🛠️ **Developer Friendly** - Compatible with Docker, VS Code, Node.js
           - 🌐 **Sovereign Computing** - Your data, your control
 
@@ -194,7 +194,8 @@ jobs:
 
           ## AMD GPU Support
 
-          To install ROCm for AI workloads:
+          Companion Ubuntu provisioning installs ROCm 7.2.4. On Strix Halo (gfx1151)
+          the helper uses the official Ryzen path (\`--no-dkms\` / inbox amdgpu):
           \`\`\`bash
           sudo ci-os-install-rocm
           \`\`\`
