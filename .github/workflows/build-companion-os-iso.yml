@@ -1,5 +1,25 @@
 name: Build Companion OS ISO
 
+# >>> ci-local:gated original triggers below, restore with `ci-local restore`
+# on:
+#   workflow_dispatch:
+#     inputs:
+#       version:
+#         description: 'CI-OS version (e.g., 1.0, 1.1)'
+#         required: true
+#         default: '1.0'
+#       sign:
+#         description: 'Sign checksums with GPG'
+#         required: false
+#         type: boolean
+#         default: false
+#   push:
+#     tags:
+#       - 'v*'
+#   schedule:
+#     # Build ISOs weekly on Sundays at 2 AM UTC
+#     - cron: "0 2 * * 0"
+# <<< ci-local:gated
 on:
   workflow_dispatch:
     inputs:
@@ -12,12 +32,6 @@ on:
         required: false
         type: boolean
         default: false
-  push:
-    tags:
-      - 'v*'
-  schedule:
-    # Build ISOs weekly on Sundays at 2 AM UTC
-    - cron: "0 2 * * 0"
 
 env:
   UBUNTU_VERSION: "24.04"
@@ -246,7 +260,7 @@ jobs:
             output/SHA256SUMS.gpg
             output/MD5SUMS.gpg
             output/SBOM.txt
-          retention-days: 90
+          retention-days: 7
           compression-level: 0  # ISO is already compressed
 
       - name: Create GitHub Release
