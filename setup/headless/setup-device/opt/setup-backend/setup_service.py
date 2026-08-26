@@ -530,11 +530,24 @@ app = Flask(__name__)
 
 # Ensure pairing code on first request (gunicorn does not call main())
 _pairing_ensured = False
+_pairing_code_error = False
 @app.before_request
 def _ensure_pairing_on_first_request():
-    global _pairing_ensured
+    global _pairing_ensured, _pairing_code_error
     if not _pairing_ensured:
-        ensure_pairing_code()
+        if ensure_pairing_code() is None:
+            # Fail closed: this device has no pairing code and must not pretend it
+            # has one. _pairing_ensured stays False so a transient failure (for
+            # example CONFIG_DIR not yet writable) is retried on the next request;
+            # log once per transition so the retry does not flood the log.
+            if not _pairing_code_error:
+                logger.critical(
+                    "No pairing code available; /api/status now reports "
+                    "pairing_code_error and this device cannot be paired"
+                )
+            _pairing_code_error = True
+            return
+        _pairing_code_error = False
         _pairing_ensured = True
 
 # Signal handling for graceful shutdown
@@ -552,6 +565,18 @@ signal.signal(signal.SIGINT, signal_handler)
 def normalize_pairing_code(code):
     """Normalize pairing code: remove non-alphanumeric characters, convert to uppercase"""
     return re.sub(r'[^A-Z0-9]', '', code.upper())
+
+# Development-only pairing bypass, opt-in and unset by default: with no value there
+# is no bypass at all. An operator who needs one sets SETUP_TEST_PAIRING_CODE to a
+# code of their own choosing; there is deliberately no built-in constant, because a
+# constant compiled into the image is a fleet-wide backdoor that every unit shares.
+TEST_PAIRING_CODE = normalize_pairing_code(os.environ.get('SETUP_TEST_PAIRING_CODE', ''))
+if TEST_PAIRING_CODE:
+    logger.warning(
+        "SETUP_TEST_PAIRING_CODE is set: a fixed pairing code is accepted in addition "
+        "to this device's own code. Device pairing is effectively bypassed. This must "
+        "never be set on a shipped device."
+    )
 
 def generate_pairing_code():
     """Generate new pairing code (6 characters, A-Z0-9)
@@ -622,15 +647,15 @@ def ensure_pairing_code():
         return pairing_data['code']
         
     except Exception as e:
-        logger.error(f"Failed to ensure pairing code: {e}", exc_info=True)
-        # Generate fallback code
-        try:
-            pairing_data = generate_pairing_code()
-            return pairing_data['code']
-        except Exception as fallback_error:
-            logger.error(f"Failed to generate fallback pairing code: {fallback_error}")
-            # Return a test code as last resort
-            return "ABC123"
+        # Fail closed. Returning a constant here would hand every unit in the fleet
+        # the same well-known code, and returning an unpersisted code would report one
+        # that load_pairing_code() can never read back. Callers must handle None.
+        logger.critical(
+            f"Failed to ensure pairing code: {e}. This device has no usable pairing "
+            "code and cannot be paired until the underlying failure is fixed.",
+            exc_info=True
+        )
+        return None
 
 def load_pairing_code():
     """Load pairing code from JSON file"""
@@ -646,25 +671,27 @@ def load_pairing_code():
 def validate_pairing_code(code):
     """Validate pairing code matches stored code (pairing codes don't expire)"""
     normalized = normalize_pairing_code(code)
-    
-    # Whitelist test pairing code for development/testing
-    TEST_CODE = "ABC123"
-    if normalized == TEST_CODE:
-        logger.info(f"Test pairing code accepted: {code}")
+
+    if TEST_PAIRING_CODE and secrets.compare_digest(normalized, TEST_PAIRING_CODE):
+        logger.warning(
+            "Accepted SETUP_TEST_PAIRING_CODE; this device is NOT securely paired"
+        )
         return True
-    
+
     stored_code = load_pairing_code()
-    
+
     if not stored_code:
         logger.warning("No pairing code found")
         return False
-    
+
     stored_normalized = normalize_pairing_code(stored_code)
-    
-    if normalized != stored_normalized:
-        logger.warning(f"Pairing code mismatch")
+
+    # compare_digest, not ==: both operands are ASCII [A-Z0-9] after normalization,
+    # and a pairing code is a shared secret, so the compare should not be short-circuit.
+    if not secrets.compare_digest(normalized, stored_normalized):
+        logger.warning("Pairing code mismatch")
         return False
-    
+
     return True
 
 # No scan_wifi_networks - single-radio chips cannot scan while in AP mode. Use _get_cached_networks() only.
@@ -1068,6 +1095,7 @@ def status():
     return jsonify({
         'setup_complete': setup_complete,
         'pairing_code_available': pairing_code is not None,
+        'pairing_code_error': _pairing_code_error,
         'hub_running': hub_state['hub_running'],
         'hub_registered': hub_state['hub_registered'],
         'require_pairing': hub_state['require_pairing'],
@@ -1536,7 +1564,13 @@ def main():
     logger.info("Starting setup-backend service")
     
     # Ensure pairing code exists on first boot
-    ensure_pairing_code()
+    global _pairing_code_error
+    if ensure_pairing_code() is None:
+        _pairing_code_error = True
+        logger.critical(
+            "Startup: no pairing code could be established. The setup portal will "
+            "report pairing_code_error and this device cannot be paired."
+        )
     
     logger.info(f"Pairing code file: {PAIRING_CODE_JSON}")
     logger.info(f"Setup complete file: {SETUP_COMPLETE_FILE}")

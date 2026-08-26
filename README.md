@@ -381,7 +381,10 @@ sudo cat /etc/setup-device/pairing_code.json
 
 1. **Hotspot:** `Companion-Setup` — password: `SetupDevice123`
 2. **Portal:** https://setup.ci.computer or http://192.168.99.1 (may open automatically)
-3. **Pairing code:** from `/etc/setup-device/pairing_code.json`, or test code `abc-123` (always accepted)
+3. **Pairing code:** from `/etc/setup-device/pairing_code.json` (root-only). There is no
+   built-in test code. For development only, set `SETUP_TEST_PAIRING_CODE=<your code>`
+   in the `setup-backend` unit; the service logs a warning at startup while it is set,
+   and it must never be set on a shipped device.
 4. **Form:** pick WiFi, enter password, submit. The device connects and stops the hotspot.
 
 | Setting | Value |
