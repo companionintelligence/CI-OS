@@ -406,6 +406,46 @@ sudo systemctl start hostapd-setup.service dnsmasq-setup.service
 `setup-network-monitor.service`, then disconnect the network. Full walkthrough:
 [`docs/Create-headless-setup.md`](docs/Create-headless-setup.md).
 
+### What a printed QR code may carry
+
+No sticker ships today. This is the rule for when one does, because a QR printed
+on an appliance is unlike every other QR we render: **it cannot rotate and it
+cannot expire.** Whatever is in the ink stays valid for the life of the box, on
+every unit that rolled off the same run, readable by anyone who gets a look at
+the case — a courier, a housemate, a photo posted online.
+
+**A printed code MAY carry:**
+
+- A non-secret per-unit serial.
+- A Portal claim URL for that serial (`https://portal.companionintelligence.com/...`).
+
+**A printed code MUST NOT carry:**
+
+- Any long-lived key, API token, or device secret.
+- Wi-Fi credentials. The setup hotspot PSK is the shared default `SetupDevice123`
+  (`etc/hostapd/hostapd-setup.conf:12`, whose own comment says "change password
+  for production" — and `setup-device-hotspot-start.sh` regenerates the same
+  constant at runtime). Printing it on every box turns a default credential into
+  a *physically permanent* fleet-wide one: you cannot recall ink, so no later
+  rotation can ever fully retire it.
+- Anything still valid after the first claim. The claim must burn the payload.
+
+**Do not ship a hotspot QR until the SSID is per-device.** `device.conf:5`
+reserves `SERIAL_SUFFIX` for exactly this and is currently empty and read by
+nothing; the live SSID suffix is instead drawn fresh from `/dev/urandom` on
+*every boot* (`Companion-Setup-XXXX`), so no printed label can name the network
+it is supposed to join. Ship the hotspot QR only together with the stable
+per-device SSID that `SERIAL_SUFFIX` was reserved for.
+
+**Always print the URL in human-readable text beside the code**, on a domain the
+user can verify by eye. A QR is opaque to the person scanning it, so an attacker
+who sticks their own label over ours redirects the scan and nobody can tell —
+that swap is the whole of the "quishing" attack. Legible text next to the code is
+what lets a user notice the destination is wrong.
+
+Changing the hostapd defaults is a separate product decision with fleet
+implications and is deliberately **not** made here.
+
 ---
 
 ## Repo layout
