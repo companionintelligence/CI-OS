@@ -22,6 +22,8 @@ import re
 import time
 import signal
 import logging
+import secrets
+import string
 from datetime import datetime, timedelta
 from pathlib import Path
 from wsgiref.simple_server import make_server, WSGIRequestHandler
@@ -552,19 +554,20 @@ def normalize_pairing_code(code):
     return re.sub(r'[^A-Z0-9]', '', code.upper())
 
 def generate_pairing_code():
-    """Generate new pairing code (6 characters, A-Z0-9)"""
-    import random
-    import string
-    
+    """Generate new pairing code (6 characters, A-Z0-9)
+
+    Uses secrets (CSPRNG), not random: the pairing code authorizes claiming this
+    device. random.choice draws from the Mersenne Twister, whose full internal
+    state is recoverable from a modest amount of observed output, so anyone who
+    has seen previous codes could predict the next one.
+    """
     chars = string.ascii_uppercase + string.digits
-    code1 = ''.join(random.choice(chars) for _ in range(3))
-    code2 = ''.join(random.choice(chars) for _ in range(3))
-    code = f"{code1}{code2}"  # No dash, just 6 characters
-    
+    code = ''.join(secrets.choice(chars) for _ in range(6))  # No dash, just 6 characters
+
     pairing_data = {
         'code': code
     }
-    
+
     return pairing_data
 
 def ensure_pairing_code():
