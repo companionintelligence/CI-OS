@@ -98,6 +98,7 @@ CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CL
 CI_ZONE_ID = os.environ.get('CI_ZONE_ID') or _read_conf_value('CI_ZONE_ID') or '2b77d4360dbd4a9ccdad5c8d947323c9'
 CI_HUB_REGISTRATION_STATUS_URL = os.environ.get('CI_HUB_REGISTRATION_STATUS_URL', 'http://127.0.0.1:5002/api/registration/status')
 CI_HUB_REGISTRATION_CALLBACK_URL = os.environ.get('CI_HUB_REGISTRATION_CALLBACK_URL', 'http://127.0.0.1:5002/api/registration/callback')
+CI_HUB_REGISTRATION_DEVICE_ID_URL = os.environ.get('CI_HUB_REGISTRATION_DEVICE_ID_URL', 'http://127.0.0.1:5002/api/registration/device-id')
 REGISTRATION_CONNECTIVITY_WINDOW_SECONDS = _read_int_env('SETUP_REGISTRATION_CONNECTIVITY_WINDOW_SECONDS', 20)
 CLOUD_REQUEST_USER_AGENT = os.environ.get('SETUP_CLOUD_USER_AGENT', 'curl/8.5.0')
 DEFAULT_PORTAL_REDIRECT_URL = 'https://portal.ci.computer'
@@ -477,8 +478,52 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10)
         return False, str(e)
 
 
+def _fetch_hub_callback_nonce(timeout=6):
+    """Read the Hub's one-time registration nonce out of its own callback_url.
+
+    Newer Hubs mint a nonce into `callback_url` and require it back on the
+    callback. Older Hubs put no `state` there and accept the callback without
+    one, so a missing nonce is not an error.
+    """
+    try:
+        req = urllib.request.Request(CI_HUB_REGISTRATION_DEVICE_ID_URL, method='GET')
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            parsed = json.loads(resp.read().decode('utf-8', errors='replace'))
+
+        callback_url = (parsed or {}).get('callback_url') or ''
+        query = urllib.parse.urlparse(callback_url).query
+
+        return urllib.parse.parse_qs(query).get('state', [None])[0]
+    except Exception as e:
+        logger.warning(f"Could not read Hub registration nonce: {e}")
+        return None
+
+
+def _notify_hub_registration_callback_get(payload, timeout=6):
+    """Legacy query-string form, for a Hub too old to accept the POST."""
+    query = urllib.parse.urlencode(payload)
+
+    try:
+        req = urllib.request.Request(f"{CI_HUB_REGISTRATION_CALLBACK_URL}?{query}", method='GET')
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            parsed = json.loads(resp.read().decode('utf-8', errors='replace'))
+            if isinstance(parsed, dict) and parsed.get('success'):
+                return True
+            logger.warning(f"Legacy Hub callback returned non-success payload: {parsed}")
+    except Exception as e:
+        logger.warning(f"Legacy Hub callback failed: {e}")
+
+    return False
+
+
 def notify_hub_registration_callback(cloud_response, retries=10, retry_delay=2):
-    """Forward finalized cloud registration payload to CI Hub callback endpoint."""
+    """Forward finalized cloud registration payload to CI Hub callback endpoint.
+
+    Sends the payload as a JSON body rather than a query string: it carries the
+    Hub's `api_key` and `tunnel_token`, and a query string puts both into the
+    Hub's request logs. Newer Hubs also require the one-time nonce they mint
+    into `callback_url`, which `_fetch_hub_callback_nonce` reads back.
+    """
     try:
         if not isinstance(cloud_response, dict):
             logger.warning("Skipping Hub callback: cloud response is not JSON object")
@@ -499,7 +544,7 @@ def notify_hub_registration_callback(cloud_response, retries=10, retry_delay=2):
             logger.warning(f"Skipping Hub callback: cloud response missing fields: {', '.join(missing)}")
             return False
 
-        query = urllib.parse.urlencode({
+        payload = {
             'device_id': cloud_response.get('device_id', ''),
             'organization_id': cloud_response.get('organization_id', ''),
             'organization_name': cloud_response.get('organization_name', ''),
@@ -509,20 +554,36 @@ def notify_hub_registration_callback(cloud_response, retries=10, retry_delay=2):
             'tunnel_token': cloud_response.get('tunnel_token', ''),
             'api_key': cloud_response.get('api_key', ''),
             'domain': cloud_response.get('domain', ''),
-        })
-
-        callback_url = f"{CI_HUB_REGISTRATION_CALLBACK_URL}?{query}"
+        }
 
         for attempt in range(1, retries + 1):
+            # Re-read the nonce each attempt: a Hub that restarted mid-pairing
+            # mints a new one, and a Hub that is still up returns the same value.
+            body = dict(payload)
+            nonce = _fetch_hub_callback_nonce()
+            if nonce:
+                body['state'] = nonce
+
             try:
-                req = urllib.request.Request(callback_url, method='GET')
+                req = urllib.request.Request(
+                    CI_HUB_REGISTRATION_CALLBACK_URL,
+                    data=json.dumps(body).encode('utf-8'),
+                    headers={'Content-Type': 'application/json', 'Accept': 'application/json'},
+                    method='POST',
+                )
                 with urllib.request.urlopen(req, timeout=6) as resp:
-                    body = resp.read().decode('utf-8', errors='replace')
-                    parsed = json.loads(body)
+                    parsed = json.loads(resp.read().decode('utf-8', errors='replace'))
                     if isinstance(parsed, dict) and parsed.get('success'):
                         logger.info(f"Hub callback succeeded on attempt {attempt}: {CI_HUB_REGISTRATION_CALLBACK_URL}")
                         return True
                     logger.warning(f"Hub callback attempt {attempt} returned non-success payload: {parsed}")
+            except urllib.error.HTTPError as e:
+                if e.code in (404, 405):
+                    logger.warning("Hub has no POST registration callback — falling back to the legacy GET")
+                    if _notify_hub_registration_callback_get(payload):
+                        return True
+                else:
+                    logger.warning(f"Hub callback attempt {attempt}/{retries} failed: HTTP {e.code}")
             except Exception as e:
                 logger.warning(f"Hub callback attempt {attempt}/{retries} failed: {e}")
 
