@@ -25,6 +25,7 @@ import logging
 import secrets
 import string
 from datetime import datetime, timedelta
+from html import escape as html_escape
 from pathlib import Path
 from wsgiref.simple_server import make_server, WSGIRequestHandler
 from flask import Flask, request, jsonify
@@ -42,6 +43,7 @@ SETUP_COMPLETE_FILE = DATA_DIR / 'setup-complete'
 CREDENTIALS_JSON = DATA_DIR / 'credentials.json'
 CLOUD_CREDENTIALS_JSON = DATA_DIR / 'cloud_credentials.json'
 HUB_ENV = DATA_DIR / 'hub.env'
+LAST_PAIRING_ERROR_JSON = DATA_DIR / 'last_pairing_error.json'
 SCAN_CACHE_TXT = DATA_DIR / 'last_scan_networks.txt'
 
 def _read_env_file(path):
@@ -552,6 +554,43 @@ def _device_key_from_hub_env():
 # whatever it is handed, and a Python `None` or a JS `null` reaches the file as text
 # that a plain truthiness test would happily present to the Portal as proof.
 _PLACEHOLDER_DEVICE_KEYS = {'none', 'null', 'undefined', 'nil', ''}
+
+# A failed pair is otherwise invisible. The hotspot is stopped before the pairing
+# request is made, so the client that submitted the form is off the access point
+# long before the response is written and nothing reads the status code. Recording
+# the refusal is what survives that: `/api/status` reports it, so the setup portal
+# says what went wrong the next time it is reachable, and support can read one file
+# instead of the whole log.
+def record_pairing_failure(code, message):
+    """Persist why the last pairing attempt was refused."""
+    try:
+        LAST_PAIRING_ERROR_JSON.write_text(json.dumps({
+            'code': (code or 'PAIRING_FAILED')[:64],
+            'message': (message or 'Pairing failed.')[:512],
+            'at': datetime.now().isoformat(),
+        }, indent=2) + '\n')
+    except Exception as e:
+        logger.warning(f"Could not record the pairing failure: {e}")
+
+def clear_pairing_failure():
+    """Drop any recorded failure; the device has paired."""
+    try:
+        LAST_PAIRING_ERROR_JSON.unlink()
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        logger.warning(f"Could not clear the recorded pairing failure: {e}")
+
+def load_pairing_failure():
+    """The last recorded pairing failure, or None."""
+    try:
+        if not LAST_PAIRING_ERROR_JSON.exists():
+            return None
+        recorded = json.loads(LAST_PAIRING_ERROR_JSON.read_text())
+        return recorded if isinstance(recorded, dict) else None
+    except Exception as e:
+        logger.warning(f"Could not read the recorded pairing failure: {e}")
+        return None
 
 def load_saved_device_key(device_id):
     """Return this hardware's current Portal device key, or None if it holds none.
@@ -1236,6 +1275,7 @@ def status():
         'setup_complete': setup_complete,
         'pairing_code_available': pairing_code is not None,
         'pairing_code_error': _pairing_code_error,
+        'last_pairing_error': load_pairing_failure(),
         'hub_running': hub_state['hub_running'],
         'hub_registered': hub_state['hub_registered'],
         'require_pairing': hub_state['require_pairing'],
@@ -1451,6 +1491,7 @@ def configure():
             time.sleep(1)
         
         redirect_metadata = _build_redirect_metadata()
+        pairing_failure = None
 
         if not internet_available:
             logger.warning("Internet connectivity not available within registration window. Cloud registration skipped.")
@@ -1624,6 +1665,7 @@ def configure():
                     
                     if update_success:
                         logger.info(f"Device ID updated successfully in cloud: {_redact_cloud_payload(update_resp)}")
+                        clear_pairing_failure()
                         redirect_metadata = _build_redirect_metadata(update_resp, pairing_info)
                         # Persist api_key from POST response if it was not present in GET response.
                         post_api_key = None
@@ -1656,12 +1698,62 @@ def configure():
                                 logger.debug(f"Hub start script not available or failed: {hub_err}")
                         # API key already saved from GET response, no need to save again
                     else:
-                        logger.warning(f"Device ID update failed: {update_resp}")
+                        # The Portal names its own refusals -- DEVICE_PROOF_REQUIRED when it
+                        # wants this hardware's key, DEVICE_REGISTERED_ELSEWHERE when another
+                        # organization holds it. Carry its code and sentence through rather
+                        # than flattening every cause into one message.
+                        detail = update_resp if isinstance(update_resp, dict) else {}
+                        pairing_failure = {
+                            'code': detail.get('code') or 'PAIRING_FAILED',
+                            'message': detail.get('error') or detail.get('message') or 'The device could not be paired.',
+                        }
+                        logger.warning(
+                            f"Pairing refused by the Portal: {pairing_failure['code']} - {pairing_failure['message']}"
+                        )
+                        record_pairing_failure(pairing_failure['code'], pairing_failure['message'])
                         redirect_metadata = _build_redirect_metadata(pairing_info)
                         
         except Exception as e:
             logger.error(f"Exception during cloud registration: {e}", exc_info=True)
+            pairing_failure = {
+                'code': 'PAIRING_ERROR',
+                'message': 'The device could not reach CI Portal to complete pairing.',
+            }
+            record_pairing_failure(pairing_failure['code'], pairing_failure['message'])
         
+        # A refused pair is not a successful setup. WiFi is up either way, so the
+        # message says so -- the remedy is re-registration by an owner or admin, not
+        # re-entering network credentials. No redirect metadata: there is no device
+        # domain to send anyone to.
+        if pairing_failure:
+            if request.is_json:
+                return jsonify({
+                    'status': 'pairing_failed',
+                    'code': pairing_failure['code'],
+                    'error': pairing_failure['message'],
+                    'wifi_configured': True,
+                }), 502
+            return f'''
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Pairing Failed</title>
+                <style>
+                    body {{ font-family: -apple-system, sans-serif; text-align: center; padding: 50px; background: #0d1f1b; color: #e8f4f2; }}
+                    .error {{ color: #ffb4b4; font-size: 24px; margin-bottom: 16px; }}
+                    .info {{ color: #9fb8b4; font-size: 14px; }}
+                </style>
+            </head>
+            <body>
+                <div class="error">Device could not be paired</div>
+                <p class="info">{html_escape(pairing_failure['message'])}</p>
+                <p class="info">WiFi is configured and the device is online. Pairing can be retried once this is resolved.</p>
+            </body>
+            </html>
+            ''', 502
+
         # Return HTML response for form submissions, JSON for API calls
         if request.is_json:
             return jsonify({
