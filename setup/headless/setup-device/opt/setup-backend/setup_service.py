@@ -40,27 +40,47 @@ LOG_FILE = '/var/log/setup-backend.log'
 PAIRING_CODE_JSON = CONFIG_DIR / 'pairing_code.json'
 SETUP_COMPLETE_FILE = DATA_DIR / 'setup-complete'
 CREDENTIALS_JSON = DATA_DIR / 'credentials.json'
+CLOUD_CREDENTIALS_JSON = DATA_DIR / 'cloud_credentials.json'
+HUB_ENV = DATA_DIR / 'hub.env'
 SCAN_CACHE_TXT = DATA_DIR / 'last_scan_networks.txt'
+
+def _read_env_file(path):
+    """Parse a `KEY=value` file into a dict, the way `set -a; . file` reads it.
+
+    Blank lines and `#` comments are skipped, an `export ` prefix is dropped, only
+    the first `=` splits, and one layer of matching surrounding quotes is removed so
+    a hand-edited `API_KEY="abc"` yields `abc` rather than `"abc"`. Later
+    definitions win, matching what sourcing the file in a shell would leave behind.
+    Returns an empty dict for a missing or unreadable file.
+    """
+    values = {}
+    try:
+        if not Path(path).exists():
+            return values
+        for line in Path(path).read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            if line.startswith('export '):
+                line = line[len('export '):].lstrip()
+            name, sep, value = line.partition('=')
+            if not sep:
+                continue
+            name = name.strip()
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            if name:
+                values[name] = value
+    except Exception:
+        return values
+    return values
+
 
 # Cloud API config - can be set via environment `CI_CLOUD_API_URL`
 # or via `/etc/setup-device/device.conf` value `CI_CLOUD_API_URL`.
 def _read_conf_value(key):
-    conf_file = CONFIG_DIR / 'device.conf'
-    if not conf_file.exists():
-        return None
-    try:
-        with open(conf_file, 'r') as f:
-            for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
-                    continue
-                if '=' in line:
-                    k, v = line.split('=', 1)
-                    if k.strip() == key:
-                        return v.strip()
-    except Exception:
-        return None
-    return None
+    return _read_env_file(CONFIG_DIR / 'device.conf').get(key)
 
 
 def _read_int_env(name, default):
@@ -369,6 +389,31 @@ def get_pairing_info_from_cloud(pairing_code, timeout=10):
         logger.warning(f"Cloud pairing GET failed: {e}")
         return False, str(e)
 
+# Response fields that are credentials rather than diagnostics. `api_key` is the
+# device key this service stores and now presents back to the Portal as proof of
+# possession, and `tunnel_token` authorizes the device's tunnel. Both arrive in the
+# pair POST response, which used to be logged verbatim into
+# /var/log/setup-backend.log -- a file gunicorn creates under the default umask, so
+# mode 0644 and readable by every account on the appliance.
+_SECRET_RESPONSE_FIELDS = ('api_key', 'apiKey', 'tunnel_token', 'tunnelToken', 'device_key', 'deviceKey')
+
+
+def _redact_cloud_payload(payload):
+    """Render a cloud response for the log with its credentials masked."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except Exception:
+            return payload
+    if not isinstance(payload, dict):
+        return payload
+    redacted = dict(payload)
+    for field in _SECRET_RESPONSE_FIELDS:
+        if redacted.get(field):
+            redacted[field] = '***redacted***'
+    return json.dumps(redacted)
+
+
 def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10):
     """POST request to /api/devices/pair to upsert device_id where pairing_code matches"""
     url = _cloud_pairing_url()
@@ -380,6 +425,20 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10)
         'pairing_code': normalized_code,
         'device_id': device_id
     }
+
+    # Proof of possession. A pairing code proves organization membership, not which
+    # machine is calling, so the Portal will not re-key hardware it already knows
+    # without this (CI-Portal#688). Omitted rather than blank on a genuine first
+    # boot -- the Portal's schema rejects an empty string, and a device row it has
+    # never seen is one it asks no proof for. Not the `api_key` argument below:
+    # that one comes from GET /pair and belongs to the row the pairing code names,
+    # not to this hardware.
+    device_key = load_saved_device_key(device_id)
+    if device_key:
+        payload['device_key'] = device_key
+        logger.info("Presenting the stored device key as proof of possession")
+    else:
+        logger.info("No stored device key for this hardware; pairing as first boot")
     
     data = json.dumps(payload).encode('utf-8')
     headers = _cloud_request_headers({
@@ -394,7 +453,7 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10)
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode('utf-8', errors='replace')
-            logger.info(f"Device ID update response: {resp.status} {body}")
+            logger.info(f"Device ID update response: {resp.status} {_redact_cloud_payload(body)}")
             try:
                 parsed = json.loads(body)
                 return True, parsed
@@ -473,19 +532,94 @@ def notify_hub_registration_callback(cloud_response, retries=10, retry_delay=2):
         logger.warning(f"Failed to invoke Hub callback: {e}")
         return False
 
+def _device_key_from_cloud_credentials():
+    """(device_id, api_key) as last saved by save_cloud_credentials, or (None, None).
+
+    Reads CLOUD_CREDENTIALS_JSON, not the similarly named CREDENTIALS_JSON, which
+    holds the WiFi passphrase and never a device credential.
+    """
+    if not CLOUD_CREDENTIALS_JSON.exists():
+        return None, None
+    stored = json.loads(CLOUD_CREDENTIALS_JSON.read_text())
+    return stored.get('device_id'), stored.get('api_key')
+
+def _device_key_from_hub_env():
+    """(DEVICE_ID, API_KEY) as last written by save_hub_env, or (None, None)."""
+    values = _read_env_file(HUB_ENV)
+    return values.get('DEVICE_ID'), values.get('API_KEY')
+
+# Values a stringified absent key takes on the way to disk. `save_hub_env` renders
+# whatever it is handed, and a Python `None` or a JS `null` reaches the file as text
+# that a plain truthiness test would happily present to the Portal as proof.
+_PLACEHOLDER_DEVICE_KEYS = {'none', 'null', 'undefined', 'nil', ''}
+
+def load_saved_device_key(device_id):
+    """Return this hardware's current Portal device key, or None if it holds none.
+
+    The Portal refuses to re-key a device row that already exists unless the caller
+    also proves it holds that hardware (CI-Portal#688), and the key saved by the last
+    successful pair is the only proof an appliance keeps. Returned only when the
+    stored credential names the device we are about to pair, so a key left behind by
+    other hardware is never offered as proof for this one.
+
+    A stored value that is not a usable string is treated as no key at all: omitting
+    the field is the Portal's ordinary first-boot request, while presenting `"None"`
+    or a JSON number is a proof that can only be refused.
+    """
+    for source in (_device_key_from_cloud_credentials, _device_key_from_hub_env):
+        try:
+            stored_id, stored_key = source()
+        except Exception as e:
+            logger.warning(f"Could not read a stored device key from {source.__name__}: {e}")
+            continue
+        if not isinstance(stored_key, str) or stored_key.strip().lower() in _PLACEHOLDER_DEVICE_KEYS:
+            if stored_key:
+                logger.warning(
+                    f"Ignoring an unusable stored device key from {source.__name__} "
+                    f"(type {type(stored_key).__name__})"
+                )
+            continue
+        if stored_id != device_id:
+            if stored_id:
+                logger.info(
+                    f"Stored device key from {source.__name__} belongs to other hardware; not offering it"
+                )
+            continue
+        logger.info(f"Using the device key stored by {source.__name__}")
+        return stored_key.strip()
+    return None
+
+def _write_secret_file(path, text):
+    """Write `text` to `path` so it is never readable by anyone but root, even briefly.
+
+    `open()` then `chmod()` publishes the file at the umask's 0644 first and narrows
+    it after, so a device credential is world-readable for the length of the write
+    and stays that way if the process dies in between. Creating with 0o600 closes
+    that window; the chmod after still narrows a file that already existed.
+    """
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        handle = os.fdopen(fd, 'w')
+    except Exception:
+        os.close(fd)
+        raise
+    with handle:
+        handle.write(text)
+    os.chmod(path, 0o600)
+
 def save_cloud_credentials(device_id, api_key):
     """Save device_id and api_key for later use (API key comes from GET response)"""
     try:
-        credentials_file = DATA_DIR / 'cloud_credentials.json'
         credentials = {
             'device_id': device_id,
             'api_key': api_key,
             'saved_at': datetime.now().isoformat()
         }
-        with open(credentials_file, 'w') as f:
-            json.dump(credentials, f, indent=2)
-        os.chmod(credentials_file, 0o600)
-        logger.info(f"[CREDENTIALS] Saved: device_id={device_id}, api_key={api_key[:8]}...")
+        _write_secret_file(CLOUD_CREDENTIALS_JSON, json.dumps(credentials, indent=2) + '\n')
+        # No fragment of the key: this log is /var/log/setup-backend.log, which
+        # gunicorn creates under the default umask at mode 0644, and a prefix of a
+        # credential is still part of a credential.
+        logger.info(f"[CREDENTIALS] Saved device key for device_id={device_id}")
         return True
     except Exception as e:
         logger.error(f"Failed to save cloud credentials: {e}")
@@ -494,16 +628,22 @@ def save_cloud_credentials(device_id, api_key):
 def save_hub_env(device_id, api_key):
     """Write hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY, CI_CLOUD_API_KEY for CI OS Hub to consume."""
     try:
-        hub_env = DATA_DIR / 'hub.env'
+        # An absent key is an empty value, never the text `None`. This file is
+        # sourced by ci-os-hub-install.sh and read back by load_saved_device_key,
+        # and `API_KEY=None` is a string both of them would take for a real
+        # credential -- the Hub would authenticate with it and the next pair would
+        # present it to the Portal as proof of possession.
+        key_value = api_key if isinstance(api_key, str) else ''
+        if not api_key:
+            logger.warning("[HUB] No API key available; writing hub.env with an empty API_KEY")
         lines = [
             f"CI_ZONE_ID={CI_ZONE_ID}",
             f"DEVICE_ID={device_id}",
-            f"API_KEY={api_key}",
-            f"CI_CLOUD_API_KEY={api_key}",
+            f"API_KEY={key_value}",
+            f"CI_CLOUD_API_KEY={key_value}",
             f"CI_CLOUD_API_URL={CI_CLOUD_API_URL.rstrip('/')}",
         ]
-        hub_env.write_text('\n'.join(lines) + '\n')
-        os.chmod(hub_env, 0o600)
+        _write_secret_file(HUB_ENV, '\n'.join(lines) + '\n')
         logger.info(f"[HUB] Wrote hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY for CI OS Hub")
         return True
     except Exception as e:
@@ -1460,7 +1600,7 @@ def configure():
                     if api_key:
                         logger.info(
                             f"Retrieved from cloud - device_id: {cloud_device_id}, "
-                            f"api_key: {api_key[:8]}..., pairing_code matches"
+                            "api_key: present, pairing_code matches"
                         )
                         logger.info("[CREDENTIALS] Saving API key from cloud GET response")
                         save_cloud_credentials(cloud_device_id, api_key)
@@ -1483,9 +1623,10 @@ def configure():
                     )
                     
                     if update_success:
-                        logger.info(f"Device ID updated successfully in cloud: {update_resp}")
+                        logger.info(f"Device ID updated successfully in cloud: {_redact_cloud_payload(update_resp)}")
                         redirect_metadata = _build_redirect_metadata(update_resp, pairing_info)
                         # Persist api_key from POST response if it was not present in GET response.
+                        post_api_key = None
                         if isinstance(update_resp, dict):
                             post_api_key = update_resp.get('api_key')
                             post_device_id = update_resp.get('device_id') or local_device_id
@@ -1502,7 +1643,10 @@ def configure():
                         else:
                             # Hub not running yet: write hub.env (CI_ZONE_ID, DEVICE_ID, API_KEY) and
                             # trigger Hub download/start (no-op if Hub is not installed on this image).
-                            save_hub_env(local_device_id, api_key)
+                            # The POST response is the key's source of truth: GET /pair answers with
+                            # only `deviceId` and `status`, so `api_key` from there is all but always
+                            # absent and writing it would leave the Hub with no credential.
+                            save_hub_env(local_device_id, post_api_key or api_key)
                             try:
                                 subprocess.run(
                                     ['/usr/local/bin/ci-os-hub-start.sh'],
