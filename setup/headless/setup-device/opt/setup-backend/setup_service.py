@@ -40,6 +40,8 @@ LOG_FILE = '/var/log/setup-backend.log'
 PAIRING_CODE_JSON = CONFIG_DIR / 'pairing_code.json'
 SETUP_COMPLETE_FILE = DATA_DIR / 'setup-complete'
 CREDENTIALS_JSON = DATA_DIR / 'credentials.json'
+CLOUD_CREDENTIALS_JSON = DATA_DIR / 'cloud_credentials.json'
+HUB_ENV = DATA_DIR / 'hub.env'
 SCAN_CACHE_TXT = DATA_DIR / 'last_scan_networks.txt'
 
 # Cloud API config - can be set via environment `CI_CLOUD_API_URL`
@@ -380,6 +382,20 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10)
         'pairing_code': normalized_code,
         'device_id': device_id
     }
+
+    # Proof of possession. A pairing code proves organization membership, not which
+    # machine is calling, so the Portal will not re-key hardware it already knows
+    # without this (CI-Portal#688). Omitted rather than blank on a genuine first
+    # boot -- the Portal's schema rejects an empty string, and a device row it has
+    # never seen is one it asks no proof for. Not the `api_key` argument below:
+    # that one comes from GET /pair and belongs to the row the pairing code names,
+    # not to this hardware.
+    device_key = load_saved_device_key(device_id)
+    if device_key:
+        payload['device_key'] = device_key
+        logger.info("Presenting the stored device key as proof of possession")
+    else:
+        logger.info("No stored device key for this hardware; pairing as first boot")
     
     data = json.dumps(payload).encode('utf-8')
     headers = _cloud_request_headers({
@@ -473,18 +489,54 @@ def notify_hub_registration_callback(cloud_response, retries=10, retry_delay=2):
         logger.warning(f"Failed to invoke Hub callback: {e}")
         return False
 
+def _device_key_from_credentials_json():
+    """(device_id, api_key) as last saved by save_cloud_credentials, or (None, None)."""
+    if not CLOUD_CREDENTIALS_JSON.exists():
+        return None, None
+    stored = json.loads(CLOUD_CREDENTIALS_JSON.read_text())
+    return stored.get('device_id'), stored.get('api_key')
+
+def _device_key_from_hub_env():
+    """(DEVICE_ID, API_KEY) as last written by save_hub_env, or (None, None)."""
+    if not HUB_ENV.exists():
+        return None, None
+    values = {}
+    for line in HUB_ENV.read_text().splitlines():
+        name, sep, value = line.partition('=')
+        if sep:
+            values[name.strip()] = value.strip()
+    return values.get('DEVICE_ID'), values.get('API_KEY')
+
+def load_saved_device_key(device_id):
+    """Return this hardware's current Portal device key, or None if it holds none.
+
+    The Portal refuses to re-key a device row that already exists unless the caller
+    also proves it holds that hardware (CI-Portal#688), and the key saved by the last
+    successful pair is the only proof an appliance keeps. Returned only when the
+    stored credential names the device we are about to pair, so a key left behind by
+    other hardware is never offered as proof for this one.
+    """
+    for source in (_device_key_from_credentials_json, _device_key_from_hub_env):
+        try:
+            stored_id, stored_key = source()
+        except Exception as e:
+            logger.warning(f"Could not read a stored device key from {source.__name__}: {e}")
+            continue
+        if stored_key and stored_id == device_id:
+            return stored_key
+    return None
+
 def save_cloud_credentials(device_id, api_key):
     """Save device_id and api_key for later use (API key comes from GET response)"""
     try:
-        credentials_file = DATA_DIR / 'cloud_credentials.json'
         credentials = {
             'device_id': device_id,
             'api_key': api_key,
             'saved_at': datetime.now().isoformat()
         }
-        with open(credentials_file, 'w') as f:
+        with open(CLOUD_CREDENTIALS_JSON, 'w') as f:
             json.dump(credentials, f, indent=2)
-        os.chmod(credentials_file, 0o600)
+        os.chmod(CLOUD_CREDENTIALS_JSON, 0o600)
         logger.info(f"[CREDENTIALS] Saved: device_id={device_id}, api_key={api_key[:8]}...")
         return True
     except Exception as e:
@@ -494,7 +546,6 @@ def save_cloud_credentials(device_id, api_key):
 def save_hub_env(device_id, api_key):
     """Write hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY, CI_CLOUD_API_KEY for CI OS Hub to consume."""
     try:
-        hub_env = DATA_DIR / 'hub.env'
         lines = [
             f"CI_ZONE_ID={CI_ZONE_ID}",
             f"DEVICE_ID={device_id}",
@@ -502,8 +553,8 @@ def save_hub_env(device_id, api_key):
             f"CI_CLOUD_API_KEY={api_key}",
             f"CI_CLOUD_API_URL={CI_CLOUD_API_URL.rstrip('/')}",
         ]
-        hub_env.write_text('\n'.join(lines) + '\n')
-        os.chmod(hub_env, 0o600)
+        HUB_ENV.write_text('\n'.join(lines) + '\n')
+        os.chmod(HUB_ENV, 0o600)
         logger.info(f"[HUB] Wrote hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY for CI OS Hub")
         return True
     except Exception as e:
