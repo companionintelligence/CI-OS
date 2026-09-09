@@ -431,6 +431,7 @@
                 >
                 <div class="pairing-code-hint">6 characters, A-Z and 0-9. Use the pairing code issued for this device.</div>
                 <div class="pairing-code-error" id="pairing-code-error" style="display: none;" role="alert"></div>
+                <div class="pairing-code-error" id="last-pairing-error" style="display: none;" role="alert"></div>
             </div>
             
             <div class="form-group">
@@ -516,6 +517,19 @@
                 } else {
                     pairingError.textContent = '';
                     pairingError.style.display = 'none';
+                }
+
+                // The last pair was refused. The hotspot is stopped before the pairing
+                // request is sent, so that response never reached whoever submitted the
+                // form -- this is the first chance to tell them.
+                const lastPairingError = document.getElementById('last-pairing-error');
+                const recorded = data.last_pairing_error;
+                if (recorded && recorded.message) {
+                    lastPairingError.textContent = `Last pairing attempt failed: ${recorded.message}`;
+                    lastPairingError.style.display = 'block';
+                } else {
+                    lastPairingError.textContent = '';
+                    lastPairingError.style.display = 'none';
                 }
 
                 if (pairingRequired) {
