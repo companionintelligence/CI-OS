@@ -4,8 +4,7 @@
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
 **© Companion Intelligence — Lifescope Inc**  
-*In development. Do not distribute. Private and confidential.*  
-*Licensed under the [Commercial Standard License](LICENSE.md) (CI-Commercial-1.0).*
+Companion OS uses the [PolyForm Noncommercial License 1.0.0](LICENSE.md). See the [License FAQ](License-FAQ.md).
 
 ---
 
