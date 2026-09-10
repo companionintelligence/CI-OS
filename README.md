@@ -52,26 +52,34 @@ Steps are idempotent, so a failed run (e.g. no internet for the headless step's
 
 ## Interface
 
-The only user-facing surface CI-OS ships is the **headless WiFi setup portal** — the
-captive page a new appliance serves over its own access point on first boot, so you can
-hand it your WiFi credentials and pairing code from any phone or laptop. It is one page
-whose several states are driven entirely by the on-device setup backend
-(`/opt/setup-backend/setup_service.py`); the gallery below walks through each of them.
+The only user-facing surface CI-OS ships is **"Connect Companion Core"**, the headless
+WiFi setup portal — the captive page a new appliance serves over its own access point on
+first boot, so you can hand it your WiFi credentials and pairing code from any phone or
+laptop. It is one page whose several states are driven entirely by the on-device setup
+backend (`/opt/setup-backend/setup_service.py`); the gallery below walks through each of
+them, captured at phone width since that's how this page is actually seen.
 
 It is a **single-theme (dark) captive portal by design** — there is no light mode and no
-theme toggle. It follows the
-[Companion Intelligence design system](https://github.com/companionintelligence/CI-Common/tree/main/style):
-teal `--primary` (`#0f717a`), Montserrat, and the enriched-palette tokens.
+theme toggle. It's built on the
+[Companion Intelligence design system](https://github.com/companionintelligence/CI-Common/tree/main/style)'s
+canonical dark tokens (`@companionintelligence/tokens` `tokens.css`) and the self-hosted
+**Manrope** variable font (`@companionintelligence/fonts`) — Montserrat and the retired
+teal `--primary` (`#0f717a`) are gone. Text and the primary buttons are pushed to pure
+white on top of that base, with the canonical phthalo→aqua brand gradient reserved for a
+top accent strip, an ambient background glow, and colored focus rings, and a card
+entrance transition on load (all motion respects `prefers-reduced-motion`).
 
 > **How these were captured.** The portal HTML/CSS/JS in
 > [`setup/.../var/www/setup-portal/`](setup/headless/setup-device/var/www/setup-portal/)
-> renders offline; each screen was shot headlessly with Playwright. The states below the
-> first one are normally reached in response to the setup backend
-> (`/api/status`, `/api/scan-networks`, `/api/configure`). To capture them without a live
-> appliance, those backend responses were stubbed **only to trigger the portal's own
-> rendering code paths** — the layout, styling, and copy are exactly what the shipped page
-> produces. Sample network names (`Companion-Home`, `Studio-5G`, …) stand in for a real
-> `nmcli` scan. No pixels are hand-drawn or faked.
+> renders offline; each screen was shot headlessly with Playwright at an iPhone-width
+> viewport. The states below the first one are normally reached in response to the setup
+> backend (`/api/status`, `/api/scan-networks`, `/api/configure`). To capture them without
+> a live appliance, those backend responses were stubbed **only to trigger the portal's
+> own rendering code paths** — the layout, styling, and copy are exactly what the shipped
+> page produces. Sample network names (`Companion-Home`, `Studio-5G`, …) stand in for a
+> real `nmcli` scan. No pixels are hand-drawn or faked. A short walkthrough video (9:16)
+> of the golden path — pairing code → network scan → password → success — is linked from
+> the PR that introduced this gallery.
 
 ### First-boot form (pairing required)
 
@@ -80,7 +88,7 @@ password field, and **Configure Device**. A background scan runs on load, so the
 count populates automatically.
 
 <p align="center">
-  <img src="docs/ui/setup-portal-dark.png" alt="CI-OS setup portal — first-boot pairing form (dark)" width="640">
+  <img src="docs/ui/setup-portal-dark.png" alt="CI-OS setup portal — first-boot pairing form (dark)" width="320">
 </p>
 
 ### Network scan results
@@ -89,7 +97,7 @@ Tapping **Scan** (or the automatic scan on load) fills the selector with nearby 
 sorted by signal strength, with the signal percentage beside each SSID.
 
 <p align="center">
-  <img src="docs/ui/setup-portal-networks-dark.png" alt="CI-OS setup portal — expanded scanned-network list (dark)" width="640">
+  <img src="docs/ui/setup-portal-networks-dark.png" alt="CI-OS setup portal — expanded scanned-network list (dark)" width="320">
 </p>
 
 ### Manual network entry
@@ -98,7 +106,7 @@ Choosing **Enter network manually…** reveals a free-text field for hidden or
 out-of-range SSIDs.
 
 <p align="center">
-  <img src="docs/ui/setup-portal-manual-dark.png" alt="CI-OS setup portal — manual SSID entry (dark)" width="640">
+  <img src="docs/ui/setup-portal-manual-dark.png" alt="CI-OS setup portal — manual SSID entry (dark)" width="320">
 </p>
 
 ### No-pairing variant
@@ -107,7 +115,7 @@ When the backend reports `require_pairing: false` (via `/api/status`), the pairi
 field is hidden and the flow drops straight to network selection.
 
 <p align="center">
-  <img src="docs/ui/setup-portal-nopairing-dark.png" alt="CI-OS setup portal — pairing-not-required variant (dark)" width="640">
+  <img src="docs/ui/setup-portal-nopairing-dark.png" alt="CI-OS setup portal — pairing-not-required variant (dark)" width="320">
 </p>
 
 ### Success
@@ -117,7 +125,7 @@ counts down to the redirect target (the Portal, `https://portal.ci.computer`) wh
 button shows a **Configuring…** spinner.
 
 <p align="center">
-  <img src="docs/ui/setup-portal-success-dark.png" alt="CI-OS setup portal — configuration success (dark)" width="640">
+  <img src="docs/ui/setup-portal-success-dark.png" alt="CI-OS setup portal — configuration success (dark)" width="320">
 </p>
 
 ### Error
@@ -126,7 +134,7 @@ If configuration fails (bad pairing code, wrong password, backend/network error)
 portal surfaces an inline error and re-enables the form for another attempt.
 
 <p align="center">
-  <img src="docs/ui/setup-portal-error-dark.png" alt="CI-OS setup portal — configuration error (dark)" width="640">
+  <img src="docs/ui/setup-portal-error-dark.png" alt="CI-OS setup portal — configuration error (dark)" width="320">
 </p>
 
 > **Backend-gated / not shown.** CI-OS ships no other rendered UI. Everything else the OS
