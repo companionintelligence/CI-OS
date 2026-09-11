@@ -9,6 +9,9 @@
 
 set -euo pipefail
 
+# The canon tokens (CI_* variables + ci_hex0x) and REPO_ROOT come from lib.sh.
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
+
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -75,8 +78,8 @@ else
 fi
 
 if [[ -f "$PLYMOUTH_SPINNER" ]]; then
-    if grep -q "0x066c80" "$PLYMOUTH_SPINNER" 2>/dev/null; then
-        check_pass "Plymouth uses CI dark green colors (#066c80)"
+    if grep -qi "$(ci_hex0x "$CI_DARK_BACKGROUND")" "$PLYMOUTH_SPINNER" 2>/dev/null; then
+        check_pass "Plymouth uses the CI canon ground ($CI_DARK_BACKGROUND navy)"
     else
         check_warn "Plymouth theme exists but may not have CI colors"
     fi
@@ -127,10 +130,10 @@ if command -v gsettings >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
     fi
 
     PRIMARY_COLOR=$(gsettings get org.gnome.desktop.background primary-color 2>/dev/null | tr -d "'" || true)
-    if [[ "$PRIMARY_COLOR" == *"066c80"* ]]; then
-        check_pass "GNOME background primary color is CI dark green"
+    if [[ "${PRIMARY_COLOR,,}" == *"${CI_LIGHT_PRIMARY#\#}"* ]]; then
+        check_pass "GNOME background primary color is the CI canon primary ($CI_LIGHT_PRIMARY)"
     else
-        check_warn "GNOME background primary color: $PRIMARY_COLOR (expected #066c80)"
+        check_warn "GNOME background primary color: $PRIMARY_COLOR (expected $CI_LIGHT_PRIMARY)"
     fi
 else
     check_warn "Cannot check GNOME settings (not in graphical session or gsettings not available)"
@@ -140,8 +143,8 @@ fi
 log_info "Checking GDM theme configuration..."
 
 if [[ -f "/etc/dconf/db/local.d/01-ci-os-gnome-defaults" ]]; then
-    if grep -q "066c80" /etc/dconf/db/local.d/01-ci-os-gnome-defaults 2>/dev/null; then
-        check_pass "dconf system theme configured with CI colors"
+    if grep -qi "${CI_LIGHT_PRIMARY#\#}" /etc/dconf/db/local.d/01-ci-os-gnome-defaults 2>/dev/null; then
+        check_pass "dconf system theme configured with the CI canon primary"
     else
         check_warn "dconf system defaults exist but may not have CI colors"
     fi
@@ -238,11 +241,16 @@ fi
 # Check 10: Brand Assets
 log_info "Checking brand assets..."
 
-if [[ -f "$REPO_ROOT/assets/branding/brand-guidelines.md" ]]; then
-    if grep -q "066c80" "$REPO_ROOT/assets/branding/brand-guidelines.md" 2>/dev/null; then
-        check_pass "Brand guidelines contain CI dark green colors"
+if [[ -f "$REPO_ROOT/vendor/brand/SHA256SUMS" ]]; then
+    if "$REPO_ROOT/setup/scripts/vendor-brand.sh" --check >/dev/null 2>&1; then
+        check_pass "Vendored brand bundle matches its SHA256SUMS (ci-brand $(cat "$REPO_ROOT/vendor/brand/.version"))"
     else
-        check_warn "Brand guidelines exist but may not have correct colors"
+        check_fail "Vendored brand bundle does not match SHA256SUMS — run setup/scripts/vendor-brand.sh"
+    fi
+    if grep -q "066c80" "$REPO_ROOT/assets/branding/brand-guidelines.md" 2>/dev/null; then
+        check_fail "brand-guidelines.md still names the logo ramp #066c80 as the brand colour"
+    else
+        check_pass "brand-guidelines.md points at the canon"
     fi
 else
     check_warn "Brand guidelines not found in repository"

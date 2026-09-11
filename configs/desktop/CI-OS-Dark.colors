@@ -1,3 +1,6 @@
+# GENERATED VALUES: the brand colours below are the Companion Intelligence canon (vendor/brand/tokens/tokens.sh) —
+# phthalo 10,99,88 (#0a6358), sage 197,232,220 (#c5e8dc), aqua-light 114,221,212 (#72ddd4). The scheme used to
+# be painted in the logo ramp (#066c80 / #00a9a7), which is artwork, not the brand palette.
 [ColorEffects:Disabled]
 Color=56,56,56
 ColorAmount=0
@@ -20,21 +23,21 @@ IntensityEffect=0
 
 [Colors:Button]
 BackgroundAlternate=27,67,50
-BackgroundNormal=6,108,128
-DecorationFocus=0,169,167
+BackgroundNormal=10,99,88
+DecorationFocus=197,232,220
 DecorationHover=114,221,212
-ForegroundActive=0,169,167
+ForegroundActive=197,232,220
 ForegroundInactive=189,195,199
 ForegroundLink=114,221,212
 ForegroundNegative=218,68,83
 ForegroundNeutral=246,116,0
 ForegroundNormal=252,252,252
 ForegroundPositive=39,174,96
-ForegroundVisited=6,108,128
+ForegroundVisited=10,99,88
 
 [Colors:Selection]
-BackgroundAlternate=0,169,167
-BackgroundNormal=6,108,128
+BackgroundAlternate=197,232,220
+BackgroundNormal=10,99,88
 DecorationFocus=114,221,212
 DecorationHover=114,221,212
 ForegroundActive=252,252,252
@@ -49,37 +52,37 @@ ForegroundVisited=27,67,50
 [Colors:Tooltip]
 BackgroundAlternate=27,67,50
 BackgroundNormal=45,90,69
-DecorationFocus=0,169,167
+DecorationFocus=197,232,220
 DecorationHover=114,221,212
-ForegroundActive=0,169,167
+ForegroundActive=197,232,220
 ForegroundInactive=189,195,199
 ForegroundLink=114,221,212
 ForegroundNegative=218,68,83
 ForegroundNeutral=246,116,0
 ForegroundNormal=252,252,252
 ForegroundPositive=39,174,96
-ForegroundVisited=6,108,128
+ForegroundVisited=10,99,88
 
 [Colors:View]
 BackgroundAlternate=27,67,50
-BackgroundNormal=6,108,128
-DecorationFocus=0,169,167
+BackgroundNormal=10,99,88
+DecorationFocus=197,232,220
 DecorationHover=114,221,212
-ForegroundActive=0,169,167
+ForegroundActive=197,232,220
 ForegroundInactive=189,195,199
 ForegroundLink=114,221,212
 ForegroundNegative=218,68,83
 ForegroundNeutral=246,116,0
 ForegroundNormal=252,252,252
 ForegroundPositive=39,174,96
-ForegroundVisited=6,108,128
+ForegroundVisited=10,99,88
 
 [Colors:Window]
 BackgroundAlternate=27,67,50
-BackgroundNormal=6,108,128
-DecorationFocus=0,169,167
+BackgroundNormal=10,99,88
+DecorationFocus=197,232,220
 DecorationHover=114,221,212
-ForegroundActive=0,169,167
+ForegroundActive=197,232,220
 ForegroundInactive=189,195,199
 ForegroundLink=114,221,212
 ForegroundNegative=218,68,83
@@ -91,16 +94,16 @@ ForegroundVisited=27,67,50
 [Colors:Complementary]
 BackgroundAlternate=27,67,50
 BackgroundNormal=0,0,0
-DecorationFocus=0,169,167
+DecorationFocus=197,232,220
 DecorationHover=114,221,212
-ForegroundActive=0,169,167
+ForegroundActive=197,232,220
 ForegroundInactive=161,169,177
 ForegroundLink=114,221,212
 ForegroundNegative=218,68,83
 ForegroundNeutral=246,116,0
 ForegroundNormal=252,252,252
 ForegroundPositive=39,174,96
-ForegroundVisited=6,108,128
+ForegroundVisited=10,99,88
 
 [General]
 ColorScheme=CI-OS-Dark
@@ -111,7 +114,7 @@ shadeSortColumn=true
 contrast=4
 
 [WM]
-activeBackground=6,108,128
+activeBackground=10,99,88
 activeBlend=252,252,252
 activeForeground=252,252,252
 inactiveBackground=27,67,50

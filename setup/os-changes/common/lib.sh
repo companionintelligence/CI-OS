@@ -8,6 +8,11 @@ if [[ -z "${OS_CHANGES_DIR:-}" ]]; then
 fi
 export REPO_ROOT="$(cd "${OS_CHANGES_DIR}/../.." && pwd)"
 
+# The Companion Intelligence canon, vendored from the brand bundle (setup/scripts/vendor-brand.sh).
+# Every colour a theming script needs is a CI_* variable from here — never a literal.
+# shellcheck source=../../../vendor/brand/tokens/tokens.sh
+source "${REPO_ROOT}/vendor/brand/tokens/tokens.sh"
+
 log_info() { echo -e "\033[0;32m[INFO]\033[0m $*"; }
 log_warn() { echo -e "\033[1;33m[WARN]\033[0m $*"; }
 log_error() { echo -e "\033[0;31m[ERROR]\033[0m $*"; }
