@@ -8,9 +8,9 @@ require_root
 PROFILE_ID="9f6f90ea-bf5f-4aa3-9f2d-0ce9d4bd9c10"
 PROFILE_PATH="/org/gnome/terminal/legacy/profiles:/:${PROFILE_ID}/"
 
-BG_COLOR="#071A23"
-FG_COLOR="#D7F3F0"
-CURSOR_BG="#7AE7D8"
+BG_COLOR="$CI_DARK_BACKGROUND"   # canon navy (was #071A23)
+FG_COLOR="$CI_DARK_FOREGROUND"   # canon dark foreground (was #D7F3F0)
+CURSOR_BG="$CI_DARK_PRIMARY"     # canon sage (was #7AE7D8)
 CURSOR_FG="#071A23"
 PALETTE="['#0F2430', '#FF6B6B', '#3DD6B5', '#FFD166', '#4EA8DE', '#C77DFF', '#34D1BF', '#D7F3F0', '#46606F', '#FF8787', '#63E6BE', '#FFE08A', '#74C0FC', '#D0A2FF', '#66E9D2', '#F1FFFD']"
 

@@ -36,10 +36,15 @@
             --foreground: #ffffff;
             --card: #0c323c;
             --card-foreground: #ffffff;
-            /* Pure white per explicit request — overrides the canonical sage
-               (#c5e8dc) dark --primary from tokens.css. */
-            --primary: #ffffff;
+            /* --primary is the canon (sage in dark) — ci-lint-canon fails the build on anything
+               else. The pure-white CTA buttons requested for this portal are their own token,
+               --cta, so the divergence is a surface choice, not a redefinition of the brand primary
+               (CI-Common CONSUMING.md, 'legitimate divergence'). */
+            --primary: #c5e8dc;
             --primary-foreground: #041620;
+            --cta: #ffffff;
+            --cta-foreground: #041620;
+            --cta-hover: color-mix(in srgb, var(--cta) 82%, black);
             --primary-hover: color-mix(in srgb, var(--primary) 82%, black);
             --secondary: #073038;
             --muted: #073038;
@@ -212,8 +217,8 @@
             padding: 0 14px;
             min-width: 72px;
             min-height: 48px;
-            background-color: var(--primary);
-            color: var(--primary-foreground);
+            background-color: var(--cta);
+            color: var(--cta-foreground);
             border: none;
             border-radius: var(--radius-lg);
             font-weight: 600;
@@ -228,7 +233,7 @@
         }
 
         .scan-btn:hover {
-            background-color: var(--primary-hover);
+            background-color: var(--cta-hover);
             transform: translateY(-1px);
             box-shadow: var(--shadow-md), 0 0 0 1px rgba(0, 169, 167, 0.18);
         }
@@ -330,8 +335,8 @@
 
         input[type="submit"],
         button[type="submit"] {
-            background-color: var(--primary);
-            color: var(--primary-foreground);
+            background-color: var(--cta);
+            color: var(--cta-foreground);
             border: none;
             font-weight: 600;
             cursor: pointer;
@@ -344,7 +349,7 @@
 
         input[type="submit"]:hover:not(:disabled),
         button[type="submit"]:hover:not(:disabled) {
-            background-color: var(--primary-hover);
+            background-color: var(--cta-hover);
             transform: translateY(-1px);
             box-shadow: var(--shadow-lg), 0 0 0 1px rgba(0, 169, 167, 0.18);
         }
@@ -365,7 +370,7 @@
             width: 16px;
             height: 16px;
             border: 2px solid rgba(4, 22, 32, 0.25);
-            border-top-color: var(--primary-foreground);
+            border-top-color: var(--cta-foreground);
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
             margin-right: 8px;

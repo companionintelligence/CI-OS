@@ -13,9 +13,13 @@ UBUNTU_TEXT_PLYMOUTH="$PLYMOUTH_UBUNTU_TEXT_DIR/ubuntu-text.plymouth"
 PLYMOUTH_SPINNER_CONF="$PLYMOUTH_SPINNER_DIR/spinner.plymouth"
 PLYMOUTH_BGRT_CONF="/usr/share/plymouth/themes/bgrt/bgrt.plymouth"
 
-BG_DARK_GREEN="0x066c80"
-PROGRESS_BG="0x1b4332"
-PROGRESS_FG="0x00a9a7"
+# Boot palette from the canon tokens (vendor/brand/tokens/tokens.sh, sourced by lib.sh):
+# ground = the dark background (navy), progress = the dark primary (sage), track = dark secondary.
+# Before this the boot screen was painted in the logo ramp (#066c80 / #00a9a7 / #72ddd4), which
+# is artwork, not the brand palette. Design review: see the PR that introduced this.
+BG_DARK_GREEN="$(ci_hex0x "$CI_DARK_BACKGROUND")"
+PROGRESS_BG="$(ci_hex0x "$CI_DARK_SECONDARY")"
+PROGRESS_FG="$(ci_hex0x "$CI_DARK_PRIMARY")"
 
 if [[ ! -f "$LOGO_SOURCE" ]]; then
   log_error "Logo file not found: $LOGO_SOURCE"
@@ -67,7 +71,10 @@ fi
 
 if [[ -f "$UBUNTU_TEXT_PLYMOUTH" ]]; then
   cp "$UBUNTU_TEXT_PLYMOUTH" "$BACKUP_DIR/ubuntu-text.plymouth.bak"
-  cat > "$UBUNTU_TEXT_PLYMOUTH" <<'PLYMOUTH_EOF'
+  TEXT_WHITE="$(ci_hex0x "$CI_DARK_FOREGROUND")"
+  TEXT_BROWN="$(ci_hex0x "$CI_DARK_PRIMARY")"
+  TEXT_BLUE="$(ci_hex0x "$CI_LIGHT_PRIMARY")"
+  cat > "$UBUNTU_TEXT_PLYMOUTH" <<PLYMOUTH_EOF
 [Plymouth Theme]
 Name=CI OS Text
 Description=Text mode theme with CI OS branding
@@ -76,9 +83,9 @@ ModuleName=ubuntu-text
 [ubuntu-text]
 title=CI OS 0.0.1
 black=0x000000
-white=0x72ddd4
-brown=0x00a9a7
-blue=0x066c80
+white=$TEXT_WHITE
+brown=$TEXT_BROWN
+blue=$TEXT_BLUE
 PLYMOUTH_EOF
   chmod 644 "$UBUNTU_TEXT_PLYMOUTH"
 fi

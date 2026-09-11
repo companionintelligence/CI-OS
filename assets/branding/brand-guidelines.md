@@ -1,60 +1,27 @@
-# CI OS Brand Guidelines
+# CI-OS brand — pointer
 
-## Logo Usage
-- Primary logo: `assets/logos/ci-holo-depth.png`
-- Icon version: `assets/logos/ci-holo-depth.png`
-- Minimum size: 32px for icon, 120px for full logo
-- Clear space: Minimum 20px around logo
+> **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
-## Color Palette
-### Primary Colors (Official CI Dark Green Scheme)
-- **Primary Dark Green**: #066c80 (Primary brand color - backgrounds, window frames, selection)
-- **Medium Green**: #00a9a7 (Secondary elements - highlights, links, buttons)
-- **Light Green**: #72ddd4 (Accents - text highlights, branding elements)
+The Companion Intelligence brand is defined once, in **CI-Common**:
+[`styles/UI-STYLE-GUIDE.md`](https://github.com/companionintelligence/CI-Common/blob/main/styles/UI-STYLE-GUIDE.md)
+(the written design system) and `@companionintelligence/tokens`
+(`styles/tokens/src/tokens.json`, the one hand-edited token file). This repo does
+not restate it. Every colour the OS theming scripts use is a `CI_*` variable from
+`vendor/brand/tokens/tokens.sh`, vendored from CI-Common's brand bundle by
+`setup/scripts/vendor-brand.sh` and verified by `80-validate-ci-theme.sh`.
 
-### Supporting Colors
-- **Deep Green**: #1b4332 (Dark backgrounds, secondary surfaces)
-- **Forest Green**: #2d5a45 (Progress bars, tertiary elements)
-- **Teal**: #20b2aa (Interactive elements, focus states)
+| Role | Token | Value (canon 1.0) | Used by |
+| --- | --- | --- | --- |
+| Brand primary | `CI_LIGHT_PRIMARY` | `#0a6358` phthalo | GNOME background primary, KDE focus, Plymouth text accent |
+| Dark primary / accent | `CI_DARK_PRIMARY` | `#c5e8dc` sage | Plymouth progress, terminal cursor, KDE decoration focus |
+| Ground | `CI_DARK_BACKGROUND` | `#041620` navy | Plymouth background, terminal background, KDE window background |
+| Foreground | `CI_DARK_FOREGROUND` | `#e8f2f4` | Plymouth text, terminal foreground |
+| Aqua accent | `CI_ACCENT_AQUA_LIGHT` | `#72ddd4` | KDE hover / link |
 
-### UI Colors
-- **White**: #FFFFFF (Text on dark backgrounds)
-- **Light Gray**: #E5E7EB (Secondary text)
-- **Dark Gray**: #374151 (Body text)
-- **Black**: #000000 (Deep backgrounds, text)
+The logo's own ramp (`#066c80` / `#00a9a7` / `#72ddd4`) is part of the mark artwork
+(`vendor/brand/logos/mark.svg`) and is **not** the brand palette — the boot screen,
+desktop theme and this document used to be painted in it. Typography: Manrope
+(`vendor/brand/fonts/`) on branded surfaces; the desktop keeps the distro's system fonts.
 
-## Typography
-- **Primary**: Ubuntu (system font)
-- **Monospace**: Ubuntu Mono (terminal/code)
-- **Fallback**: Arial, sans-serif
-
-## Logo Variations
-- Use SVG format for scalability
-- PNG versions available for compatibility
-- Dark background: Use white/light versions
-- Light background: Use standard blue versions
-
-## Usage Guidelines
-- Do not modify the logo proportions
-- Do not use the logo on busy backgrounds
-- Maintain proper contrast ratios
-- Use appropriate sizing for context
-
-## File Structure
-```
-assets/
-├── logos/
-│   ├── holo-ci.png (Primary logo)
-│   ├── 2024_CI__Logo_Banner_Black.png (Banner version)
-│   ├── 2024_CI__Logo_Banner_Color_small.svg (Color banner)
-│   ├── 2024_CI__LogoMark_black.png (Black logomark)
-│   └── 2024_CI__LogoMark_Color_med.svg (Color logomark)
-├── icons/
-│   ├── ci-os-icon.svg (Square icon)
-│   ├── ci-os-icon-16.png (16x16 px)
-│   ├── ci-os-icon-32.png (32x32 px)
-│   └── ci-os-icon-64.png (64x64 px)
-└── wallpapers/
-    ├── ci-os-wallpaper-1920x1080.png
-    └── ci-os-wallpaper-2560x1440.png
-```
+Refresh: `setup/scripts/vendor-brand.sh <version>` after a `@companionintelligence/tokens`
+release; see CI-Common `CONSUMING.md`, Route B.
