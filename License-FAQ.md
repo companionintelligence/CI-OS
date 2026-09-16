@@ -6,7 +6,9 @@ The license grants free rights to use, modify, and redistribute Companion OS sou
 
 Companion OS uses the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). The full text is in [`LICENSE.md`](LICENSE.md).
 
-Ubuntu and other upstream packages keep their own licenses.
+Ubuntu and other upstream packages keep their own licenses. For third-party
+assets bundled in compiled/binary form — where the upstream license isn't
+visible from the file itself — see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
 
 ### What freedoms do you have as a Companion OS user?
 
