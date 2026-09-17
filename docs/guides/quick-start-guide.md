@@ -185,17 +185,21 @@ sudo ci-os-install-rocm
 
 ```bash
 # Run full setup script (from the repository root)
-sudo ./scripts/setup-fresh-ubuntu.sh
+sudo ./backends/ubuntu/provision/provision.sh --tier=core,extended,hardware
 ```
 
-This installs:
+This installs (see `core/manifest/ecosystem.yaml` for the exact, current list):
 - Docker & Docker Compose
 - Node.js (via asdf)
-- Bun runtime
-- Ollama (local AI)
+- Ollama (local AI, + default models)
 - GitHub CLI
-- VS Code
-- PostgreSQL tools
+- VS Code, Chromium, Homebrew, Companion Launcher (`--tier=extended`)
+- CI Hub Service (the Docker backend, gated on registry credentials)
+- ROCm / LACT on AMD hardware (`--tier=hardware`, auto-detected)
+
+Bun and PostgreSQL are not installed by this script — Bun isn't required by
+anything in this repo, and CI-Server (which would use PostgreSQL) lives in its
+own repo, not here.
 
 ### Manual Installs
 

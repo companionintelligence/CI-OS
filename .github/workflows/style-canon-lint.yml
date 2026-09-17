@@ -21,6 +21,10 @@ jobs:
       - run: npx --yes --package @companionintelligence/config ci-lint-canon . --tokens vendor/brand/tokens/tokens.json
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - run: setup/scripts/vendor-brand.sh --check
-      - run: setup/scripts/check-brand-mirrors.sh
-      - run: bash -n setup/os-changes/common/*.sh setup/os-changes/apply-ci-os-desktop.sh
+      - run: core/lib/vendor-brand.sh --check
+      - run: core/lib/check-brand-mirrors.sh
+      - run: >-
+          bash -n backends/_mixins/gnome-dconf/*.sh backends/_mixins/kde-plasma/*.sh
+          backends/ubuntu/desktop-theme/*.sh core/render/*.sh core/lib/*.sh
+          backends/ubuntu/iso/scripts/build-gdm-branding-gresource.sh
+          backends/ubuntu/chroot/customize-chroot.sh

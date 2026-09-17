@@ -1,5 +1,5 @@
 ## Companion Intelligence OS
-### UnCloud Linux · built on Ubuntu 24.04 LTS (Noble)
+### UnCloud Linux · a multi-distro Companion Intelligence appliance builder
 
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
@@ -25,14 +25,14 @@ Companion OS uses the [PolyForm Noncommercial License 1.0.0](LICENSE.md). See th
 
 ## One-command setup (flashed Ubuntu)
 
-On a machine freshly flashed with Ubuntu, `scripts/bootstrap-ci-os.sh` wraps the
+On a machine freshly flashed with Ubuntu, `backends/ubuntu/provision/bootstrap-ci-os.sh` wraps the
 [fresh-Ubuntu provisioning](#provision-a-fresh--existing-ubuntu) and
 [desktop branding](#apply-ci-desktop-branding-to-a-running-system) steps below,
 plus the [headless WiFi setup](#headless-device-wifi-setup) package, into a single
 command:
 
 ```bash
-git clone https://github.com/companionintelligence/CI-OS.git && cd CI-OS && sudo ./scripts/bootstrap-ci-os.sh --yes
+git clone https://github.com/companionintelligence/CI-OS.git && cd CI-OS && sudo ./backends/ubuntu/provision/bootstrap-ci-os.sh --yes
 ```
 
 Then **reboot** to see the Plymouth boot splash and full branding. Run without
@@ -70,7 +70,7 @@ top accent strip, an ambient background glow, and colored focus rings, and a car
 entrance transition on load (all motion respects `prefers-reduced-motion`).
 
 > **How these were captured.** The portal HTML/CSS/JS in
-> [`setup/.../var/www/setup-portal/`](setup/headless/setup-device/var/www/setup-portal/)
+> [`core/headless/payload/var/www/setup-portal/`](core/headless/payload/var/www/setup-portal/)
 > renders offline; each screen was shot headlessly with Playwright at an iPhone-width
 > viewport. The states below the first one are normally reached in response to the setup
 > backend (`/api/status`, `/api/scan-networks`, `/api/configure`). To capture them without
@@ -147,31 +147,48 @@ portal surfaces an inline error and re-enables the form for another attempt.
 
 ## What this repo is
 
-CI-OS is **Companion Ubuntu** — provisioning and branding scripts that turn stock
-**Ubuntu 24.04 LTS (Noble)** into a Companion Intelligence appliance. It is **not**
-a from-scratch or shipped OS; the primary workflow is run-these-scripts-on-Ubuntu.
-An ISO builder exists in-tree but is secondary and not the product path.
+CI-OS builds and themes the Companion Intelligence appliance **across multiple Linux
+distros** — Ubuntu (the reference implementation today), Linux Mint, Fedora, Arch, Bazzite,
+and NixOS — and provisions the CI ecosystem (Docker, dev tooling, local LLMs, CI-Hub) on top
+of each. Shared theming/provisioning logic lives in `core/`; each distro's actual
+build/install mechanism lives in `backends/<distro>/`. See
+[`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for the
+full design and rollout plan.
+
+An earlier version of this repo described itself as "Companion Ubuntu" — provisioning and
+branding scripts that only ran on stock Ubuntu 24.04 LTS. That framing is superseded: Ubuntu
+is still the most mature, reference backend, but it's one of six, not the whole project.
 
 Scripts typically apply:
 
-- a CI-OS identity and teal/dark-green rebrand (GRUB, Plymouth, GDM/GNOME Shell, MOTD, wallpaper, `os-release`),
-- Ubuntu telemetry and bloatware removed,
-- AMD GPU / ROCm support (Strix Halo / gfx1151 via ROCm **7.2.4**, `--no-dkms`), and
-- the full CI developer + appliance stack (Docker, Node, Ollama, Companion Hub, …).
+- a CI-OS identity and teal/phthalo/sage rebrand (GRUB, Plymouth, GDM/GNOME Shell or the
+  distro's native DE, MOTD, wallpaper, `os-release`),
+- distro telemetry and bloatware removed,
+- AMD GPU / ROCm support where applicable (Strix Halo / gfx1151 via ROCm **7.2.4**), and
+- the full CI developer + appliance stack (Docker, Node, Ollama, CI-Hub, …), driven by one
+  shared manifest (`core/manifest/ecosystem.yaml`) instead of per-distro hardcoded tool lists.
 
-Everything is plain **Bash** — there is no Nix, no build system to learn. You pick
-one of the entry-point scripts below depending on *what* you want to customize.
+`core/` and the manifest are plain Bash + YAML with no distro assumptions. Individual
+backends use their native tooling — **`backends/nixos/` is Nix by design**; the rest are not.
+See the Stack section of `CLAUDE.md` for exactly which backend uses what.
 
 ---
 
 ## Four ways to customize Ubuntu
 
+> The table below describes the **Ubuntu backend** specifically — still the most complete
+> today. As other backends (`backends/mint/`, `backends/fedora/`, ...) land, each gets its own
+> equivalent table in its own README; see
+> [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for
+> the full per-backend rollout status. These paths are pre-refactor and still accurate; they
+> are moving into `backends/ubuntu/` as that work lands.
+
 | Goal | Entry point | Run on |
 |------|-------------|--------|
-| **A. Ship a branded installer ISO** | [`tools/iso-build/scripts/build-iso.sh`](tools/iso-build/scripts/build-iso.sh) | An Ubuntu 24.04 *build host* |
-| **B. Turn a fresh/existing Ubuntu into a CI appliance** (dev + service stack) | [`scripts/setup-fresh-ubuntu.sh`](scripts/setup-fresh-ubuntu.sh) | The *target* machine, as root |
-| **C. Re-skin a running Ubuntu desktop** (branding only, no packages) | [`setup/os-changes/apply-ci-os-desktop.sh`](setup/os-changes/apply-ci-os-desktop.sh) | The *target* machine, as root |
-| **D. First-time headless WiFi onboarding** (captive portal) | [`setup/headless/build.sh`](setup/headless/build.sh) → `.deb` | The *target* device |
+| **A. Ship a branded installer ISO** | [`backends/ubuntu/iso/scripts/build-iso.sh`](backends/ubuntu/iso/scripts/build-iso.sh) | An Ubuntu 24.04 *build host* |
+| **B. Turn a fresh/existing Ubuntu into a CI appliance** (dev + service stack) | [`backends/ubuntu/provision/provision.sh`](backends/ubuntu/provision/provision.sh) | The *target* machine, as root |
+| **C. Re-skin a running Ubuntu desktop** (branding only, no packages) | [`backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh`](backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
+| **D. First-time headless WiFi onboarding** (captive portal) | [`backends/ubuntu/headless-package/build.sh`](backends/ubuntu/headless-package/build.sh) → `.deb` | The *target* device |
 
 **How A relates to B and C:** the ISO builder (A) bakes the branding (C) directly
 into the squashfs and embeds the provisioning script (B) at
@@ -179,10 +196,26 @@ into the squashfs and embeds the provisioning script (B) at
 on first boot:
 
 - `ci-os-first-boot-rebrand.service` — rewrites `os-release` IDs to `ci-os`.
-- `ci-os-first-boot-setup.service` — runs the embedded `setup-fresh-ubuntu.sh` once (idempotent, network-failure-tolerant) to install the full stack.
+- `ci-os-first-boot-setup.service` — runs the staged `provision.sh --tier=core` once (idempotent, network-failure-tolerant). Extended-tier tools (VS Code, Chromium, Homebrew, Companion Launcher) are not installed at first boot — run B manually with `--tier=extended` added for those.
 
 So a clean ISO install ends up identical to running B + C by hand. Use B/C directly
 when you want to convert a machine you already have without reimaging it.
+
+### Mint backend (Phase 2, implemented)
+
+Linux Mint (Cinnamon edition) is the second backend — provisioning + desktop/login-screen
+theming only, no ISO-build mode. It reuses B and D from the table above unchanged/near-verbatim
+and has its own equivalents of C:
+
+| Goal | Entry point | Run on |
+|------|-------------|--------|
+| **B. Provision the ecosystem** | [`backends/mint/provision/provision.sh`](backends/mint/provision/provision.sh) (wraps Ubuntu's `provision.sh` — same apt role-map) | The *target* machine, as root |
+| **C. Re-skin a running Mint desktop** (Cinnamon + Slick-Greeter branding) | [`backends/mint/desktop-theme/apply-ci-os-desktop.sh`](backends/mint/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
+| **D. First-time headless WiFi onboarding** | [`backends/mint/headless-package/build.sh`](backends/mint/headless-package/build.sh) → `.deb` | The *target* device |
+
+See [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md#backendsmint-phase-2-implemented)
+for what's reused from the Ubuntu backend by path (Plymouth, GRUB, MOTD) versus written fresh
+for Cinnamon/Slick-Greeter, and the known gaps left for a follow-up pass.
 
 ---
 
@@ -210,7 +243,7 @@ sudo apt-get install \
 wget https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso
 
 # 2. Build — single entry point, runs as root
-sudo ./tools/iso-build/scripts/build-iso.sh \
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
   --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
 ```
 
@@ -218,7 +251,7 @@ Output: `./output/companion-os-1.0-amd64.iso` (+ `SHA256SUMS` / `MD5SUMS`).
 
 `build-iso.sh` runs in two steps: it first builds the `.deb` packages and the
 branded GNOME Shell gresource (`build-packages.sh`), then extracts the base ISO,
-runs [`scripts/customize-chroot.sh`](scripts/customize-chroot.sh) on the rootfs
+runs [`backends/ubuntu/chroot/customize-chroot.sh`](backends/ubuntu/chroot/customize-chroot.sh) on the rootfs
 (identity, telemetry removal, branding, GRUB, ROCm helper, installer whitelabel,
 MOTD, first-boot bootstrap), and repacks a bootable ISO with `xorriso`.
 
@@ -235,7 +268,7 @@ MOTD, first-boot bootstrap), and repacks a bootable ISO with `xorriso`.
 | `--sign` | off | GPG-sign `SHA256SUMS` / `MD5SUMS` |
 
 Full reference, branding color map, and iterative-dev tips:
-**[`tools/iso-build/README.md`](tools/iso-build/README.md)** and the
+**[`backends/ubuntu/iso/README.md`](backends/ubuntu/iso/README.md)** and the
 **[ISO Build Guide](docs/guides/iso-build-guide.md)**.
 
 ### Features baked into the ISO
@@ -243,8 +276,8 @@ Full reference, branding color map, and iterative-dev tips:
 ✅ **Ubuntu rebranded as CI-OS** — GRUB, Plymouth, GDM/GNOME Shell, MOTD, `os-release`  
 ✅ **Privacy first** — telemetry removed, metric endpoints blocked  
 ✅ **AMD GPU ready** — ROCm 7.2.4 helper (`--no-dkms` on Strix Halo / gfx1151) 
-✅ **CI teal / dark-green theme** — `#00a9a7`, `#066c80`, `#72ddd4`, `#1b4332`  
-✅ **Full stack on first boot** — Docker, Node (asdf), Ollama, VS Code, Companion Hub  
+✅ **CI canon theme** — navy/phthalo/sage, sourced from `vendor/brand/tokens/tokens.sh`  
+✅ **Core stack on first boot** — Docker, Node (asdf), Ollama+models, CI-Hub (`provision.sh --tier=core`); VS Code/Chromium/Homebrew/Companion Launcher are opt-in (`--tier=extended`)  
 ✅ **Bootable** — inherits BIOS + UEFI + Secure Boot from the base ISO
 
 ### CI/CD
@@ -260,36 +293,43 @@ ISOs build automatically via [`.github/workflows/build-companion-os-iso.yml`](.g
 ## Provision a fresh / existing Ubuntu
 
 Convert any Ubuntu 24.04 machine into a CI appliance without reimaging. This is the
-same script the ISO runs on first boot, so it is **idempotent** — safe to re-run.
+same script the ISO runs on first boot (as `--tier=core`), so it is **idempotent** —
+safe to re-run. What gets installed is controlled by `--tier` — see
+`provision.sh`'s own header for the full core/extended/hardware breakdown; default
+(no flags) is `--tier=core,hardware`.
 
 For a typical desktop machine, the full setup flow is:
 
-1. Run `scripts/setup-fresh-ubuntu.sh` with `sudo` (this section)
-2. Run `setup/os-changes/apply-ci-os-desktop.sh` with `sudo` ([next section](#apply-ci-desktop-branding-to-a-running-system))
+1. Run `backends/ubuntu/provision/provision.sh --tier=core,extended,hardware` with `sudo` (this section)
+2. Run `backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh` with `sudo` ([next section](#apply-ci-desktop-branding-to-a-running-system))
 3. Reboot after both scripts complete
 
 ```bash
-chmod +x ./scripts/setup-fresh-ubuntu.sh
-sudo ./scripts/setup-fresh-ubuntu.sh
+chmod +x ./backends/ubuntu/provision/provision.sh
+sudo ./backends/ubuntu/provision/provision.sh --tier=core,extended,hardware
 ```
 
-Requires root. Installs and configures (in order):
+Requires root. Installs and configures (in order), tagged by tier — see
+[`core/manifest/ecosystem.yaml`](core/manifest/ecosystem.yaml) for the single source of
+truth this list mirrors:
 
-- **Docker** (engine + compose, adds your user to the `docker` group)
-- **uv** (Python), **Homebrew**, **make**
-- **Node.js via asdf** (with corepack/pnpm), sets a global Node version
-- a dedicated **`ci`** service user
-- **GitHub CLI**, **cloudflared**, **Tailscale**
-- **Ollama** (service + pulls default models)
-- **Chromium** and **VS Code** (Snap fallback if apt fails)
-- **Companion Hub** (+ autostart)
-- **telemetry removal** (`scripts/lib/remove-telemetry.sh`)
-- **ROCm 7.2.4** (`scripts/install-rocm-driver.sh`, non-fatal) — Strix Halo / Ryzen AI Max uses official `--no-dkms` inbox amdgpu; other AMD GPUs may use DKMS — and **LACT** GPU monitor
-- **Strix Halo unified-memory boot params** (`scripts/lib/strix-halo-boot-params.sh`, non-fatal) — see note below
+- **[core]** **Docker** (engine + compose, adds your user to the `docker` group), **make**
+- **[core]** **uv** (Python)
+- **[core]** **Node.js via asdf** (with corepack/pnpm), sets a global Node version
+- **[core]** a dedicated **`ci`** service user
+- **[core]** **GitHub CLI**, **cloudflared**, **Tailscale**
+- **[core]** **Ollama** (service + pulls default models)
+- **[core]** **CI Hub Service** — the Docker/Runtipi backend, gated on registry credentials (see `core/lib/ci-hub.sh`); reports a clear skip message and continues if unpaired
+- **[core]** **telemetry removal** (`backends/ubuntu/lib/remove-telemetry.sh`)
+- **[extended]** **Homebrew**
+- **[extended]** **Chromium** and **VS Code** (Snap fallback if apt fails)
+- **[extended]** **Companion Launcher** (+ autostart) — the desktop GUI app, distinct from the CI Hub Service backend above
+- **[hardware, auto-detected]** **ROCm 7.2.4** (`backends/ubuntu/lib/install-rocm-driver.sh`, non-fatal) — Strix Halo / Ryzen AI Max uses official `--no-dkms` inbox amdgpu; other AMD GPUs may use DKMS — and **LACT** GPU monitor
+- **[hardware, auto-detected]** **Strix Halo unified-memory boot params** (`backends/ubuntu/lib/strix-halo-boot-params.sh`, non-fatal) — see note below
 - GNOME power profile set to *performance*
 
 After it finishes, log out/in (or `newgrp docker`) so group changes take effect.
-Shared helpers live in [`scripts/lib/`](scripts/lib/); package/tooling details are
+Shared helpers live in [`backends/ubuntu/lib/`](backends/ubuntu/lib/); package/tooling details are
 in the script header.
 
 > **Note:** Bun is no longer installed by this script.
@@ -313,39 +353,42 @@ in the script header.
 ## Apply CI desktop branding to a running system
 
 Branding only — no packages, no stack. Use this to re-skin a desktop you already
-have. All steps live under `setup/os-changes/common/*.sh` and run in a fixed order:
+have. All steps live under `backends/ubuntu/desktop-theme/*.sh` and run in a fixed order:
 **plymouth → dconf → terminal → wallpaper → session → start-icon → os-release → motd** (+ optional **kde**).
 Assets sit beside the script. Dock defaults: **left**, **autohide** (dismissable).
 Reboot once after applying for Plymouth to take effect.
 
 ```bash
 # Full apply
-chmod +x ./setup/os-changes/apply-ci-os-desktop.sh
-sudo ./setup/os-changes/apply-ci-os-desktop.sh
+chmod +x ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh
+sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh
 
 # Reboot after both main setup scripts finish
 sudo reboot
 
 # Interactive: prompts, optional KDE, validation, optional reboot
-sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard
+sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh --wizard
 
 # CI / non-interactive: full apply + validate (no KDE, no reboot prompt)
-sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard --yes
+sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh --wizard --yes
 
 # Run only specific steps
-sudo ./setup/os-changes/apply-ci-os-desktop.sh --only wallpaper,session
-sudo ./setup/os-changes/apply-ci-os-desktop.sh --only plymouth,dconf
-sudo ./setup/os-changes/apply-ci-os-desktop.sh --wizard --yes --with-kde
+sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh --only wallpaper,session
+sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh --only plymouth,dconf
+sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh --wizard --yes --with-kde
 
 # Read-only checks (no sudo)
-./setup/os-changes/apply-ci-os-desktop.sh --validate
+./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh --validate
 ```
 
 Session-only tweaks for the current user (no sudo, no system changes):
-[`configs/desktop/gnome-settings.sh`](configs/desktop/gnome-settings.sh).
+[`backends/ubuntu/desktop-theme/gnome-settings.sh`](backends/ubuntu/desktop-theme/gnome-settings.sh).
 
-**Palette:** `#00a9a7`, `#066c80`, `#72ddd4`, `#1b4332` — see the
-**[Dark Green Theme Guide](docs/dark-green-theme-guide.md)**.
+**Palette:** navy/phthalo/sage from the CI-Common canon
+(`CI_LIGHT_PRIMARY`/`CI_DARK_PRIMARY`/`CI_DARK_BACKGROUND`, …) — see
+**[assets/branding/brand-guidelines.md](assets/branding/brand-guidelines.md)**, the
+canonical token table (the old dark-green `#00a9a7`/`#066c80`/`#72ddd4` "logo ramp"
+palette this line used to list was replaced org-wide by CI-Common canon 1.0).
 **Assets:** `LogoMark_Color_StartIcon-cropped.svg` (start icon),
 `background.png` → `/usr/share/backgrounds/ci-os-wallpaper.*`,
 `Logo_Banner_Color.png` (Plymouth). The icon/wallpaper steps back up the Ubuntu
@@ -371,7 +414,7 @@ stops the hotspot.
 ### Build and install
 
 ```bash
-cd setup/headless
+cd backends/ubuntu/headless-package
 ./build.sh
 sudo dpkg -i setup-device_*.deb
 ```
@@ -460,41 +503,52 @@ implications and is deliberately **not** made here.
 
 ## Repo layout
 
+`core/` is distro-portable; each backend's actual build/install mechanism lives under
+`backends/<distro>/`. See
+[`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for
+the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
+
 ```
-├── .github/workflows/        # CI/CD: build-companion-os-iso.yml
-├── assets/                    # Logos, wallpapers, theme assets
-├── config/
-│   └── packages.chroot/       # Legacy live-build staging (stale — see tools README)
-├── configs/                   # Boot, desktop, packages, preseed, post-install scripts
-│   ├── boot/                  # grub-default
-│   ├── desktop/               # CI-OS-Dark.colors, gnome-settings.sh (session-only)
-│   ├── packages/              # package-list.txt
-│   ├── preseed/               # ci-os.preseed
-│   └── scripts/               # ci-os-customization.sh (Cubic-style post-install)
-├── docs/
-│   ├── guides/                # ISO build, installation, quick start, repo setup, GDM branding
-│   └── *.md                   # theme guide, headless setup, quick reference, impl summary
-├── packages/                  # .deb sources
-│   ├── ci-os-branding/        # Branded GNOME Shell gresource (regenerated by build)
-│   ├── companion-os-base/
-│   ├── companion-os-keyring/
-│   ├── companion-agents/
-│   └── companion-memory/
-├── scripts/
-│   ├── setup-fresh-ubuntu.sh  # B: provision a machine / first-boot bootstrap
-│   ├── customize-chroot.sh    # called by the ISO builder against the rootfs
-│   ├── install-rocm-driver.sh # AMD ROCm/amdgpu (standalone or hooked)
-│   └── lib/                   # shared helpers (docker, nodejs, ollama, postgres, os-release, telemetry)
-├── setup/
-│   ├── os-changes/            # C: apply-ci-os-desktop.sh + common/*.sh + assets
-│   ├── headless/              # D: captive-portal WiFi onboarding (build.sh → .deb)
-│   ├── CI-OS-Hub-Setup/       # install-or-update-hub.sh + staging env notes
-│   └── CI-Server/             # Server staging env notes
-└── tools/
-    └── iso-build/             # A: build-iso.sh, build-packages.sh, gresource + repo helpers
-        ├── scripts/
-        └── README.md          # ISO build + branding reference
+├── .github/workflows/          # CI/CD: build-companion-os-iso.yml, style-canon-lint.yml
+├── assets/                     # Logos, wallpapers, brand-guidelines.md (raw design sources)
+├── vendor/brand/                # Vendored CI-Common brand bundle: tokens, fonts, logos
+├── core/                       # Distro-portable — no apt/dpkg (or any package manager) assumptions
+│   ├── manifest/                # ecosystem.yaml: single source of truth for what gets installed
+│   │   └── role-map/            # per-package-manager translations (apt.yaml today)
+│   ├── render/                  # tokens + assets -> rendered artifacts (Plymouth, GRUB bg, ...)
+│   │   └── inputs/               # raw PNG/SVG inputs the render scripts consume
+│   ├── lib/                     # theme-lib.sh, vendor-brand.sh, check-brand-mirrors.sh, ...
+│   ├── validate/                 # portable half of theme validation (currently empty — see below)
+│   └── headless/payload/         # captive-portal Flask backend, static portal, hostapd/dnsmasq configs
+├── backends/
+│   ├── _mixins/                  # Shared building blocks (used by ubuntu today, fedora later)
+│   │   ├── gnome-dconf/           # GNOME dconf/session/terminal theming
+│   │   └── kde-plasma/            # KDE Plasma color scheme
+│   ├── ubuntu/                   # The reference backend — apt/dpkg + Bash
+│   │   ├── iso/scripts/           # A: build-iso.sh, build-packages.sh, gresource + repo helpers
+│   │   ├── chroot/                # customize-chroot.sh — called by the ISO builder against the rootfs
+│   │   ├── provision/             # B: provision.sh, bootstrap-ci-os.sh, install-models.sh
+│   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Plymouth/GRUB/wallpaper/etc. steps
+│   │   ├── lib/                   # apt-specific helpers (os-release, ROCm, telemetry removal, ...)
+│   │   ├── packages/              # .deb sources: ci-os-branding, companion-os-base/keyring, ...
+│   │   └── headless-package/      # D: build.sh, DEBIAN/ control scripts, netplan (apt packaging only)
+│   └── mint/                     # Phase 2 — apt/dpkg + Bash, no ISO mode
+│       ├── provision/             # B: thin wrapper around backends/ubuntu/provision/provision.sh
+│       ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Cinnamon dconf/session + Slick-Greeter
+│       └── headless-package/      # D: build.sh, DEBIAN/ control scripts (no netplan config)
+└── docs/
+    ├── architecture/             # multi-distro-design.md
+    └── guides/                   # ISO build, installation, quick start, repo setup, GDM branding
 ```
+
+`pull-dev-manual.sh` at the repo root is a thin CLI-flags wrapper around
+`core/lib/ci-hub.sh` for manual CI-Hub deploys — the only top-level script left
+outside `core/`/`backends/` now that ecosystem provisioning has been
+consolidated into `provision.sh`.
+
+`core/validate/` is currently empty — the theme-validation logic
+(`backends/ubuntu/desktop-theme/80-validate-ci-theme.sh`) hasn't yet had its portable half
+extracted out, since only one backend exists to validate against so far.
 
 ---
 
@@ -502,12 +556,13 @@ implications and is deliberately **not** made here.
 
 ### Building & installing
 - **[ISO Build Guide](docs/guides/iso-build-guide.md)** — build custom ISOs
-- **[Tools README](tools/iso-build/README.md)** — script reference, branding color map, iterative dev
+- **[Tools README](backends/ubuntu/iso/README.md)** — script reference, branding color map, iterative dev
 - **[Installation Guide](docs/guides/installation-guide.md)** — install CI-OS
 - **[Quick Start Guide](docs/guides/quick-start-guide.md)** — get going fast
 
 ### Branding & theming
-- **[Dark Green Theme Guide](docs/dark-green-theme-guide.md)** — palette, assets, dconf
+- **[Brand Guidelines](assets/branding/brand-guidelines.md)** — canon token table, pointer to CI-Common
+- **[Multi-Distro Design](docs/architecture/multi-distro-design.md)** — the core/ + backends/ architecture, token→artifact rendering
 - **[GDM Branding Package](docs/guides/gdm-branding-package.md)** — how the gresource is built
 
 ### Devices & packages

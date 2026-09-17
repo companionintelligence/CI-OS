@@ -113,7 +113,7 @@ jobs:
         run: |
           echo "Building CI-OS $CI_OS_VERSION..."
 
-          sudo ./tools/iso-build/scripts/build-iso.sh \
+          sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
             --base-iso /tmp/ubuntu-base.iso \
             --output-dir ./output \
             --work-dir ./work \
