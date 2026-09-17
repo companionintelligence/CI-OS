@@ -200,7 +200,7 @@ log_info "Checking GDM theme configuration..."
 if [[ -f "/etc/dconf/db/gdm.d/05-ci-os-arch-overrides" ]] || [[ -f "/etc/dconf/db/gdm.d/01-ci-os-gdm" ]]; then
     check_pass "GDM dconf configuration exists"
 else
-    check_warn "GDM dconf configuration not found (login screen may not be themed — OK if /etc/dconf/profile/gdm has no system-db:gdm line on this install, or if GDM isn't installed at all — see provision.sh's check_desktop_prereqs())"
+    check_warn "GDM dconf configuration not found (login screen may not be themed — 28-gdm-accent-branding.sh creates /etc/dconf/profile/gdm itself if missing, per ArchWiki, so this is expected only if apply-ci-os-desktop.sh/the accent step hasn't run yet, or if GDM isn't installed at all — see provision.sh's check_desktop_prereqs())"
 fi
 
 # Check 6: Wallpaper (installed by Ubuntu's fully-portable 30-wallpaper.sh)

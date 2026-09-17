@@ -199,8 +199,11 @@ Arch package name is plainly `gunicorn`, NOT `python-gunicorn` — a correction 
 
 Known gaps, disclosed in the code's own headers rather than silently assumed: whether Arch's
 stock login shell renders `/etc/update-motd.d/*` (unverified here for the same reason it's
-unverified on Fedora); GDM dconf-profile existence assumed but not independently verified on a
-live box; the nginx `default_server` collision fix and NetworkManager enable in
+unverified on Fedora); unlike Fedora, `28-gdm-accent-branding.sh` does not just check for
+`/etc/dconf/profile/gdm` — ArchWiki documents it as "no longer shipped upstream" on Arch, so the
+script creates it (when missing) with the ArchWiki-documented `user-db:user` / `system-db:gdm` /
+`file-db:/usr/share/gdm/greeter-dconf-defaults` content before writing the `gdm.d` override, but
+this was not independently verified against a live Arch box; the nginx `default_server` collision fix and NetworkManager enable in
 `headless-setup/install.sh` are untested on a live install; Companion Launcher has no Arch build
 (official or AUR) and is intentionally stubbed; VS Code (Microsoft's build) is intentionally
 stubbed rather than AUR-installed or silently substituted with Code-OSS; and this backend

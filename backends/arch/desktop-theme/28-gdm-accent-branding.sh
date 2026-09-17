@@ -64,6 +64,24 @@
 # 05-ci-os-arch-overrides, which redeclares gtk-theme/icon-theme/cursor-theme
 # with Arch-correct values and adds accent-color/color-scheme, then
 # reapplies the same values live via gsettings.
+#
+# --- One real deviation from Fedora's script: the /etc/dconf/profile/gdm
+# guard is NOT reused unmodified -------------------------------------------
+# Fedora's version of this step only WRITES to /etc/dconf/db/gdm.d/ when
+# /etc/dconf/profile/gdm already exists and already contains a
+# `system-db:gdm` line — on Fedora that file ships with the gdm package, so
+# the guard is just a defensive check. This backend's own research (see
+# docs/architecture/multi-distro-design.md) found that assumption does NOT
+# hold on Arch: ArchWiki states plainly that /etc/dconf/profile/gdm is "no
+# longer shipped upstream" and "must be created manually" — this is a
+# documented, common default condition on a stock Arch+GNOME install, not an
+# edge case the way it might be on Fedora. Reusing Fedora's skip-if-absent
+# guard unmodified would make the GDM half of this feature silently never
+# apply on a typical fresh Arch box. So this step CREATES
+# /etc/dconf/profile/gdm (when missing) with the content ArchWiki documents
+# — user-db:user / system-db:gdm / file-db:/usr/share/gdm/greeter-dconf-defaults
+# — before checking for it, rather than only checking. See
+# ensure_gdm_dconf_profile() below.
 set -euo pipefail
 _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 export REPO_ROOT="$(cd "$_SCRIPT_DIR/../../.." && pwd)"
@@ -80,6 +98,23 @@ CI_COLOR_SCHEME="$(ci_select_color_scheme)"
 
 DCONF_FRAGMENT_NAME="05-ci-os-arch-overrides"
 
+# Arch-specific: create /etc/dconf/profile/gdm when it's missing, per
+# ArchWiki's documented content — see this file's header for why Fedora's
+# skip-if-absent-only guard is not enough here. Never overwrites an existing
+# profile (a pre-existing one, however it got there, is left alone).
+ensure_gdm_dconf_profile() {
+  if [[ -f /etc/dconf/profile/gdm ]]; then
+    return 0
+  fi
+  mkdir -p /etc/dconf/profile
+  cat > /etc/dconf/profile/gdm <<'PROFILE_EOF'
+user-db:user
+system-db:gdm
+file-db:/usr/share/gdm/greeter-dconf-defaults
+PROFILE_EOF
+  log_info "Created /etc/dconf/profile/gdm (ArchWiki-documented content — not shipped by Arch's gdm package by default, unlike Fedora's)"
+}
+
 write_system_override() {
   mkdir -p /etc/dconf/db/local.d
   cat > "/etc/dconf/db/local.d/${DCONF_FRAGMENT_NAME}" <<DCONF_EOF
@@ -91,11 +126,12 @@ accent-color='$CI_ACCENT'
 color-scheme='$CI_COLOR_SCHEME'
 DCONF_EOF
 
+  ensure_gdm_dconf_profile
+
   # Same GDM-profile guard 20-dconf-system.sh uses: only write a gdm.d
   # fragment if the gdm user actually has its own dconf system-db profile.
-  # Arch's gdm package ships /etc/dconf/profile/gdm the same way Fedora's
-  # does (both follow upstream GDM's own packaging convention) — not
-  # independently re-verified against a live Arch box for this pass.
+  # After ensure_gdm_dconf_profile() above, this will be true on Arch unless
+  # a pre-existing, non-CI-written profile file lacks a system-db:gdm line.
   if [[ -f /etc/dconf/profile/gdm ]] && grep -q "system-db:gdm" /etc/dconf/profile/gdm 2>/dev/null; then
     mkdir -p /etc/dconf/db/gdm.d
     cat > "/etc/dconf/db/gdm.d/${DCONF_FRAGMENT_NAME}" <<DCONF_EOF
