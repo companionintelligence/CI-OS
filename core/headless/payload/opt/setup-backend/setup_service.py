@@ -177,7 +177,12 @@ def _build_redirect_metadata(*cloud_payloads):
 
 
 def _hub_running():
-    """Detect whether Companion Hub is running on the device."""
+    """Detect whether Companion Launcher (ci-os-hub-desktop) is running on the device.
+
+    Named _hub_running/get_hub_pairing_state for the pairing-state concept, not
+    because this checks the CI Hub Service backend — it checks the desktop
+    launcher process. See docs/architecture/multi-distro-design.md.
+    """
     try:
         proc = subprocess.run(
             ['pgrep', '-f', 'ci-os-hub-desktop'],
@@ -729,7 +734,8 @@ def save_hub_env(device_id, api_key):
     """Write hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY, CI_CLOUD_API_KEY for CI OS Hub to consume."""
     try:
         # An absent key is an empty value, never the text `None`. This file is
-        # sourced by ci-os-hub-install.sh and read back by load_saved_device_key,
+        # sourced by ci-os-hub-start.sh (which hands off to provision.sh
+        # --step=ci-hub) and read back by load_saved_device_key,
         # and `API_KEY=None` is a string both of them would take for a real
         # credential -- the Hub would authenticate with it and the next pair would
         # present it to the Portal as proof of possession.

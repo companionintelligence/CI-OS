@@ -239,7 +239,7 @@ verify_rocm_after_install() {
   fi
 
   if (( needs_reboot != 0 )); then
-    echo "[ROCm] Reboot your system, then verify ROCm in Companion Hub before running GPU apps."
+    echo "[ROCm] Reboot your system, then verify ROCm in Companion Launcher before running GPU apps."
     return 1
   fi
 

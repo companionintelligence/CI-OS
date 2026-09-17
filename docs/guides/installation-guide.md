@@ -416,7 +416,7 @@ CI-OS includes setup scripts for development tools:
 
 ```bash
 # Setup Docker, Node.js, VS Code, etc. (from the repository root)
-sudo ./backends/ubuntu/provision/setup-fresh-ubuntu.sh
+sudo ./backends/ubuntu/provision/provision.sh --tier=core,extended,hardware
 ```
 
 See README.md for details on included tools.

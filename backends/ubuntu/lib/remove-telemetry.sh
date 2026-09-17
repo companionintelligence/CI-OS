@@ -5,7 +5,7 @@
 #
 # Tested on Ubuntu 22.04 (Jammy) and 24.04 (Noble).
 #
-# Can be run standalone or invoked from setup-fresh-ubuntu.sh.
+# Can be run standalone or invoked from provision.sh.
 #
 # Usage:
 #   sudo ./backends/ubuntu/lib/remove-telemetry.sh

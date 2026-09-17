@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 
-# CI OS Hub Staging Installer
-# This script downloads and installs CI OS Hub from the CI Cloud staging registry.
+# CI Hub Service deploy — the Docker/Runtipi backend (ci-os-hub container,
+# port 5002), gated on private-registry credentials by design. This is a
+# core/ script (not backends/ubuntu/) because it's genuinely distro-portable:
+# once Docker is present, everything here is docker-compose, no apt/dpkg
+# assumptions. Called by backends/ubuntu/provision/provision.sh's
+# deploy_ci_hub() and by the headless captive-portal flow — see
+# docs/architecture/multi-distro-design.md.
+#
+# Was pull-dev.sh at the repo root; renamed and moved here as part of
+# consolidating six independently-drifted provisioning entrypoints into one.
 
 set -o errexit
 set -o nounset
@@ -11,13 +19,17 @@ set -o pipefail
 export DOCKER_CONTEXT=default
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+WORKSPACE_PARENT="$(cd "$REPO_ROOT/.." && pwd)"
 
-# Optionally load REGISTRY_USERNAME/PASSWORD (same env as hub:publish:dev)
+# Optionally load REGISTRY_USERNAME/PASSWORD (same env as hub:publish:dev) from
+# a sibling checkout, for local development only — not present on a deployed
+# appliance, where these must come from the environment.
 if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
   for ENV_DEV in \
-    "${CI_OS_HUB_REPO_PATH:-${SCRIPT_DIR}/../CI-OS-Hub}/.env.dev" \
-    "${SCRIPT_DIR}/../CI-Cloud/apps/hono-app/.env.dev" \
-    "${SCRIPT_DIR}/../CI-Cloud/apps/hono-app/.env"; do
+    "${CI_OS_HUB_REPO_PATH:-${WORKSPACE_PARENT}/CI-OS-Hub}/.env.dev" \
+    "${WORKSPACE_PARENT}/CI-Cloud/apps/hono-app/.env.dev" \
+    "${WORKSPACE_PARENT}/CI-Cloud/apps/hono-app/.env"; do
     if [ -f "$ENV_DEV" ]; then
       set -a
       # shellcheck source=/dev/null
@@ -32,6 +44,16 @@ fi
 # No hardcoded fallback — a shared default here is a checked-in credential.
 REGISTRY_USERNAME="${REGISTRY_USERNAME:-}"
 REGISTRY_PASSWORD="${REGISTRY_PASSWORD:-}"
+
+# Hard requirement: docker compose pull against the private registry below
+# will fail without these. Report once, clearly, and exit 0 (not a hard
+# provisioning failure — CI-Hub deploy is expected to be skipped until the
+# device is paired) rather than failing partway through image pull.
+if [ -z "$REGISTRY_USERNAME" ] || [ -z "$REGISTRY_PASSWORD" ]; then
+  echo "CI-Hub not deployed: REGISTRY_USERNAME/REGISTRY_PASSWORD not set."
+  echo "Set them in the environment, or run the WiFi/pairing portal, to enable this step."
+  exit 0
+fi
 
 # Configuration - always use dev registry (setup.companionintelligence.com)
 REGISTRY_DOMAIN="portal.companionintelligence.com"
@@ -88,7 +110,7 @@ if [ -n "$TUNNEL_TOKEN" ]; then
   echo -e "${YELLOW}Setting up Cloudflare tunnel...${NC}"
   printf '%s' "$TUNNEL_TOKEN" > "${INSTALL_DIR}/tunnel/token"
   chmod 600 "${INSTALL_DIR}/tunnel/token"
-  TUNNEL_DIR="${INSTALL_DIR}/tunnel" bash "${SCRIPT_DIR}/core/lib/generate-tunnel-certs.sh"
+  TUNNEL_DIR="${INSTALL_DIR}/tunnel" bash "${SCRIPT_DIR}/generate-tunnel-certs.sh"
   COMPOSE_PROFILES=(--profile tunnel)
   echo -e "${GREEN}Tunnel token and certs configured.${NC}"
 else
@@ -210,8 +232,11 @@ if [ -f "${INSTALL_DIR}/.env" ]; then
     cp "${INSTALL_DIR}/.env" "${INSTALL_DIR}/.env.bak"
 fi
 
-# DEVICE_ID: always from system serial (sudo dmidecode -s system-serial-number)
-if SERIAL=$(sudo dmidecode -s system-serial-number 2>/dev/null) && [ -n "$SERIAL" ] && [ "$SERIAL" != "Not Specified" ]; then
+# DEVICE_ID: respect a caller-provided value (e.g. pull-dev-manual.sh -d, or
+# device pairing) before falling back to system serial / a generated one.
+if [ -n "${DEVICE_ID:-}" ]; then
+    echo -e "${GREEN}DEVICE_ID from environment: ${DEVICE_ID}${NC}"
+elif SERIAL=$(sudo dmidecode -s system-serial-number 2>/dev/null) && [ -n "$SERIAL" ] && [ "$SERIAL" != "Not Specified" ]; then
     DEVICE_ID="$SERIAL"
     echo -e "${GREEN}DEVICE_ID from system serial: ${DEVICE_ID}${NC}"
 else
@@ -219,7 +244,21 @@ else
     echo -e "${YELLOW}No DMI serial; using fallback DEVICE_ID: ${DEVICE_ID}${NC}"
 fi
 
-CI_CLOUD_API_KEY=${CI_CLOUD_API_KEY:-""}
+# API_KEY (e.g. from pull-dev-manual.sh -k, or device pairing) maps to
+# CI_CLOUD_API_KEY unless that's already set directly.
+CI_CLOUD_API_KEY="${CI_CLOUD_API_KEY:-${API_KEY:-}}"
+
+# JWT_SECRET: generate a fresh random secret on first install; reuse the
+# existing one on re-runs (from the .bak taken above) so re-running this
+# script doesn't invalidate every existing session. A shared hardcoded value
+# here was a checked-in credential — every deployment must get its own.
+if [ -f "${INSTALL_DIR}/.env.bak" ] && grep -q '^JWT_SECRET=' "${INSTALL_DIR}/.env.bak" 2>/dev/null; then
+    JWT_SECRET="$(grep '^JWT_SECRET=' "${INSTALL_DIR}/.env.bak" | head -n1 | cut -d= -f2-)"
+    echo -e "${GREEN}Reusing existing JWT_SECRET from previous install${NC}"
+else
+    JWT_SECRET="$(openssl rand -hex 32)"
+    echo -e "${GREEN}Generated a new random JWT_SECRET${NC}"
+fi
 
 # Full .env matching production CI OS Hub configuration
 cat > "${INSTALL_DIR}/.env" <<ENVEOF
@@ -293,7 +332,7 @@ THEME_COLOR=blue
 DISABLE_PASSWORD_RESET=true
 
 # Security
-JWT_SECRET=857ad2225d62961ba24b12ee88b4a628e1647a0c61d5113f313f56f22461d0c3
+JWT_SECRET=${JWT_SECRET}
 
 # Timezone
 TZ=UTC

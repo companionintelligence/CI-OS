@@ -1,9 +1,9 @@
 set up ubuntu 24.04
 
 immediately run:
-chmod +x ./backends/ubuntu/provision/setup-fresh-ubuntu.sh
+chmod +x ./backends/ubuntu/provision/provision.sh
 then,
-./backends/ubuntu/provision/setup-fresh-ubuntu.sh
+./backends/ubuntu/provision/provision.sh
 
 insert liambroza as the github username as prompted
 

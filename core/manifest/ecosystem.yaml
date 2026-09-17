@@ -96,7 +96,11 @@ ecosystem:
     registry: portal.companionintelligence.com
     image: "ci-os-hub:latest"
     requires_secrets: [REGISTRY_USERNAME, REGISTRY_PASSWORD]
-    requires_pairing: [DEVICE_ID, API_KEY]
+    # DEVICE_ID/API_KEY are soft: core/lib/ci-hub.sh auto-generates a DEVICE_ID
+    # from the system serial (or a hostname+timestamp fallback) and defaults
+    # API_KEY to empty if unset — deploy proceeds without device pairing, just
+    # without a verified device identity yet.
+    optional_pairing: [DEVICE_ID, API_KEY]
     optional_secrets: [TUNNEL_TOKEN]
   companion_launcher:
     tier: extended

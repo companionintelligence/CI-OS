@@ -69,7 +69,7 @@
             "registry": {"type": "string"},
             "image": {"type": "string"},
             "requires_secrets": {"type": "array", "items": {"type": "string"}},
-            "requires_pairing": {"type": "array", "items": {"type": "string"}},
+            "optional_pairing": {"type": "array", "items": {"type": "string"}},
             "optional_secrets": {"type": "array", "items": {"type": "string"}},
             "note": {"type": "string"}
           }

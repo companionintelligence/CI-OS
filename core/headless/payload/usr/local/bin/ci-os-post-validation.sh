@@ -6,6 +6,7 @@
 DATA_DIR="/var/lib/setup-device"
 HUB_ENV="${DATA_DIR}/hub.env"
 POST_VALIDATION_FLAG="${DATA_DIR}/post-validation-done"
+BOOTSTRAP_ROOT="/usr/lib/ci-os/bootstrap"
 CI_OS_SCRIPTS_URL="${CI_OS_SCRIPTS_URL:-https://raw.githubusercontent.com/companionintelligence/CI-OS/main/scripts}"
 ROCM_SCRIPT="/tmp/ci-os-install-rocm-driver.sh"
 
@@ -21,13 +22,14 @@ mkdir -p "$DATA_DIR"
 
 log "Starting post-validation setup (ROCm, Ollama models)"
 
-# ROCm / AMD drivers
-if [ -f "${CI_OS_REPO:-/opt/ci-os}/backends/ubuntu/lib/install-rocm-driver.sh" ]; then
+# ROCm / AMD drivers — prefer the staged image copy (always present on a
+# built ISO), then a dev/manual repo checkout, then a last-resort download.
+if [ -f "${BOOTSTRAP_ROOT}/backends/ubuntu/lib/install-rocm-driver.sh" ]; then
+    log "Installing ROCm via staged bootstrap script"
+    bash "${BOOTSTRAP_ROOT}/backends/ubuntu/lib/install-rocm-driver.sh" 2>/dev/null || log "ROCm had issues"
+elif [ -f "${CI_OS_REPO:-/opt/ci-os}/backends/ubuntu/lib/install-rocm-driver.sh" ]; then
     log "Installing ROCm via repo script"
     bash "${CI_OS_REPO:-/opt/ci-os}/backends/ubuntu/lib/install-rocm-driver.sh" 2>/dev/null || log "ROCm had issues"
-elif [ -x /usr/local/bin/ci-os-install-rocm ]; then
-    log "Installing ROCm via ci-os-install-rocm"
-    /usr/local/bin/ci-os-install-rocm 2>/dev/null || true
 elif command -v curl >/dev/null 2>&1; then
     log "Downloading and running ROCm installer"
     curl -fsSL "${CI_OS_SCRIPTS_URL}/install-rocm-driver.sh" -o "$ROCM_SCRIPT" 2>/dev/null
@@ -35,13 +37,15 @@ elif command -v curl >/dev/null 2>&1; then
     rm -f "$ROCM_SCRIPT"
 fi
 
-# Ollama models (via ci-os-install-models.sh if present, else inline fallback)
-if [ -x /usr/local/bin/ci-os-install-models.sh ]; then
-    log "Installing Ollama models via ci-os-install-models.sh"
-    /usr/local/bin/ci-os-install-models.sh 2>/dev/null || log "ci-os-install-models had issues"
-elif [ -f "${CI_OS_REPO:-/opt/ci-os}/backends/ubuntu/provision/install-models.sh" ] && [ -x "${CI_OS_REPO:-/opt/ci-os}/backends/ubuntu/provision/install-models.sh" ]; then
+# Ollama models — same preference order. provision.sh --tier=core already
+# pulls these at first boot; this is an idempotent catch-up for the case
+# where first boot ran without network (see first-boot-setup.sh).
+if [ -f "${BOOTSTRAP_ROOT}/backends/ubuntu/provision/install-models.sh" ]; then
+    log "Installing Ollama models via staged bootstrap script"
+    bash "${BOOTSTRAP_ROOT}/backends/ubuntu/provision/install-models.sh" 2>/dev/null || log "install-models.sh had issues"
+elif [ -f "${CI_OS_REPO:-/opt/ci-os}/backends/ubuntu/provision/install-models.sh" ]; then
     log "Installing Ollama models via repo script"
-    bash "${CI_OS_REPO:-/opt/ci-os}/backends/ubuntu/provision/install-models.sh" 2>/dev/null || log "ci-os-install-models had issues"
+    bash "${CI_OS_REPO:-/opt/ci-os}/backends/ubuntu/provision/install-models.sh" 2>/dev/null || log "install-models.sh had issues"
 elif command -v ollama >/dev/null 2>&1; then
     systemctl start ollama 2>/dev/null || true
     sleep 5

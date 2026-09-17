@@ -12,7 +12,7 @@ Examples:
   ./pull-dev-manual.sh -d abc -k xyz
   ./pull-dev-manual.sh -d abc -k xyz -t eyJ...  (enables Cloudflare tunnel)
 
-Any arguments after -- are forwarded to pull-dev.sh.
+Any arguments after -- are forwarded to core/lib/ci-hub.sh.
 EOF
   exit 2
 }
@@ -46,17 +46,17 @@ export API_KEY
 export TUNNEL_TOKEN
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PULL_DEV_SH="$SCRIPT_DIR/pull-dev.sh"
+CI_HUB_SH="$SCRIPT_DIR/core/lib/ci-hub.sh"
 
-if [ ! -x "$PULL_DEV_SH" ] && [ -f "$PULL_DEV_SH" ]; then
+if [ ! -x "$CI_HUB_SH" ] && [ -f "$CI_HUB_SH" ]; then
   # try to make it executable for convenience
-  chmod +x "$PULL_DEV_SH" || true
+  chmod +x "$CI_HUB_SH" || true
 fi
 
-if [ ! -f "$PULL_DEV_SH" ]; then
-  echo "Error: pull-dev.sh not found at $PULL_DEV_SH"
+if [ ! -f "$CI_HUB_SH" ]; then
+  echo "Error: core/lib/ci-hub.sh not found at $CI_HUB_SH"
   exit 1
 fi
 
-echo "Running pull-dev.sh with DEVICE_ID set."
-exec "$PULL_DEV_SH" "$@"
+echo "Running core/lib/ci-hub.sh with DEVICE_ID set."
+exec "$CI_HUB_SH" "$@"

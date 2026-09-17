@@ -26,8 +26,8 @@
 #   --yes, -y       Non-interactive: skip all prompts, do not reboot
 #
 # What this script runs (in order):
-#   1. System setup - setup-fresh-ubuntu --light (Docker, Tailscale, Ollama, Node/Bun, etc.)
-#   2. Complete rebranding - Plymouth, Chromium, wallpaper, start icon, MOTD
+#   1. System setup - provision.sh --tier=core (Docker, Tailscale, Ollama, Node, CI-Hub, etc.)
+#   2. Complete rebranding - Plymouth, GRUB, wallpaper, start icon, MOTD
 #   3. Headless device setup - builds and installs setup-device .deb
 #      (WiFi captive portal: Companion-Setup-XXXX hotspot, setup.ci.computer)
 #      NOTE: runs last because it disables internet connectivity
@@ -118,13 +118,13 @@ echo ""
 #-----------------------------------------------------------------------------
 # 1. System setup (Docker, Tailscale, Ollama, Node/Bun, etc.) - MUST run first
 #-----------------------------------------------------------------------------
-if [[ -f "$SCRIPT_DIR/setup-fresh-ubuntu.sh" ]]; then
+if [[ -f "$SCRIPT_DIR/provision.sh" ]]; then
     log_header "Step 1: System setup (Docker, Tailscale, Ollama, etc.)"
     echo ""
     log_info "Ensure wired Ethernet is connected. This step needs internet for apt packages."
     echo ""
-    if ! bash "$SCRIPT_DIR/setup-fresh-ubuntu.sh" --light; then
-        log_error "Step 1 (setup-fresh-ubuntu) failed. Fix the error above and re-run:"
+    if ! bash "$SCRIPT_DIR/provision.sh" --tier=core; then
+        log_error "Step 1 (provision.sh --tier=core) failed. Fix the error above and re-run:"
         log_error "  cd $REPO_ROOT/backends/ubuntu/provision && sudo ./bootstrap-ci-os.sh ${NONINTERACTIVE:+--yes}"
         log_error "Bootstrap will not continue without a successful Step 1 (Docker, Tailscale, etc. are required)."
         exit 1
@@ -164,7 +164,7 @@ if [[ $DO_HEADLESS -eq 1 ]]; then
     log_header "Step 3: Headless device setup"
     echo ""
 
-    # Build and install setup-device .deb (or use ci-os-setup.sh as main entry for full orchestration)
+    # Build and install setup-device .deb
     if [[ $HEADLESS_INSTALLED -eq 0 ]]; then
         HEADLESS_DIR="$REPO_ROOT/backends/ubuntu/headless-package"
         if [[ ! -d "$HEADLESS_DIR" ]]; then

@@ -1,23 +1,58 @@
 #!/usr/bin/bash
-# Fresh Ubuntu Setup Script for CI-OS
-# This script sets up a fresh Ubuntu installation with all required tools and services
+# provision.sh — the canonical CI-OS ecosystem provisioning entrypoint.
+#
+# Replaces what were six independently-drifted entrypoints doing overlapping
+# versions of "install the ecosystem" (this script under its former name
+# setup-fresh-ubuntu.sh, an embedded first-boot heredoc in customize-chroot.sh,
+# the undocumented ci-os-setup.sh, bootstrap-ci-os.sh's own tool list,
+# pull-dev.sh's CI-Hub deploy, and an orphaned preseed late_command). See
+# docs/architecture/multi-distro-design.md.
+#
+# What gets installed is driven by tier, not a script-specific flag:
+#   core     - auto-run on first boot, and by default with no flags. Docker,
+#              uv, asdf+Node, gh, cloudflared, Tailscale, Ollama+models,
+#              telemetry removal, the ci user, CI-Hub (if credentials present).
+#   extended - opt-in developer/workstation tooling: Homebrew, VS Code,
+#              Chromium, Companion Launcher.
+#   hardware - auto-detected (ROCm, LACT, Strix Halo tuning); included by
+#              default since the underlying scripts already no-op safely on
+#              non-matching hardware — never gate this on a flag instead.
 #
 # REQUIREMENTS:
-# - This script MUST be run as root (use: sudo ./setup-fresh-ubuntu.sh)
+# - This script MUST be run as root (use: sudo ./provision.sh)
 # - All system-level operations require root privileges
 # - User-specific operations run as the actual user via sudo -u
 #
 # OPTIONS:
-#   --light    Phase 1 mode: skip ROCm, Ollama model pulls, LACT (defer to post-validation)
+#   --tier=LIST   Comma-separated subset of {core,extended,hardware}.
+#                 Default: core,hardware. Example: --tier=core,extended,hardware
+#   --step=ci-hub Run only the CI-Hub deploy step (used by the headless
+#                 captive-portal flow after WiFi/pairing setup completes).
 #
 # © Companion Intelligence — Lifescope Inc
 
 set -euo pipefail
 
-LIGHT_MODE=0
+TIER_LIST="core,hardware"
+STEP_ONLY=""
 for arg in "$@"; do
-    [[ "$arg" == "--light" ]] && LIGHT_MODE=1
+    case "$arg" in
+        --tier=*) TIER_LIST="${arg#--tier=}" ;;
+        --step=*) STEP_ONLY="${arg#--step=}" ;;
+        --light) TIER_LIST="core" ;;  # back-compat with the old --light flag
+    esac
 done
+
+tier_requested() {
+    case ",${TIER_LIST}," in
+        *",$1,"*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# SCRIPT_DIR is backends/ubuntu/provision/ — three levels below the repo root.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # Color definitions
 RED='\033[0;31m'
@@ -714,12 +749,6 @@ note_bashrc() {
     log_info "Docker: if 'docker ps' says permission denied but setup verified OK, run 'newgrp docker' once, or log out and back in (GUI sessions keep old group set until then)"
 }
 
-# Get script directory and project root
-get_script_paths() {
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-}
-
 # Create CI user and add to docker group (requires root for user management)
 create_ci_user() {
     # Create user if it doesn't exist
@@ -804,7 +833,7 @@ configure_ollama_gpu() {
     if [[ -e /dev/kfd ]] && ! has_nvidia_gpu; then
         log_info "AMD GPU detected (/dev/kfd); enabling Vulkan + integrated-GPU inference for Ollama"
         cat > "$gpu_dropin" <<EOF
-# Managed by CI-OS setup-fresh-ubuntu.sh — AMD GPU inference for Ollama.
+# Managed by CI-OS provision.sh — AMD GPU inference for Ollama.
 [Service]
 Environment="OLLAMA_VULKAN=1"
 Environment="OLLAMA_IGPU_ENABLE=1"
@@ -851,10 +880,10 @@ write_ollama_context_dropin() {
 
     log_info "Setting hardware-aware Ollama default context length (${ctx})"
     cat > "$ctx_dropin" <<EOF
-# Managed by CI-OS setup-fresh-ubuntu.sh — hardware-aware Ollama default context
+# Managed by CI-OS provision.sh — hardware-aware Ollama default context
 # length for the OpenAI-compatible (/v1) surface. Last-sorting filename so it
 # overrides any earlier drop-in that also sets OLLAMA_CONTEXT_LENGTH. See
-# write_ollama_context_dropin() in backends/ubuntu/provision/setup-fresh-ubuntu.sh.
+# write_ollama_context_dropin() in backends/ubuntu/provision/provision.sh.
 [Service]
 Environment="OLLAMA_CONTEXT_LENGTH=${ctx}"
 EOF
@@ -1030,7 +1059,7 @@ remove_telemetry() {
     local script_dir
     script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     # Use bash explicitly so it works even if remove-telemetry.sh lacks execute bit (e.g. fresh clone)
-    bash "${script_dir}/lib/remove-telemetry.sh" --from-setup
+    bash "${script_dir}/../lib/remove-telemetry.sh" --from-setup
     log_success "Telemetry removal complete"
 }
 
@@ -1291,8 +1320,14 @@ install_vscode() {
     log_success "VS Code installed"
 }
 
-# Install Companion Hub Desktop (requires root)
-install_companion_hub() {
+# Install Companion Launcher (requires root) — a native/Electron GUI app that
+# opens a browser tab to the CI Hub Service backend (deployed separately by
+# deploy_ci_hub below). Renamed from "Companion Hub Desktop" to resolve a
+# 3-way naming collision on "Hub" — see docs/architecture/multi-distro-design.md.
+# The underlying binary/package names (ci-os-hub-desktop, companion-hub) and
+# the dl.ci.computer download layout are external artifacts this repo doesn't
+# control/build, so only this repo's display text and desktop-entry rename.
+install_companion_launcher() {
     local base_url="https://dl.ci.computer"
     local fallback_version="v0.1.4"
     local version_tag="$fallback_version"
@@ -1301,7 +1336,7 @@ install_companion_hub() {
     local hub_url hub_deb
 
     if command_exists ci-os-hub-desktop && dpkg -s companion-hub >/dev/null 2>&1; then
-        log_info "Companion Hub is already installed, skipping..."
+        log_info "Companion Launcher is already installed, skipping..."
         return 0
     fi
 
@@ -1318,7 +1353,7 @@ install_companion_hub() {
             arch_match_regex='(arm64|aarch64|arm)'
             ;;
         *)
-            log_warning "Companion Hub install supports amd64/arm64 only (this system: $arch). Skipping."
+            log_warning "Companion Launcher install supports amd64/arm64 only (this system: $arch). Skipping."
             return 0
             ;;
     esac
@@ -1340,22 +1375,23 @@ install_companion_hub() {
     fi
 
     # Fallback to deterministic dl.ci.computer path if manifest parsing returns no match.
+    # URL/filename ("Companion Hub") is the external artifact's own naming — unchanged.
     if [[ -z "$hub_url" ]]; then
         hub_url="${base_url}/${version_tag}/linux/deb/${dl_arch}/Companion%20Hub_${clean_version}_${deb_arch}.deb"
     fi
 
     hub_deb="/tmp/Companion_Hub_${clean_version}_${deb_arch}.deb"
 
-    log_info "Installing Companion Hub Desktop for ${arch} from ${hub_url}..."
+    log_info "Installing Companion Launcher for ${arch} from ${hub_url}..."
     if ! curl -fL --connect-timeout 90 --retry 3 -o "$hub_deb" "$hub_url"; then
         if [[ "$version_tag" != "$fallback_version" ]]; then
             clean_version="${fallback_version#v}"
             hub_url="${base_url}/${fallback_version}/linux/deb/${dl_arch}/Companion%20Hub_${clean_version}_${deb_arch}.deb"
             hub_deb="/tmp/Companion_Hub_${clean_version}_${deb_arch}.deb"
-            log_warning "Primary Companion Hub download failed; retrying fallback ${hub_url}"
+            log_warning "Primary Companion Launcher download failed; retrying fallback ${hub_url}"
             curl -fL --connect-timeout 90 --retry 3 -o "$hub_deb" "$hub_url"
         else
-            log_error "Failed to download Companion Hub from ${hub_url}"
+            log_error "Failed to download Companion Launcher from ${hub_url}"
             return 1
         fi
     fi
@@ -1368,31 +1404,32 @@ install_companion_hub() {
     fi
 
     rm -f "$hub_deb"
-    log_success "Companion Hub Desktop installed"
+    log_success "Companion Launcher installed"
 }
 
-# Configure Companion Hub to auto-launch for desktop sessions and at boot.
-configure_companion_hub_autostart() {
+# Configure Companion Launcher to auto-launch for desktop sessions and at boot.
+configure_companion_launcher_autostart() {
     if ! command_exists ci-os-hub-desktop; then
-        log_warning "Companion Hub binary not found, skipping autostart configuration"
+        log_warning "Companion Launcher binary not found, skipping autostart configuration"
         return 0
     fi
 
-    log_info "Configuring Companion Hub autostart..."
+    log_info "Configuring Companion Launcher autostart..."
 
     # Ensure launcher appears in system autostart for graphical login sessions.
     install -d -m 755 /etc/xdg/autostart
-    cat > /etc/xdg/autostart/companion-hub.desktop <<EOF
+    rm -f /etc/xdg/autostart/companion-hub.desktop  # old filename, pre-rename
+    cat > /etc/xdg/autostart/companion-launcher.desktop <<EOF
 [Desktop Entry]
 Type=Application
-Name=Companion Hub
-Comment=Start Companion Hub Desktop
+Name=Companion Launcher
+Comment=Start Companion Launcher
 Exec=ci-os-hub-desktop
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF
 
-    # Ensure Hub runtime directories are writable by the actual desktop user.
+    # Ensure Launcher runtime directories are writable by the actual desktop user.
     if [[ -d "${ACTUAL_HOME}/.local/share/companion-hub" ]]; then
         chown -R "${ACTUAL_USER}:${ACTUAL_USER}" "${ACTUAL_HOME}/.local/share/companion-hub" || true
     fi
@@ -1405,20 +1442,97 @@ EOF
         systemctl daemon-reload
     fi
 
-    log_success "Companion Hub autostart configured"
+    log_success "Companion Launcher autostart configured"
+    pin_companion_launcher_to_dock
+}
+
+# Pin Companion Launcher's icon to the GNOME dock/favorites — a distinct
+# feature from autostart-on-login above. Ported from the standalone
+# setup/CI-OS-Hub-Setup/install-or-update-hub.sh (deleted: zero callers, and
+# its install/download logic was otherwise a near-duplicate of
+# install_companion_launcher above — this was the one piece of it not
+# already covered elsewhere).
+pin_companion_launcher_to_dock() {
+    local desktop_id="ci-os-hub-desktop.desktop"
+
+    if [[ -z "${ACTUAL_USER:-}" ]] || [[ "$ACTUAL_USER" == "root" ]]; then
+        log_warning "No non-root desktop user detected; skipping dock pin."
+        return 0
+    fi
+
+    local uid_num runtime_dir dbus_addr
+    uid_num="$(id -u "$ACTUAL_USER" 2>/dev/null || true)"
+    runtime_dir="/run/user/${uid_num}"
+    dbus_addr="unix:path=${runtime_dir}/bus"
+
+    if [[ ! -S "${runtime_dir}/bus" ]]; then
+        log_warning "No active D-Bus session for $ACTUAL_USER (not logged in to a desktop session?). Companion Launcher was not pinned to the dock; log in and re-run to pin it."
+        return 0
+    fi
+
+    local env_args=(DISPLAY=:0 XAUTHORITY="${ACTUAL_HOME}/.Xauthority" DBUS_SESSION_BUS_ADDRESS="$dbus_addr")
+
+    local current_favs
+    current_favs="$(sudo -u "$ACTUAL_USER" env "${env_args[@]}" gsettings get org.gnome.shell favorite-apps 2>/dev/null || true)"
+
+    if [[ "$current_favs" == *"$desktop_id"* ]]; then
+        log_info "Companion Launcher is already pinned to the dock for $ACTUAL_USER."
+        return 0
+    fi
+
+    local favs_clean new_favs
+    favs_clean="$(echo "$current_favs" | sed -e "s/^\[//" -e "s/\]$//" -e "s/'//g" -e 's/, /,/g')"
+    if [[ -z "$favs_clean" ]]; then
+        new_favs="['$desktop_id']"
+    else
+        new_favs="['$(echo "$favs_clean" | sed "s/,/', '/g")', '$desktop_id']"
+    fi
+
+    if sudo -u "$ACTUAL_USER" env "${env_args[@]}" gsettings set org.gnome.shell favorite-apps "$new_favs" 2>/dev/null; then
+        log_success "Companion Launcher pinned to the dock for $ACTUAL_USER."
+    else
+        log_warning "gsettings call failed; Companion Launcher was not pinned to the dock."
+    fi
+}
+
+# Deploy the CI Hub Service backend (Docker/Runtipi, ci-os-hub container,
+# port 5002) via core/lib/ci-hub.sh — the distro-portable, Docker-Compose-based
+# deploy script shared with the headless captive-portal flow. Gated on
+# registry credentials by design (private registry); core/lib/ci-hub.sh itself
+# reports a single clear message and exits 0 (not a hard failure) when they're
+# absent, rather than this function duplicating that check.
+deploy_ci_hub() {
+    if ! command_exists docker; then
+        log_warning "Docker not installed; skipping CI-Hub deploy"
+        return 0
+    fi
+
+    # REPO_ROOT resolves correctly in both contexts this script runs in: a repo
+    # checkout (core/lib/ci-hub.sh is a real sibling), and the staged image
+    # customize-chroot.sh builds under /usr/lib/ci-os/bootstrap/ (which
+    # preserves the same backends/ubuntu/provision/ -> repo-root relative
+    # depth, so REPO_ROOT/core/lib/ci-hub.sh resolves there too).
+    local ci_hub_sh="${REPO_ROOT:-}/core/lib/ci-hub.sh"
+    if [[ ! -f "$ci_hub_sh" ]]; then
+        log_warning "core/lib/ci-hub.sh not found at $ci_hub_sh; skipping CI-Hub deploy"
+        return 0
+    fi
+
+    log_info "Deploying CI Hub Service..."
+    bash "$ci_hub_sh" || log_warning "CI-Hub deploy had issues; run core/lib/ci-hub.sh manually with registry credentials set"
 }
 
 # Main function
 main() {
-    log_info "Fresh Ubuntu Setup Script for CI-OS"
+    log_info "CI-OS provisioning (tiers: ${TIER_LIST})"
     log_info "===================================="
     echo
-    
+
     # Ensure we're running as root (required for all system operations)
     # This includes: package installation, system directory modifications,
     # service configuration, user management
     check_root
-    
+
     # Double-check root privileges are available
     if [[ $EUID -ne 0 ]]; then
         log_error "Script must be run as root. Use: sudo $0"
@@ -1428,46 +1542,57 @@ main() {
         log_error "  - Managing users and groups"
         exit 1
     fi
-    
+
     detect_user
-    
+
+    # --step=ci-hub: used by the headless captive-portal flow after WiFi/pairing
+    # completes. Skips the rest of provisioning — Docker is assumed already
+    # present from an earlier core-tier run (first boot or manual).
+    if [[ "$STEP_ONLY" == "ci-hub" ]]; then
+        deploy_ci_hub
+        return 0
+    fi
+
     log_info "✓ Running with root privileges (EUID: $EUID)"
     log_info "✓ All system operations will run with root privileges"
     log_info "✓ User-specific operations will run as user: $ACTUAL_USER"
     log_info "Starting installation process..."
     echo
-    
+
     install_curl
     fix_docker_apt_conflicts
     enable_apt_force_ipv4
     disable_stale_media_apt_sources
     update_apt
     install_make
-    install_docker
-    install_uv
-    # Homebrew is optional; don't fail bootstrap if it has issues (Node/Bun use apt)
-    set +e
-    install_homebrew || log_warning "Homebrew had issues; Node.js will use apt"
-    set -e
-    install_asdf_nodejs
-    set_global_nodejs || true
-    # Bun removed from setup — no longer installed
-    note_bashrc
-    create_ci_user
-    install_github_cli
-    install_ollama
-    configure_ollama
-    pull_ollama_models
-    install_cloudflared
-    install_chromium
-    install_vscode
-    install_companion_hub
-    configure_companion_hub_autostart
-    enable_corepack
-    remove_telemetry
-
+    if tier_requested core; then
+        install_docker
+        install_uv
+        install_asdf_nodejs
+        set_global_nodejs || true
+        note_bashrc
+        create_ci_user
+        install_github_cli
+        install_ollama
+        configure_ollama
+        pull_ollama_models
+        install_cloudflared
+        enable_corepack
+        remove_telemetry
         install_tailscale
-    
+        deploy_ci_hub
+    fi
+    if tier_requested extended; then
+        # Homebrew is optional; don't fail the run if it has issues (Node/Bun use apt)
+        set +e
+        install_homebrew || log_warning "Homebrew had issues; Node.js will use apt"
+        set -e
+        install_chromium
+        install_vscode
+        install_companion_launcher
+        configure_companion_launcher_autostart
+    fi
+
     echo
     log_success "Setup completed successfully!"
     echo
@@ -1482,11 +1607,13 @@ main() {
 # Run main function
 main "$@"
 
-# Post-main: ROCm and LACT (skipped in --light mode; run ci-os-setup.sh --phase2 after validation)
-# Non-fatal: main setup above may succeed even if ROCm download/repo fails on a given Ubuntu codename.
+# Post-main: ROCm and LACT — hardware tier, auto-detected (both scripts no-op
+# safely on non-matching hardware), so gated on tier inclusion, not a
+# skip-by-default flag. Non-fatal: main setup above may succeed even if ROCm
+# download/repo fails on a given Ubuntu codename.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ $LIGHT_MODE -eq 0 ]] && [[ -f "${SCRIPT_DIR}/install-rocm-driver.sh" ]]; then
-    "${SCRIPT_DIR}/install-rocm-driver.sh" || log_warning "install-rocm-driver.sh failed or was skipped; run it manually after fixing GPU/repo issues."
+if tier_requested hardware && [[ -f "${SCRIPT_DIR}/../lib/install-rocm-driver.sh" ]]; then
+    "${SCRIPT_DIR}/../lib/install-rocm-driver.sh" || log_warning "install-rocm-driver.sh failed or was skipped; run it manually after fixing GPU/repo issues."
 fi
 
 # Hook: tune AMD Strix Halo unified-memory boot params (iommu=pt, amdgpu.gttsize,
@@ -1497,7 +1624,9 @@ fi
 # Gated on confidently-detected Strix Halo-class hardware + large RAM (see
 # script header); no-ops on everything else. Idempotent — safe to re-run.
 # Non-fatal: a GRUB/detection hiccup here should not fail the rest of setup.
-bash "${SCRIPT_DIR}/lib/strix-halo-boot-params.sh" || log_warning "strix-halo-boot-params.sh failed or was skipped; run it manually to enable large-GTT boot params on Strix Halo hardware."
+if tier_requested hardware; then
+    bash "${SCRIPT_DIR}/../lib/strix-halo-boot-params.sh" || log_warning "strix-halo-boot-params.sh failed or was skipped; run it manually to enable large-GTT boot params on Strix Halo hardware."
+fi
 
 # Install LACT GPU monitor (latest release from GitHub)
 install_lact() {
@@ -1551,7 +1680,7 @@ install_lact() {
 }
 
 # Call LACT install at the end (skip in --light mode)
-[[ $LIGHT_MODE -eq 0 ]] && install_lact || true
+tier_requested hardware && install_lact || true
 
 # Set GNOME Power Mode to 'performance' for the user
 set_gnome_power_performance() {

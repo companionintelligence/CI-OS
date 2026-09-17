@@ -52,7 +52,7 @@
 # ones, and only rewrites /etc/default/grub + runs update-grub when the
 # resulting line actually changes.
 #
-# Can be run standalone or invoked from setup-fresh-ubuntu.sh.
+# Can be run standalone or invoked from provision.sh.
 #
 # Usage:
 #   sudo ./backends/ubuntu/lib/strix-halo-boot-params.sh

@@ -45,7 +45,8 @@ earlier version of this repo was Ubuntu-only ("Companion Ubuntu"); that framing 
 sudo ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
 
 # Provision a fresh/existing Ubuntu into a CI appliance (idempotent)
-sudo ./backends/ubuntu/provision/setup-fresh-ubuntu.sh
+# --tier=core,hardware is the default; add "extended" for VS Code/Chromium/Homebrew/Launcher
+sudo ./backends/ubuntu/provision/provision.sh --tier=core,extended,hardware
 
 # Apply CI desktop branding only (no packages)
 sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh
@@ -53,10 +54,11 @@ sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh
 # See README.md for the four customization entry points.
 ```
 
-> The Ubuntu backend has moved to `backends/ubuntu/{iso,provision,desktop-theme}/` (Phase
-> 1a of the multi-distro rebuild). Provisioning consolidation into one `provision.sh`
-> entrypoint (replacing `setup-fresh-ubuntu.sh`/`bootstrap-ci-os.sh`/`legacy-ci-os-setup.sh`
-> as separate things) is still pending — see `docs/architecture/multi-distro-design.md`.
+> The Ubuntu backend lives under `backends/ubuntu/{iso,provision,desktop-theme}/`. All
+> ecosystem provisioning goes through the single `provision.sh` entrypoint (tier-gated —
+> see its own header) — this replaced `setup-fresh-ubuntu.sh`, `bootstrap-ci-os.sh`'s own
+> tool list, and the undocumented `ci-os-setup.sh` as separate things. See
+> `docs/architecture/multi-distro-design.md`.
 
 ## Package manager
 

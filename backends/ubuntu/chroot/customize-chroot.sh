@@ -459,12 +459,9 @@ set -euo pipefail
 if [[ $EUID -ne 0 ]]; then
   exec sudo "$0" "$@"
 fi
-if [[ -x /usr/lib/ci-os/bootstrap/install-rocm-driver.sh ]]; then
-  exec /usr/lib/ci-os/bootstrap/install-rocm-driver.sh "$@"
-fi
-if [[ -x /usr/lib/ci-os/bootstrap/lib/os-release.sh ]]; then
-  # shellcheck source=/dev/null
-  source /usr/lib/ci-os/bootstrap/lib/os-release.sh
+BOOTSTRAP_ROOT="/usr/lib/ci-os/bootstrap/backends/ubuntu"
+if [[ -x "$BOOTSTRAP_ROOT/lib/install-rocm-driver.sh" ]]; then
+  exec "$BOOTSTRAP_ROOT/lib/install-rocm-driver.sh" "$@"
 fi
 echo "[ci-os-install-rocm] bootstrap installer missing; install ROCm manually." >&2
 exit 1
@@ -710,68 +707,89 @@ echo "[+] Development packages pre-installed"
 #=============================================================================
 echo "[*] Step 10c: Setting up first-boot bootstrap service..."
 
-# ── Copy the full bootstrap scripts into the image ──────────────────────────
-# These scripts are available offline for manual or automated execution.
-mkdir -p "$CHROOT_PATH/usr/lib/ci-os/bootstrap"
-mkdir -p "$CHROOT_PATH/usr/lib/ci-os/bootstrap/lib"
+# ── Copy provision.sh + its dependencies into the image ──────────────────────
+# Staged under /usr/lib/ci-os/bootstrap/, preserving the real repo's relative
+# layout (backends/ubuntu/{provision,lib}/, core/lib/, core/manifest/) so
+# provision.sh's own REPO_ROOT-relative sourcing resolves unmodified on the
+# installed system — the same staging approach Step 5 (Plymouth) uses.
+mkdir -p "$CHROOT_PATH/usr/lib/ci-os/bootstrap/backends/ubuntu/provision"
+mkdir -p "$CHROOT_PATH/usr/lib/ci-os/bootstrap/backends/ubuntu/lib"
+mkdir -p "$CHROOT_PATH/usr/lib/ci-os/bootstrap/core/lib"
+mkdir -p "$CHROOT_PATH/usr/lib/ci-os/bootstrap/core/manifest/role-map"
+mkdir -p "$CHROOT_PATH/usr/lib/ci-os/bootstrap/vendor/brand/tokens"
 
-# Copy main setup script
-if [[ -f "$REPO_ROOT/backends/ubuntu/provision/setup-fresh-ubuntu.sh" ]]; then
-    install -m 755 "$REPO_ROOT/backends/ubuntu/provision/setup-fresh-ubuntu.sh" \
-        "$CHROOT_PATH/usr/lib/ci-os/bootstrap/setup-fresh-ubuntu.sh"
-    echo "[+] Copied setup-fresh-ubuntu.sh"
+if [[ -f "$REPO_ROOT/backends/ubuntu/provision/provision.sh" ]]; then
+    install -m 755 "$REPO_ROOT/backends/ubuntu/provision/provision.sh" \
+        "$CHROOT_PATH/usr/lib/ci-os/bootstrap/backends/ubuntu/provision/provision.sh"
+    echo "[+] Copied provision.sh"
 fi
 
-# Copy shared libraries used outside bootstrap (first-boot rebrand, etc.)
-if [[ -f "$REPO_ROOT/backends/ubuntu/lib/os-release.sh" ]]; then
-    install -m 644 "$REPO_ROOT/backends/ubuntu/lib/os-release.sh" \
-        "$CHROOT_PATH/usr/lib/ci-os/os-release.sh"
-    echo "[+] Copied os-release.sh"
+# install-models.sh: called standalone by ci-os-post-validation.sh (the
+# headless flow's post-pairing catch-up step) — idempotent, safe to re-run
+# even though provision.sh --tier=core already pulls models at first boot.
+if [[ -f "$REPO_ROOT/backends/ubuntu/provision/install-models.sh" ]]; then
+    install -m 755 "$REPO_ROOT/backends/ubuntu/provision/install-models.sh" \
+        "$CHROOT_PATH/usr/lib/ci-os/bootstrap/backends/ubuntu/provision/install-models.sh"
+    echo "[+] Copied install-models.sh"
 fi
 
-# Copy library scripts
 for lib_script in "$REPO_ROOT/backends/ubuntu/lib/"*.sh; do
     if [[ -f "$lib_script" ]]; then
         install -m 755 "$lib_script" \
-            "$CHROOT_PATH/usr/lib/ci-os/bootstrap/lib/$(basename "$lib_script")"
-        echo "[+] Copied lib/$(basename "$lib_script")"
+            "$CHROOT_PATH/usr/lib/ci-os/bootstrap/backends/ubuntu/lib/$(basename "$lib_script")"
     fi
 done
+echo "[+] Copied backends/ubuntu/lib/*.sh"
 
-# Copy additional setup scripts
-for setup_script in install-rocm-driver.sh; do
-    if [[ -f "$REPO_ROOT/backends/ubuntu/lib/$setup_script" ]]; then
-        install -m 755 "$REPO_ROOT/backends/ubuntu/lib/$setup_script" \
-            "$CHROOT_PATH/usr/lib/ci-os/bootstrap/$setup_script"
-        echo "[+] Copied $setup_script"
+for core_lib in "$REPO_ROOT/core/lib/"*.sh; do
+    if [[ -f "$core_lib" ]]; then
+        install -m 755 "$core_lib" \
+            "$CHROOT_PATH/usr/lib/ci-os/bootstrap/core/lib/$(basename "$core_lib")"
     fi
 done
+echo "[+] Copied core/lib/*.sh (including ci-hub.sh)"
+
+if [[ -f "$REPO_ROOT/core/manifest/ecosystem.yaml" ]]; then
+    install -m 644 "$REPO_ROOT/core/manifest/ecosystem.yaml" \
+        "$CHROOT_PATH/usr/lib/ci-os/bootstrap/core/manifest/ecosystem.yaml"
+    install -m 644 "$REPO_ROOT/core/manifest/role-map/apt.yaml" \
+        "$CHROOT_PATH/usr/lib/ci-os/bootstrap/core/manifest/role-map/apt.yaml"
+fi
+
+# vendor/brand/tokens/tokens.sh is a dependency of core/lib/theme-lib.sh
+# (sourced by core/lib/vendor-brand.sh's neighbors, and harmless to have
+# present even though provision.sh itself doesn't need brand tokens).
+if [[ -f "$REPO_ROOT/vendor/brand/tokens/tokens.sh" ]]; then
+    install -m 644 "$REPO_ROOT/vendor/brand/tokens/tokens.sh" \
+        "$CHROOT_PATH/usr/lib/ci-os/bootstrap/vendor/brand/tokens/tokens.sh"
+fi
 
 # ── Create the first-boot setup script ─────────────────────────────────────
-# This script runs on first boot AFTER the OS has been installed to disk.
-# It sets up Docker, Node.js, Ollama, and other tools that require a running
-# kernel, systemd, and network access. It is designed to be idempotent and
-# network-failure-tolerant.
+# This runs on first boot AFTER the OS has been installed to disk — a thin
+# wrapper handling first-boot-specific concerns (live-session bail-out, the
+# marker file, waiting for network, removing snaps that couldn't be purged at
+# ISO-build time) around a single call to the staged provision.sh --tier=core.
+# provision.sh itself is single-sourced with the manual/on-device entrypoint —
+# see backends/ubuntu/provision/provision.sh — so this file no longer
+# reimplements the tool-install list a second time.
 cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-setup.sh" << 'BOOTSTRAP_SCRIPT'
 #!/bin/bash
 #=============================================================================
 # CI-OS First-Boot Setup
-# Installs development tools that require a running system and network.
-# This runs automatically on first boot, or can be re-run manually:
-#   sudo ci-os-setup
-#
-# Tools installed: Docker CE, Node.js (via asdf), Bun, UV, Homebrew,
-#                  Ollama + models, GitHub CLI, cloudflared, VS Code,
-#                  Tailscale, LACT GPU monitor
+# Runs provision.sh --tier=core once the system has a kernel, systemd, and
+# network access. This runs automatically on first boot, or can be re-run
+# manually: sudo ci-os-setup
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
 
-# NOTE: Do NOT use 'set -e' here. Many install steps depend on network and
-# third-party servers that may be temporarily unavailable. Individual failures
-# are acceptable — the setup can be re-run later via: sudo ci-os-setup
+# NOTE: Do NOT use 'set -e' here. provision.sh's own install steps already
+# tolerate individual network/third-party failures; a hard exit here would
+# also abort the marker-file bookkeeping below.
 set -u
 
+BOOTSTRAP_ROOT="/usr/lib/ci-os/bootstrap"
+PROVISION_SH="${BOOTSTRAP_ROOT}/backends/ubuntu/provision/provision.sh"
 LOG_FILE="/var/log/ci-os-first-boot-setup.log"
 MARKER_FILE="/var/lib/ci-os/.first-boot-setup-done"
 
@@ -793,30 +811,6 @@ if [[ -f "$MARKER_FILE" ]]; then
     echo "[CI-OS] First-boot setup already completed. To re-run: sudo rm $MARKER_FILE && sudo ci-os-setup"
     exit 0
 fi
-
-# Detect the primary desktop user (first UID >= 1000)
-SETUP_USER=""
-while IFS=: read -r name _ uid _ _ home _; do
-    if [[ "$uid" -ge 1000 ]] && [[ "$uid" -lt 60000 ]] && [[ -d "$home" ]]; then
-        SETUP_USER="$name"
-        SETUP_HOME="$home"
-        break
-    fi
-done < /etc/passwd
-
-if [[ -z "$SETUP_USER" ]]; then
-    echo "[CI-OS] WARNING: No desktop user found. Skipping user-specific setup."
-    SETUP_USER="root"
-    SETUP_HOME="/root"
-fi
-echo "[CI-OS] Setting up for user: $SETUP_USER ($SETUP_HOME)"
-
-export DEBIAN_FRONTEND=noninteractive
-
-# Helper: run as the desktop user
-run_as_user() {
-    sudo -H -u "$SETUP_USER" bash -c "$*"
-}
 
 # ── Wait for network ──────────────────────────────────────────────────────
 NETWORK_OK=false
@@ -840,129 +834,22 @@ if [[ "$NETWORK_OK" != "true" ]]; then
     exit 0
 fi
 
-# ── APT Update ────────────────────────────────────────────────────────────
-apt-get update || true
-
 # ── Remove unwanted snaps (deferred from ISO build) ───────────────────────
 # These cannot be removed during ISO build because the snap seed is
 # cryptographically signed. Now that snapd is running on the installed
-# system, we can safely remove them.
+# system, we can safely remove them. Not part of provision.sh's manifest —
+# this is a one-time ISO-build-limitation cleanup, not an "install" step.
 echo "[CI-OS] Removing unwanted snaps..."
 snap remove --purge snap-store 2>/dev/null || true
 snap remove --purge thunderbird 2>/dev/null || true
 echo "[CI-OS] Unwanted snaps removed."
 
-# ── Docker CE ─────────────────────────────────────────────────────────────
-if ! command -v docker &>/dev/null; then
-    echo "[CI-OS] Installing Docker CE..."
-    install -m 0755 -d /etc/apt/keyrings
-    curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc 2>/dev/null
-    chmod a+r /etc/apt/keyrings/docker.asc
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
-        > /etc/apt/sources.list.d/docker.list
-    apt-get update
-    apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || true
-    usermod -aG docker "$SETUP_USER" 2>/dev/null || true
-    echo "[CI-OS] Docker installed."
+# ── Run provisioning ───────────────────────────────────────────────────────
+if [[ -x "$PROVISION_SH" ]]; then
+    echo "[CI-OS] Running provision.sh --tier=core..."
+    bash "$PROVISION_SH" --tier=core || echo "[CI-OS] provision.sh reported issues; re-run later with: sudo ci-os-setup"
 else
-    echo "[CI-OS] Docker already installed."
-fi
-
-# ── UV ────────────────────────────────────────────────────────────────────
-if ! run_as_user "command -v uv" &>/dev/null; then
-    echo "[CI-OS] Installing UV..."
-    run_as_user "curl -LsSf https://astral.sh/uv/install.sh | sh" || true
-fi
-
-# ── Homebrew ──────────────────────────────────────────────────────────────
-if ! run_as_user "command -v brew" &>/dev/null; then
-    echo "[CI-OS] Installing Homebrew..."
-    # Ensure passwordless sudo for the setup user
-    echo "$SETUP_USER ALL=(ALL) NOPASSWD: ALL" > "/etc/sudoers.d/$SETUP_USER-ci-os"
-    chmod 0440 "/etc/sudoers.d/$SETUP_USER-ci-os"
-    run_as_user "NONINTERACTIVE=1 CI=1 /bin/bash -c \"\$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"" || true
-    # Add to bashrc
-    if ! grep -q 'linuxbrew' "$SETUP_HOME/.bashrc" 2>/dev/null; then
-        echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >> "$SETUP_HOME/.bashrc"
-        chown "$SETUP_USER:$SETUP_USER" "$SETUP_HOME/.bashrc"
-    fi
-fi
-
-# ── asdf + Node.js ────────────────────────────────────────────────────────
-echo "[CI-OS] Installing asdf + Node.js..."
-run_as_user 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)" 2>/dev/null; \
-    command -v brew &>/dev/null && { \
-        brew install asdf 2>/dev/null || true; \
-        ASDF_SH="$(brew --prefix asdf 2>/dev/null)/libexec/asdf.sh"; \
-        [[ -f "$ASDF_SH" ]] && source "$ASDF_SH"; \
-        asdf plugin add nodejs 2>/dev/null || true; \
-        asdf install nodejs 22.15.1 2>/dev/null || true; \
-    }' || true
-
-# ── Bun ───────────────────────────────────────────────────────────────────
-if ! run_as_user "command -v bun" &>/dev/null; then
-    echo "[CI-OS] Installing Bun..."
-    run_as_user "curl -fsSL https://bun.com/install | bash" || true
-fi
-
-# ── Ollama ────────────────────────────────────────────────────────────────
-if ! command -v ollama &>/dev/null; then
-    echo "[CI-OS] Installing Ollama..."
-    curl -fsSL https://ollama.com/install.sh | sh || true
-fi
-if command -v ollama &>/dev/null; then
-    systemctl enable ollama 2>/dev/null || true
-    systemctl start ollama 2>/dev/null || true
-    sleep 3
-    echo "[CI-OS] Pulling Ollama models (this may take a while)..."
-    ollama pull nomic-embed-text 2>/dev/null || true
-    ollama pull gemma3:1b 2>/dev/null || true
-    # Large model — pull in background
-    nohup ollama pull qwen3.6:27b &>/dev/null &
-fi
-
-# ── GitHub CLI ────────────────────────────────────────────────────────────
-if ! command -v gh &>/dev/null; then
-    echo "[CI-OS] Installing GitHub CLI..."
-    curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
-        | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-    chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
-    echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
-        > /etc/apt/sources.list.d/github-cli.list
-    apt-get update && apt-get install -y gh || true
-fi
-
-# ── cloudflared ───────────────────────────────────────────────────────────
-if ! command -v cloudflared &>/dev/null; then
-    echo "[CI-OS] Installing cloudflared..."
-    mkdir -p /usr/share/keyrings
-    curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg \
-        | tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
-    echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' \
-        > /etc/apt/sources.list.d/cloudflared.list
-    apt-get update && apt-get install -y cloudflared || true
-fi
-
-# ── VS Code ───────────────────────────────────────────────────────────────
-if ! command -v code &>/dev/null; then
-    echo "[CI-OS] Installing VS Code..."
-    snap install code --classic 2>/dev/null || true
-fi
-
-# ── Tailscale ─────────────────────────────────────────────────────────────
-if ! command -v tailscale &>/dev/null; then
-    echo "[CI-OS] Installing Tailscale..."
-    curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/noble.noarmor.gpg" \
-        | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-    curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/noble.tailscale-keyring.list" \
-        | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
-    apt-get update && apt-get install -y tailscale || true
-fi
-
-# ── GNOME Power Mode ─────────────────────────────────────────────────────
-echo "[CI-OS] Setting GNOME power profile to performance..."
-if command -v powerprofilesctl &>/dev/null; then
-    powerprofilesctl set performance 2>/dev/null || true
+    echo "[CI-OS] WARNING: $PROVISION_SH not found or not executable; skipping provisioning."
 fi
 
 # ── Mark complete ─────────────────────────────────────────────────────────

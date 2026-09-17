@@ -186,7 +186,7 @@ See the Stack section of `CLAUDE.md` for exactly which backend uses what.
 | Goal | Entry point | Run on |
 |------|-------------|--------|
 | **A. Ship a branded installer ISO** | [`backends/ubuntu/iso/scripts/build-iso.sh`](backends/ubuntu/iso/scripts/build-iso.sh) | An Ubuntu 24.04 *build host* |
-| **B. Turn a fresh/existing Ubuntu into a CI appliance** (dev + service stack) | [`backends/ubuntu/provision/setup-fresh-ubuntu.sh`](backends/ubuntu/provision/setup-fresh-ubuntu.sh) | The *target* machine, as root |
+| **B. Turn a fresh/existing Ubuntu into a CI appliance** (dev + service stack) | [`backends/ubuntu/provision/provision.sh`](backends/ubuntu/provision/provision.sh) | The *target* machine, as root |
 | **C. Re-skin a running Ubuntu desktop** (branding only, no packages) | [`backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh`](backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
 | **D. First-time headless WiFi onboarding** (captive portal) | [`backends/ubuntu/headless-package/build.sh`](backends/ubuntu/headless-package/build.sh) → `.deb` | The *target* device |
 
@@ -196,7 +196,7 @@ into the squashfs and embeds the provisioning script (B) at
 on first boot:
 
 - `ci-os-first-boot-rebrand.service` — rewrites `os-release` IDs to `ci-os`.
-- `ci-os-first-boot-setup.service` — runs the embedded `setup-fresh-ubuntu.sh` once (idempotent, network-failure-tolerant) to install the full stack.
+- `ci-os-first-boot-setup.service` — runs the staged `provision.sh --tier=core` once (idempotent, network-failure-tolerant). Extended-tier tools (VS Code, Chromium, Homebrew, Companion Launcher) are not installed at first boot — run B manually with `--tier=extended` added for those.
 
 So a clean ISO install ends up identical to running B + C by hand. Use B/C directly
 when you want to convert a machine you already have without reimaging it.
@@ -260,8 +260,8 @@ Full reference, branding color map, and iterative-dev tips:
 ✅ **Ubuntu rebranded as CI-OS** — GRUB, Plymouth, GDM/GNOME Shell, MOTD, `os-release`  
 ✅ **Privacy first** — telemetry removed, metric endpoints blocked  
 ✅ **AMD GPU ready** — ROCm 7.2.4 helper (`--no-dkms` on Strix Halo / gfx1151) 
-✅ **CI teal / dark-green theme** — `#00a9a7`, `#066c80`, `#72ddd4`, `#1b4332`  
-✅ **Full stack on first boot** — Docker, Node (asdf), Ollama, VS Code, Companion Hub  
+✅ **CI canon theme** — navy/phthalo/sage, sourced from `vendor/brand/tokens/tokens.sh`  
+✅ **Core stack on first boot** — Docker, Node (asdf), Ollama+models, CI-Hub (`provision.sh --tier=core`); VS Code/Chromium/Homebrew/Companion Launcher are opt-in (`--tier=extended`)  
 ✅ **Bootable** — inherits BIOS + UEFI + Secure Boot from the base ISO
 
 ### CI/CD
@@ -277,32 +277,39 @@ ISOs build automatically via [`.github/workflows/build-companion-os-iso.yml`](.g
 ## Provision a fresh / existing Ubuntu
 
 Convert any Ubuntu 24.04 machine into a CI appliance without reimaging. This is the
-same script the ISO runs on first boot, so it is **idempotent** — safe to re-run.
+same script the ISO runs on first boot (as `--tier=core`), so it is **idempotent** —
+safe to re-run. What gets installed is controlled by `--tier` — see
+`provision.sh`'s own header for the full core/extended/hardware breakdown; default
+(no flags) is `--tier=core,hardware`.
 
 For a typical desktop machine, the full setup flow is:
 
-1. Run `backends/ubuntu/provision/setup-fresh-ubuntu.sh` with `sudo` (this section)
+1. Run `backends/ubuntu/provision/provision.sh --tier=core,extended,hardware` with `sudo` (this section)
 2. Run `backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh` with `sudo` ([next section](#apply-ci-desktop-branding-to-a-running-system))
 3. Reboot after both scripts complete
 
 ```bash
-chmod +x ./backends/ubuntu/provision/setup-fresh-ubuntu.sh
-sudo ./backends/ubuntu/provision/setup-fresh-ubuntu.sh
+chmod +x ./backends/ubuntu/provision/provision.sh
+sudo ./backends/ubuntu/provision/provision.sh --tier=core,extended,hardware
 ```
 
-Requires root. Installs and configures (in order):
+Requires root. Installs and configures (in order), tagged by tier — see
+[`core/manifest/ecosystem.yaml`](core/manifest/ecosystem.yaml) for the single source of
+truth this list mirrors:
 
-- **Docker** (engine + compose, adds your user to the `docker` group)
-- **uv** (Python), **Homebrew**, **make**
-- **Node.js via asdf** (with corepack/pnpm), sets a global Node version
-- a dedicated **`ci`** service user
-- **GitHub CLI**, **cloudflared**, **Tailscale**
-- **Ollama** (service + pulls default models)
-- **Chromium** and **VS Code** (Snap fallback if apt fails)
-- **Companion Hub** (+ autostart)
-- **telemetry removal** (`backends/ubuntu/lib/remove-telemetry.sh`)
-- **ROCm 7.2.4** (`backends/ubuntu/lib/install-rocm-driver.sh`, non-fatal) — Strix Halo / Ryzen AI Max uses official `--no-dkms` inbox amdgpu; other AMD GPUs may use DKMS — and **LACT** GPU monitor
-- **Strix Halo unified-memory boot params** (`backends/ubuntu/lib/strix-halo-boot-params.sh`, non-fatal) — see note below
+- **[core]** **Docker** (engine + compose, adds your user to the `docker` group), **make**
+- **[core]** **uv** (Python)
+- **[core]** **Node.js via asdf** (with corepack/pnpm), sets a global Node version
+- **[core]** a dedicated **`ci`** service user
+- **[core]** **GitHub CLI**, **cloudflared**, **Tailscale**
+- **[core]** **Ollama** (service + pulls default models)
+- **[core]** **CI Hub Service** — the Docker/Runtipi backend, gated on registry credentials (see `core/lib/ci-hub.sh`); reports a clear skip message and continues if unpaired
+- **[core]** **telemetry removal** (`backends/ubuntu/lib/remove-telemetry.sh`)
+- **[extended]** **Homebrew**
+- **[extended]** **Chromium** and **VS Code** (Snap fallback if apt fails)
+- **[extended]** **Companion Launcher** (+ autostart) — the desktop GUI app, distinct from the CI Hub Service backend above
+- **[hardware, auto-detected]** **ROCm 7.2.4** (`backends/ubuntu/lib/install-rocm-driver.sh`, non-fatal) — Strix Halo / Ryzen AI Max uses official `--no-dkms` inbox amdgpu; other AMD GPUs may use DKMS — and **LACT** GPU monitor
+- **[hardware, auto-detected]** **Strix Halo unified-memory boot params** (`backends/ubuntu/lib/strix-halo-boot-params.sh`, non-fatal) — see note below
 - GNOME power profile set to *performance*
 
 After it finishes, log out/in (or `newgrp docker`) so group changes take effect.
@@ -504,17 +511,20 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   └── ubuntu/                   # The reference backend — apt/dpkg + Bash
 │       ├── iso/scripts/           # A: build-iso.sh, build-packages.sh, gresource + repo helpers
 │       ├── chroot/                # customize-chroot.sh — called by the ISO builder against the rootfs
-│       ├── provision/             # B: setup-fresh-ubuntu.sh, bootstrap-ci-os.sh, install-models.sh
+│       ├── provision/             # B: provision.sh, bootstrap-ci-os.sh, install-models.sh
 │       ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Plymouth/GRUB/wallpaper/etc. steps
 │       ├── lib/                   # apt-specific helpers (os-release, ROCm, telemetry removal, ...)
 │       ├── packages/              # .deb sources: ci-os-branding, companion-os-base/keyring, ...
 │       └── headless-package/      # D: build.sh, DEBIAN/ control scripts, netplan (apt packaging only)
-├── docs/
-│   ├── architecture/             # multi-distro-design.md
-│   └── guides/                   # ISO build, installation, quick start, repo setup, GDM branding
-└── setup/
-    └── CI-OS-Hub-Setup/          # install-or-update-hub.sh (Companion Launcher installer)
+└── docs/
+    ├── architecture/             # multi-distro-design.md
+    └── guides/                   # ISO build, installation, quick start, repo setup, GDM branding
 ```
+
+`pull-dev-manual.sh` at the repo root is a thin CLI-flags wrapper around
+`core/lib/ci-hub.sh` for manual CI-Hub deploys — the only top-level script left
+outside `core/`/`backends/` now that ecosystem provisioning has been
+consolidated into `provision.sh`.
 
 `core/validate/` is currently empty — the theme-validation logic
 (`backends/ubuntu/desktop-theme/80-validate-ci-theme.sh`) hasn't yet had its portable half
