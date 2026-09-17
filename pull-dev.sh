@@ -28,9 +28,10 @@ if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
   done
 fi
 
-# Hardcoded fallback credentials for dev registry (override with env if needed)
-REGISTRY_USERNAME="${REGISTRY_USERNAME:-Abcde12345}"
-REGISTRY_PASSWORD="${REGISTRY_PASSWORD:-Abcde12345}"
+# Registry credentials must come from the environment or a sourced .env.dev file above.
+# No hardcoded fallback — a shared default here is a checked-in credential.
+REGISTRY_USERNAME="${REGISTRY_USERNAME:-}"
+REGISTRY_PASSWORD="${REGISTRY_PASSWORD:-}"
 
 # Configuration - always use dev registry (setup.companionintelligence.com)
 REGISTRY_DOMAIN="portal.companionintelligence.com"
@@ -78,9 +79,10 @@ mkdir -p "${INSTALL_DIR}/data/backups"
 mkdir -p "${INSTALL_DIR}/app-data"
 mkdir -p "${INSTALL_DIR}/tunnel"
 
-# Tunnel Setup — uses the shared dev tunnel token by default (same tunnel, multiple machines OK)
-# Override by setting TUNNEL_TOKEN in env or passing -t to pull-dev-manual.sh
-TUNNEL_TOKEN="${TUNNEL_TOKEN:-eyJhIjoiOWE2ZWYyZGJjZDEzOGVhYzEyMTY0N2Y1NjdhOTg1ZDgiLCJ0IjoiYTA5MDc2YzAtMzkwOS00ZGZiLWFmYzAtOWQ5YTQzOTEzYTMxIiwicyI6IlYxL3NCOVRJbXQzZ3JMaVIzQTJxWmlpY2lsek1NSFJKZ0Z3MFNrYkNQUWs9In0=}"
+# Tunnel Setup — no default token. Set TUNNEL_TOKEN in env or pass -t to
+# pull-dev-manual.sh. A shared hardcoded token here was a checked-in credential;
+# the tunnel profile is now skipped (not silently defaulted) when unset.
+TUNNEL_TOKEN="${TUNNEL_TOKEN:-}"
 COMPOSE_PROFILES=()
 if [ -n "$TUNNEL_TOKEN" ]; then
   echo -e "${YELLOW}Setting up Cloudflare tunnel...${NC}"
@@ -89,6 +91,9 @@ if [ -n "$TUNNEL_TOKEN" ]; then
   TUNNEL_DIR="${INSTALL_DIR}/tunnel" bash "${SCRIPT_DIR}/scripts/generate-tunnel-certs.sh"
   COMPOSE_PROFILES=(--profile tunnel)
   echo -e "${GREEN}Tunnel token and certs configured.${NC}"
+else
+  echo -e "${YELLOW}No TUNNEL_TOKEN set — skipping Cloudflare tunnel setup (the 'tunnel' compose profile will not run).${NC}"
+  echo -e "${YELLOW}Set TUNNEL_TOKEN in env, or pass -t, to enable it.${NC}"
 fi
 
 # Registry Login (required for private registry)
