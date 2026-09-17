@@ -201,6 +201,22 @@ on first boot:
 So a clean ISO install ends up identical to running B + C by hand. Use B/C directly
 when you want to convert a machine you already have without reimaging it.
 
+### Mint backend (Phase 2, implemented)
+
+Linux Mint (Cinnamon edition) is the second backend — provisioning + desktop/login-screen
+theming only, no ISO-build mode. It reuses B and D from the table above unchanged/near-verbatim
+and has its own equivalents of C:
+
+| Goal | Entry point | Run on |
+|------|-------------|--------|
+| **B. Provision the ecosystem** | [`backends/mint/provision/provision.sh`](backends/mint/provision/provision.sh) (wraps Ubuntu's `provision.sh` — same apt role-map) | The *target* machine, as root |
+| **C. Re-skin a running Mint desktop** (Cinnamon + Slick-Greeter branding) | [`backends/mint/desktop-theme/apply-ci-os-desktop.sh`](backends/mint/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
+| **D. First-time headless WiFi onboarding** | [`backends/mint/headless-package/build.sh`](backends/mint/headless-package/build.sh) → `.deb` | The *target* device |
+
+See [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md#backendsmint-phase-2-implemented)
+for what's reused from the Ubuntu backend by path (Plymouth, GRUB, MOTD) versus written fresh
+for Cinnamon/Slick-Greeter, and the known gaps left for a follow-up pass.
+
 ---
 
 ## Build a branded CI-OS ISO
@@ -508,14 +524,18 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   ├── _mixins/                  # Shared building blocks (used by ubuntu today, fedora later)
 │   │   ├── gnome-dconf/           # GNOME dconf/session/terminal theming
 │   │   └── kde-plasma/            # KDE Plasma color scheme
-│   └── ubuntu/                   # The reference backend — apt/dpkg + Bash
-│       ├── iso/scripts/           # A: build-iso.sh, build-packages.sh, gresource + repo helpers
-│       ├── chroot/                # customize-chroot.sh — called by the ISO builder against the rootfs
-│       ├── provision/             # B: provision.sh, bootstrap-ci-os.sh, install-models.sh
-│       ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Plymouth/GRUB/wallpaper/etc. steps
-│       ├── lib/                   # apt-specific helpers (os-release, ROCm, telemetry removal, ...)
-│       ├── packages/              # .deb sources: ci-os-branding, companion-os-base/keyring, ...
-│       └── headless-package/      # D: build.sh, DEBIAN/ control scripts, netplan (apt packaging only)
+│   ├── ubuntu/                   # The reference backend — apt/dpkg + Bash
+│   │   ├── iso/scripts/           # A: build-iso.sh, build-packages.sh, gresource + repo helpers
+│   │   ├── chroot/                # customize-chroot.sh — called by the ISO builder against the rootfs
+│   │   ├── provision/             # B: provision.sh, bootstrap-ci-os.sh, install-models.sh
+│   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Plymouth/GRUB/wallpaper/etc. steps
+│   │   ├── lib/                   # apt-specific helpers (os-release, ROCm, telemetry removal, ...)
+│   │   ├── packages/              # .deb sources: ci-os-branding, companion-os-base/keyring, ...
+│   │   └── headless-package/      # D: build.sh, DEBIAN/ control scripts, netplan (apt packaging only)
+│   └── mint/                     # Phase 2 — apt/dpkg + Bash, no ISO mode
+│       ├── provision/             # B: thin wrapper around backends/ubuntu/provision/provision.sh
+│       ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Cinnamon dconf/session + Slick-Greeter
+│       └── headless-package/      # D: build.sh, DEBIAN/ control scripts (no netplan config)
 └── docs/
     ├── architecture/             # multi-distro-design.md
     └── guides/                   # ISO build, installation, quick start, repo setup, GDM branding

@@ -260,8 +260,15 @@ install_tailscale() {
         log_success "Tailscale installed"
     else
         log_warning "snap not available; installing Tailscale via apt..."
-        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-        curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/$(lsb_release -cs).tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
+        # Use the same /etc/os-release-based codename resolution install_docker
+        # uses above, not `lsb_release -cs`: on a derivative distro (e.g. Mint,
+        # whose stock os-release carries UBUNTU_CODENAME alongside its own
+        # VERSION_CODENAME/ID) lsb_release returns the derivative's own
+        # codename, which 404s against pkgs.tailscale.com's Ubuntu-only repo.
+        local ubuntu_codename
+        ubuntu_codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
+        curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${ubuntu_codename}.noarmor.gpg" | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+        curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${ubuntu_codename}.tailscale-keyring.list" | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
         apt-get update
         apt-get install -y tailscale
         log_success "Tailscale installed"

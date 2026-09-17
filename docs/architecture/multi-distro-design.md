@@ -38,12 +38,44 @@ core/
 backends/
   _mixins/{gnome-dconf,kde-plasma}/    # shared building blocks (Ubuntu + Fedora, optionally Arch)
   ubuntu/    {iso, chroot, provision, desktop-theme, lib, packages, headless-package}/
-  mint/      {provision, desktop-theme, headless-package}/            # no ISO-build mode
+  mint/      {provision, desktop-theme, headless-package}/            # no ISO-build mode — implemented (Phase 2)
   fedora/    {iso (kickstart/lorax), provision, desktop-theme, packages, headless-package}/
   arch/      {provision, desktop-theme, headless-package}/            # archiso deferred
   bazzite/   {image/Containerfile, image/build.just, modules/}/       # OCI image, not chroot
   nixos/     {flake.nix, modules/{branding.nix, ecosystem.nix, headless-setup.nix}}/
 ```
+
+### `backends/mint/` (Phase 2, implemented)
+
+```
+backends/mint/
+  provision/
+    provision.sh                 # thin wrapper: exec's backends/ubuntu/provision/provision.sh
+                                  # unchanged (Mint 22.x shares Ubuntu Noble's apt role-map)
+  desktop-theme/
+    cinnamon-defaults.inc.sh     # shared Cinnamon values (theme/icon selection, favorites,
+                                  # panel, wallpaper) — the Mint analog of gnome-defaults.inc.sh;
+                                  # not shared with the GNOME mixin, deliberately
+    20-cinnamon-dconf.sh         # system dconf defaults + live gsettings apply (folded — see
+                                  # its header for why this isn't split into a 25- file like
+                                  # Ubuntu's), plus wallpaper install
+    30-slick-greeter.sh          # renders the CI mark as a transparent PNG, writes
+                                  # /etc/lightdm/slick-greeter.conf + a lightdm.conf.d drop-in
+    apply-ci-os-desktop.sh       # dispatcher: reuses Ubuntu's 10-plymouth.sh/15-grub-theme.sh
+                                  # and core/render/render-motd.sh directly by path; --only/
+                                  # --validate only, no --wizard yet
+    80-validate-ci-theme.sh      # Cinnamon/slick-greeter checks; Plymouth/GRUB/brand-asset
+                                  # checks kept identical to Ubuntu's
+  headless-package/
+    build.sh, DEBIAN/{control,postinst,prerm,postrm}   # same payload as Ubuntu's, no netplan
+                                                        # config (see build.sh's header)
+```
+
+Deliberately NOT ported from Ubuntu in this phase (see `apply-ci-os-desktop.sh`'s header
+comment for the full reasoning on each): GNOME Terminal theming (lives under the excluded
+`backends/_mixins/gnome-dconf/`), the Yaru-specific start-icon swap, and the `os-release`
+`ID=ubuntu` rewrite (Mint keeps its own `ID=linuxmint` identity; its apt role-map resolution
+doesn't need the rewrite since Mint's stock `os-release` already carries `UBUNTU_CODENAME`).
 
 ## The ecosystem manifest
 
@@ -85,7 +117,7 @@ compliant, not a shortcut — CI-OS's own README already treats the Ubuntu ISO p
 | Phase | Backend | Effort | Notes |
 |---|---|---|---|
 | 1 | Ubuntu | L (baseline) | Reference implementation; full refactor + close theming gaps + provisioning consolidation |
-| 2 | Mint | S | Reuses Ubuntu's apt role-map; new work is Cinnamon + Slick-Greeter theming only. No ISO mode. |
+| 2 | Mint | S | **Implemented.** Reuses Ubuntu's apt role-map (`provision.sh` is a thin wrapper) and Ubuntu's Plymouth/GRUB/MOTD steps by path; new work is Cinnamon dconf/session theming + Slick-Greeter login branding. No ISO mode. Known gap: no Mint-specific terminal theming or start-icon/os-release branding yet — see `backends/mint/desktop-theme/apply-ci-os-desktop.sh`'s header. |
 | 3a | Fedora (provisioning+theming) | M | Reuses the GNOME-Shell/GDM-gresource pattern against Adwaita |
 | 3b | Fedora ISO (kickstart/lorax) | L | Zero reuse from debootstrap/squashfs/xorriso; can slip independently |
 | 4 | Arch | M | pacman role-map, GNOME theming; archiso deferred |
