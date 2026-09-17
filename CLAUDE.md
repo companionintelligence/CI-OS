@@ -12,17 +12,31 @@ Issues: <https://github.com/companionintelligence/CI-Engineering/issues>
 
 ## What this repo does
 
-Base OS for the Companion Intelligence appliance. **Not a from-scratch distro** — it is
-**Ubuntu 24.04 LTS (Noble)** rebranded as CI-OS, with telemetry removed, AMD/ROCm support,
-and the CI stack (Docker, Node, Ollama, CI-Hub, CI-Server) installed on first boot. The repo
-builds branded installer ISOs and provisions machines/devices via Bash scripts.
+Builds and themes the Companion Intelligence appliance base OS **across multiple Linux
+distros** — Ubuntu (reference implementation), Linux Mint, Fedora, Arch, Bazzite, and NixOS —
+and provisions the CI ecosystem (Docker, dev tooling, local LLMs via Ollama, CI-Hub) on top of
+each. See `docs/architecture/multi-distro-design.md` for the full design and rollout plan.
+
+Architecture: shared brand-theming and ecosystem-provisioning logic lives in `core/`
+(distro-portable); each distro's actual build/install mechanism lives in
+`backends/<distro>/`. **Ubuntu is the most mature backend today, not the only target** — an
+earlier version of this repo was Ubuntu-only ("Companion Ubuntu"); that framing is superseded.
 
 ## Stack
 
-- **Ubuntu 24.04 (Noble)** base — no Nix
-- **Bash** scripts for everything (ISO build, provisioning, branding)
-- ISO tooling: `debootstrap`, `squashfs-tools`, `xorriso`; `.deb` packaging; systemd first-boot services
-- Docker Compose for service bootstrap
+- **Shared** (`core/`): plain Bash + a declarative `core/manifest/ecosystem.yaml` (the single
+  source of truth for what gets installed — see its own comments) — no distro assumptions here.
+- **`backends/ubuntu/`, `backends/mint/`**: apt/dpkg + Bash. `debootstrap`, `squashfs-tools`,
+  `xorriso` for ISO building; `.deb` packaging; systemd first-boot services.
+- **`backends/fedora/`**: dnf/rpm + Bash; kickstart/lorax for ISO building.
+- **`backends/arch/`**: pacman + Bash.
+- **`backends/bazzite/`**: OCI image layering via `Containerfile` + `bootc`/`rpm-ostree` — not
+  chroot/package-install; the live-filesystem-editing model of the other backends doesn't apply.
+- **`backends/nixos/`**: declarative Nix flake/modules. **Nix is first-class inside this one
+  backend** — the previous repo-wide "no Nix" rule was scoped to when CI-OS was Ubuntu-only and
+  no longer applies; don't introduce Nix into `core/` or the other backends, since those must
+  stay usable without it.
+- Docker Compose for service bootstrap (CI-Hub), distro-agnostic once Docker itself is present.
 
 ## Key commands
 
@@ -39,14 +53,22 @@ sudo ./setup/os-changes/apply-ci-os-desktop.sh
 # See README.md for the four customization entry points.
 ```
 
+> These paths are the current (pre-refactor) Ubuntu entrypoints and still work. The
+> multi-distro rebuild is moving them to `backends/ubuntu/{iso,provision,desktop-theme}/` and
+> consolidating the provisioning scripts into one `provision.sh` — update this section once
+> that move lands (see `docs/architecture/multi-distro-design.md`, Phase 1).
+
 ## Package manager
 
-**apt / dpkg** plus plain Bash. There is no Nix here — do not introduce it.
+No single one — package management is backend-specific (see Stack above). `core/` itself has
+no package-manager assumptions; each `backends/<distro>/` uses that distro's native tooling.
 
 ## Cross-repo connections
 
-- Hosts: CI-Hub, CI-Server, CI-Gateway
-- Boot config in configs/
+- Hosts: CI-Hub, CI-Gateway. **CI-Server has no implementation in this repo** — it's tracked
+  only as a `reserved` entry in `core/manifest/ecosystem.yaml`, pointing at its own repo.
+- Boot config in configs/ (desktop-only now — the legacy Cubic/preseed customization tree was
+  removed as dead code)
 - Assets in assets/
 
 

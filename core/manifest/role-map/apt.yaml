@@ -1,0 +1,80 @@
+# apt/dpkg role-map — translates core/manifest/ecosystem.yaml's generic dev_tools
+# ids into native apt packages and repo setup. Shared by the ubuntu and mint
+# backends (Mint is apt-based, same package names for everything except its
+# desktop-environment-specific pieces, which live in backends/mint/desktop-theme/
+# rather than here).
+#
+# install_method:
+#   apt_repo    — add a third-party apt repo (see `repo`), then apt-get install `packages`
+#   apt         — apt-get install `packages` directly, no extra repo needed
+#   curl_script — run the installer's own curl|sh script (url comes from ecosystem.yaml)
+#   snap        — install via snap (used as a fallback for a couple of tools)
+#   external_deb — download and dpkg -i a .deb from a URL resolved at install time
+
+docker:
+  install_method: apt_repo
+  repo:
+    key_url: "https://download.docker.com/linux/ubuntu/gpg"
+    list: "deb [arch={arch} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu {codename} stable"
+  packages: [docker-ce, docker-ce-cli, containerd.io, docker-buildx-plugin, docker-compose-plugin]
+
+uv:
+  install_method: curl_script
+
+homebrew:
+  install_method: curl_script
+
+asdf:
+  install_method: git_clone
+  repo: "https://github.com/asdf-vm/asdf"
+  ref: "v0.14.0"
+
+node:
+  install_method: asdf_plugin
+  plugin: nodejs
+
+bun:
+  install_method: curl_script
+
+gh:
+  install_method: apt_repo
+  repo:
+    key_url: "https://cli.github.com/packages/githubcli-archive-keyring.gpg"
+    list: "deb [arch={arch} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
+  packages: [gh]
+
+cloudflared:
+  install_method: apt_repo
+  repo:
+    key_url: "https://pkg.cloudflare.com/cloudflare-public-v2.gpg"
+    list: "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main"
+  packages: [cloudflared]
+
+vscode:
+  install_method: external_deb
+  fallback: snap
+
+tailscale:
+  install_method: apt_repo
+  repo:
+    key_url: "https://pkgs.tailscale.com/stable/ubuntu/{codename}.noarmor.gpg"
+    list_url: "https://pkgs.tailscale.com/stable/ubuntu/{codename}.tailscale-keyring.list"
+  packages: [tailscale]
+
+chromium:
+  install_method: apt_repo
+  fallback: [snap, flatpak]
+  note: "xtradeb PPA -> snap -> flatpak fallback chain, preserved from setup-fresh-ubuntu.sh"
+
+rocm:
+  install_method: script
+  script: install-rocm-driver.sh
+  note: "ROCm 7.2.4, delegates to backends/ubuntu/lib/install-rocm-driver.sh"
+
+lact:
+  install_method: github_release_deb
+  repo: "ilya-zlobintsev/LACT"
+
+ollama:
+  install_method: curl_script
+  url: "https://ollama.com/install.sh"

@@ -1,5 +1,5 @@
 ## Companion Intelligence OS
-### UnCloud Linux · built on Ubuntu 24.04 LTS (Noble)
+### UnCloud Linux · a multi-distro Companion Intelligence appliance builder
 
 ![CI OS Logo](assets/logos/ci-holo-depth.png)
 
@@ -147,24 +147,41 @@ portal surfaces an inline error and re-enables the form for another attempt.
 
 ## What this repo is
 
-CI-OS is **Companion Ubuntu** — provisioning and branding scripts that turn stock
-**Ubuntu 24.04 LTS (Noble)** into a Companion Intelligence appliance. It is **not**
-a from-scratch or shipped OS; the primary workflow is run-these-scripts-on-Ubuntu.
-An ISO builder exists in-tree but is secondary and not the product path.
+CI-OS builds and themes the Companion Intelligence appliance **across multiple Linux
+distros** — Ubuntu (the reference implementation today), Linux Mint, Fedora, Arch, Bazzite,
+and NixOS — and provisions the CI ecosystem (Docker, dev tooling, local LLMs, CI-Hub) on top
+of each. Shared theming/provisioning logic lives in `core/`; each distro's actual
+build/install mechanism lives in `backends/<distro>/`. See
+[`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for the
+full design and rollout plan.
+
+An earlier version of this repo described itself as "Companion Ubuntu" — provisioning and
+branding scripts that only ran on stock Ubuntu 24.04 LTS. That framing is superseded: Ubuntu
+is still the most mature, reference backend, but it's one of six, not the whole project.
 
 Scripts typically apply:
 
-- a CI-OS identity and teal/dark-green rebrand (GRUB, Plymouth, GDM/GNOME Shell, MOTD, wallpaper, `os-release`),
-- Ubuntu telemetry and bloatware removed,
-- AMD GPU / ROCm support (Strix Halo / gfx1151 via ROCm **7.2.4**, `--no-dkms`), and
-- the full CI developer + appliance stack (Docker, Node, Ollama, Companion Hub, …).
+- a CI-OS identity and teal/phthalo/sage rebrand (GRUB, Plymouth, GDM/GNOME Shell or the
+  distro's native DE, MOTD, wallpaper, `os-release`),
+- distro telemetry and bloatware removed,
+- AMD GPU / ROCm support where applicable (Strix Halo / gfx1151 via ROCm **7.2.4**), and
+- the full CI developer + appliance stack (Docker, Node, Ollama, CI-Hub, …), driven by one
+  shared manifest (`core/manifest/ecosystem.yaml`) instead of per-distro hardcoded tool lists.
 
-Everything is plain **Bash** — there is no Nix, no build system to learn. You pick
-one of the entry-point scripts below depending on *what* you want to customize.
+`core/` and the manifest are plain Bash + YAML with no distro assumptions. Individual
+backends use their native tooling — **`backends/nixos/` is Nix by design**; the rest are not.
+See the Stack section of `CLAUDE.md` for exactly which backend uses what.
 
 ---
 
 ## Four ways to customize Ubuntu
+
+> The table below describes the **Ubuntu backend** specifically — still the most complete
+> today. As other backends (`backends/mint/`, `backends/fedora/`, ...) land, each gets its own
+> equivalent table in its own README; see
+> [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for
+> the full per-backend rollout status. These paths are pre-refactor and still accurate; they
+> are moving into `backends/ubuntu/` as that work lands.
 
 | Goal | Entry point | Run on |
 |------|-------------|--------|

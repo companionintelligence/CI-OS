@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CI-OS ecosystem manifest",
+  "description": "Schema for core/manifest/ecosystem.yaml — validated in CI so the manifest can't silently drift into an unparseable or incomplete state.",
+  "type": "object",
+  "required": ["schema_version", "tiers", "dev_tools", "llm", "ecosystem"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"type": "integer", "const": 1},
+    "tiers": {
+      "type": "object",
+      "required": ["core", "extended", "hardware", "reserved"],
+      "additionalProperties": false,
+      "properties": {
+        "core": {"type": "string"},
+        "extended": {"type": "string"},
+        "hardware": {"type": "string"},
+        "reserved": {"type": "string"}
+      }
+    },
+    "dev_tools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "tier"],
+        "additionalProperties": true,
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z][a-z0-9_]*$"},
+          "tier": {"enum": ["core", "extended", "hardware", "reserved"]},
+          "role": {"type": "string"},
+          "services": {"type": "array", "items": {"type": "string"}},
+          "installer": {
+            "type": "object",
+            "required": ["method"],
+            "properties": {
+              "method": {"enum": ["curl_script", "external_deb", "native_package"]},
+              "url": {"type": "string"},
+              "source": {"type": "string"}
+            }
+          },
+          "version": {"type": "string"},
+          "via": {"type": "string"},
+          "hardware_match": {"type": "string"},
+          "note": {"type": "string"}
+        }
+      }
+    },
+    "llm": {
+      "type": "object",
+      "required": ["provider", "tier", "models"],
+      "additionalProperties": false,
+      "properties": {
+        "provider": {"type": "string", "const": "ollama"},
+        "tier": {"enum": ["core", "extended", "hardware", "reserved"]},
+        "models": {"type": "array", "items": {"type": "string"}, "minItems": 1}
+      }
+    },
+    "ecosystem": {
+      "type": "object",
+      "required": ["ci_hub", "ci_server"],
+      "additionalProperties": true,
+      "properties": {
+        "ci_hub": {
+          "type": "object",
+          "required": ["tier", "display_name"],
+          "properties": {
+            "tier": {"enum": ["core", "extended", "hardware", "reserved"]},
+            "display_name": {"type": "string"},
+            "registry": {"type": "string"},
+            "image": {"type": "string"},
+            "requires_secrets": {"type": "array", "items": {"type": "string"}},
+            "requires_pairing": {"type": "array", "items": {"type": "string"}},
+            "optional_secrets": {"type": "array", "items": {"type": "string"}},
+            "note": {"type": "string"}
+          }
+        },
+        "ci_server": {
+          "type": "object",
+          "required": ["tier", "implemented_here", "owning_repo"],
+          "properties": {
+            "tier": {"const": "reserved"},
+            "implemented_here": {"type": "boolean", "const": false},
+            "owning_repo": {"type": "string"},
+            "note": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}
