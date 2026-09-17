@@ -15,6 +15,10 @@
 *.log
 *.tmp
 
+# Python bytecode cache
+__pycache__/
+*.pyc
+
 # IDE and editor files
 .vscode/
 .idea/
@@ -43,14 +47,16 @@ out/
 # ISO build working directories
 /work/
 /output/
-tools/iso-build/work/
-tools/iso-build/output/
+/work/
+backends/ubuntu/iso/work/
+backends/ubuntu/iso/output/
 
 # Package build artifacts
 *.deb
 *.dsc
 *.changes
 *.buildinfo
+backends/*/headless-package/.pkgroot/
 
 # Repository artifacts
 /srv/

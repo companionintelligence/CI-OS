@@ -88,7 +88,7 @@ if [ -n "$TUNNEL_TOKEN" ]; then
   echo -e "${YELLOW}Setting up Cloudflare tunnel...${NC}"
   printf '%s' "$TUNNEL_TOKEN" > "${INSTALL_DIR}/tunnel/token"
   chmod 600 "${INSTALL_DIR}/tunnel/token"
-  TUNNEL_DIR="${INSTALL_DIR}/tunnel" bash "${SCRIPT_DIR}/scripts/generate-tunnel-certs.sh"
+  TUNNEL_DIR="${INSTALL_DIR}/tunnel" bash "${SCRIPT_DIR}/core/lib/generate-tunnel-certs.sh"
   COMPOSE_PROFILES=(--profile tunnel)
   echo -e "${GREEN}Tunnel token and certs configured.${NC}"
 else
