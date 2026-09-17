@@ -24,6 +24,11 @@ Today's Ubuntu-only scripts already conflate the two (e.g. the old
 paths). The refactor separates them so the reusable half doesn't have to be reinvented per
 distro.
 
+This split has since been carried out for real for the GNOME Shell/GDM rebranding mechanic —
+see [GNOME Shell / GDM gresource rebranding](#gnome-shell--gdm-gresource-rebranding) below —
+as the concrete prerequisite for Fedora's Adwaita-based branding (Phase 3a) to reuse the same
+mechanic Ubuntu's Yaru branding uses, with different data inputs instead of duplicated logic.
+
 ## Directory layout
 
 ```
@@ -76,6 +81,27 @@ comment for the full reasoning on each): GNOME Terminal theming (lives under the
 `backends/_mixins/gnome-dconf/`), the Yaru-specific start-icon swap, and the `os-release`
 `ID=ubuntu` rewrite (Mint keeps its own `ID=linuxmint` identity; its apt role-map resolution
 doesn't need the rewrite since Mint's stock `os-release` already carries `UBUNTU_CODENAME`).
+
+## GNOME Shell / GDM gresource rebranding
+
+`core/render/render-gnome-shell-gresource.sh` is the generic mechanic behind rebranding a
+compiled GNOME Shell theme: extract a theme's `.gresource` file, swap widget/logo SVG assets by
+resource filename, remap accent-color hex literals via a caller-supplied Perl substitution
+file, optionally audit the recompiled CSS for regressions, then recompile with
+`glib-compile-resources`. It used to be Ubuntu/Yaru-hardcoded logic living directly in
+`build-gdm-branding-gresource.sh`; that script is now a thin caller that exports Yaru-specific
+data — `THEME_NAME=Yaru`, `COLOR_MAP_FILE` pointing at `yaru-color-map.pl` (Yaru's ~30-entry
+orange→teal luminance ramp), `AUDIT_PATTERNS_FILE` pointing at `yaru-audit-patterns.txt`
+(regression-guard `grep -E` patterns for pre-rebrand Yaru/Ubuntu colors; comment lines use a
+`## ` prefix, since the patterns themselves are hex colors starting with a bare `#`) — and
+`exec`s into the generic script.
+
+This generalization is the explicit prerequisite for Fedora's GDM/GNOME-Shell branding
+(Phase 3a): Fedora supplies its own `THEME_NAME`/color-map/audit-patterns data describing
+Adwaita instead of Yaru, and reuses the same extract/remap/recompile mechanic rather than a
+second copy of it. Backward compatibility with Ubuntu's existing caller (no-argument invocation
+from `build-packages.sh`, `SOURCE_GRESOURCE`/`SOURCE_XML` env var overrides propagating through
+`exec`) was verified when this split was made.
 
 ## The ecosystem manifest
 

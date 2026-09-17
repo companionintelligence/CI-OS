@@ -1,0 +1,17 @@
+## Regression-guard patterns for core/render/render-gnome-shell-gresource.sh's
+## AUDIT_PATTERNS_FILE, checked against the compiled Yaru-derived theme's
+## default + GDM CSS. Anything matching here means a Yaru upstream color, or a
+## previously-retired hardcoded CI-OS literal, leaked through the remap in
+## yaru-color-map.pl. One grep -E pattern per line. Comment lines start with
+## "## " (a bare "#" is a valid pattern here, since these are hex colors).
+#[Ee]95420
+#[Dd]34615
+#[Ee][Ff]8661
+#[Ee][Ff]845[Ff]
+#77216[Ff]
+#19[Bb]6[Ee][Ee]
+## The old hardcoded logo-ramp target values this script used before it
+## sourced vendor/brand/tokens/tokens.sh. If these reappear, someone
+## reintroduced a literal instead of $ENV{ACCENT_PRIMARY}/$ENV{ACCENT_SECONDARY}.
+#00a9a7
+#066c80
