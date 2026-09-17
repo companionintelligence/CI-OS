@@ -286,7 +286,7 @@ Using the repository scripts:
 
 ```bash
 # Build all packages
-./tools/iso-build/scripts/build-packages.sh ./output/packages
+./backends/ubuntu/iso/scripts/build-packages.sh ./output/packages
 
 # Built packages appear in ./output/packages/
 ls -lh ./output/packages/*.deb
@@ -352,7 +352,7 @@ jobs:
       
       - name: Build packages
         run: |
-          ./tools/iso-build/scripts/build-packages.sh ./output/packages
+          ./backends/ubuntu/iso/scripts/build-packages.sh ./output/packages
       
       - name: Upload to repository
         env:
@@ -388,20 +388,20 @@ The `companion-os-keyring` package should install:
 
 ```bash
 # Package structure
-mkdir -p packages/companion-os-keyring/usr/share/keyrings
-mkdir -p packages/companion-os-keyring/etc/apt/sources.list.d
+mkdir -p backends/ubuntu/packages/companion-os-keyring/usr/share/keyrings
+mkdir -p backends/ubuntu/packages/companion-os-keyring/etc/apt/sources.list.d
 
 # Convert ASCII key to GPG format
 gpg --dearmor < ci-archive-keyring.asc > \
-  packages/companion-os-keyring/usr/share/keyrings/ci-archive-keyring.gpg
+  backends/ubuntu/packages/companion-os-keyring/usr/share/keyrings/ci-archive-keyring.gpg
 
 # Create APT source
-cat > packages/companion-os-keyring/etc/apt/sources.list.d/companion-intelligence.list << 'EOF'
+cat > backends/ubuntu/packages/companion-os-keyring/etc/apt/sources.list.d/companion-intelligence.list << 'EOF'
 deb [signed-by=/usr/share/keyrings/ci-archive-keyring.gpg] https://packages.ci.computer/ubuntu noble main
 EOF
 
 # Build package
-./tools/iso-build/scripts/build-packages.sh
+./backends/ubuntu/iso/scripts/build-packages.sh
 ```
 
 ### Install on Client
@@ -420,11 +420,11 @@ sudo apt install companion-os-base
 
 ### Bake into ISO
 
-Add to `scripts/customize-chroot.sh`:
+Add to `backends/ubuntu/chroot/customize-chroot.sh`:
 
 ```bash
 # Copy keyring package into chroot
-copy_to_chroot "$REPO_ROOT/output/packages/companion-os-keyring_1.0.0_all.deb" \
+copy_to_chroot "$REPO_ROOT/output/backends/ubuntu/packages/companion-os-keyring_1.0.0_all.deb" \
   "/tmp/companion-os-keyring.deb"
 
 # Install keyring

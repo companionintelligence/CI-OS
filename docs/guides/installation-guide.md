@@ -416,7 +416,7 @@ CI-OS includes setup scripts for development tools:
 
 ```bash
 # Setup Docker, Node.js, VS Code, etc. (from the repository root)
-sudo ./scripts/setup-fresh-ubuntu.sh
+sudo ./backends/ubuntu/provision/setup-fresh-ubuntu.sh
 ```
 
 See README.md for details on included tools.
@@ -430,7 +430,7 @@ System Settings → Appearance → Background
 Or use the existing wallpaper replacement script (from the repository root):
 
 ```bash
-sudo ./setup/os-changes/apply-ci-os-desktop.sh --only wallpaper
+sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh --only wallpaper
 ```
 
 #### Install Additional Themes

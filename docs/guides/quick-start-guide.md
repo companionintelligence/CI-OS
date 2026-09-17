@@ -185,7 +185,7 @@ sudo ci-os-install-rocm
 
 ```bash
 # Run full setup script (from the repository root)
-sudo ./scripts/setup-fresh-ubuntu.sh
+sudo ./backends/ubuntu/provision/setup-fresh-ubuntu.sh
 ```
 
 This installs:

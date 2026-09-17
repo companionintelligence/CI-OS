@@ -25,6 +25,6 @@ jobs:
       - run: core/lib/check-brand-mirrors.sh
       - run: >-
           bash -n backends/_mixins/gnome-dconf/*.sh backends/_mixins/kde-plasma/*.sh
-          backends/ubuntu/desktop-theme/*.sh
+          backends/ubuntu/desktop-theme/*.sh core/render/*.sh core/lib/*.sh
           backends/ubuntu/iso/scripts/build-gdm-branding-gresource.sh
           backends/ubuntu/chroot/customize-chroot.sh

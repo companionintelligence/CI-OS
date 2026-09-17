@@ -83,6 +83,30 @@ else
     check_warn "Plymouth spinner config not found"
 fi
 
+# Check 2b: GRUB Theme
+log_info "Checking GRUB theme..."
+
+if [[ -f "/usr/share/pixmaps/ci-os-grub-bg.png" ]]; then
+    check_pass "GRUB background image installed"
+else
+    check_warn "GRUB background image not found (run: sudo backends/ubuntu/desktop-theme/15-grub-theme.sh)"
+fi
+
+if [[ -f "/etc/default/grub" ]]; then
+    if grep -qE '^GRUB_TERMINAL=console' /etc/default/grub 2>/dev/null; then
+        check_fail "GRUB_TERMINAL=console in /etc/default/grub disables GRUB_BACKGROUND — remove that line"
+    else
+        check_pass "GRUB_TERMINAL not forced to console (background can render)"
+    fi
+    if grep -qE '^GRUB_DISTRIBUTOR="CI OS"' /etc/default/grub 2>/dev/null; then
+        check_pass "GRUB_DISTRIBUTOR set to CI OS"
+    else
+        check_warn "GRUB_DISTRIBUTOR not set to CI OS"
+    fi
+else
+    check_warn "/etc/default/grub not found"
+fi
+
 # Check 3: OS Release Information
 log_info "Checking OS identity..."
 

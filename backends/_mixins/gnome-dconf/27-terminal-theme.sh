@@ -11,7 +11,7 @@ PROFILE_PATH="/org/gnome/terminal/legacy/profiles:/:${PROFILE_ID}/"
 BG_COLOR="$CI_DARK_BACKGROUND"   # canon navy (was #071A23)
 FG_COLOR="$CI_DARK_FOREGROUND"   # canon dark foreground (was #D7F3F0)
 CURSOR_BG="$CI_DARK_PRIMARY"     # canon sage (was #7AE7D8)
-CURSOR_FG="#071A23"
+CURSOR_FG="$CI_DARK_BACKGROUND"   # canon navy (was #071A23)
 PALETTE="['#0F2430', '#FF6B6B', '#3DD6B5', '#FFD166', '#4EA8DE', '#C77DFF', '#34D1BF', '#D7F3F0', '#46606F', '#FF8787', '#63E6BE', '#FFE08A', '#74C0FC', '#D0A2FF', '#66E9D2', '#F1FFFD']"
 
 mkdir -p /etc/dconf/db/local.d
@@ -78,6 +78,14 @@ fi
 
 exit 0
 EOF
+
+	# The heredoc above is intentionally single-quoted (it contains its own
+	# runtime $(gsettings ...) calls that must not expand at write time), so
+	# the stale literals it was authored with can't be caught by sourcing
+	# tokens.sh — substitute them after the fact instead. This is the same
+	# drift class that motivated adding this comment: a copy of a color value
+	# living outside the token source will silently stop matching it.
+	sed -i "s/#071A23/${BG_COLOR}/g; s/#D7F3F0/${FG_COLOR}/g; s/#7AE7D8/${CURSOR_BG}/g" "$helper"
 
 	chmod 755 "$helper"
 

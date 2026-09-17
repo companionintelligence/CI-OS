@@ -13,7 +13,7 @@ Tools and scripts for building the branded CI-OS ISO from Ubuntu 24.04 Desktop.
 wget https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso
 
 # 2. Build CI-OS ISO (single entry point — runs as root)
-sudo ./tools/iso-build/scripts/build-iso.sh \
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
   --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
 ```
 
@@ -60,7 +60,7 @@ Minimum **30 GB free disk space** (work directory + ISO output).
 3. Builds each package into `output/packages/*.deb`
 
 The compiled gresource is committed to source at:
-`packages/ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource`
+`backends/ubuntu/packages/ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource`
 
 ### Step 2 — Assemble the ISO
 
@@ -68,7 +68,7 @@ The compiled gresource is committed to source at:
 
 1. Mounts and extracts the base Ubuntu ISO
 2. Unsquashes all three casper layers into a merged chroot
-3. Runs `scripts/customize-chroot.sh` on the extracted rootfs to apply:
+3. Runs `backends/ubuntu/chroot/customize-chroot.sh` on the extracted rootfs to apply:
    - OS identity (CI-OS name, version, first-boot rebrand service)
    - Telemetry/bloatware removal
    - **Branding**: copies the compiled gresource directly into the chroot at
@@ -101,7 +101,7 @@ The compiled gresource is committed to source at:
 ## Directory Structure
 
 ```
-tools/iso-build/
+backends/ubuntu/iso/
 ├── README.md                              ← This file
 └── scripts/
     ├── build-iso.sh                       ← Main entry point (run this)
@@ -144,8 +144,8 @@ config/
 > **Note:** `config/packages.chroot/` contains a stale `.deb` from the old
 > `mydistro-branding` package name. The live-build staging path is not part of
 > the active build pipeline — `build-iso.sh` copies the gresource directly.
-> Run `./tools/iso-build/scripts/build-packages.sh` and then
-> `./tools/iso-build/scripts/stage-live-build-branding-package.sh` if you need
+> Run `./backends/ubuntu/iso/scripts/build-packages.sh` and then
+> `./backends/ubuntu/iso/scripts/stage-live-build-branding-package.sh` if you need
 > to refresh it.
 
 ---
@@ -186,10 +186,10 @@ plus `logo.svg` and `logo-text.svg`, are replaced with the CI logo banner:
 
 ## Iterative Development
 
-When you've already built packages and only changed `scripts/customize-chroot.sh`:
+When you've already built packages and only changed `backends/ubuntu/chroot/customize-chroot.sh`:
 
 ```bash
-sudo ./tools/iso-build/scripts/build-iso.sh \
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
   --base-iso ./ubuntu-24.04.4-desktop-amd64.iso \
   --skip-packages
 ```
@@ -198,10 +198,10 @@ When you've changed branding assets or colors (must rebuild gresource):
 
 ```bash
 # Rebuild just the gresource manually
-./tools/iso-build/scripts/build-gdm-branding-gresource.sh
+./backends/ubuntu/iso/scripts/build-gdm-branding-gresource.sh
 
 # Or let build-iso.sh handle it (default, no --skip-packages)
-sudo ./tools/iso-build/scripts/build-iso.sh \
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
   --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
 ```
 

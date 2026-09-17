@@ -26,7 +26,7 @@ CI-OS is built from Ubuntu 24.04 LTS (Noble Numbat) with extensive customization
 - **Privacy**: Telemetry services removed, metrics blocked
 - **AI Hardware**: ROCm support for AMD GPUs
 - **Developer Tools**: Docker, VS Code, Node.js, Ollama ready
-- **Custom Branding**: Dark green color scheme (#066c80, #00a9a7, #72ddd4)
+- **Custom Branding**: Navy/phthalo/sage canon color scheme, sourced from vendor/brand/tokens/tokens.sh
 
 ### Build Architecture
 
@@ -104,7 +104,7 @@ cd CI-OS
 2. **Run the build script**:
 
 ```bash
-sudo ./tools/iso-build/scripts/build-iso.sh \
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
   --base-iso /path/to/ubuntu-24.04.1-desktop-amd64.iso \
   --output-dir ./output \
   --version 1.0
@@ -121,7 +121,7 @@ ls -lh output/companion-os-*.iso
 ### Build Options
 
 ```bash
-sudo ./tools/iso-build/scripts/build-iso.sh [options]
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh [options]
 
 Options:
   --base-iso PATH       Path to Ubuntu 24.04 Desktop ISO (required)
@@ -137,13 +137,13 @@ Options:
 
 **Basic build**:
 ```bash
-sudo ./tools/iso-build/scripts/build-iso.sh \
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
   --base-iso ~/ubuntu-24.04.1-desktop-amd64.iso
 ```
 
 **Production build with signing**:
 ```bash
-sudo ./tools/iso-build/scripts/build-iso.sh \
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
   --base-iso ~/ubuntu-24.04.1-desktop-amd64.iso \
   --version 1.0.1 \
   --sign \
@@ -152,7 +152,7 @@ sudo ./tools/iso-build/scripts/build-iso.sh \
 
 **Development build with custom output**:
 ```bash
-sudo ./tools/iso-build/scripts/build-iso.sh \
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
   --base-iso ~/ubuntu-24.04.1-desktop-amd64.iso \
   --output-dir /mnt/data/ci-os-builds \
   --version 1.0-dev
@@ -201,7 +201,7 @@ This allows package management and system configuration inside the chroot.
 
 ### 4. Customizations Applied
 
-The `scripts/customize-chroot.sh` script applies all CI-OS customizations:
+The `backends/ubuntu/chroot/customize-chroot.sh` script applies all CI-OS customizations:
 
 #### OS Identity
 - Rewrites `/etc/os-release` with CI-OS branding
@@ -229,7 +229,7 @@ The `scripts/customize-chroot.sh` script applies all CI-OS customizations:
 #### Installer Customization
 - Creates `/usr/share/desktop-provision/whitelabel.yaml`
 - Adds custom installer slides
-- Applies CI-OS color scheme (#066c80, #00a9a7, #72ddd4)
+- Applies the CI-OS color scheme from the vendored canon tokens
 - Disables telemetry page
 
 #### System Utilities
@@ -295,7 +295,7 @@ Generated files:
 
 #### Change OS Identity
 
-Edit `scripts/customize-chroot.sh`:
+Edit `backends/ubuntu/chroot/customize-chroot.sh`:
 
 ```bash
 # Around line 40
@@ -308,7 +308,7 @@ EOF
 
 #### Add/Remove Packages
 
-Edit the package removal section in `scripts/customize-chroot.sh`:
+Edit the package removal section in `backends/ubuntu/chroot/customize-chroot.sh`:
 
 ```bash
 # Add packages
@@ -322,11 +322,11 @@ apt-get purge -y unwanted-package
 
 Replace files in:
 - `assets/logos/` - Logo files
-- `setup/os-changes/background.png` - Wallpaper
+- `core/render/inputs/background.png` - Wallpaper
 
 #### Customize Installer
 
-Edit `scripts/customize-chroot.sh`:
+Edit `backends/ubuntu/chroot/customize-chroot.sh`:
 
 ```bash
 # Around line 280
@@ -339,11 +339,12 @@ EOF
 
 #### Add Custom Scripts
 
-Place scripts under the repo (for example `scripts/`) and call them from `scripts/customize-chroot.sh`:
+Place scripts under `backends/ubuntu/lib/` and call them from
+`backends/ubuntu/chroot/customize-chroot.sh`:
 
 ```bash
-# In scripts/customize-chroot.sh
-copy_to_chroot "$REPO_ROOT/scripts/your-custom-script.sh" "/tmp/custom.sh"
+# In backends/ubuntu/chroot/customize-chroot.sh
+copy_to_chroot "$REPO_ROOT/backends/ubuntu/lib/your-custom-script.sh" "/tmp/custom.sh"
 chroot_exec "/tmp/custom.sh"
 ```
 
@@ -377,12 +378,12 @@ cp your-binary packages/your-package/usr/local/bin/
 4. **Build package**:
 
 ```bash
-./tools/iso-build/scripts/build-packages.sh
+./backends/ubuntu/iso/scripts/build-packages.sh
 ```
 
 5. **Install in chroot**:
 
-Modify `scripts/customize-chroot.sh` to copy and install your .deb.
+Modify `backends/ubuntu/chroot/customize-chroot.sh` to copy and install your .deb.
 
 ---
 
@@ -437,7 +438,7 @@ cat work/chroot/etc/resolv.conf
 Run scripts with bash debug mode:
 
 ```bash
-sudo bash -x ./tools/iso-build/scripts/build-iso.sh --base-iso ubuntu.iso
+sudo bash -x ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso ubuntu.iso
 ```
 
 ### Logs

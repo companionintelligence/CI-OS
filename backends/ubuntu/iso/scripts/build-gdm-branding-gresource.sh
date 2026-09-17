@@ -6,6 +6,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
 
+# shellcheck source=../../../../vendor/brand/tokens/tokens.sh
+source "$REPO_ROOT/vendor/brand/tokens/tokens.sh"
+
 SOURCE_GRESOURCE="${SOURCE_GRESOURCE:-/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource}"
 SOURCE_XML="${SOURCE_XML:-/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource.xml}"
 OUTPUT_GRESOURCE="${OUTPUT_GRESOURCE:-$REPO_ROOT/backends/ubuntu/packages/ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource}"
@@ -13,8 +16,15 @@ OUTPUT_GRESOURCE="${OUTPUT_GRESOURCE:-$REPO_ROOT/backends/ubuntu/packages/ci-os-
 THEME_ASSETS_DIR="${THEME_ASSETS_DIR:-$REPO_ROOT/assets/package theme assets}"
 LOGO_BANNER_FILE="${LOGO_BANNER_FILE:-$REPO_ROOT/assets/logos/2024_CI__Logo_Banner_Color_small.svg}"
 
-ACCENT_PRIMARY="#00a9a7"
-ACCENT_SECONDARY="#066c80"
+# Canon primary tokens (phthalo/sage), not the old logo-ramp literals. The two
+# anchor substitutions below use these; the other ~28 intermediate hex values
+# in the remap table are a hand-tuned luminance ramp between them, not a 1:1
+# token mapping, and are intentionally left as literals — see
+# docs/architecture/multi-distro-design.md.
+ACCENT_PRIMARY="$CI_DARK_PRIMARY"
+ACCENT_SECONDARY="$CI_LIGHT_PRIMARY"
+ACCENT_PRIMARY_RGB="$(ci_rgb "$ACCENT_PRIMARY" | tr ' ' ',')"
+ACCENT_SECONDARY_RGB="$(ci_rgb "$ACCENT_SECONDARY" | tr ' ' ',')"
 
 require_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -174,6 +184,8 @@ echo "[*] Applying comprehensive accent color remapping in CSS..."
 # preserves relative luminance relationships (darkest→darkest, lightest→lightest).
 # ──────────────────────────────────────────────────────────────────────────────
 while IFS= read -r css_file; do
+    ACCENT_PRIMARY="$ACCENT_PRIMARY" ACCENT_SECONDARY="$ACCENT_SECONDARY" \
+    ACCENT_PRIMARY_RGB="$ACCENT_PRIMARY_RGB" ACCENT_SECONDARY_RGB="$ACCENT_SECONDARY_RGB" \
     perl -0pi -e '
         # ── Yaru orange accent family (sorted dark→light) ────────────────────
         # Dark orange variants → CI-OS dark teal
@@ -182,7 +194,7 @@ while IFS= read -r css_file; do
         s/#c14013/#045360/g;  s/#C14013/#045360/g;
         s/#c54113/#055663/g;  s/#C54113/#055663/g;
         s/#c74214/#055865/g;  s/#C74214/#055865/g;
-        s/#d34615/#066c80/g;  s/#D34615/#066c80/g;   # Primary Yaru accent (24×)
+        s/#d34615/$ENV{ACCENT_SECONDARY}/g;  s/#D34615/$ENV{ACCENT_SECONDARY}/g;   # Primary Yaru accent (24×) — canon secondary/phthalo, was hardcoded #066c80
         s/#da4816/#077486/g;  s/#DA4816/#077486/g;
 
         # Mid orange variants → CI-OS primary teal
@@ -190,7 +202,7 @@ while IFS= read -r css_file; do
         s/#e54c17/#098891/g;  s/#E54C17/#098891/g;
         s/#e64c17/#098a93/g;  s/#E64C17/#098a93/g;
         s/#e84f19/#0a8e96/g;  s/#E84F19/#0a8e96/g;
-        s/#E95420/#00a9a7/g;  s/#e95420/#00a9a7/g;   # Classic Ubuntu orange
+        s/#E95420/$ENV{ACCENT_PRIMARY}/g;  s/#e95420/$ENV{ACCENT_PRIMARY}/g;   # Classic Ubuntu orange — canon primary/sage, was hardcoded #00a9a7
         s/#e95c2a/#14b0ab/g;  s/#e95C2A/#14b0ab/g;
         s/#ea5d2c/#1ab2ad/g;  s/#EA5D2C/#1ab2ad/g;
         s/#eb6030/#20b5b0/g;  s/#EB6030/#20b5b0/g;
@@ -218,20 +230,20 @@ while IFS= read -r css_file; do
         s/#e25f75/#0a969d/g;  s/#E25F75/#0a969d/g;
 
         # ── Yaru aubergine/purple brand (#77216F) ────────────────────────────
-        s/#77216F/#066c80/g;  s/#77216f/#066c80/g;
-        s/rgb\(119\s*,\s*33\s*,\s*111\)/rgb(6, 108, 128)/g;
-        s/rgba\(119\s*,\s*33\s*,\s*111\s*,\s*([0-9.]+)\)/rgba(6, 108, 128, $1)/g;
+        s/#77216F/$ENV{ACCENT_SECONDARY}/g;  s/#77216f/$ENV{ACCENT_SECONDARY}/g;
+        s/rgb\(119\s*,\s*33\s*,\s*111\)/rgb($ENV{ACCENT_SECONDARY_RGB})/g;
+        s/rgba\(119\s*,\s*33\s*,\s*111\s*,\s*([0-9.]+)\)/rgba($ENV{ACCENT_SECONDARY_RGB}, $1)/g;
 
         # ── Ubuntu highlight/selection blue (#19B6EE) ────────────────────────
-        s/#19B6EE/#00a9a7/g;  s/#19b6ee/#00a9a7/g;
-        s/rgb\(25\s*,\s*182\s*,\s*238\)/rgb(0, 169, 167)/g;
-        s/rgba\(25\s*,\s*182\s*,\s*238\s*,\s*([0-9.]+)\)/rgba(0, 169, 167, $1)/g;
+        s/#19B6EE/$ENV{ACCENT_PRIMARY}/g;  s/#19b6ee/$ENV{ACCENT_PRIMARY}/g;
+        s/rgb\(25\s*,\s*182\s*,\s*238\)/rgb($ENV{ACCENT_PRIMARY_RGB})/g;
+        s/rgba\(25\s*,\s*182\s*,\s*238\s*,\s*([0-9.]+)\)/rgba($ENV{ACCENT_PRIMARY_RGB}, $1)/g;
 
         # ── Catch rgb/rgba forms of the main Ubuntu orange ───────────────────
-        s/rgb\(233\s*,\s*84\s*,\s*32\)/rgb(0, 169, 167)/g;
-        s/rgba\(233\s*,\s*84\s*,\s*32\s*,\s*([0-9.]+)\)/rgba(0, 169, 167, $1)/g;
-        s/rgb\(211\s*,\s*70\s*,\s*21\)/rgb(6, 108, 128)/g;
-        s/rgba\(211\s*,\s*70\s*,\s*21\s*,\s*([0-9.]+)\)/rgba(6, 108, 128, $1)/g;
+        s/rgb\(233\s*,\s*84\s*,\s*32\)/rgb($ENV{ACCENT_PRIMARY_RGB})/g;
+        s/rgba\(233\s*,\s*84\s*,\s*32\s*,\s*([0-9.]+)\)/rgba($ENV{ACCENT_PRIMARY_RGB}, $1)/g;
+        s/rgb\(211\s*,\s*70\s*,\s*21\)/rgb($ENV{ACCENT_SECONDARY_RGB})/g;
+        s/rgba\(211\s*,\s*70\s*,\s*21\s*,\s*([0-9.]+)\)/rgba($ENV{ACCENT_SECONDARY_RGB}, $1)/g;
     ' "$css_file"
 done < <(find "$work_theme_dir" -type f \( -name '*.css' -o -name '*.scss' \))
 
@@ -246,6 +258,11 @@ audit_patterns=(
     '#[Ee][Ff]845[Ff]'
     '#77216[Ff]'
     '#19[Bb]6[Ee][Ee]'
+    # Regression guard: the old hardcoded logo-ramp target values this script
+    # used before it sourced vendor/brand/tokens/tokens.sh. If these reappear,
+    # someone reintroduced a literal instead of $ACCENT_PRIMARY/$ACCENT_SECONDARY.
+    '#00a9a7'
+    '#066c80'
 )
 audit_files=(
     "$work_theme_dir/gnome-shell.css"

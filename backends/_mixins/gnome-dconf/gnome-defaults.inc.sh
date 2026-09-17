@@ -6,7 +6,11 @@
 # The brand primary (phthalo) from the canon tokens; the old literal was the logo ramp's #066c80,
 # which is part of the mark artwork and retired everywhere else.
 export CI_THEME_PRIMARY_HEX="${CI_LIGHT_PRIMARY#\#}"
-export CI_THEME_SECONDARY_HEX="1b4332"
+# Deep phthalo variant for the background gradient's second stop — was a bare
+# literal ("1b4332") not derived from any canon token. CI_ACCENT_PHTHALO_DEEP
+# is the token this was standing in for: a darker phthalo, meant for exactly
+# this kind of gradient/depth use per the canon's own naming.
+export CI_THEME_SECONDARY_HEX="${CI_ACCENT_PHTHALO_DEEP#\#}"
 
 # Dock: stay on the left like default Ubuntu, but unfixed + autohide so it
 # dismisses / slides away similarly to a bottom dock that is not "always on screen".

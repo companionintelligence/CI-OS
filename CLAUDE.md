@@ -42,21 +42,21 @@ earlier version of this repo was Ubuntu-only ("Companion Ubuntu"); that framing 
 
 ```bash
 # Build a branded CI-OS ISO (on an Ubuntu 24.04 build host, as root)
-sudo ./tools/iso-build/scripts/build-iso.sh --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
 
 # Provision a fresh/existing Ubuntu into a CI appliance (idempotent)
-sudo ./scripts/setup-fresh-ubuntu.sh
+sudo ./backends/ubuntu/provision/setup-fresh-ubuntu.sh
 
 # Apply CI desktop branding only (no packages)
-sudo ./setup/os-changes/apply-ci-os-desktop.sh
+sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh
 
 # See README.md for the four customization entry points.
 ```
 
-> These paths are the current (pre-refactor) Ubuntu entrypoints and still work. The
-> multi-distro rebuild is moving them to `backends/ubuntu/{iso,provision,desktop-theme}/` and
-> consolidating the provisioning scripts into one `provision.sh` — update this section once
-> that move lands (see `docs/architecture/multi-distro-design.md`, Phase 1).
+> The Ubuntu backend has moved to `backends/ubuntu/{iso,provision,desktop-theme}/` (Phase
+> 1a of the multi-distro rebuild). Provisioning consolidation into one `provision.sh`
+> entrypoint (replacing `setup-fresh-ubuntu.sh`/`bootstrap-ci-os.sh`/`legacy-ci-os-setup.sh`
+> as separate things) is still pending — see `docs/architecture/multi-distro-design.md`.
 
 ## Package manager
 

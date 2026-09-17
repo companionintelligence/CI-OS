@@ -10,7 +10,7 @@ This implementation provides a complete, production-ready toolchain for building
 
 ### 1. Core ISO Build System ✅
 
-**Location**: `tools/iso-build/scripts/` (`build-iso.sh`, package helpers); chroot customization: `scripts/customize-chroot.sh`
+**Location**: `backends/ubuntu/iso/scripts/` (`build-iso.sh`, package helpers); chroot customization: `backends/ubuntu/chroot/customize-chroot.sh`
 
 #### build-iso.sh
 Main orchestration script that:
@@ -29,7 +29,7 @@ Main orchestration script that:
 - GPG signing support for production releases
 - Automatic cleanup on errors
 
-#### customize-chroot.sh (`scripts/customize-chroot.sh`)
+#### customize-chroot.sh (`backends/ubuntu/chroot/customize-chroot.sh`)
 Comprehensive customization script that applies:
 
 1. **OS Identity Changes**:
@@ -57,7 +57,7 @@ Comprehensive customization script that applies:
 
 5. **Installer Customization**:
    - Creates `/usr/share/desktop-provision/whitelabel.yaml`
-   - Applies CI brand colors (#066c80, #00a9a7, #72ddd4)
+   - Applies CI brand colors from vendor/brand/tokens/tokens.sh (navy/phthalo/sage canon)
    - Adds custom installer slideshow
    - Disables telemetry opt-in page
 
@@ -93,7 +93,7 @@ Script to build all .deb packages from source directories.
 
 ### 3. Repository Infrastructure ✅
 
-**Location**: `tools/iso-build/scripts/`
+**Location**: `backends/ubuntu/iso/scripts/`
 
 #### setup-repository.sh
 Automated repository setup script that:
@@ -178,7 +178,7 @@ Created complete documentation suite:
 - Security best practices
 - Maintenance procedures
 
-#### tools/iso-build/README.md (9.8KB)
+#### backends/ubuntu/iso/README.md (9.8KB)
 - Tools overview
 - Script reference
 - Build process flow diagram
@@ -207,7 +207,7 @@ Ubuntu 24.04 ISO
       ↓
 Extract ISO → Extract squashfs → Setup chroot
       ↓
-Apply customizations (`scripts/customize-chroot.sh`)
+Apply customizations (`backends/ubuntu/chroot/customize-chroot.sh`)
       ↓
 Repack squashfs → Regenerate ISO → Sign & publish
 ```
@@ -252,7 +252,7 @@ Repack squashfs → Regenerate ISO → Sign & publish
 **Complete Ubuntu Removal**:
 - `/etc/os-release` fully rewritten
 - Custom ASCII art banner
-- CI-OS colors throughout (#066c80, #00a9a7, #72ddd4)
+- CI-OS colors throughout, sourced from the vendored canon tokens
 - Installer whitelabeled
 - GRUB branded
 
@@ -265,7 +265,7 @@ Repack squashfs → Regenerate ISO → Sign & publish
 ### 5. Developer Experience
 
 **Easy Customization**:
-- Single script to modify (`scripts/customize-chroot.sh`)
+- Single script to modify (`backends/ubuntu/chroot/customize-chroot.sh`)
 - Clear separation of concerns
 - Well-documented code
 - Modular design
@@ -323,17 +323,17 @@ Optional improvements for future releases:
 ### New Files Created
 
 **Scripts**:
-- `tools/iso-build/scripts/build-iso.sh` (10.2KB)
-- `scripts/customize-chroot.sh` (chroot customization)
-- `tools/iso-build/scripts/build-packages.sh` (1.5KB)
-- `tools/iso-build/scripts/setup-repository.sh` (4.5KB)
+- `backends/ubuntu/iso/scripts/build-iso.sh` (10.2KB)
+- `backends/ubuntu/chroot/customize-chroot.sh` (chroot customization)
+- `backends/ubuntu/iso/scripts/build-packages.sh` (1.5KB)
+- `backends/ubuntu/iso/scripts/setup-repository.sh` (4.5KB)
 
 **Packages**:
-- `packages/companion-os-base/DEBIAN/control`
-- `packages/companion-os-base/DEBIAN/postinst`
-- `packages/companion-os-keyring/DEBIAN/control`
-- `packages/companion-agents/DEBIAN/control`
-- `packages/companion-memory/DEBIAN/control`
+- `backends/ubuntu/packages/companion-os-base/DEBIAN/control`
+- `backends/ubuntu/packages/companion-os-base/DEBIAN/postinst`
+- `backends/ubuntu/packages/companion-os-keyring/DEBIAN/control`
+- `backends/ubuntu/packages/companion-agents/DEBIAN/control`
+- `backends/ubuntu/packages/companion-memory/DEBIAN/control`
 
 **Workflows**:
 - `.github/workflows/build-companion-os-iso.yml` (9.6KB)
@@ -343,7 +343,7 @@ Optional improvements for future releases:
 - `docs/guides/installation-guide.md` (11.9KB)
 - `docs/guides/quick-start-guide.md` (7.1KB)
 - `docs/guides/package-repository-setup.md` (13KB)
-- `tools/iso-build/README.md` (9.8KB)
+- `backends/ubuntu/iso/README.md` (9.8KB)
 
 **Updated**:
 - `README.md` - Enhanced with ISO build section and navigation
@@ -416,7 +416,7 @@ The implementation addresses **all 10 main sections** of the issue:
 1. **Build First ISO**:
    ```bash
    wget https://releases.ubuntu.com/24.04/ubuntu-24.04.1-desktop-amd64.iso
-   sudo ./tools/iso-build/scripts/build-iso.sh \
+   sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
      --base-iso ubuntu-24.04.1-desktop-amd64.iso \
      --version 1.0 \
      --clean

@@ -14,7 +14,7 @@ Target file:
 
 The package lives at:
 
-- `packages/mydistro-branding`
+- `backends/ubuntu/packages/ci-os-branding`
 
 It depends on:
 
@@ -24,16 +24,21 @@ Maintainer scripts use `dpkg-divert` so upstream Yaru upgrades install to:
 
 - `gnome-shell-theme.gresource.distrib`
 
-while `mydistro-branding` owns:
+while `ci-os-branding` owns:
 
 - `gnome-shell-theme.gresource`
 
 ## Branding Inputs
 
-Accent colors (only accents remapped; greys preserved):
+Accent colors, sourced from `vendor/brand/tokens/tokens.sh` (not hardcoded — see
+`backends/ubuntu/iso/scripts/build-gdm-branding-gresource.sh`):
 
-- `#00a9a7`
-- `#066c80`
+- `$CI_DARK_PRIMARY` (canon sage) — was hardcoded `#00a9a7`
+- `$CI_LIGHT_PRIMARY` (canon phthalo) — was hardcoded `#066c80`
+
+Only these two anchor colors are token-sourced; the ~28 intermediate hex values in the
+Yaru accent remap table are a hand-tuned luminance ramp between them, left as literals —
+see `docs/architecture/multi-distro-design.md`.
 
 Asset replacements:
 
@@ -51,29 +56,41 @@ Symbolic banner/logo/wallpaper replacement source:
 1. Build branded gresource from upstream Yaru:
 
 ```bash
-./tools/iso-build/scripts/build-gdm-branding-gresource.sh
+./backends/ubuntu/iso/scripts/build-gdm-branding-gresource.sh
 ```
 
-2. Build packages (includes `mydistro-branding`):
+2. Build packages (includes `ci-os-branding`):
 
 ```bash
-./tools/iso-build/scripts/build-packages.sh ./output/packages
+./backends/ubuntu/iso/scripts/build-packages.sh ./output/packages
 ```
 
-3. Stage package for live-build:
+**This is as far as the primary ISO-build path (`build-iso.sh`) goes.** It does not
+install `ci-os-branding` as a `.deb` at all — `backends/ubuntu/chroot/customize-chroot.sh` Step 2b copies
+the compiled `.gresource` file directly into the chroot's `/usr/share/gnome-shell/...`
+(no package, no postinst, no diversion), since the ISO's own squashfs already ships the
+final file layout and doesn't need dpkg-divert's update-time reversibility.
+
+The steps below (3–4) are for a **different, optional use case**: installing the
+branding as a standalone, reversible `.deb` on a system that isn't being built via
+`build-iso.sh` — e.g. staging it into a separate live-build pipeline, or `dpkg -i`'ing it
+onto an already-running Ubuntu install. `backends/ubuntu/iso/scripts/
+stage-live-build-branding-package.sh` and the `config/packages.chroot` staging path it
+targets are explicitly **not part of the active `build-iso.sh` pipeline** — see
+`backends/ubuntu/iso/README.md`.
+
+3. (Optional) Stage package for a separate live-build flow:
 
 ```bash
-./tools/iso-build/scripts/stage-live-build-branding-package.sh \
+./backends/ubuntu/iso/scripts/stage-live-build-branding-package.sh \
   ./output/packages \
   ./config/packages.chroot
 ```
 
-4. Build ISO (live-build flow):
+4. (Optional) Install directly via dpkg, for the standalone/reversible use case:
 
 ```bash
-lb clean
-lb config
-lb build
+sudo dpkg -i ./output/packages/ci-os-branding_*.deb
 ```
 
 ## Validation
@@ -88,14 +105,18 @@ ls /usr/share/gnome-shell/theme/Yaru/*.distrib
 
 Expected:
 
-- diversion owned by `mydistro-branding`
-- branded file owned by `mydistro-branding`
+- diversion owned by `ci-os-branding`
+- branded file owned by `ci-os-branding`
 - upstream Yaru file present as `.distrib`
+
+Note: this validation applies to the standalone `.deb` install path (steps 3–4 above),
+not to an ISO built via `build-iso.sh` — that path never registers a diversion, since it
+copies the gresource directly rather than installing a package.
 
 ## Rollback
 
 ```bash
-sudo apt remove mydistro-branding
+sudo apt remove ci-os-branding
 ```
 
 This removes diversion and restores upstream behavior.

@@ -31,6 +31,9 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
+# shellcheck source=../../../vendor/brand/tokens/tokens.sh
+source "$REPO_ROOT/vendor/brand/tokens/tokens.sh"
+
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
 
@@ -354,9 +357,33 @@ echo "[+] Branding installed"
 #=============================================================================
 echo "[*] Step 4: Configuring GRUB..."
 
-# Update GRUB defaults
-sed -i 's/GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="CI-OS"/' "$CHROOT_PATH/etc/default/grub" || true
+# shellcheck source=../../../core/lib/grub-merge.sh
+source "$REPO_ROOT/core/lib/grub-merge.sh"
+
+# Kernel cmdline stays as its own explicit sed (not a branding key, no reason
+# to route it through the merge helper). Branding keys below use
+# ci_grub_merge_key so they never clobber other keys already in this file.
 sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' "$CHROOT_PATH/etc/default/grub" || true
+
+ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_DISTRIBUTOR "CI OS"
+ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_GFXMODE "auto"
+ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT_STYLE "menu"
+ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT "5"
+
+# Render and install the GRUB background (colors-only theming, same as
+# Plymouth below — see docs/architecture/multi-distro-design.md). Deliberately
+# does not set GRUB_TERMINAL: a hardcoded GRUB_TERMINAL=console previously
+# found in an old, now-deleted config silently disabled GRUB_BACKGROUND
+# entirely (console mode is text-only). Leaving it unset lets GRUB default to
+# gfxterm when a background is present.
+GRUB_BG_DEST_REL="usr/share/pixmaps/ci-os-grub-bg.png"
+if bash "$REPO_ROOT/core/render/render-grub-background.sh" "$CHROOT_PATH/$GRUB_BG_DEST_REL"; then
+    chmod 644 "$CHROOT_PATH/$GRUB_BG_DEST_REL"
+    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_BACKGROUND "/$GRUB_BG_DEST_REL"
+    echo "[+] GRUB background installed: /$GRUB_BG_DEST_REL"
+else
+    echo "[!] Could not render GRUB background — GRUB will use its default background"
+fi
 
 echo "[+] GRUB configured"
 
@@ -365,10 +392,31 @@ echo "[+] GRUB configured"
 #=============================================================================
 echo "[*] Step 5: Configuring Plymouth splash..."
 
-# We'll use the default ubuntu-logo theme but could customize later
-# TODO: Create custom Plymouth theme in future enhancement
+# Reuse backends/ubuntu/desktop-theme/10-plymouth.sh — the same, already-correct
+# token-driven Plymouth theming the post-install re-skin path uses — instead of
+# forking its sed/color logic into a second copy here (that duplication is
+# exactly what caused the terminal-theme token drift found elsewhere in this
+# repo). Staged into the chroot preserving the real repo's relative directory
+# layout, so 10-plymouth.sh's own REPO_ROOT/theme-lib.sh sourcing resolves
+# without any chroot-specific changes to the script itself.
+#
+# Note: this brands Plymouth for the INSTALLED system's own boots (curtin
+# regenerates the initramfs from this rootfs during install finalization).
+# The live/installer-session splash itself, before GRUB hands off, is driven
+# by casper/initrd copied verbatim from the stock Ubuntu ISO — rebuilding
+# that is a materially higher-risk change for a several-second one-time
+# screen, so it's an accepted residual gap, not something chased here.
+STAGE="$CHROOT_PATH/tmp/ci-brand"
+mkdir -p "$STAGE/backends/ubuntu/desktop-theme" "$STAGE/core/lib" \
+         "$STAGE/core/render/inputs" "$STAGE/vendor/brand/tokens"
+cp "$REPO_ROOT/backends/ubuntu/desktop-theme/10-plymouth.sh" "$STAGE/backends/ubuntu/desktop-theme/"
+cp "$REPO_ROOT/core/lib/theme-lib.sh" "$STAGE/core/lib/"
+cp "$REPO_ROOT/core/render/inputs/Logo_Banner_Color.png" "$STAGE/core/render/inputs/"
+cp "$REPO_ROOT/vendor/brand/tokens/tokens.sh" "$STAGE/vendor/brand/tokens/"
 
-echo "[+] Plymouth configured (using default theme)"
+chroot_exec "bash /tmp/ci-brand/backends/ubuntu/desktop-theme/10-plymouth.sh"
+
+echo "[+] Plymouth configured from the canon tokens (installed-system boots)"
 
 #=============================================================================
 # 6. Install AMD GPU Support
@@ -452,6 +500,13 @@ pages:
 mode: normal                  # Use 'oem' for OEM mode (GNOME Initial Setup on first boot)
 EOF
 
+# Colors only — source from the canon, not the retired logo-ramp literals.
+# The heredoc above stays single-quoted (no other $ references to worry
+# about breaking); substitute after the fact instead, matching the pattern
+# already used elsewhere in this file (see the wallpaper dconf rewrite above).
+sed -i "s/#066c80/${CI_LIGHT_PRIMARY}/g; s/#00a9a7/${CI_DARK_PRIMARY}/g" \
+    "$CHROOT_PATH/usr/share/desktop-provision/whitelabel.yaml"
+
 # Create custom installer slides directory
 mkdir -p "$CHROOT_PATH/usr/share/desktop-provision/slides"
 
@@ -491,6 +546,11 @@ cat > "$CHROOT_PATH/usr/share/desktop-provision/slides/index.html" << 'EOF'
 </body>
 </html>
 EOF
+
+# Colors only, same canon substitution as whitelabel.yaml above — font stack
+# is intentionally untouched.
+sed -i "s/#066c80/${CI_LIGHT_PRIMARY}/g; s/#00a9a7/${CI_DARK_PRIMARY}/g" \
+    "$CHROOT_PATH/usr/share/desktop-provision/slides/index.html"
 
 echo "[+] Installer configured"
 
