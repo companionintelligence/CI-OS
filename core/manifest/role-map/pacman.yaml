@@ -1,0 +1,185 @@
+# pacman role-map — translates core/manifest/ecosystem.yaml's generic dev_tools
+# ids into native pacman packages, for backends/arch/. Mirrors role-map/apt.yaml's
+# and role-map/dnf.yaml's shape and intent, but is NOT a copy: pacman has no
+# third-party-repo-add mechanic at all (Arch's official repos, `core` +
+# `extra` [+ `multilib`], already carry most of what apt/dnf need vendor
+# repos for — Docker, GitHub CLI, cloudflared, Tailscale, Chromium, ROCm,
+# LACT are all plain `pacman -S` here, no signing-key/repo-file dance). Each
+# entry below was verified against archlinux.org's package search, not
+# inferred from the apt/dnf entries — see backends/arch/provision/provision.sh
+# for the implementation this documents, and its header for the same
+# confidently-correct / best-effort / stubbed-gap breakdown applied per
+# function, plus the rolling-release partial-upgrade note that has no
+# apt/dnf analog.
+#
+# Like apt.yaml/dnf.yaml, this file is documentation/reference data — it is
+# NOT dynamically parsed by provision.sh at runtime (same actually-implemented
+# pattern: package names and install commands are hardcoded imperatively per
+# install_<tool>() function).
+#
+# install_method:
+#   pacman         — `pacman -S --needed --noconfirm <packages>` directly from
+#                     Arch's own core/extra repos, no repo configuration needed.
+#                     Arch packages never auto-enable/start the services they
+#                     ship (a real, structural difference from Debian's
+#                     auto-start-on-install postinst convention and even from
+#                     RPM, which at least gets a %post scriptlet to do it
+#                     explicitly) — every pacman-installed daemon in
+#                     provision.sh gets an explicit `systemctl enable --now`.
+#   curl_script    — run the installer's own curl|sh script (url comes from
+#                     ecosystem.yaml); verified distro-generic, identical to
+#                     apt.yaml/dnf.yaml.
+#   git_clone      — clone a git repo at a pinned ref (asdf); not a package-
+#                     manager concern, identical to apt.yaml/dnf.yaml.
+#   asdf_plugin    — installed via an asdf plugin once asdf itself is present;
+#                     not a system package-manager concern, identical to
+#                     apt.yaml/dnf.yaml.
+#   shadow_utils   — useradd/usermod/getent — POSIX shadow-utils commands, not
+#                     a package-manager concern at all.
+#   none           — no Arch-specific action; a deliberate, documented no-op.
+#   aur_deferred   — GAP, but a different kind of gap than dnf.yaml's
+#                     `unresolved`: a real package exists, just not in Arch's
+#                     OFFICIAL repos — only in the community-run AUR, which
+#                     requires building from a PKGBUILD (makepkg) via a
+#                     user-supplied AUR helper (yay/paru) or by hand. Per
+#                     docs/architecture/multi-distro-design.md's explicit
+#                     Phase 4 scope boundary ("Arch AUR-helper automation
+#                     (manual/documented first)"), provision.sh never invokes
+#                     an AUR helper and never assumes one is installed —
+#                     these stub with a clear message pointing at the AUR
+#                     package name instead.
+
+docker:
+  install_method: pacman
+  packages: [docker, docker-buildx, docker-compose]
+  note: >-
+    All three are official `extra` packages (CONFIRMED via archlinux.org).
+    docker.service is not auto-enabled by the package (Arch convention);
+    provision.sh runs `systemctl enable --now docker` explicitly, mirroring
+    Fedora's same observation about dnf/rpm not auto-starting it either.
+
+uv:
+  install_method: curl_script
+  note: "astral.sh/uv/install.sh is distro-generic; identical to apt.yaml/dnf.yaml."
+
+homebrew:
+  install_method: curl_script
+  note: >-
+    Core install script (Homebrew/install/HEAD/install.sh) is distro-generic.
+    Its Linux build-tools prerequisite maps to Arch's `base-devel` package
+    GROUP (not a single package — pacman -S --needed base-devel pulls gcc,
+    make, patch, etc. as a set) plus `procps-ng curl file git`, mirroring
+    dnf.yaml's homebrew entry's procps-ng naming (Arch's package is also
+    procps-ng, not procps).
+
+asdf:
+  install_method: git_clone
+  repo: "https://github.com/asdf-vm/asdf"
+  ref: "v0.14.0"
+  note: "No package manager involved; identical to apt.yaml/dnf.yaml."
+
+node:
+  install_method: asdf_plugin
+  plugin: nodejs
+  note: >-
+    asdf-managed; identical to apt.yaml/dnf.yaml. Build prerequisites are
+    `base-devel git curl gnupg` (Arch's gnupg package bundles dirmngr the
+    same way Fedora's gnupg2 does — no separate dirmngr package needed,
+    unlike apt.yaml's Debian/Ubuntu entry which lists dirmngr separately).
+
+bun:
+  install_method: curl_script
+  note: "Kept for parity with apt.yaml/dnf.yaml even though no install_bun() exists in provision.sh (tier: extended, demoted — nothing in this repo requires Bun)."
+
+gh:
+  install_method: pacman
+  packages: [github-cli]
+  note: >-
+    CONFIRMED official `extra` package (archlinux.org/packages/extra/x86_64/github-cli).
+    Genuinely simpler than apt.yaml/dnf.yaml's entries: no third-party repo,
+    signing key, or config-manager plugin needed at all — this is a plain
+    `pacman -S github-cli`.
+
+cloudflared:
+  install_method: pacman
+  packages: [cloudflared]
+  note: "CONFIRMED official `extra` package (archlinux.org/packages/extra/x86_64/cloudflared). No repo-add step, unlike apt.yaml/dnf.yaml."
+
+tailscale:
+  install_method: pacman
+  packages: [tailscale]
+  note: >-
+    CONFIRMED official `extra` package. Arch's package does NOT auto-enable
+    tailscaled.service on install (see the install_method:pacman note above
+    on Arch's no-autostart convention) — provision.sh runs
+    `systemctl enable --now tailscaled` explicitly, which apt.yaml/dnf.yaml's
+    entries don't need to call out separately (their packaging autostarts it).
+
+vscode:
+  install_method: aur_deferred
+  aur_package: visual-studio-code-bin
+  note: >-
+    The Microsoft-branded VS Code build (the same product apt.yaml's
+    external_deb and dnf.yaml's yum_repo entries install) has NO official
+    Arch package — only the AUR's visual-studio-code-bin. A DIFFERENT,
+    native `extra` package named `code` also exists (Code - OSS: the
+    open-source build with no MS branding, telemetry, or Marketplace
+    access) — that is not a drop-in substitute for what Ubuntu/Fedora's
+    tier installs, so provision.sh does not silently install it instead.
+    Stubbed per the plan's explicit AUR-helper-automation deferral, with a
+    log message naming both the AUR package and the native Code-OSS
+    alternative for the user to choose manually.
+
+chromium:
+  install_method: pacman
+  packages: [chromium]
+  note: "CONFIRMED official `extra` package, same binary name (chromium) as Fedora's — no PPA/snap/flatpak fallback chain needed (simpler than apt.yaml's chain)."
+
+rocm:
+  install_method: pacman
+  packages: [rocm-hip-sdk]
+  note: >-
+    CONFIRMED official `extra` package (archlinux.org/packages/extra/any/rocm-hip-sdk),
+    currently 7.2.4-1 — the SAME version Ubuntu's backend pins for Strix Halo
+    (backends/ubuntu/lib/install-rocm-driver.sh), by coincidence of Arch's
+    current `extra` snapshot rather than by design. Unlike Ubuntu's pinned
+    install, Arch is rolling-release: this installs whatever `extra` resolves
+    to at run time, with no version pin (pinning would need the Arch Linux
+    Archive, not attempted here). A real, non-stubbed implementation — unlike
+    dnf.yaml's rocm entry, which is `unresolved` because Fedora has no
+    official ROCm repo at all.
+
+lact:
+  install_method: pacman
+  packages: [lact]
+  note: >-
+    CONFIRMED official `extra` package (archlinux.org/packages/extra/x86_64/lact),
+    currently 0.10.1-1. A real, non-stubbed implementation — unlike dnf.yaml's
+    lact entry, which is `unresolved` because Fedora packaging research found
+    no confirmed .rpm release asset. lactd.service is enabled/started
+    explicitly (Arch no-autostart convention, see above).
+
+ollama:
+  install_method: curl_script
+  url: "https://ollama.com/install.sh"
+  note: "Verified package-manager-agnostic for Fedora's role-map entry; same binary/systemd-unit install, no Arch-specific behavior expected."
+
+telemetry_removal:
+  install_method: none
+  note: >-
+    Arch Linux ships no telemetry/phone-home stack by design (a minimalist,
+    rolling-release community distro) — a non-issue here the same way it is
+    a non-issue on Fedora Workstation (see dnf.yaml's entry). provision.sh's
+    Arch remove_telemetry() is a documented no-op, not a silently-missing step.
+
+ci_user:
+  install_method: shadow_utils
+  note: "useradd/usermod/getent are POSIX shadow-utils commands, not pacman-specific — identical to apt.yaml/dnf.yaml."
+
+companion_launcher:
+  install_method: unresolved
+  note: >-
+    GAP, same class as dnf.yaml's entry — dl.ci.computer only publishes a
+    .deb. No Arch package (official or AUR) was found for Companion
+    Launcher. Stubbed in provision.sh with a clear message rather than
+    guessing at a foreign-format conversion.
