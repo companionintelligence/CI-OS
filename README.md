@@ -240,6 +240,54 @@ nearest match to the CI canon primary) for both the live session and GDM's dconf
 for the full reasoning and known gaps (no logo/icon swap on GDM yet, ROCm/LACT/Companion
 Launcher all stubbed pending Fedora-native builds).
 
+### Arch backend (Phase 4, implemented)
+
+Arch Linux (GNOME Shell — the plan's recommended DE for this backend, to maximize reuse) is the
+fourth backend — provisioning + desktop/login-screen theming only, no archiso mode (archiso
+profile-building is explicitly deferred). Like Fedora, `provision.sh` is a **genuine pacman
+reimplementation**, not a thin wrapper.
+
+| Goal | Entry point | Run on |
+|------|-------------|--------|
+| **B. Provision the ecosystem** | [`backends/arch/provision/provision.sh`](backends/arch/provision/provision.sh) (pacman-native; same `--tier=`/`--step=ci-hub` flags as Ubuntu's/Fedora's) | The *target* machine, as root |
+| **C. Re-skin a running Arch desktop** (GNOME accent-color + GDM branding) | [`backends/arch/desktop-theme/apply-ci-os-desktop.sh`](backends/arch/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
+| **D. First-time headless WiFi onboarding** | [`backends/arch/headless-setup/install.sh`](backends/arch/headless-setup/install.sh) (plain installer, not pacman-packaged) | The *target* device |
+
+GDM/GNOME Shell branding reuses the same accent-color mechanism Fedora's does — independently
+re-confirmed for Arch's own `gnome-shell` package, not assumed to transfer for free. Arch has no
+installer flavor guaranteeing GRUB is present (many installs use systemd-boot instead), so
+`15-grub-theme.sh` detects the bootloader and skips cleanly rather than failing hard on
+systemd-boot systems. Unlike Fedora, Arch's official repos carry real `rocm-hip-sdk` and `lact`
+packages — both get full installs instead of stubs; only VS Code (Microsoft's build is AUR-only)
+and Companion Launcher (no Arch build at all) remain stubbed, per the platform's AUR-helper-
+automation deferral.
+
+### Bazzite backend (Phase 5, implemented)
+
+Bazzite (KDE Plasma — Bazzite's flagship variant, breaking the GNOME pattern every prior backend
+followed) is the fifth backend, and a **fundamentally different execution model**: it's an
+image-based distro (bootc/rpm-ostree, Fedora Atomic), so there is no provisioning script that
+runs on an already-installed system — instead, the OS root is built as an OCI image.
+
+| Goal | Entry point | Run on |
+|------|-------------|--------|
+| **Build the image** | [`backends/bazzite/image/Containerfile`](backends/bazzite/image/Containerfile) + [`build.just`](backends/bazzite/image/build.just) (`just build`) | A build host with Podman/Docker |
+| **First-boot deploy + model pull** | [`backends/bazzite/modules/`](backends/bazzite/modules) — systemd units, run automatically once | The *target* device, on first boot |
+
+Theming (Plymouth, GRUB, MOTD, KDE color scheme) and most ecosystem tools (`gh`, `cloudflared`,
+`chromium`, VS Code, Tailscale, LACT, the Ollama binary) are baked directly into the image at
+build time. Whatever genuinely can't be baked — CI-Hub's deploy (needs registry credentials),
+Ollama's model weights (avoids multi-GB image bloat), and anything writing into `$HOME` (the
+`ci` system user, `uv`, asdf/Node.js — `$HOME` is excluded from the image commit on ostree) —
+runs once, idempotently, from first-boot systemd units instead. This backend adapts to **Podman**
+rather than layering Docker CE, matching Bazzite's own stock default; see
+[`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md#bazzite-an-image-based-backend-not-a-provisioning-script)
+for the full reasoning, including why `core/render/render-gnome-shell-gresource.sh` isn't
+involved here either (KDE, not GNOME) and what's still deferred (`core/headless/payload`'s
+captive-portal subsystem is not yet baked into the image; ROCm inherits Fedora's repo gap).
+This backend cannot be build-tested in this environment — no bootc/Podman build host is
+available — see `build.just`'s header for exactly what *was* verified statically.
+
 ---
 
 ## Build a branded CI-OS ISO
@@ -544,9 +592,9 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   ├── validate/                 # portable half of theme validation (currently empty — see below)
 │   └── headless/payload/         # captive-portal Flask backend, static portal, hostapd/dnsmasq configs
 ├── backends/
-│   ├── _mixins/                  # Shared building blocks (used by ubuntu + fedora)
-│   │   ├── gnome-dconf/           # GNOME dconf/session/terminal theming
-│   │   └── kde-plasma/            # KDE Plasma color scheme
+│   ├── _mixins/                  # Shared building blocks
+│   │   ├── gnome-dconf/           # GNOME dconf/session/terminal theming (ubuntu, fedora, arch)
+│   │   └── kde-plasma/            # KDE Plasma color scheme (bazzite)
 │   ├── ubuntu/                   # The reference backend — apt/dpkg + Bash
 │   │   ├── iso/scripts/           # A: build-iso.sh, build-packages.sh, gresource + repo helpers
 │   │   ├── chroot/                # customize-chroot.sh — called by the ISO builder against the rootfs
@@ -559,10 +607,19 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   │   ├── provision/             # B: thin wrapper around backends/ubuntu/provision/provision.sh
 │   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Cinnamon dconf/session + Slick-Greeter
 │   │   └── headless-package/      # D: build.sh, DEBIAN/ control scripts (no netplan config)
-│   └── fedora/                   # Phase 3a — dnf/rpm + Bash, no ISO mode (kickstart/lorax = Phase 3b)
-│       ├── provision/             # B: provision.sh — genuine dnf reimplementation, not a wrapper
-│       ├── desktop-theme/         # C: apply-ci-os-desktop.sh + GNOME accent-color/GDM branding
-│       └── headless-setup/        # D: install.sh — plain installer, RPM packaging deferred
+│   ├── fedora/                   # Phase 3a — dnf/rpm + Bash, no ISO mode (kickstart/lorax = Phase 3b)
+│   │   ├── provision/             # B: provision.sh — genuine dnf reimplementation, not a wrapper
+│   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + GNOME accent-color/GDM branding
+│   │   └── headless-setup/        # D: install.sh — plain installer, RPM packaging deferred
+│   ├── arch/                     # Phase 4 — pacman + Bash, no archiso mode (deferred)
+│   │   ├── provision/             # B: provision.sh — genuine pacman reimplementation
+│   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + GNOME accent-color/GDM branding +
+│   │   │                          #    15-grub-theme.sh's GRUB-vs-systemd-boot detection
+│   │   └── headless-setup/        # D: install.sh — plain installer, pacman packaging deferred
+│   └── bazzite/                  # Phase 5 — image-based (bootc/rpm-ostree), NOT a provisioning script
+│       ├── image/                 # Containerfile + build.just — the OCI image definition (KDE Plasma)
+│       └── modules/               # First-boot systemd units: CI-Hub deploy, Ollama models,
+│                                  #   ci user/uv/asdf/Node, captive-portal conditional gate
 └── docs/
     ├── architecture/             # multi-distro-design.md
     └── guides/                   # ISO build, installation, quick start, repo setup, GDM branding
