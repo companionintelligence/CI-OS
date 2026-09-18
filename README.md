@@ -288,6 +288,37 @@ captive-portal subsystem is not yet baked into the image; ROCm inherits Fedora's
 This backend cannot be build-tested in this environment — no bootc/Podman build host is
 available — see `build.just`'s header for exactly what *was* verified statically.
 
+### NixOS backend (Phase 6, implemented — the last of the six)
+
+NixOS is the sixth and final backend, and a **second** fundamentally different execution
+model: it's declarative, not a provisioning script and not an image build. This backend
+doesn't produce an artifact you run or boot — it produces a Nix **flake** exposing reusable
+`nixosModules` that a consumer imports into their *own* system configuration.
+
+| Goal | Entry point | Used from |
+|------|-------------|-----------|
+| **Import as a module** | [`backends/nixos/flake.nix`](backends/nixos/flake.nix) exposes `nixosModules.default` | Your own `flake.nix`'s `nixosSystem { modules = [...]; }` |
+| **Theming** | [`backends/nixos/modules/branding.nix`](backends/nixos/modules/branding.nix) — Plymouth, GRUB, GNOME/GDM accent-color, MOTD | `services.ci-os.branding.enable = true;` |
+| **Ecosystem tools** | [`backends/nixos/modules/ecosystem.nix`](backends/nixos/modules/ecosystem.nix) — tier-gated core/extended/hardware | `services.ci-os.ecosystem.enable = true;` |
+| **Headless WiFi onboarding** | [`backends/nixos/modules/headless-setup.nix`](backends/nixos/modules/headless-setup.nix) | `services.ci-os.headlessSetup.enable = true;` |
+
+PNG rendering (the GRUB background, Plymouth's watermark) reuses `core/render/render-grub-
+background.sh` unmodified inside a Nix derivation — genuinely not pure-Nix-expressible —
+while plain value lookups (accent color, MOTD text) are reimplemented natively in Nix,
+reading `vendor/brand/tokens/tokens.json` directly. GDM branding uses NixOS's real
+system-level `programs.dconf` module (confirmed distinct from home-manager's per-user
+config, which this backend does not depend on). `rocmPackages`/`services.lact` are real
+here too, like Arch — nixpkgs' hardware-acceleration package set is substantial, unlike
+Fedora's repo gap. See
+[`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md#nixos-a-flake-of-reusable-modules-not-a-script-or-an-image)
+for the full reasoning, including why GDM/dconf wiring is more direct here than on any bash
+backend and what's still a disclosed gap (no themed systemd-boot splash — nixpkgs exposes no
+such option; Companion Launcher and Homebrew/Bun stay unimplemented, same as every backend).
+Like Bazzite, this cannot be evaluated with a real Nix toolchain in this environment — verified
+via grammar-based syntax parsing and manual nixpkgs-source cross-referencing instead.
+
+This completes all six backends in the rebuild plan.
+
 ---
 
 ## Build a branded CI-OS ISO
@@ -616,10 +647,15 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + GNOME accent-color/GDM branding +
 │   │   │                          #    15-grub-theme.sh's GRUB-vs-systemd-boot detection
 │   │   └── headless-setup/        # D: install.sh — plain installer, pacman packaging deferred
-│   └── bazzite/                  # Phase 5 — image-based (bootc/rpm-ostree), NOT a provisioning script
-│       ├── image/                 # Containerfile + build.just — the OCI image definition (KDE Plasma)
-│       └── modules/               # First-boot systemd units: CI-Hub deploy, Ollama models,
-│                                  #   ci user/uv/asdf/Node, captive-portal conditional gate
+│   ├── bazzite/                   # Phase 5 — image-based (bootc/rpm-ostree), NOT a provisioning script
+│   │   ├── image/                  # Containerfile + build.just — the OCI image definition (KDE Plasma)
+│   │   └── modules/                # First-boot systemd units: CI-Hub deploy, Ollama models,
+│   │                               #   ci user/uv/asdf/Node, captive-portal conditional gate
+│   └── nixos/                    # Phase 6 — declarative flake + modules, NOT a script or image build
+│       ├── flake.nix              # Entry point: exposes nixosModules for a consumer to import
+│       ├── manifest/              # ecosystem.generated.json (yq-regenerated from ecosystem.yaml) +
+│       │                          #   gen-ecosystem-json.sh
+│       └── modules/               # branding.nix, ecosystem.nix, headless-setup.nix
 └── docs/
     ├── architecture/             # multi-distro-design.md
     └── guides/                   # ISO build, installation, quick start, repo setup, GDM branding

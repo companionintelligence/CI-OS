@@ -357,6 +357,94 @@ build; what *was* verified: `docker build --check` against the complete Containe
 base image digest resolved live against GHCR, and the token-derived PNGs genuinely rendered
 and checked (not placeholders).
 
+## NixOS: a flake of reusable modules, not a script or an image
+
+Phase 6 is a *second* fundamentally different execution model — distinct from both the
+traditional provisioning-script backends (Ubuntu/Mint/Fedora/Arch) and from Bazzite's
+Containerfile/bootc image build. NixOS's configuration model is declarative: this backend
+does not produce a script that runs on an already-installed system, and does not produce a
+bootable image either. It produces a Nix **flake** (`backends/nixos/flake.nix`) exposing
+**NixOS modules** — `nixosModules.default` (and the three underlying modules individually)
+— that a *consumer* imports into their *own* system configuration flake:
+
+```nix
+nixosSystem {
+  modules = [
+    ci-os-nixos.nixosModules.default
+    ./hardware-configuration.nix
+    { services.ci-os.ecosystem.enable = true; services.ci-os.headlessSetup.enable = true; }
+  ];
+}
+```
+
+The deliverable is reusable Nix code, not an artifact built once and distributed — that
+distinction shapes almost everything about `backends/nixos/`:
+
+- **`modules/branding.nix`** — Plymouth, GRUB background, GNOME/GDM accent-color, MOTD.
+  Split by what each artifact actually needs, not one uniform approach: PNG rendering
+  (the GRUB background, the Plymouth watermark) isn't expressible in pure Nix evaluation —
+  it genuinely needs `rsvg-convert`/ImageMagick — so those invoke
+  `core/render/render-grub-background.sh` **unmodified**, by path, inside a
+  `runCommand`-style derivation with the right build inputs declared; everything that's a
+  plain value lookup (the dconf accent-color string, MOTD text, Plymouth's four config
+  colors) is reimplemented **natively in Nix**, reading `vendor/brand/tokens/tokens.json`
+  directly via `builtins.fromJSON`, with `tokens.sh`'s `ci_rgb()`/`ci_hex0x()` ported as a
+  ~5-line Nix hex-digit lookup (exactly the size the plan anticipated). GDM's accent-color
+  default uses NixOS's genuine **system-level** `programs.dconf` module — confirmed
+  distinct from home-manager's per-user `dconf.settings`, which this backend does *not*
+  depend on — wiring a `system-db:gdm` profile/database declaratively, the same outcome
+  Fedora's and Arch's research had to hand-write a `/etc/dconf/profile/gdm` file to
+  achieve imperatively. GRUB theming is gated on `config.boot.loader.grub.enable` (visible
+  at evaluation time from the consumer's own declared config, not a runtime filesystem
+  probe the way Arch's `15-grub-theme.sh` needs) — NixOS itself defaults new installs to
+  systemd-boot, not GRUB, and nixpkgs exposes no themed-splash option for systemd-boot, so
+  a themed systemd-boot menu is a disclosed, out-of-scope gap rather than an oversight.
+- **`modules/ecosystem.nix` + `manifest/{ecosystem.generated.json,gen-ecosystem-json.sh}`**
+  — tier-gated (core/extended/hardware) ecosystem tools. Unlike every bash backend's
+  `role-map/<pkgmgr>.yaml`, this backend consumes a **committed, regeneratable JSON file**
+  (`gen-ecosystem-json.sh` regenerates it from `core/manifest/ecosystem.yaml` via `yq`,
+  same manual-regen contract as `tokens.sh`/`tokens.json`) read via `builtins.fromJSON` —
+  not an Import-From-Derivation build-time YAML→JSON step, which nixpkgs's own
+  contribution guidance treats as something to avoid at evaluation time. Most tools map to
+  real, current nixpkgs modules/packages: `virtualisation.docker`, `services.tailscale`,
+  `services.ollama` (with acceleration options — confirmed to actually resolve to the
+  genuine Microsoft-branded `pkgs.vscode`, not an unrelated OSS build, the same
+  distinction Arch's research had to draw for the AUR), `rocmPackages` and `services.lact`
+  for the hardware tier (both **real** here, unlike Fedora's stub — nixpkgs' ROCm package
+  set is substantial). `users.users.ci` bakes `render`/`video` group membership in from
+  the start — a fix that had to be *found twice* on the bash backends (Fedora's provision
+  script never needed it since ROCm was stubbed there; Arch's initial pass missed it and
+  needed a follow-up fix) ships correct from day one here, since there's no equivalent of
+  forgetting a step when the whole configuration is declared together. `core/lib/ci-hub.sh`
+  runs unmodified from a systemd oneshot; unlike Bazzite's first-boot-only marker file, this
+  unit deliberately re-runs every boot (ci-hub.sh is already idempotent by design), with a
+  `systemd.paths` watcher on the pairing-env file so a device paired later in its life gets
+  CI-Hub deployed within seconds, not on next reboot — a real advantage the declarative
+  model gets for free that Bazzite's imperative first-boot model doesn't.
+- **`modules/headless-setup.nix`** — the captive-portal WiFi onboarding payload, wired via
+  native `hostapd`/`dnsmasq`/`nginx` NixOS modules (raw `systemd.services`, not the
+  higher-level module wrappers, where the payload's own runtime interface-autodetection
+  would otherwise be lost) plus the existing Flask setup-backend reused by path. The
+  "already paired, don't enable the portal" decision uses systemd's own
+  `ConditionPathExists`, re-evaluated on every start attempt — the NixOS-idiomatic
+  replacement for Bazzite's one-time marker-file gate, since Nix modules re-evaluate
+  against declared configuration rather than tracking "first boot" as its own state.
+- **Companion Launcher** stays unavailable (no NixOS/Nix package anywhere, confirmed) —
+  represented by omitting the option entirely rather than defining a no-op `enable` flag,
+  since a Nix option a user can flip that silently does nothing has no equivalent of
+  bash's log-message stub and would be a real footgun. **Homebrew** and **Bun** are
+  likewise deliberately unwired (both extended-tier and unimplemented on every backend,
+  and philosophically redundant with Nix's own package management in Homebrew's case).
+
+This backend cannot be evaluated with a real Nix toolchain in this environment (no `nix`
+binary available, same constraint noted honestly rather than worked around) — verified
+instead via grammar-based Nix syntax parsing (0 errors across all four files) and manual
+line-by-line cross-referencing against fetched nixpkgs source for every module/option
+claimed, not guesswork. A genuine `nix flake check` against a real nixpkgs revision
+remains open follow-up work for whoever has a working Nix toolchain.
+
+This completes all six backends in the rollout table.
+
 ## The ecosystem manifest
 
 `core/manifest/ecosystem.yaml` (schema: `ecosystem.schema.json`) is the single source of truth
@@ -402,7 +490,7 @@ compliant, not a shortcut — CI-OS's own README already treats the Ubuntu ISO p
 | 3b | Fedora ISO (kickstart/lorax) | L | Zero reuse from debootstrap/squashfs/xorriso; can slip independently |
 | 4 | Arch | M | **Implemented.** `provision.sh` is a genuine pacman reimplementation (rolling-release partial-upgrade and no-autostart conventions have no apt/dnf analog — see its own header). GNOME Shell/GDM branding reuses the same accent-color mechanism Fedora uses (independently re-confirmed for Arch, not assumed). `15-grub-theme.sh` is the one new structural piece: a GRUB-vs-systemd-boot detect-and-delegate wrapper, since Arch has no installer flavor guaranteeing GRUB is present. |
 | 5 | Bazzite | L/XL | **Implemented.** Fundamentally different execution model — see the section below. Targets KDE Plasma (Bazzite's flagship variant), adapts to Podman rather than Docker CE, bakes theming + most ecosystem tools into the image, defers $HOME-writing tools (uv/asdf/Node/the `ci` user) and credential-gated deploys (CI-Hub, Ollama models) to first-boot systemd units. |
-| 6 | NixOS | L | Declarative flake/modules; requires reversing CI-OS's former "no Nix" rule |
+| 6 | NixOS | L | **Implemented.** A second fundamentally different execution model — see the section below. A Nix flake exposing importable `nixosModules`, not a provisioning script or an image build. Requires reversing CI-OS's former "no Nix" rule (scoped to this one backend). |
 
 Deferred, tracked but not committed: Mint ISO-building, Arch archiso profile-building (explicitly
 out of scope for Phase 4 — no default DE, no shared code with kickstart/debootstrap, low payoff
