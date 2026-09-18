@@ -53,17 +53,40 @@
 # outright under `set -e`. Editing backends/_mixins/ content is out of scope
 # for this pass regardless.
 #
-# So instead: this step runs AFTER those mixin steps (see
-# apply-ci-os-desktop.sh's fixed step order) and layers a HIGHER-NUMBERED
-# dconf fragment on top of theirs — dconf's db/*.d directories merge every
-# fragment file in a directory in filename sort order, per key, with a later
-# file winning ties on the same key (the same convention
-# backends/_mixins/gnome-dconf/27-terminal-theme.sh already relies on,
-# numbered 03-, alongside 20-dconf-system.sh's 01- and Ubuntu's
-# 30-wallpaper.sh's 02-, and Fedora's own 05- override). This file writes
-# 05-ci-os-arch-overrides, which redeclares gtk-theme/icon-theme/cursor-theme
-# with Arch-correct values and adds accent-color/color-scheme, then
-# reapplies the same values live via gsettings.
+# So instead: this step's full run (fragment write + live gsettings apply)
+# happens AFTER those mixin steps (see apply-ci-os-desktop.sh's fixed step
+# order) and layers a HIGHER-NUMBERED dconf fragment on top of theirs —
+# dconf's db/*.d directories merge every fragment file in a directory in
+# filename sort order, per key, with a later file winning ties on the same
+# key (the same convention backends/_mixins/gnome-dconf/27-terminal-theme.sh
+# already relies on, numbered 03-, alongside 20-dconf-system.sh's 01- and
+# Ubuntu's 30-wallpaper.sh's 02-, and Fedora's own 05- override). This file
+# writes 05-ci-os-arch-overrides, which redeclares gtk-theme/icon-theme/
+# cursor-theme with Arch-correct values and adds accent-color/color-scheme,
+# then reapplies the same values live via gsettings.
+#
+# --- ensure_gdm_dconf_profile() itself runs EARLIER than the rest of this
+# step, not just before write_system_override() below ---------------------
+# The merge-order reasoning above is about dconf FILENAMES, not write order —
+# dconf recompiles a whole db/*.d directory from whatever fragment files
+# exist at `dconf update` time, so 05- always outranks 01-/02-/03- regardless
+# of which script ran first. But 20-dconf-system.sh's OWN gdm.d write is
+# gated on /etc/dconf/profile/gdm already existing (`[[ -f
+# /etc/dconf/profile/gdm ]] && grep -q system-db:gdm ...`), and until this
+# fix that file was only ever created here, in THIS step, which
+# apply-ci-os-desktop.sh runs AFTER dconf. On a stock Arch box (where, per
+# this file's research above, that profile genuinely doesn't exist yet), the
+# mixin's own gdm.d/01-ci-os-gdm fragment — background colors, remote-desktop/
+# RDP-for-GDM keys — was silently never written on a first run: only this
+# step's narrower 05- fragment (gtk-theme/accent-color/color-scheme)
+# benefited from the profile it created, one step too late for 01- to see it.
+# apply-ci-os-desktop.sh now invokes `28-gdm-accent-branding.sh
+# --ensure-gdm-profile-only` (which does nothing but call
+# ensure_gdm_dconf_profile() and exit) BEFORE the dconf step, so the profile
+# exists in time for 01-ci-os-gdm too. This script's normal (non-flag) run
+# still calls ensure_gdm_dconf_profile() again from write_system_override()
+# below — the function is idempotent (no-ops if the file already exists), so
+# this is redundant-but-harmless belt-and-suspenders, not a second bug.
 #
 # --- One real deviation from Fedora's script: the /etc/dconf/profile/gdm
 # guard is NOT reused unmodified -------------------------------------------
@@ -114,6 +137,17 @@ file-db:/usr/share/gdm/greeter-dconf-defaults
 PROFILE_EOF
   log_info "Created /etc/dconf/profile/gdm (ArchWiki-documented content — not shipped by Arch's gdm package by default, unlike Fedora's)"
 }
+
+# Early-run mode: apply-ci-os-desktop.sh invokes this before the "dconf" step
+# (backends/_mixins/gnome-dconf/20-dconf-system.sh) so /etc/dconf/profile/gdm
+# exists in time for THAT script's own gdm.d write, not just this script's
+# later one. See this file's header for the full reasoning. Does nothing
+# else — no dconf fragment write, no gsettings, no live-session apply.
+if [[ "${1:-}" == "--ensure-gdm-profile-only" ]]; then
+  require_root
+  ensure_gdm_dconf_profile
+  exit 0
+fi
 
 write_system_override() {
   mkdir -p /etc/dconf/db/local.d

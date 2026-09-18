@@ -1191,14 +1191,37 @@ deploy_ci_hub() {
 # Ubuntu's version-pinned install — this installs whatever `extra` currently
 # resolves to; no version pin is attempted (would need the Arch Linux
 # Archive, out of scope here).
+#
+# ensure_render_video_groups() below ports backends/ubuntu/lib/
+# install-rocm-driver.sh's ensure_video_groups() — a real, working ROCm
+# install this backend has no Fedora equivalent to have carried the omission
+# from. Without it, /dev/kfd and /dev/dri/renderD* stay root/render-group
+# only, so a non-root desktop session (or the `ci` user's Docker workloads)
+# has the package installed but no actual access to ROCm-accelerated
+# Ollama/Docker workloads until someone runs this by hand and re-logs in.
+ensure_render_video_groups() {
+    local users=("$ACTUAL_USER")
+    if id -u ci >/dev/null 2>&1; then
+        users+=("ci")
+    fi
+
+    local u
+    for u in "${users[@]}"; do
+        log_info "Adding user ${u} to render and video groups (if needed)..."
+        usermod -a -G render,video "${u}" 2>/dev/null || true
+    done
+}
+
 install_rocm_driver_arch() {
     if pacman -Qi rocm-hip-sdk &>/dev/null; then
         log_info "rocm-hip-sdk is already installed, skipping..."
+        ensure_render_video_groups
         return 0
     fi
     log_info "Installing ROCm (rocm-hip-sdk) from Arch's official extra repo..."
     if pacman_install rocm-hip-sdk; then
         log_success "ROCm installed (rocm-hip-sdk, unpinned — Arch is rolling-release, see this function's header)"
+        ensure_render_video_groups
     else
         log_warning "rocm-hip-sdk install failed; Ollama will still get AMD iGPU acceleration via the Vulkan path configure_ollama_gpu() already sets up. See core/manifest/role-map/pacman.yaml's rocm entry."
     fi

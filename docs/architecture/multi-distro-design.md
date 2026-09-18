@@ -203,7 +203,17 @@ unverified on Fedora); unlike Fedora, `28-gdm-accent-branding.sh` does not just 
 `/etc/dconf/profile/gdm` — ArchWiki documents it as "no longer shipped upstream" on Arch, so the
 script creates it (when missing) with the ArchWiki-documented `user-db:user` / `system-db:gdm` /
 `file-db:/usr/share/gdm/greeter-dconf-defaults` content before writing the `gdm.d` override, but
-this was not independently verified against a live Arch box; the nginx `default_server` collision fix and NetworkManager enable in
+this was not independently verified against a live Arch box. A follow-up fix corrected a
+step-order bug an independent adversarial review caught in this same mechanism: the profile must
+exist *before* `apply-ci-os-desktop.sh`'s `dconf` step runs, not just before `accent`'s own later
+write — `backends/_mixins/gnome-dconf/20-dconf-system.sh` gates its own GDM fragment
+(background colors, remote-desktop/RDP-for-GDM keys) on the profile already existing, and on a
+first run it didn't yet, so that fragment was silently skipped even though `accent` created the
+profile moments later for its own narrower fragment. `apply-ci-os-desktop.sh` now invokes
+`28-gdm-accent-branding.sh --ensure-gdm-profile-only` before the `dconf` step specifically to
+close that gap. The same review also found `install_rocm_driver_arch()` never added the desktop
+or `ci` user to the `render`/`video` groups the way Ubuntu's working ROCm installer does — fixed
+by porting that installer's `ensure_video_groups()` logic. The nginx `default_server` collision fix and NetworkManager enable in
 `headless-setup/install.sh` are untested on a live install; Companion Launcher has no Arch build
 (official or AUR) and is intentionally stubbed; VS Code (Microsoft's build) is intentionally
 stubbed rather than AUR-installed or silently substituted with Code-OSS; and this backend

@@ -195,6 +195,17 @@ fi
 
 run_step plymouth "$UBUNTU_THEME/10-plymouth.sh"
 run_step grub "$SCRIPT_DIR/15-grub-theme.sh"
+
+# Must run before the "dconf" step below: 20-dconf-system.sh only writes its
+# own GDM dconf fragment (background colors, remote-desktop/RDP-for-GDM keys)
+# when /etc/dconf/profile/gdm already exists — and on a stock Arch box it
+# doesn't, until something creates it (see 28-gdm-accent-branding.sh's
+# header). Without this, that fragment was silently never written on a first
+# run; only "accent"'s own narrower fragment later in this list benefited.
+if [[ -z "$ONLY" ]] || [[ ",$ONLY," == *",dconf,"* ]]; then
+  bash "$SCRIPT_DIR/28-gdm-accent-branding.sh" --ensure-gdm-profile-only
+fi
+
 run_step dconf "$MIXIN_GNOME/20-dconf-system.sh"
 run_step terminal "$MIXIN_GNOME/27-terminal-theme.sh"
 run_step wallpaper "$UBUNTU_THEME/30-wallpaper.sh"

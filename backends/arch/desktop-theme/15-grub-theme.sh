@@ -33,14 +33,22 @@ require_root
 
 UBUNTU_GRUB_SCRIPT="$REPO_ROOT/backends/ubuntu/desktop-theme/15-grub-theme.sh"
 
-# Detection order, most to least direct:
+# Detection order, most to least direct. systemd-boot is checked FIRST and
+# wins on a conflict: bootctl reporting systemd-boot as the *installed*
+# loader (or loader.conf existing) is a much stronger signal of what's
+# actually active than the mere presence of GRUB's config files, which can
+# legitimately linger after a system migrates from GRUB to systemd-boot
+# (grub package still installed, /etc/default/grub never removed) — checking
+# GRUB first would misdetect that case and run grub-mkconfig against a
+# boot loader nothing reads config from.
 #  1. bootctl (systemd's own tool) reports systemd-boot is the installed
 #     boot loader — the clearest positive signal this is a systemd-boot
 #     system, not a GRUB one.
 #  2. /boot/loader/loader.conf existing is systemd-boot's own config file —
 #     present only when systemd-boot has actually been installed there.
 #  3. /etc/default/grub existing (or grub-mkconfig being on PATH) is the
-#     positive GRUB signal Ubuntu's script itself already requires.
+#     positive GRUB signal Ubuntu's script itself already requires — only
+#     consulted once neither systemd-boot signal above fired.
 # A system with neither signal (freshly imaged, nothing installed yet) is
 # treated as "no GRUB to theme" — same clean-skip outcome as systemd-boot,
 # since there's nothing to theme either way.
@@ -57,14 +65,14 @@ grub_present() {
   [[ -f /etc/default/grub ]] && command -v grub-mkconfig >/dev/null 2>&1
 }
 
-if grub_present; then
-  log_info "GRUB detected (/etc/default/grub + grub-mkconfig present); delegating to backends/ubuntu/desktop-theme/15-grub-theme.sh (fully distro-portable GRUB2 logic, reused by path)"
-  exec bash "$UBUNTU_GRUB_SCRIPT"
-fi
-
 if systemd_boot_in_use; then
   log_info "systemd-boot detected (not GRUB) — this is a common and fully supported Arch configuration. Skipping GRUB theming cleanly; there is no GRUB boot menu to theme on this system. (No systemd-boot theming equivalent is implemented in this pass.)"
   exit 0
+fi
+
+if grub_present; then
+  log_info "GRUB detected (/etc/default/grub + grub-mkconfig present); delegating to backends/ubuntu/desktop-theme/15-grub-theme.sh (fully distro-portable GRUB2 logic, reused by path)"
+  exec bash "$UBUNTU_GRUB_SCRIPT"
 fi
 
 log_warn "Neither GRUB (/etc/default/grub) nor systemd-boot (/boot/loader/loader.conf, bootctl) was detected. This backend assumes a bootloader is already installed and configured (prerequisite, not installed by this script) — skipping GRUB theming cleanly rather than failing hard, since this may simply be an unbootstrapped or container/chroot environment."
