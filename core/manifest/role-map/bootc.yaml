@@ -1,0 +1,397 @@
+# bootc/OCI role-map — translates core/manifest/ecosystem.yaml's generic
+# dev_tools/ecosystem ids for backends/bazzite/, an IMAGE-BASED backend
+# (Containerfile + bootc, built on Fedora Atomic/Kinoite via the Bazzite
+# base image), NOT a chroot/package-install backend like apt.yaml/dnf.yaml/
+# pacman.yaml. Mirrors their shape (one entry per ecosystem.yaml id, an
+# install_method enum, a note), but the AXIS this file documents is
+# different: not "which package manager / repo", but "WHEN does this run" —
+# baked into the read-only image at `podman build` time (backends/bazzite/
+# image/Containerfile), or deferred to a first-boot systemd unit
+# (backends/bazzite/modules/ — ci-os-first-boot-ci-hub, -ollama-models, and
+# -core-tools between them cover every `first_boot` entry below except
+# homebrew, deliberately left unimplemented per its own entry's note), or
+# not applicable/stubbed. See
+# docs/architecture/multi-distro-design.md's Phase 5 section and
+# backends/bazzite/image/Containerfile's own header for the full reasoning.
+#
+# Like apt.yaml/dnf.yaml/pacman.yaml, this file is documentation/reference
+# data, not dynamically parsed by anything at build or run time.
+#
+# WHY THE BAKE/FIRST-BOOT LINE ISN'T JUST "CONFIRMED vs STUBBED" HERE:
+# On every prior backend, "already-installed system" means $HOME exists and
+# a package manager can freely write anywhere. On bootc/ostree, the base
+# filesystem (/usr, and /etc's *defaults*) is the only thing `podman build`
+# can durably produce — /var (which is where /home is a symlink target,
+# /var/home) is EXCLUDED from the ostree commit by design and is
+# machine-local runtime state seeded at first boot. A curl-pipe installer
+# or `useradd -m` that writes into $HOME therefore cannot be meaningfully
+# baked no matter how "CONFIRMED distro-generic" its install script is on
+# every other backend — this is a structural bootc constraint, not a
+# research gap, and it is why uv/homebrew/asdf/node AND (a genuine finding
+# of this pass, not assumed from the brief) ci_user itself all read
+# `first_boot` below even though dnf.yaml/pacman.yaml bake at least some of
+# them straight into an already-running system.
+#
+# install_method:
+#   image_dnf       — `dnf5 install -y <packages>` directly, Fedora's/
+#                      Bazzite's own repos, no extra repo config. Baked into
+#                      the Containerfile as a RUN step.
+#   image_dnf_repo  — add a third-party dnf5 repo (`config-manager
+#                      addrepo --from-repofile=`), then `dnf5 install`.
+#                      Baked, same repo files backends/fedora/provision/
+#                      provision.sh's dnf.yaml entries use (Bazzite shares
+#                      Fedora's RPM/repo universe).
+#   image_yum_repo  — `rpm --import` a GPG key + hand-write a *.repo file,
+#                      then `dnf5 install`. Baked (VS Code).
+#   image_copr      — `dnf5 copr enable <owner>/<project>` then
+#                      `dnf5 install`. Baked (LACT — see its own entry for
+#                      why this is a genuine improvement over dnf.yaml's
+#                      `unresolved`).
+#   image_binary_unit — a package-manager-agnostic curl\|sh installer that
+#                      drops a binary + a systemd unit under /usr, safely
+#                      re-runnable at build time because it writes only to
+#                      /usr and /etc, never $HOME (Ollama's installer).
+#                      Baked; `systemctl enable` is baked alongside it
+#                      (mirrors bazzite-dx's `docker.socket`/`podman.socket`
+#                      enable-at-build-time precedent research confirmed).
+#   image_shadow_utils_partial — useradd/usermod are POSIX shadow-utils
+#                      calls, not a package-manager concern, but see the
+#                      ci_user entry below for why even these are NOT baked
+#                      here despite being "identical, no translation needed"
+#                      on every other backend.
+#   first_boot      — deferred to a systemd oneshot/service run once on
+#                      first boot, writing only to writable locations
+#                      (/etc overlay, /var, /home) — never to /usr. This is
+#                      the sibling implementation task's module; this file
+#                      documents WHAT belongs there, not how it's built.
+#   not_applicable  — replaced by something the Bazzite base image already
+#                      provides (Podman instead of Docker), or a deliberate,
+#                      documented no-op, same disclosure convention as
+#                      dnf.yaml's/pacman.yaml's `none`.
+#   unresolved      — GAP: no confidently-researched Bazzite path exists.
+#                      Same discipline as dnf.yaml: log a clear message
+#                      (in the sibling first-boot module, since these are
+#                      all first-boot-shaped tools) rather than guessing.
+
+docker:
+  install_method: not_applicable
+  confidence: CONFIRMED
+  note: >-
+    Research decision (multi-distro-design.md Phase 5, "Docker vs. Podman"):
+    adapt to Podman rather than layer Docker CE, even though Docker CE
+    layering is a proven pattern elsewhere in Universal Blue (bazzite-dx
+    adds docker-ce/docker-ce-cli/containerd.io/docker-compose-plugin via
+    Fedora's docker-ce.repo with no reported conflict). Reasons to still
+    pick Podman for THIS backend: (a) Podman+Distrobox is Bazzite's own
+    stock default and what its `ujust`/Bazzite Portal tooling assumes —
+    fighting it purely for cross-backend naming consistency adds image
+    weight the bake-vs-first-boot discipline elsewhere in this file argues
+    against; (b) Podman exposes a Docker-API-compatible socket, so
+    core/lib/ci-hub.sh's `docker`/`docker compose` shell-outs can target it
+    via an env var with a small, mechanical delta, not a rewrite; (c)
+    Docker CE layering in bazzite-dx is itself a non-default, opt-in dev
+    variant upstream, not the stock recommendation.
+  baked:
+    - "`systemctl enable podman.socket` — exposes the Docker-API-compatible
+       socket at build time, so no first-boot step is needed just to turn
+       the socket on."
+    - "`dnf5 install -y podman-compose` — the compose-syntax CLI baked in,
+       so the first-boot module doesn't need to install anything, only
+       invoke it."
+  first_boot: >-
+    Implemented in backends/bazzite/modules/lib/podman-docker-compat.sh,
+    sourced by ci-os-first-boot-ci-hub.sh before invoking core/lib/ci-hub.sh
+    unmodified: a `docker() { podman "$@"; }` bash function, exported so
+    ci-hub.sh's `docker`/`docker compose` calls resolve to `podman`/
+    `podman compose` (backed by the baked `podman-compose`), plus a
+    persistent `/etc/tmpfiles.d/` rule aliasing `/run/docker.sock` to
+    Podman's rootful socket (`/run/podman/podman.sock`) so every
+    `/var/run/docker.sock` bind mount in ci-hub.sh's generated compose YAML
+    resolves correctly. NOT implemented, and left as-is deliberately:
+    `DOCKER_CONTEXT=default` (set by ci-hub.sh) has no Podman analog and is
+    simply ignored by Podman rather than dropped or replaced with
+    `CONTAINER_HOST` — harmless, but this entry previously claimed that
+    substitution was made when it wasn't; corrected here. UNVERIFIED, and
+    disclosed as such by an adversarial review of this backend: whether
+    `podman compose`/`podman-compose`'s fidelity to the specific
+    Compose-v2 features ci-hub.sh's generated YAML uses (`depends_on:
+    condition: service_healthy`, `env_file`, Traefik forwardauth labels)
+    actually holds — the shim mechanism itself is sound (verified), but no
+    environment in this project's development so far has been able to
+    exercise it against a live Podman host.
+
+uv:
+  install_method: first_boot
+  confidence: CONFIRMED
+  note: >-
+    astral.sh/uv/install.sh is distro-generic (same CONFIRMED finding as
+    dnf.yaml/pacman.yaml) but installs into $HOME — /var/home on ostree,
+    excluded from the image commit (see this file's header). Cannot be
+    baked; runs from backends/bazzite/modules/ci-os-first-boot-core-tools.sh
+    (implemented), same as every other backend's tier (extended... actually
+    core on every prior backend, kept core here too) but the WHEN moves,
+    not the WHAT.
+
+homebrew:
+  install_method: first_boot
+  confidence: CONFIRMED
+  note: >-
+    Same $HOME constraint as uv above (tier: extended already, so this was
+    already opt-in on every backend). Homebrew's own Linux install path
+    (/home/linuxbrew/.linuxbrew) is itself outside /usr regardless of
+    distro, so this was never bakeable on principle, not just on this
+    distro. UNLIKE uv/asdf/node/ci_user below, this one genuinely has no
+    script behind it in backends/bazzite/modules/ — deliberate, not an
+    oversight: it's opt-in/manual on every backend already (never part of
+    the default core-tier first-boot flow), so leaving it unimplemented
+    here doesn't regress anything a fresh appliance would otherwise have
+    gotten by default. See ci-os-first-boot-core-tools.sh's header for the
+    full reasoning and where to port it from if a future pass adds it.
+
+asdf:
+  install_method: first_boot
+  confidence: CONFIRMED
+  note: >-
+    git-clone into $HOME/.asdf — same $HOME constraint as uv. Runs from
+    backends/bazzite/modules/ci-os-first-boot-core-tools.sh (implemented);
+    its build-time git/curl/compiler-toolchain prerequisites are baked in
+    backends/bazzite/image/Containerfile's own asdf/Node prerequisites RUN
+    step (ported from dnf.yaml's install_asdf_nodejs_dnf_prereqs()
+    equivalent, since that install genuinely can't run at first boot on a
+    read-only-/usr backend the way it can on Fedora's already-writable
+    system).
+
+node:
+  install_method: first_boot
+  confidence: CONFIRMED
+  note: >-
+    asdf-managed (via the asdf entry above) — installs under
+    $HOME/.asdf/installs, same constraint. Runs from
+    backends/bazzite/modules/ci-os-first-boot-core-tools.sh (implemented),
+    alongside asdf itself.
+
+bun:
+  install_method: not_applicable
+  confidence: CONFIRMED
+  note: >-
+    Kept for parity with apt.yaml/dnf.yaml/pacman.yaml's entries even
+    though no backend implements an install_bun() (tier: extended,
+    demoted — see ecosystem.yaml's own note; nothing in this repo requires
+    Bun at build or run time).
+
+gh:
+  install_method: image_dnf_repo
+  confidence: CONFIRMED
+  repo:
+    plugin_bootstrap: "dnf5-plugins (assumed present on Bazzite's dnf5; installed if missing, mirroring provision.sh's ensure_config_manager_plugin())"
+    repofile_url: "https://cli.github.com/packages/rpm/gh-cli.repo"
+  packages: [gh]
+  note: "Identical repo/package to dnf.yaml's entry — Bazzite shares Fedora's RPM/repo universe for a plain dnf5-installable CLI tool like this."
+
+cloudflared:
+  install_method: image_dnf_repo
+  confidence: CONFIRMED
+  repo:
+    repofile_url: "https://pkg.cloudflare.com/cloudflared.repo"
+  packages: [cloudflared]
+  note: "Identical to dnf.yaml's entry. Cloudflare rolled its signing key 2025-10-30 — re-verify if GPG verification starts failing."
+
+vscode:
+  install_method: image_yum_repo
+  confidence: CONFIRMED
+  repo:
+    key_url: "https://packages.microsoft.com/keys/microsoft.asc"
+    repo_file: "/etc/yum.repos.d/vscode.repo"
+    baseurl: "https://packages.microsoft.com/yumrepos/vscode"
+  packages: [code]
+  note: >-
+    Research CONFIRMED this works identically on Bazzite (dnf5 + Microsoft's
+    repo, "not limited by Fedora's package gap the way Companion Launcher
+    is"). Unlike dnf.yaml's provision.sh entry, no direct-.rpm-download
+    fallback function is implemented here — a build failure here should
+    fail the image build loudly rather than silently falling back, since
+    there is no equivalent of "continue provisioning the rest of an
+    already-installed system" for an image build.
+
+tailscale:
+  install_method: image_dnf_repo
+  confidence: CONFIRMED
+  repo:
+    repofile_url: "https://pkgs.tailscale.com/stable/fedora/{version_id}/tailscale.repo"
+    note: >-
+      {version_id} resolved from /etc/os-release's VERSION_ID INSIDE THE
+      BUILD, not hardcoded to the Fedora version Bazzite happens to track
+      today (44) — mirrors provision.sh's install_tailscale() exactly, so
+      this role-map entry doesn't silently go stale the next time Bazzite
+      rebases to a newer Fedora.
+  packages: [tailscale]
+
+chromium:
+  install_method: image_dnf
+  confidence: CONFIRMED
+  packages: [chromium]
+  note: "Identical to dnf.yaml's entry — same Fedora repos, same binary-name caveat (chromium vs chromium-browser was not confidently resolved by prior research either)."
+
+ollama:
+  install_method: image_binary_unit
+  confidence: CONFIRMED
+  note: >-
+    ollama.com/install.sh's base install (binary + systemd unit) is
+    package-manager-agnostic and writes only to /usr + /etc — CONFIRMED
+    safe to bake, unlike uv/homebrew/asdf above. `systemctl enable
+    ollama.service` is baked alongside it. What is NOT baked: the
+    hardware-detected GPU drop-in (configure_ollama_gpu() in every prior
+    backend probes /dev/kfd — real hardware state, unknowable at build
+    time for a generically-distributed image) and the context-length
+    drop-in (probes /proc/meminfo, same problem) — both are `hardware`
+    tier per ecosystem.yaml ("gated by detection", i.e. runtime, by
+    definition) and belong in the first-boot module. Also NOT baked: the
+    model pull (see the `ollama_models` entry below) — the plan's own
+    explicit decision, reconfirmed by research (see multi-distro-design.md
+    Phase 5, decision 2).
+
+ollama_gpu_dropin:
+  install_method: first_boot
+  confidence: CONFIRMED
+  note: >-
+    Not an ecosystem.yaml dev_tools id on its own — documented separately
+    from `ollama` above because it has a genuinely different disposition.
+    Needs /dev/kfd (AMD iGPU presence) at the moment it runs, which by
+    construction cannot exist at `podman build` time for a base image
+    meant to run on arbitrary hardware.
+
+ollama_models:
+  install_method: first_boot
+  confidence: CONFIRMED
+  note: >-
+    The fixed 3-model set (nomic-embed-text, gemma3:1b, qwen3.6:27b) —
+    explicitly the plan's own recommendation (avoid multi-GB image bloat),
+    reconfirmed by this backend's research rather than silently carried
+    over: nothing in the research argues for baking model weights into
+    the image. Smaller image, matches every other backend's current
+    first-boot-pull behavior; the tradeoff (needs network on first boot)
+    was accepted deliberately, not overlooked. Post-research addendum: the
+    EXECUTION stays first_boot as above, but the WIRING to make that
+    execution happen automatically — backends/bazzite/modules/
+    ci-os-first-boot-ollama-models.sh + its .service — is staged and
+    `systemctl enable`d by the Containerfile at build time (COPY + RUN
+    systemctl enable, no different in principle from any other systemd
+    unit this file enables). Only the model pull ITSELF runs at first boot;
+    the unit that will run it is already active from the moment the image
+    boots.
+
+rocm:
+  install_method: unresolved
+  confidence: BEST_EFFORT
+  note: >-
+    Same class of gap as dnf.yaml's `unresolved` entry (AMD publishes no
+    official Fedora ROCm repo) — inherited, not solved, by being on
+    Fedora Atomic. BUT the baseline is measurably better than Fedora
+    Workstation's from-scratch stub, which is why this is flagged
+    BEST_EFFORT rather than a flat gap: Bazzite's base image already
+    bundles current Mesa (25.1+) with amdgpu/Vulkan working out of the box
+    ("no nomodeset needed") and markets bundled ROCm/HIP runtime support
+    (community reports flag some RDNA2-specific rough edges, not a blanket
+    failure) — none of that is anything THIS backend adds; it's already in
+    `ghcr.io/ublue-os/bazzite:stable` before any of our RUN steps run.
+    configure_ollama_gpu()'s Vulkan/iGPU path (ported to the first_boot
+    module per the ollama_gpu_dropin entry above) covers more real ground
+    here than the identical drop-in does on Fedora/Arch, for free.
+
+lact:
+  install_method: image_copr
+  confidence: CONFIRMED
+  copr: "ilyaz/lact"
+  packages: [lact]
+  services: [lactd.service]
+  note: >-
+    A genuine, non-stubbed implementation — unlike dnf.yaml's `unresolved`
+    entry. LACT publishes real GitHub release .rpm assets AND a Fedora
+    COPR (copr.fedorainfracloud.org/coprs/ilyaz/lact), independently
+    verified by this backend's own research, not inherited from Fedora's
+    stub. `dnf5 copr enable ilyaz/lact && dnf5 install lact` is baked;
+    `lactd.service` is enabled at build time (Arch's pacman.yaml entry
+    does the equivalent enable — Fedora COPR RPMs don't auto-enable
+    services any more than docker-ce's RPM does, so this is explicit here
+    too).
+
+telemetry_removal:
+  install_method: not_applicable
+  confidence: CONFIRMED
+  note: >-
+    No Bazzite-specific telemetry/analytics service was found by research.
+    Kinoite/Silverblue (what Bazzite layers on) carry none beyond Fedora's
+    own baseline, already a documented non-issue on dnf.yaml/pacman.yaml;
+    nothing Bazzite itself adds (Bazzite Portal, gaming-mode/Decky/HHD
+    tooling) surfaced as a phone-home collector either. Same conclusion as
+    Fedora/Arch: a deliberate no-op, not an unresearched gap. Nothing to
+    bake or defer.
+
+ci_user:
+  install_method: first_boot
+  confidence: CONFIRMED
+  note: >-
+    THE ONE GENUINE DEVIATION FROM DNF.YAML/PACMAN.YAML'S TREATMENT OF THIS
+    ENTRY, and worth calling out explicitly rather than silently matching
+    them: on Fedora/Arch, `useradd -m ci` is CONFIRMED as "identical to
+    Ubuntu's, no translation needed" — plain POSIX shadow-utils, no
+    package-manager concern. That's still true of the /etc/passwd,
+    /etc/shadow, /etc/group edits `useradd` makes. But `-m` also creates
+    /home/ci, and on ostree /home is a symlink into /var/home — machine-
+    local runtime state excluded from the image commit (see this file's
+    header). Baking only the account entries with `useradd -M` (no home
+    dir) at build time was considered and rejected for this pass: it saves
+    little on its own (the docker-group membership this function also
+    grants is moot too, since group membership for Podman's socket access
+    is itself part of the first-boot Docker-vs-Podman translation above,
+    not a fixed group name baked into the image), and it would leave a
+    system user with no home directory until first boot creates one
+    anyway — two partial steps instead of one clean one. Deferred to the
+    first-boot module in full, for consistency with uv/homebrew/asdf's
+    identical /var constraint, not because shadow-utils commands became
+    harder to run. Implemented in
+    backends/bazzite/modules/ci-os-first-boot-core-tools.sh, which also
+    deliberately DROPS the docker-group-membership step Fedora's/Ubuntu's
+    create_ci_user() has — see that script's own header for why granting
+    Podman-socket access by an unverified guessed group name would be worse
+    than granting none.
+
+ci_hub:
+  install_method: first_boot
+  confidence: CONFIRMED
+  note: >-
+    Not a dev_tools id — ecosystem.yaml's top-level `ecosystem.ci_hub`
+    entry, included here for completeness (dnf.yaml/pacman.yaml do the
+    same for entries outside their own primary list). core/lib/ci-hub.sh
+    itself was read in full and CONFIRMED still directly usable as a
+    first-boot deploy step as-is: pure Docker-Compose YAML generation plus
+    shell-outs, no imperative host-install assumptions anywhere in the
+    file. Given the Podman decision above, it needs the mechanical
+    docker-\>podman deltas documented in the `docker` entry's `first_boot`
+    field before it can run unmodified — the sibling first-boot module
+    (backends/bazzite/modules/lib/podman-docker-compat.sh) implements
+    exactly that delta as a `docker` shell-function shim + a
+    /run/docker.sock->/run/podman/podman.sock tmpfiles alias, applied
+    immediately before ci-hub.sh is invoked, so ci-hub.sh itself stays
+    genuinely unmodified. Post-research addendum: the Containerfile now
+    stages core/lib/ (unmodified, including ci-hub.sh) at
+    /usr/lib/ci-os/bootstrap/core/lib/ — the same path convention
+    backends/ubuntu/chroot/customize-chroot.sh already uses — and COPYs +
+    `systemctl enable`s the first-boot module's .sh/.service files, per
+    that module's own explicit coordination note. Only the deploy's
+    ACTUAL RUN (gated on registry credentials/device pairing, by design)
+    stays first_boot; the path to it is baked.
+
+companion_launcher:
+  install_method: unresolved
+  confidence: STUBBED
+  note: >-
+    Same class of gap as pacman.yaml's entry (dnf.yaml has no
+    companion_launcher entry at all — Fedora's stub lives only as a log
+    message inside provision.sh, not a role-map line; corrected here from
+    an earlier draft of this note that miscited dnf.yaml) — dl.ci.computer
+    only publishes a .deb, and Bazzite's dnf5-based build tooling doesn't
+    change that (no Fedora/.rpm build exists to layer in, no different
+    from Fedora Workstation's own stub). Not attempted; not even worth an
+    "unresolved" first-boot placeholder, since there is nothing an
+    on-device step could install either.

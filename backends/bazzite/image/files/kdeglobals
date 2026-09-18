@@ -1,0 +1,18 @@
+# Baked to /etc/xdg/kdeglobals by backends/bazzite/image/Containerfile.
+#
+# KDE reads kdeglobals from $XDG_CONFIG_DIRS (/etc/xdg) as a fallback
+# whenever a user's own ~/.config/kdeglobals doesn't exist or doesn't set
+# ColorScheme — so this alone makes CI-OS-Dark the system-wide default color
+# scheme for every new user, with no first-boot step, no dconf, and no
+# kwriteconfig call (see the Containerfile's KDE section for the research
+# this is based on). It intentionally sets nothing else — this is the
+# system DEFAULT, not a locked-in override; a user who picks a different
+# scheme in System Settings gets their own ~/.config/kdeglobals, which wins.
+#
+# NEW file, additive — not part of backends/_mixins/kde-plasma/ and does not
+# modify anything there. The color values themselves live in
+# /usr/share/color-schemes/CI-OS-Dark.colors (COPY'd from
+# backends/_mixins/kde-plasma/CI-OS-Dark.colors unmodified), which this
+# file references by name only.
+[General]
+ColorScheme=CI-OS-Dark

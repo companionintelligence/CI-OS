@@ -1,0 +1,35 @@
+# CI-OS Bazzite backend — first-boot-only ci user + uv + asdf/Node setup.
+#
+# Baked into the image at /usr/lib/systemd/system/ci-os-first-boot-core-tools.service
+# via:
+#   COPY backends/bazzite/modules/ci-os-first-boot-core-tools.service \
+#        /usr/lib/systemd/system/ci-os-first-boot-core-tools.service
+#   RUN systemctl enable ci-os-first-boot-core-tools.service
+# Same pattern as ci-os-first-boot-ci-hub.service — see that unit's own
+# comment header for why `systemctl enable` works against an unbooted image
+# root at build time.
+#
+# See ci-os-first-boot-core-tools.sh's header for the full marker-file/
+# idempotency design and why this needs network (uv's installer, asdf's
+# git clone) despite doing no container/registry work.
+
+[Unit]
+Description=CI-OS first-boot ci user + uv + asdf/Node setup
+Documentation=https://ci.computer
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=!/var/lib/ci-os/.first-boot-core-tools-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# uv's installer + asdf's git clone + an Node.js prebuilt-binary fetch
+# should be fast, but a slow/metered first-boot connection shouldn't hang
+# boot forever.
+TimeoutStartSec=900
+ExecStart=/usr/lib/ci-os/modules/ci-os-first-boot-core-tools.sh
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,36 @@
+# CI-OS Bazzite backend — first-boot-only decision on whether the WiFi
+# captive-portal onboarding flow (core/headless/payload/) should be enabled
+# on this device. See ci-os-first-boot-setup-portal-gate.sh's header for
+# the full rationale.
+#
+# Baked/enabled the same way as this backend's other two first-boot units
+# (see ci-os-first-boot-ci-hub.service's header for the exact Containerfile
+# shape). Unlike those two, this unit's OWN job is to enable/disable OTHER
+# units (core/headless/payload's four) — the sibling image-definition
+# agent's Containerfile should COPY those four unit files into
+# /usr/lib/systemd/system/ but leave them UN-enabled at build time; this
+# unit is what decides, once, whether to enable them on a given device.
+#
+# Ordered before network.target's dependents get a chance to matter much:
+# hostapd/dnsmasq (the captive-portal AP) intentionally use `After=network.target`
+# rather than network-online.target (see core/headless/payload's own units —
+# network-online.target can hang with no connectivity yet, which is exactly
+# the case the hotspot exists to solve). This gate only calls `systemctl`
+# and reads a small file, so it has no real dependency of its own — ordering
+# it after local-fs.target (implicit default) is sufficient.
+
+[Unit]
+Description=CI-OS first-boot setup-portal enablement gate
+Documentation=https://ci.computer
+ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-portal-gate-done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=60
+ExecStart=/usr/lib/ci-os/modules/ci-os-first-boot-setup-portal-gate.sh
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target
