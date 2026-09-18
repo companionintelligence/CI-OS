@@ -274,6 +274,177 @@ fewer distro patches — to match, and it does. `backends/arch/desktop-theme/28-
 uses the same `org.gnome.desktop.interface accent-color` mechanism as Fedora's step of the same
 name.
 
+## Bazzite: an image-based backend, not a provisioning script
+
+Every backend through Phase 4 shares one execution model: a script runs ON an
+already-installed, already-running system and imperatively installs packages / edits
+config files in place. Bazzite (Phase 5) breaks that model entirely — it's Fedora Atomic
+(bootc/rpm-ostree), where the OS root filesystem is built as an OCI container image via a
+`Containerfile`, then `bootc switch`ed onto hardware. `/usr` (and `/etc`'s *defaults*) is
+what a `podman build` durably produces; `/usr` is read-only at runtime; `/var` (and
+therefore `/home`, a symlink into `/var/home`) is excluded from the image commit
+entirely — it's machine-local state seeded at first boot, not something a shared,
+publicly-distributed image can contain.
+
+That last fact shapes almost everything about `backends/bazzite/`:
+
+- **`backends/bazzite/image/{Containerfile,build.just,.env,files/}`** — the image
+  definition. `FROM ghcr.io/ublue-os/bazzite:stable@<pinned digest>` (KDE Plasma — Bazzite
+  ships ~10 variants across two DE families; the unqualified `bazzite` tag is unambiguously
+  the flagship, breaking the GNOME pattern every prior backend followed). Bakes: Plymouth
+  (token-derived colors, replicating — not sourcing — Ubuntu's 4-key sed transform, since
+  Ubuntu's script also does interactive-upgrade bookkeeping that makes no sense for a
+  from-scratch image build), GRUB background + `ci_grub_merge_key()`, MOTD
+  (`core/render/render-motd.sh`, unmodified), the KDE color-scheme file (reusing
+  `backends/_mixins/kde-plasma/CI-OS-Dark.colors` as-is — this is the first backend to
+  actually exercise that scaffolding, written in Phase 0/1a and unused until now), plus
+  `gh`/`cloudflared`/`chromium`/VS Code/Tailscale/LACT and the Ollama binary+unit via plain
+  `dnf5 install` RUN steps (Bazzite shares Fedora's RPM/repo universe). Token-derived PNGs
+  (GRUB background, Plymouth watermark) are rendered by `build.just`'s own `render` recipe
+  into a local staging directory *before* the image build starts, then `COPY`'d in — a
+  Containerfile build context needs files already present on disk, it can't invoke a repo
+  script mid-build the way every prior backend's live-system scripts can.
+- **Docker vs. Podman — resolved as Podman**, not Docker CE, even though layering Docker CE
+  is a proven pattern elsewhere in Universal Blue (ublue-os's own `bazzite-dx` variant does
+  exactly that with no reported conflict). Podman + Distrobox is Bazzite's own stock
+  default; fighting it purely for cross-backend naming consistency adds image weight the
+  bake-vs-first-boot discipline elsewhere argues against, and Podman exposes a
+  Docker-API-compatible socket that needs only a small, mechanical adapter, not a rewrite.
+  `backends/bazzite/modules/lib/podman-docker-compat.sh` implements that adapter — a
+  `docker() { podman "$@"; }` shell-function shim plus a persistent `/etc/tmpfiles.d/` rule
+  aliasing `/run/docker.sock` to Podman's socket — so `core/lib/ci-hub.sh` runs completely
+  unmodified. Unverified: whether `podman compose`'s fidelity to the specific Compose-v2
+  features ci-hub.sh's generated YAML uses (`depends_on: condition: service_healthy`,
+  `env_file`, Traefik forwardauth labels) actually holds — the shim mechanism itself is
+  sound, but nothing in this project's development so far has exercised it against a live
+  Podman host.
+- **`backends/bazzite/modules/`** — the first-boot half, for whatever genuinely can't be
+  baked: `ci-os-first-boot-ci-hub` (needs registry credentials/device pairing — secrets
+  never belong in a publicly-distributed image layer) and `ci-os-first-boot-ollama-models`
+  (the plan's own explicit first-boot decision, to avoid multi-GB image bloat) were part of
+  the original brief; `ci-os-first-boot-core-tools` (the `ci` system user, `uv`, asdf/Node —
+  all core-tier, all writing into `$HOME`) was added in a follow-up fix after an adversarial
+  review caught that the role-map documented these as first-boot but no script implemented
+  any of them — a real functional regression versus every prior backend. Each first-boot
+  unit uses `ConditionPathExists=!<marker>` so systemd skips it entirely (not "runs and
+  no-ops") on every later boot, reusing the exact marker-file convention
+  `backends/ubuntu/chroot/customize-chroot.sh`'s own first-boot service already established,
+  just split into independent per-concern units instead of Ubuntu's one. `ci-os-first-boot-
+  core-tools.sh` detects the real desktop user differently from every other backend too —
+  there's no `$SUDO_USER` in a systemd-unit context — by scanning `/etc/passwd` for the
+  first real (UID 1000-59999, real shell/home) account, and deliberately drops the
+  `usermod -aG docker ci` step every other backend's `create_ci_user()` has, since there's
+  no verified Podman-socket group-access equivalent to grant on this backend.
+- **Not baked at all** (a disclosed scope boundary, not an oversight): `core/headless/
+  payload/`'s captive-portal subsystem (hostapd/dnsmasq/nginx/Flask setup-backend) — never
+  in this phase's research or brief, would need several more unresearched package layers.
+  `ci-os-first-boot-setup-portal-gate` (a conditional-enablement decision for those units,
+  based on whether the device was already paired before this boot) is still staged and
+  enabled, forward-compatible with a later pass adding the subsystem for real; its own
+  presence-check degrades to a harmless no-op today, since none of the units it looks for
+  exist yet. Homebrew is also not implemented — but that's true on every backend (tier:
+  extended, always opt-in), so leaving it out here doesn't regress anything.
+- **ROCm** stays unresolved, inheriting Fedora's gap (no official Fedora ROCm repo), though
+  Bazzite's own base images bundle a meaningfully better Mesa/Vulkan baseline than stock
+  Fedora Workstation, partially offsetting it. **LACT**, by contrast, genuinely un-stubs
+  here — it publishes a real Fedora COPR, independently confirmed by this phase's research
+  (not inherited from Fedora's own unverified stub).
+
+This backend cannot be build-tested in this environment (no bootc/podman build host
+available) — `build.just`'s header discloses this plainly rather than claiming a working
+build; what *was* verified: `docker build --check` against the complete Containerfile,
+`bash -n` on every RUN block individually, every `COPY` source path resolving on disk, the
+base image digest resolved live against GHCR, and the token-derived PNGs genuinely rendered
+and checked (not placeholders).
+
+## NixOS: a flake of reusable modules, not a script or an image
+
+Phase 6 is a *second* fundamentally different execution model — distinct from both the
+traditional provisioning-script backends (Ubuntu/Mint/Fedora/Arch) and from Bazzite's
+Containerfile/bootc image build. NixOS's configuration model is declarative: this backend
+does not produce a script that runs on an already-installed system, and does not produce a
+bootable image either. It produces a Nix **flake** (`backends/nixos/flake.nix`) exposing
+**NixOS modules** — `nixosModules.default` (and the three underlying modules individually)
+— that a *consumer* imports into their *own* system configuration flake:
+
+```nix
+nixosSystem {
+  modules = [
+    ci-os-nixos.nixosModules.default
+    ./hardware-configuration.nix
+    { services.ci-os.ecosystem.enable = true; services.ci-os.headlessSetup.enable = true; }
+  ];
+}
+```
+
+The deliverable is reusable Nix code, not an artifact built once and distributed — that
+distinction shapes almost everything about `backends/nixos/`:
+
+- **`modules/branding.nix`** — Plymouth, GRUB background, GNOME/GDM accent-color, MOTD.
+  Split by what each artifact actually needs, not one uniform approach: PNG rendering
+  (the GRUB background, the Plymouth watermark) isn't expressible in pure Nix evaluation —
+  it genuinely needs `rsvg-convert`/ImageMagick — so those invoke
+  `core/render/render-grub-background.sh` **unmodified**, by path, inside a
+  `runCommand`-style derivation with the right build inputs declared; everything that's a
+  plain value lookup (the dconf accent-color string, MOTD text, Plymouth's four config
+  colors) is reimplemented **natively in Nix**, reading `vendor/brand/tokens/tokens.json`
+  directly via `builtins.fromJSON`, with `tokens.sh`'s `ci_rgb()`/`ci_hex0x()` ported as a
+  ~5-line Nix hex-digit lookup (exactly the size the plan anticipated). GDM's accent-color
+  default uses NixOS's genuine **system-level** `programs.dconf` module — confirmed
+  distinct from home-manager's per-user `dconf.settings`, which this backend does *not*
+  depend on — wiring a `system-db:gdm` profile/database declaratively, the same outcome
+  Fedora's and Arch's research had to hand-write a `/etc/dconf/profile/gdm` file to
+  achieve imperatively. GRUB theming is gated on `config.boot.loader.grub.enable` (visible
+  at evaluation time from the consumer's own declared config, not a runtime filesystem
+  probe the way Arch's `15-grub-theme.sh` needs) — NixOS itself defaults new installs to
+  systemd-boot, not GRUB, and nixpkgs exposes no themed-splash option for systemd-boot, so
+  a themed systemd-boot menu is a disclosed, out-of-scope gap rather than an oversight.
+- **`modules/ecosystem.nix` + `manifest/{ecosystem.generated.json,gen-ecosystem-json.sh}`**
+  — tier-gated (core/extended/hardware) ecosystem tools. Unlike every bash backend's
+  `role-map/<pkgmgr>.yaml`, this backend consumes a **committed, regeneratable JSON file**
+  (`gen-ecosystem-json.sh` regenerates it from `core/manifest/ecosystem.yaml` via `yq`,
+  same manual-regen contract as `tokens.sh`/`tokens.json`) read via `builtins.fromJSON` —
+  not an Import-From-Derivation build-time YAML→JSON step, which nixpkgs's own
+  contribution guidance treats as something to avoid at evaluation time. Most tools map to
+  real, current nixpkgs modules/packages: `virtualisation.docker`, `services.tailscale`,
+  `services.ollama` (with acceleration options — confirmed to actually resolve to the
+  genuine Microsoft-branded `pkgs.vscode`, not an unrelated OSS build, the same
+  distinction Arch's research had to draw for the AUR), `rocmPackages` and `services.lact`
+  for the hardware tier (both **real** here, unlike Fedora's stub — nixpkgs' ROCm package
+  set is substantial). `users.users.ci` bakes `render`/`video` group membership in from
+  the start — a fix that had to be *found twice* on the bash backends (Fedora's provision
+  script never needed it since ROCm was stubbed there; Arch's initial pass missed it and
+  needed a follow-up fix) ships correct from day one here, since there's no equivalent of
+  forgetting a step when the whole configuration is declared together. `core/lib/ci-hub.sh`
+  runs unmodified from a systemd oneshot; unlike Bazzite's first-boot-only marker file, this
+  unit deliberately re-runs every boot (ci-hub.sh is already idempotent by design), with a
+  `systemd.paths` watcher on the pairing-env file so a device paired later in its life gets
+  CI-Hub deployed within seconds, not on next reboot — a real advantage the declarative
+  model gets for free that Bazzite's imperative first-boot model doesn't.
+- **`modules/headless-setup.nix`** — the captive-portal WiFi onboarding payload, wired via
+  native `hostapd`/`dnsmasq`/`nginx` NixOS modules (raw `systemd.services`, not the
+  higher-level module wrappers, where the payload's own runtime interface-autodetection
+  would otherwise be lost) plus the existing Flask setup-backend reused by path. The
+  "already paired, don't enable the portal" decision uses systemd's own
+  `ConditionPathExists`, re-evaluated on every start attempt — the NixOS-idiomatic
+  replacement for Bazzite's one-time marker-file gate, since Nix modules re-evaluate
+  against declared configuration rather than tracking "first boot" as its own state.
+- **Companion Launcher** stays unavailable (no NixOS/Nix package anywhere, confirmed) —
+  represented by omitting the option entirely rather than defining a no-op `enable` flag,
+  since a Nix option a user can flip that silently does nothing has no equivalent of
+  bash's log-message stub and would be a real footgun. **Homebrew** and **Bun** are
+  likewise deliberately unwired (both extended-tier and unimplemented on every backend,
+  and philosophically redundant with Nix's own package management in Homebrew's case).
+
+This backend cannot be evaluated with a real Nix toolchain in this environment (no `nix`
+binary available, same constraint noted honestly rather than worked around) — verified
+instead via grammar-based Nix syntax parsing (0 errors across all four files) and manual
+line-by-line cross-referencing against fetched nixpkgs source for every module/option
+claimed, not guesswork. A genuine `nix flake check` against a real nixpkgs revision
+remains open follow-up work for whoever has a working Nix toolchain.
+
+This completes all six backends in the rollout table.
+
 ## The ecosystem manifest
 
 `core/manifest/ecosystem.yaml` (schema: `ecosystem.schema.json`) is the single source of truth
@@ -318,8 +489,8 @@ compliant, not a shortcut — CI-OS's own README already treats the Ubuntu ISO p
 | 3a | Fedora (provisioning+theming) | M | **Implemented.** `provision.sh` is a genuine dnf reimplementation (dnf syntax/package names differ too much from apt for a thin wrapper). GDM/GNOME-Shell branding does *not* use the gresource pattern after all — see the note below. |
 | 3b | Fedora ISO (kickstart/lorax) | L | Zero reuse from debootstrap/squashfs/xorriso; can slip independently |
 | 4 | Arch | M | **Implemented.** `provision.sh` is a genuine pacman reimplementation (rolling-release partial-upgrade and no-autostart conventions have no apt/dnf analog — see its own header). GNOME Shell/GDM branding reuses the same accent-color mechanism Fedora uses (independently re-confirmed for Arch, not assumed). `15-grub-theme.sh` is the one new structural piece: a GRUB-vs-systemd-boot detect-and-delegate wrapper, since Arch has no installer flavor guaranteeing GRUB is present. |
-| 5 | Bazzite | L/XL | Containerfile + bootc image layering, zero bash-script reuse |
-| 6 | NixOS | L | Declarative flake/modules; requires reversing CI-OS's former "no Nix" rule |
+| 5 | Bazzite | L/XL | **Implemented.** Fundamentally different execution model — see the section below. Targets KDE Plasma (Bazzite's flagship variant), adapts to Podman rather than Docker CE, bakes theming + most ecosystem tools into the image, defers $HOME-writing tools (uv/asdf/Node/the `ci` user) and credential-gated deploys (CI-Hub, Ollama models) to first-boot systemd units. |
+| 6 | NixOS | L | **Implemented.** A second fundamentally different execution model — see the section below. A Nix flake exposing importable `nixosModules`, not a provisioning script or an image build. Requires reversing CI-OS's former "no Nix" rule (scoped to this one backend). |
 
 Deferred, tracked but not committed: Mint ISO-building, Arch archiso profile-building (explicitly
 out of scope for Phase 4 — no default DE, no shared code with kickstart/debootstrap, low payoff

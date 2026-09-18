@@ -51,6 +51,11 @@ out/
 backends/ubuntu/iso/work/
 backends/ubuntu/iso/output/
 
+# Bazzite image build: token-derived artifacts rendered by build.just's
+# `render` recipe before `podman build` runs (see backends/bazzite/image/
+# Containerfile's header) — generated, not source.
+backends/bazzite/image/staging/
+
 # Package build artifacts
 *.deb
 *.dsc
