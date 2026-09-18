@@ -217,6 +217,29 @@ See [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-
 for what's reused from the Ubuntu backend by path (Plymouth, GRUB, MOTD) versus written fresh
 for Cinnamon/Slick-Greeter, and the known gaps left for a follow-up pass.
 
+### Fedora backend (Phase 3a, implemented)
+
+Fedora Workstation (GNOME Shell) is the third backend — provisioning + desktop/login-screen
+theming only, no ISO-build mode (kickstart/lorax ISO building is deferred as Phase 3b). Unlike
+Mint, Fedora's `provision.sh` is a **genuine dnf reimplementation**, not a thin wrapper — dnf
+syntax and most package names differ too much from apt to share a script.
+
+| Goal | Entry point | Run on |
+|------|-------------|--------|
+| **B. Provision the ecosystem** | [`backends/fedora/provision/provision.sh`](backends/fedora/provision/provision.sh) (dnf-native; same `--tier=`/`--step=ci-hub` flags as Ubuntu's) | The *target* machine, as root |
+| **C. Re-skin a running Fedora desktop** (GNOME accent-color + GDM branding) | [`backends/fedora/desktop-theme/apply-ci-os-desktop.sh`](backends/fedora/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
+| **D. First-time headless WiFi onboarding** | [`backends/fedora/headless-setup/install.sh`](backends/fedora/headless-setup/install.sh) (plain installer, not RPM-packaged) | The *target* device |
+
+GDM/GNOME Shell branding does **not** use the gresource-extraction mechanic Ubuntu/Yaru uses:
+research found Fedora ships no separate, add-alongside theme package the way Yaru is — GNOME
+Shell's own default theme is compiled straight into the `gnome-shell` package, so overwriting
+its gresource would be silently clobbered by the next `dnf update`. Instead, Fedora branding
+sets GNOME 47+'s supported `org.gnome.desktop.interface accent-color` (a 9-value named enum,
+nearest match to the CI canon primary) for both the live session and GDM's dconf profile — see
+[`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md#gnome-shell--gdm-gresource-rebranding)
+for the full reasoning and known gaps (no logo/icon swap on GDM yet, ROCm/LACT/Companion
+Launcher all stubbed pending Fedora-native builds).
+
 ---
 
 ## Build a branded CI-OS ISO
@@ -514,14 +537,14 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 ├── vendor/brand/                # Vendored CI-Common brand bundle: tokens, fonts, logos
 ├── core/                       # Distro-portable — no apt/dpkg (or any package manager) assumptions
 │   ├── manifest/                # ecosystem.yaml: single source of truth for what gets installed
-│   │   └── role-map/            # per-package-manager translations (apt.yaml today)
+│   │   └── role-map/            # per-package-manager translations (apt.yaml, dnf.yaml)
 │   ├── render/                  # tokens + assets -> rendered artifacts (Plymouth, GRUB bg, ...)
 │   │   └── inputs/               # raw PNG/SVG inputs the render scripts consume
 │   ├── lib/                     # theme-lib.sh, vendor-brand.sh, check-brand-mirrors.sh, ...
 │   ├── validate/                 # portable half of theme validation (currently empty — see below)
 │   └── headless/payload/         # captive-portal Flask backend, static portal, hostapd/dnsmasq configs
 ├── backends/
-│   ├── _mixins/                  # Shared building blocks (used by ubuntu today, fedora later)
+│   ├── _mixins/                  # Shared building blocks (used by ubuntu + fedora)
 │   │   ├── gnome-dconf/           # GNOME dconf/session/terminal theming
 │   │   └── kde-plasma/            # KDE Plasma color scheme
 │   ├── ubuntu/                   # The reference backend — apt/dpkg + Bash
@@ -532,10 +555,14 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   │   ├── lib/                   # apt-specific helpers (os-release, ROCm, telemetry removal, ...)
 │   │   ├── packages/              # .deb sources: ci-os-branding, companion-os-base/keyring, ...
 │   │   └── headless-package/      # D: build.sh, DEBIAN/ control scripts, netplan (apt packaging only)
-│   └── mint/                     # Phase 2 — apt/dpkg + Bash, no ISO mode
-│       ├── provision/             # B: thin wrapper around backends/ubuntu/provision/provision.sh
-│       ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Cinnamon dconf/session + Slick-Greeter
-│       └── headless-package/      # D: build.sh, DEBIAN/ control scripts (no netplan config)
+│   ├── mint/                     # Phase 2 — apt/dpkg + Bash, no ISO mode
+│   │   ├── provision/             # B: thin wrapper around backends/ubuntu/provision/provision.sh
+│   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Cinnamon dconf/session + Slick-Greeter
+│   │   └── headless-package/      # D: build.sh, DEBIAN/ control scripts (no netplan config)
+│   └── fedora/                   # Phase 3a — dnf/rpm + Bash, no ISO mode (kickstart/lorax = Phase 3b)
+│       ├── provision/             # B: provision.sh — genuine dnf reimplementation, not a wrapper
+│       ├── desktop-theme/         # C: apply-ci-os-desktop.sh + GNOME accent-color/GDM branding
+│       └── headless-setup/        # D: install.sh — plain installer, RPM packaging deferred
 └── docs/
     ├── architecture/             # multi-distro-design.md
     └── guides/                   # ISO build, installation, quick start, repo setup, GDM branding
