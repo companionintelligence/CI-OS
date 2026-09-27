@@ -1,35 +1,31 @@
 # AGENTS.md — CI-OS
 
-## Platform context
+> **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
-CI-OS is the **Infrastructure** layer component of the Companion Intelligence platform — a private, local-first digital memory system.
+**`CLAUDE.md` is the canonical agent guide for this repo** — read it first. It covers the
+repo's purpose, the `core/` + `backends/<distro>/` layout, the stack per backend, and the
+key commands. This file only restates the rules every agent tool must follow.
 
-Full architecture: `CI-Engineering/architecture/architecture.md`
+## What this repo is (one line)
 
-## Repo summary
+Builds, themes and provisions the Companion Intelligence appliance OS across multiple Linux
+distros (Ubuntu reference backend, plus Mint, Fedora, Arch, Bazzite, NixOS). Shared logic in
+`core/`, per-distro mechanics in `backends/<distro>/`. Design:
+`docs/architecture/multi-distro-design.md`.
 
-Base OS image for the Companion Intelligence appliance. Likely NixOS or a custom Linux distro configured to host CI-Hub and CI-Server.
-
-## Stack
-
-- NixOS / Bash / shell scripts
-- Docker Compose (for service bootstrap)
-- Package configs in config/
-
-## Setup & commands
+## Validate before every push
 
 ```bash
-# see scripts/ for setup helpers   # install
-bash scripts/build.sh   # dev
-# validation via scripts/test.sh   # test
-# flash / provision   # build
+./core/lib/check-repo.sh   # bash -n, shellcheck (errors), py_compile, yamllint, no build artifacts
 ```
 
-
+The same script is the `PR checks` GitHub workflow.
 
 ## Git discipline
 
-- Never `git reset --hard` or `git clean -f` without user confirmation.
+- Never `git reset --hard`, `git clean -f`, or force-push someone else's branch without user
+  confirmation — multiple agents work this repo in parallel.
+- Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`); build them.
 - Commit messages: imperative mood, ≤ 72 chars.
 - Reference CI-Engineering issues in PRs (e.g. `Closes companionintelligence/CI-Engineering#32`).
 

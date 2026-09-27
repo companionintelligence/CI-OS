@@ -1,39 +1,17 @@
 # GitHub Copilot Instructions — CI-OS
 
-You are working in **CI-OS**, the **Infrastructure** component of the **Companion Intelligence** platform — a private, local-first digital memory and AI appliance system owned by Lifescope Inc.
+You are working in **CI-OS**, the **Infrastructure** component of the **Companion
+Intelligence** platform — a private, local-first digital memory and AI appliance system owned
+by Lifescope Inc.
 
-## Platform architecture
+**Read `CLAUDE.md` at the repo root** — it is the canonical guide (layout, stack, commands).
+`AGENTS.md` restates the rules below.
 
-```
-Capture → Portal/Gateway → Server (memory brain) ← Hub (app runtime) ← Marketplace
-                                   ↕
-                            Clients / XR / Devices
-```
-
-Full architecture and ADRs live in `CI-Engineering/architecture/`.
-
-## This repo
-
-Base OS image for the Companion Intelligence appliance. Likely NixOS or a custom Linux distro configured to host CI-Hub and CI-Server.
-
-## Tech stack
-
-- NixOS / Bash / shell scripts
-- Docker Compose (for service bootstrap)
-- Package configs in config/
-
-## Development
-
-```bash
-# see scripts/ for setup helpers   # install
-# validation via scripts/test.sh   # test
-```
-
-
-
-## Conventions
-
-- Do not mix package managers.
+- CI-OS builds and provisions the appliance OS across multiple distros: shared logic in
+  `core/`, per-distro mechanics in `backends/<distro>/` (Ubuntu is the reference backend).
+- Package management is per-backend; `core/` has no package-manager assumptions.
+- Validate with `./core/lib/check-repo.sh` (same as the `PR checks` workflow).
+- Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`).
 - Keep PRs small and linked to CI-Engineering issues.
 - Multiple agents may work this codebase simultaneously — never use destructive git operations.
 - All code is **private and confidential** — do not surface or transmit source beyond this session.

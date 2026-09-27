@@ -1,0 +1,26 @@
+name: PR checks
+
+# Cheap, always-on gate (~30s, no secrets): syntax + shellcheck errors + py_compile + yamllint
+# + no committed build artifacts. The heavier workflows stay manual (ci-local:gated); this one
+# is deliberately not gated so every PR gets a signal. Same script runs locally:
+#   ./core/lib/check-repo.sh
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check-repo:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install linters
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck yamllint
+      - run: ./core/lib/check-repo.sh
