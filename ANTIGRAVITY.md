@@ -1,33 +1,34 @@
 # ANTIGRAVITY.md — CI-OS
 
-## Context
+> **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
-**CI-OS** — **Infrastructure** layer of the Companion Intelligence platform (Lifescope Inc).
+**`CLAUDE.md` is the canonical agent guide for this repo** — read it first. It covers the
+repo's purpose, the `core/` + `backends/<distro>/` layout, the stack per backend, and the
+key commands. This file only restates the rules every agent tool must follow.
 
-Architecture: `CI-Engineering/architecture/architecture.md`
-Roadmap: `CI-Engineering/architecture/roadmap.md`
+## What this repo is (one line)
 
-## Purpose
+Builds, themes and provisions the Companion Intelligence appliance OS across multiple Linux
+distros (Ubuntu reference backend, plus Mint, Fedora, Arch, Bazzite, NixOS). Shared logic in
+`core/`, per-distro mechanics in `backends/<distro>/`. Design:
+`docs/architecture/multi-distro-design.md`.
 
-Base OS image for the Companion Intelligence appliance. Likely NixOS or a custom Linux distro configured to host CI-Hub and CI-Server.
-
-## Stack
-
-- NixOS / Bash / shell scripts
-- Docker Compose (for service bootstrap)
-- Package configs in config/
-
-## Commands
+## Validate before every push
 
 ```bash
-# see scripts/ for setup helpers
-bash scripts/build.sh
-# validation via scripts/test.sh
+./core/lib/check-repo.sh   # bash -n, shellcheck (errors), py_compile, yamllint, no build artifacts
 ```
 
-## Rules
+The same script is the `PR checks` GitHub workflow.
 
-- Package manager: do not switch or mix.
-- Destructive git operations (`reset --hard`, `clean -f`) require explicit user confirmation.
-- Commits reference CI-Engineering issues.
-- All content is **private and confidential** — Property of Lifescope Inc.
+## Git discipline
+
+- Never `git reset --hard`, `git clean -f`, or force-push someone else's branch without user
+  confirmation — multiple agents work this repo in parallel.
+- Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`); build them.
+- Commit messages: imperative mood, ≤ 72 chars.
+- Reference CI-Engineering issues in PRs (e.g. `Closes companionintelligence/CI-Engineering#32`).
+
+## Confidentiality
+
+Private & Confidential — Property of Lifescope Inc. Do not distribute.

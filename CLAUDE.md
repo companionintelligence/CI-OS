@@ -51,8 +51,14 @@ sudo ./backends/ubuntu/provision/provision.sh --tier=core,extended,hardware
 # Apply CI desktop branding only (no packages)
 sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh
 
+# Fast checks — run before every push (same as the "PR checks" workflow)
+./core/lib/check-repo.sh
+
 # See README.md for the four customization entry points.
 ```
+
+> PR conventions for agents (validation, layout, what not to commit) live in
+> `.claude/skills/steward/SKILL.md`.
 
 > The Ubuntu backend lives under `backends/ubuntu/{iso,provision,desktop-theme}/`. All
 > ecosystem provisioning goes through the single `provision.sh` entrypoint (tier-gated —
