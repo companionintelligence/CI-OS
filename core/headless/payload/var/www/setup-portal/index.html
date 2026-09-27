@@ -553,6 +553,9 @@
         const SCAN_RETRY_INTERVAL = 8000;   // Retry scan every 8 seconds
         const MAX_RETRIES = 5;
         const REDIRECT_DELAY_MS = 2500;
+        // After a 'pending' configure: long enough for the hotspot to close and the phone
+        // to rejoin its usual network before the portal is tried.
+        const PENDING_REDIRECT_DELAY_MS = 20000;
         const DEFAULT_REDIRECT_URL = 'https://portal.ci.computer';
 
         // State
@@ -908,6 +911,27 @@
                 if (response.ok) {
                     const responseData = await response.json().catch(() => ({}));
                     const redirectTarget = getRedirectTarget(responseData);
+
+                    // Submitted over the setup hotspot: the device answered first and is now
+                    // closing the hotspot to join the chosen network, so this page is about to
+                    // lose its connection. The portal is only reachable once the phone is back
+                    // on its usual network, so link it and try it once that has had time.
+                    if (responseData.status === 'pending') {
+                        successMessage.style.display = 'block';
+                        successMessage.textContent = `✓ ${responseData.message || 'Settings saved.'} Then open `;
+                        const portalLink = document.createElement('a');
+                        portalLink.href = redirectTarget;
+                        portalLink.textContent = redirectTarget;
+                        successMessage.appendChild(portalLink);
+                        successMessage.appendChild(document.createTextNode('.'));
+                        successMessage.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        submitBtn.textContent = 'Setup in progress';
+
+                        setTimeout(function() {
+                            window.location.assign(redirectTarget);
+                        }, PENDING_REDIRECT_DELAY_MS);
+                        return;
+                    }
 
                     // Success - show message and redirect after a short delay
                     successMessage.style.display = 'block';

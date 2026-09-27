@@ -20,6 +20,7 @@ import json
 import subprocess
 import re
 import time
+import threading
 import signal
 import logging
 import secrets
@@ -1396,9 +1397,90 @@ def setup_data():
         logger.warning(f"Could not read SSID suffix: {e}")
     return jsonify({'networks': networks, 'ssid_suffix': ssid_suffix_val, 'ssid': ssid_val})
 
+def _hotspot_active():
+    """True when the setup AP is up, i.e. a portal client may be connected through it."""
+    try:
+        return subprocess.run(
+            ['systemctl', 'is-active', '--quiet', 'hostapd-setup.service'],
+            timeout=5
+        ).returncode == 0
+    except Exception as e:
+        logger.debug(f"Could not query hostapd-setup.service state: {e}")
+        return False
+
+# One configure attempt at a time: a second submit while the first is still joining
+# WiFi would race it for the same radio and NetworkManager profile.
+_configure_lock = threading.Lock()
+
+def _start_background_configure(ssid, password, pairing_code, connection_uuid, require_pairing, hub_state):
+    """Answer /api/configure now, then run _connect_and_pair() in a background thread."""
+    if not _configure_lock.acquire(blocking=False):
+        return jsonify({'error': 'Setup is already in progress. Please wait.'}), 409
+
+    def run():
+        try:
+            # Let the response reach the client before the hotspot goes down
+            # (_connect_and_pair waits a further 2s for the driver before stopping it).
+            time.sleep(1)
+            with app.app_context():
+                result = _connect_and_pair(
+                    ssid, password, pairing_code, connection_uuid, require_pairing, hub_state,
+                    want_json=True
+                )
+            status_code = result[1] if isinstance(result, tuple) else 200
+            logger.info(f"[CONFIGURE-BG] Finished with status {status_code}")
+        except Exception as e:
+            logger.error(f"[CONFIGURE-BG] Unexpected failure: {e}", exc_info=True)
+        finally:
+            _configure_lock.release()
+
+    try:
+        threading.Thread(target=run, name='configure-bg', daemon=True).start()
+    except Exception:
+        _configure_lock.release()
+        raise
+
+    redirect_metadata = _build_redirect_metadata()
+    message = (
+        f'Settings saved. The setup hotspot will now close and the device will join "{ssid}". '
+        'Reconnect this phone to your usual network to continue.'
+    )
+    if request.is_json:
+        return jsonify({
+            'status': 'pending',
+            'message': message,
+            'ssid': ssid,
+            'pairing_required': require_pairing,
+            **redirect_metadata,
+        }), 202
+    portal = html_escape(redirect_metadata['redirect_url'])
+    return f'''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Setup In Progress</title>
+        <style>
+            body {{ font-family: -apple-system, sans-serif; text-align: center; padding: 50px; background: #0d1f1b; color: #e8f4f2; }}
+            .success {{ color: #72ddd4; font-size: 24px; margin-bottom: 16px; }}
+            a {{ color: #00a9a7; }}
+        </style>
+    </head>
+    <body>
+        <div class="success">Settings saved</div>
+        <p>{html_escape(message)}</p>
+        <p style="margin-top: 24px;">Then open <a href="{portal}">{portal}</a>.</p>
+    </body>
+    </html>
+    ''', 202
+
 @app.route('/api/configure', methods=['POST'])
 def configure():
     """Configure WiFi connection"""
+    if _configure_lock.locked():
+        # A background attempt (see _start_background_configure) still owns the radio.
+        return jsonify({'error': 'Setup is already in progress. Please wait.'}), 409
     try:
         # Accept both JSON and form-encoded data
         if request.is_json:
@@ -1471,6 +1553,39 @@ def configure():
         # The network monitor runs independently and starts hotspot if no connectivity detected
         # Setup is complete when WiFi connection is active, not when the flag is written
         
+        want_json = request.is_json
+        if _hotspot_active():
+            # The client reached this form over the setup hotspot, and the radio serving
+            # that hotspot is the one about to join the user's WiFi. Anything done
+            # synchronously from here stops the hotspot before the response is written,
+            # so the client only ever sees a dropped connection. Answer first; finish
+            # (WiFi join, cloud pairing, Hub hand-off) in the background. A failure is
+            # recorded for /api/status (last_pairing_error) and shown on the next visit.
+            return _start_background_configure(
+                ssid, password, pairing_code, connection_uuid, require_pairing, hub_state
+            )
+        return _connect_and_pair(
+            ssid, password, pairing_code, connection_uuid, require_pairing, hub_state, want_json
+        )
+    except Exception as e:
+        logger.error(f"Configuration error: {e}", exc_info=True)
+        try:
+            start_hotspot_services()  # Restore hotspot so user can retry
+        except Exception as hotspot_err:
+            logger.warning(
+                "Failed to restore hotspot services after configuration error: %s",
+                hotspot_err, exc_info=True
+            )
+        return jsonify({'error': 'Internal server error'}), 500
+
+def _connect_and_pair(ssid, password, pairing_code, connection_uuid, require_pairing, hub_state, want_json):
+    """Stop the hotspot, join the configured WiFi, and pair with the cloud.
+
+    Returns the Flask response for /api/configure. Runs inline when the client is not
+    on the setup hotspot (it reached the portal over the LAN), and in a background
+    thread -- whose return value nobody reads -- when it is; see configure().
+    """
+    try:
         # Stop hotspot services - allow time for driver to release AP mode
         time.sleep(2)
         stop_hotspot_services()
@@ -1512,6 +1627,10 @@ def configure():
                 if password:
                     # Password was provided but NM still reports missing credentials - tell user
                     logger.warning("Selected WiFi network requires additional credentials that were not provided")
+                    record_pairing_failure(
+                        'WIFI_CREDENTIALS',
+                        f'WiFi network "{ssid}" rejected the credentials. Re-enter the WiFi details and try again.'
+                    )
                     return jsonify({
                         'error': 'Selected WiFi network requires credentials that were not provided. Please re-enter WiFi details and try again.'
                     }), 400
@@ -1564,7 +1683,7 @@ def configure():
             logger.warning("Internet connectivity not available within registration window. Cloud registration skipped.")
             # Setup may still be converging; cloud registration can happen later.
             # The device will work on local network, cloud registration can happen later
-            if request.is_json:
+            if want_json:
                 return jsonify({
                     'status': 'success',
                     'message': 'WiFi configuration submitted. Internet connectivity not yet available.',
@@ -1594,7 +1713,7 @@ def configure():
         
         if not require_pairing:
             logger.info("Internet connectivity confirmed. Hub already registered (or not running), skipping pairing workflow.")
-            if request.is_json:
+            if want_json:
                 return jsonify({
                     'status': 'success',
                     'message': 'WiFi configured successfully',
@@ -1633,7 +1752,8 @@ def configure():
                 logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
                 # Keep WiFi connected. Registration can be retried without forcing users back to AP mode.
                 error_msg = 'Failed to validate pairing code with cloud service. Device stayed connected; please verify pairing code and retry.'
-                if request.is_json:
+                record_pairing_failure('CLOUD_VALIDATION_FAILED', 'CI Portal could not validate the pairing code. Check the code and try again.')
+                if want_json:
                     return jsonify({'error': error_msg, 'status': 'cloud_error', 'internet_available': True}), 500
                 else:
                     return f'''
@@ -1677,9 +1797,10 @@ def configure():
                         logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
                         logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
                         logger.info("[PAIRING VALIDATION] Pairing mismatch detected; keeping WiFi connected for retry")
+                        record_pairing_failure('PAIRING_MISMATCH', 'The pairing code did not match. Check the code and try again.')
 
                         # Return error response
-                        if request.is_json:
+                        if want_json:
                             return jsonify({
                                 'error': 'Pairing code does not match. Please try again.',
                                 'status': 'pairing_mismatch',
@@ -1793,7 +1914,7 @@ def configure():
         # re-entering network credentials. No redirect metadata: there is no device
         # domain to send anyone to.
         if pairing_failure:
-            if request.is_json:
+            if want_json:
                 return jsonify({
                     'status': 'pairing_failed',
                     'code': pairing_failure['code'],
@@ -1822,7 +1943,7 @@ def configure():
             ''', 502
 
         # Return HTML response for form submissions, JSON for API calls
-        if request.is_json:
+        if want_json:
             return jsonify({
                 'status': 'success',
                 'message': 'WiFi configured successfully',
