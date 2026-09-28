@@ -17,13 +17,34 @@
       "size": 7
     },
     {
-      "path": "efi/BOOTX64.EFI",
+      "path": "efi/grubx64.efi",
       "kind": "bootloader",
-      "sha256": "2ae51aec19821f26c9e68a250f067ce569a3454302107efc48d4e3f2a48efe90",
-      "size": 3,
+      "sha256": "739a697b30834668d1664d1130c1ad94bb7a790fce323e3fe311f2db42187ad7",
+      "size": 14,
       "platforms": [
         "x86_64-uefi"
-      ]
+      ],
+      "bootloader_role": "grub"
+    },
+    {
+      "path": "efi/mmx64.efi",
+      "kind": "bootloader",
+      "sha256": "e91ebd84ab800126e5907640e569047f7a72fb74d9b7cc10111d61d5ece6ec83",
+      "size": 12,
+      "platforms": [
+        "x86_64-uefi"
+      ],
+      "bootloader_role": "mok-manager"
+    },
+    {
+      "path": "efi/shimx64.efi",
+      "kind": "bootloader",
+      "sha256": "f8a96b9f9c38f3705754d9e227a59fa2395e10ad891b72d66e4b451f62af07bc",
+      "size": 14,
+      "platforms": [
+        "x86_64-uefi"
+      ],
+      "bootloader_role": "shim"
     },
     {
       "path": "installers/macos-arm64/ci-stick-launcher.pkg",

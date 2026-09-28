@@ -68,7 +68,9 @@ enum Command {
     long_about = "Verify a bundle and write it to a stick image or a removable USB device.\n\n\
                   ERASES THE TARGET. Always run with --dry-run first and read the plan. \
                   A --device write requires --confirm <device node exactly as shown> (plus \
-                  --expect-serial when the device reports a serial). Devices must be \
+                  --expect-serial when the device reports a serial), and a bundle carrying \
+                  the unsigned development bootloader also needs --allow-unsigned-bootloader \
+                  (the Secure Boot chain, shim → Canonical GRUB, does not). Devices must be \
                   removable or USB-attached, with nothing mounted and no swap; the node is \
                   opened O_EXCL and its identity is re-checked right before the first write."
 )]
@@ -95,6 +97,10 @@ struct FlashArgs {
     /// DEVELOPMENT ONLY, --image only: accept an unsigned bundle.
     #[arg(long)]
     allow_unsigned: bool,
+    /// DEVELOPMENT ONLY: allow a --device write of a bundle whose bootloader is the unsigned
+    /// development GRUB (the stick then boots only with Secure Boot disabled).
+    #[arg(long)]
+    allow_unsigned_bootloader: bool,
     /// Print the plan and write nothing.
     #[arg(long)]
     dry_run: bool,
@@ -364,6 +370,7 @@ fn cmd_flash(a: FlashArgs) -> anyhow::Result<ExitCode> {
         confirm: a.confirm,
         expect_serial: a.expect_serial,
         work_dir: a.work_dir,
+        allow_unsigned_bootloader: a.allow_unsigned_bootloader,
     };
     let mut progress = if a.json {
         Progress::disabled()
