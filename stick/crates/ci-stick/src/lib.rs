@@ -18,13 +18,26 @@
 //! | `doctor`    | read-only host + device + bundle diagnostics                          |
 //! | `progress`  | TTY-only progress reporting                                            |
 //! | `timefmt`   | RFC 3339 timestamps without a date/time dependency                     |
+//! | `grubenv`   | GRUB environment block (the A/B slot pointer) encode/decode            |
+//! | `bootcfg`   | the stick's grub.cfg, rendered from the layout                         |
+//! | `gpt`       | `sgdisk` arguments from a plan; read-only GPT parser for read-back     |
+//! | `sparse`    | copy only a file's data extents (SEEK_DATA/SEEK_HOLE) to an offset     |
+//! | `target`    | image/device targets and the device safety rules (pure + sysfs)        |
+//! | `tools`     | running gdisk/dosfstools/exfatprogs/e2fsprogs/mtools                   |
+//! | `flash`     | verify -> plan -> build filesystems -> write -> read back              |
+//! | `slot`      | read/flip `active_slot` in the ESP's grubenv                           |
 //!
-//! Nothing in this crate writes to a block device. Filesystem writes are limited to
-//! `lock` (writes `bundle.json` into the staging directory it was pointed at) and the
-//! `dev` signing helpers (write key/signature files the caller names).
+//! Only `flash` and `slot set` write to a stick or stick image, and only after the checks
+//! in `target` pass. Other filesystem writes are limited to `lock` (writes `bundle.json`
+//! into the staging directory it was pointed at) and the `dev` signing helpers (write
+//! key/signature files the caller names).
 
+pub mod bootcfg;
 pub mod devices;
 pub mod doctor;
+pub mod flash;
+pub mod gpt;
+pub mod grubenv;
 pub mod hashing;
 pub mod host;
 pub mod layout;
@@ -35,5 +48,9 @@ pub mod paths;
 pub mod progress;
 pub mod signing;
 pub mod size;
+pub mod slot;
+pub mod sparse;
+pub mod target;
 pub mod timefmt;
+pub mod tools;
 pub mod verify;
