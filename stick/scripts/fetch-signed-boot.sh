@@ -20,8 +20,9 @@
 #        shimx64.efi <- /usr/lib/shim/shimx64.efi.signed.latest
 #          (shim 15.8, SBAT "shim,4", Microsoft-signed. NOT .signed.previous: that is shim
 #          15.4, SBAT "shim,1", which current SBAT revocations — shipped by Windows updates
-#          and by shim 15.8 itself — reject. Not .dualsigned either: it adds a Canonical
-#          signature we do not need and that some firmware mishandles.)
+#          and by shim 15.8 itself — reject. Not .dualsigned either: the same shim with an
+#          extra Canonical signature, which nothing checks — firmware verifies shim
+#          against the Microsoft signature.)
 #        grubx64.efi <- /usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed
 #          (the monolithic *disk* image, prefix /EFI/ubuntu, no embedded config. NOT
 #          gcdx64.efi.signed: the CD image's embedded config searches for /.disk/info,
