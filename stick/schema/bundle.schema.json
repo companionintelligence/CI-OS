@@ -61,8 +61,16 @@
           "type": "array",
           "minItems": 1,
           "items": { "$ref": "#/$defs/platform" }
-        }
-      }
+        },
+        "bootloader_role": { "$ref": "#/$defs/bootloader_role" }
+      },
+      "if": { "properties": { "kind": { "const": "bootloader" } } },
+      "then": { "required": ["bootloader_role"] },
+      "else": { "not": { "required": ["bootloader_role"] } }
+    },
+    "bootloader_role": {
+      "description": "Bootloader artifacts only: the link of the boot chain, from the staging file name. Secure Boot chain = efi/shimx64.efi (shim) + efi/grubx64.efi (grub) + efi/mmx64.efi (mok-manager); development chain = efi/BOOTX64.EFI (standalone-grub, unsigned). A bundle carries exactly one complete chain.",
+      "enum": ["shim", "grub", "mok-manager", "standalone-grub"]
     },
     "model_pack": {
       "type": "object",

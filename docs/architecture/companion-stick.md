@@ -121,12 +121,14 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
   store symlinks and finding one means tampering. The canonical target must stay under the
   root. Sizes and streamed SHA-256 must match. Files the manifest doesn't list are
   reported as warnings.
-- **Bootloader.** `efi/BOOTX64.EFI` is an artifact of kind `bootloader` (platform
-  `x86_64-uefi`, taken from the UEFI file name), so the bootloader is covered by the same
-  signature as everything else.
-- **Planned trust extensions:** per-pack signatures, a signed update metadata chain with
-  rollback protection (TUF-style version and expiry), and Secure Boot shim signing for
-  boot images.
+- **Bootloader.** Bootloader binaries under `efi/` are artifacts of kind `bootloader`
+  (platform `x86_64-uefi`) with a `bootloader_role` taken from the file name:
+  `shimx64.efi` (`shim`), `grubx64.efi` (`grub`), `mmx64.efi` (`mok-manager`) form the
+  Secure Boot chain; `BOOTX64.EFI` (`standalone-grub`) is the unsigned development chain.
+  A bundle carries exactly one complete chain (see [Secure Boot](#secure-boot)). The
+  bootloader is covered by the same signature as everything else.
+- **Planned trust extensions:** per-pack signatures, and a signed update metadata chain
+  with rollback protection (TUF-style version and expiry).
 
 ## Host-install consent model
 
@@ -236,10 +238,12 @@ and swaps fixtures):
 - `--slot-b-from` writes unsigned content into a slot, so it is accepted with `--image`
   only (tests use it).
 
-**Boot chain and A/B.** `stick/scripts/build-grub-efi.sh` builds a standalone GRUB. Its
-embedded config finds the ESP it was loaded from (through `$cmdpath`, with a
-`search --label CI-EFI` fallback) and runs `configfile` on `ci-stick/grub.cfg`. `flash`
-renders that file from a template in the crate, and the slot partition numbers come from
+**Boot chain and A/B.** Real sticks boot through shim and Canonical's signed GRUB (see
+[Secure Boot](#secure-boot)). For development and CI, `stick/scripts/build-grub-efi.sh`
+builds an unsigned standalone GRUB instead. Its embedded config finds the ESP it was
+loaded from (through `$cmdpath`, with a `search --label CI-EFI` fallback) and runs
+`configfile` on `ci-stick/grub.cfg`. Both chains read the same `grub.cfg`, which `flash`
+renders from a template in the crate; the slot partition numbers come from
 `layout.rs`. The config derives the disk from `$cmdpath` rather than assuming `hd0`,
 runs `load_env` on `ci-stick/grubenv`, and offers the active slot first and the other
 slot as a fallback:
@@ -279,8 +283,8 @@ share it.
 
 **Known limitations** (next slices):
 
-- **No Secure Boot.** `BOOTX64.EFI` is not signed, so Secure Boot has to be disabled.
-  Booting through a Microsoft-signed shim and a signed GRUB is an explicit follow-up.
+- Secure Boot works through shim for Ubuntu images; see its own limitations under
+  [Secure Boot](#secure-boot).
 - `CI-SHARED` and `CI-CACHE` are formatted empty. Populating them (launchers, docs, OCI
   images and models) is slice 4. exFAT can't be written without root or mounting, so
   there is no README yet either.
@@ -291,6 +295,145 @@ share it.
   run on real hardware.
 - Replacing grubenv with mtools is not an atomic update. The signed A/B updater (slice 5)
   owns atomic pointer flips and rollback.
+
+## Secure Boot
+
+Companion Stick boots on PCs with UEFI Secure Boot **enabled**, through the same signed
+chain Ubuntu's own install media uses. We add no keys of our own and need no MOK
+enrollment for Ubuntu images.
+
+```
+firmware db (Microsoft Corporation UEFI CA 2011)
+  -> EFI/BOOT/BOOTX64.EFI   shim 15.8, Microsoft-signed        (shim-signed)
+  -> EFI/BOOT/grubx64.efi   GRUB 2.12, Canonical-signed        (grub-efi-amd64-signed)
+  -> /casper/vmlinuz        Canonical-signed kernel, inside the boot slot's ISO
+     EFI/BOOT/mmx64.efi     MokManager, Canonical-signed, for recovery only
+```
+
+shim trusts GRUB and the kernel through the Canonical CA certificate embedded in it
+(`.vendor_cert`). GRUB asks shim to verify the kernel before `linux` loads it; the
+initrd is not verified (as in stock Ubuntu). With Secure Boot on, the kernel runs in
+lockdown (integrity) mode.
+
+**Where the binaries come from** (`stick/scripts/fetch-signed-boot.sh <out-dir>`):
+
+1. `apt-get download shim-signed grub-efi-amd64-signed` on Ubuntu 24.04 (in a container
+   elsewhere). apt accepts a `.deb` only if its hash matches the Packages index, which the
+   archive's signed `InRelease` authenticates. Nothing is fetched outside apt.
+2. `dpkg-deb -x`, then:
+   - `shimx64.efi` is `/usr/lib/shim/shimx64.efi.signed.latest`, shim 15.8 with SBAT
+     `shim,4`. We don't use `.signed.previous`: that is shim 15.4 (`shim,1`), which the
+     SBAT revocations shipped by Windows updates and by shim 15.8 itself reject. We also
+     skip `.dualsigned`. It is the same shim with an extra Canonical signature, and only
+     firmware ever checks shim, against the Microsoft signature.
+   - `grubx64.efi` is `/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed`. That is the
+     *disk* image; `gcdx64.efi.signed` is the CD image, see below.
+   - `mmx64.efi` is `/usr/lib/shim/mmx64.efi`.
+   - `fbx64.efi` (shim's fallback loader) is deliberately left out. shim would run it
+     from a removable path, and it writes boot entries into the host's NVRAM.
+3. `sbverify --list`: shim must be signed via *Microsoft Corporation UEFI CA 2011*, and
+   GRUB and MokManager by *Canonical Ltd. Secure Boot Signing*.
+4. `sbverify --cert`: GRUB and MokManager must verify cryptographically against the
+   Canonical CA extracted from that shim's `.vendor_cert`, which is the check shim itself
+   makes at boot. The CA is written out as `canonical-uefi-ca.pem`, and the Mac harness
+   checks its test kernel against it the same way.
+5. `signed-boot.lock` records the package versions, the `.deb` sha256s, each binary's
+   sha256, source path and SBAT generation. `--expect <lock>` re-fetches the same versions
+   and fails on any hash difference.
+
+As of this writing: `shim-signed 1.58+15.8-0ubuntu1` and
+`grub-efi-amd64-signed 1.202.5+2.12-1ubuntu7.3` (grub2 `2.12-1ubuntu7.3`, SBAT `grub,5`).
+
+**How Canonical's signed GRUB finds its config.** We read this out of the image (its
+`mods` section) and confirmed it by booting under OVMF, rather than assuming it:
+
+- `grubx64.efi.signed` is monolithic. It has an embedded prefix of `/EFI/ubuntu`, **no**
+  embedded config, and a memdisk that holds only `fonts/unicode.pf2`. It contains 124
+  built-in modules, including everything our config uses: `part_gpt fat iso9660 ext2
+  regexp loadenv test echo linux search search_label configfile normal sleep`. Under
+  Secure Boot it cannot load modules from disk. The template's `insmod` lines are no-ops
+  for built-ins, and a unit test keeps them inside that list and inside
+  `build-grub-efi.sh`'s module list.
+- Ubuntu's `normal` module loads `$fw_path/grub.cfg` first (the directory GRUB was loaded
+  from, `EFI/BOOT/`), then `$prefix/grub.cfg` (`EFI/ubuntu/grub.cfg` on the same ESP), and
+  otherwise drops to a `grub>` shell. Booting with different menu titles in each copy
+  showed `EFI/BOOT` wins when both exist, `EFI/ubuntu` is used when it is the only copy,
+  and with neither the result is the shell.
+- The `/.disk/info` search belongs to `gcdx64.efi.signed`, the CD image, whose memdisk
+  config is `search --file /.disk/info` and then `$prefix/grub.cfg`. Every boot slot's
+  Ubuntu ISO contains `/.disk/info`, so that image could load an arbitrary slot's own
+  `grub.cfg`. We never ship it.
+- `flash` therefore writes the rendered `grub.cfg` to both `EFI/BOOT/grub.cfg` and
+  `EFI/ubuntu/grub.cfg`. The development chain keeps reading `ci-stick/grub.cfg`. It is
+  one template for both chains, and nothing in it needed changing for lockdown: `$cmdpath`
+  disk detection, `load_env` of `ci-stick/grubenv` and `linux`/`initrd` from the slot's
+  ISO all work under Canonical GRUB with Secure Boot on.
+
+**Bundles, flashing and policy.** `ci-stick lock` records a chain from the staging
+tree's `efi/` directory: `shimx64.efi` + `grubx64.efi` + `mmx64.efi` (Secure Boot), or
+`BOOTX64.EFI` (development). It refuses both chains at once, an incomplete Secure Boot
+chain, and unknown names. `verify` and `doctor --bundle` print `Boot  Secure Boot:
+supported (shim → Canonical GRUB)`, or `Secure Boot: NOT supported (unsigned development
+GRUB) — disable Secure Boot to boot this stick`, and `flash` prints the same line in its
+plan. The ESP gets:
+
+| chain       | ESP files                                                                                                      |
+|-------------|----------------------------------------------------------------------------------------------------------------|
+| Secure Boot | `EFI/BOOT/BOOTX64.EFI` (= shim), `EFI/BOOT/grubx64.efi`, `EFI/BOOT/mmx64.efi`, `EFI/BOOT/grub.cfg`, `EFI/ubuntu/grub.cfg`, `ci-stick/grubenv` |
+| development | `EFI/BOOT/BOOTX64.EFI` (standalone GRUB), `ci-stick/grub.cfg`, `ci-stick/grubenv`                              |
+
+`flash --device` with the development chain is refused unless you pass
+`--allow-unsigned-bootloader`. With the flag, the plan carries a loud warning banner.
+`--image` targets accept either chain without a flag, and the CI QEMU harness
+(`stick/tests/qemu/run.sh`) still uses the development chain, so CI is unchanged.
+
+**Testing it on a Mac** (local only; no GitHub workflow runs Secure Boot tests):
+
+```bash
+brew install --cask docker && open -a Docker     # once; wait until it is running
+brew install qemu
+stick/tests/secureboot/run-on-mac.sh
+```
+
+The build runs in `ubuntu:24.04` (linux/amd64) under Docker. It fetches the signed chain,
+builds a test boot image with a Canonical-signed kernel and a busybox init that prints
+`CI-STICK-SB secureboot=<0|1> slot=A cmdline_slot=A`, and flashes a signed and an
+unsigned 64 GB stick. Only small qcow2 conversions leave the container. It also copies
+Ubuntu's OVMF out: the Secure Boot build with Microsoft keys enrolled, and the plain
+build. The boots then run on the Mac under Homebrew QEMU (HVF on Intel, TCG on Apple
+Silicon), with the stick as a USB disk:
+
+- **A.** Secure Boot on, signed chain. It boots with `secureboot=1`, slot A, boot count 1,
+  and again with boot count 2.
+- **B.** Secure Boot on, unsigned chain. The kernel is never reached, because the firmware
+  reports `Access Denied`.
+- **C.** Secure Boot off, signed chain. It boots with `secureboot=0`.
+
+`--iso <ubuntu-or-CI-OS.iso>` builds a signed stick with that ISO in slot A and boots it
+in a window with Secure Boot on, so you can check `mokutil --sb-state` and casper
+persistence by hand. It needs about 8 GB free and is slow under TCG. The script also
+runs on Linux: on an Ubuntu 24.04 host it builds without Docker.
+
+**Limitations.**
+
+- **Intel Macs with a T2 chip** don't trust the Microsoft UEFI CA 2011 that signs shim.
+  Apple's firmware trusts only Apple and the *Microsoft Windows Production CA 2011*
+  ([Apple Platform Security: boot process for an Intel-based Mac](https://support.apple.com/guide/security/sec5d0fab7c6/web)).
+  At Full or Medium Security the stick won't boot. Set Startup Security Utility to
+  **No Security** and allow booting from external media. Pre-T2 Intel Macs have no UEFI
+  Secure Boot and boot the stick as they are.
+- **Apple Silicon Macs** can't boot x86_64 sticks at all. The Mac harness *emulates* a PC
+  there.
+- **Kernels must be Canonical-signed.** Stock Ubuntu ISOs are fine. A future CI-OS image
+  with a custom or rebuilt kernel (or custom kernel modules) won't boot under Secure Boot
+  through this shim. It will need a Canonical-signed kernel, our own MOK (a key enrolled
+  by the user through MokManager on first boot), or our own shim through the shim-review
+  process with Microsoft signing. Unsigned kernel modules are also refused under lockdown.
+- SBAT and dbx revocations can retire today's shim or GRUB. Re-run
+  `fetch-signed-boot.sh` to pick up Ubuntu's updates. The lock file shows what a bundle
+  shipped.
+- Only x86_64. arm64 sticks (`shimaa64.efi`) come later.
+- Tested under OVMF (QEMU) with Microsoft's keys, not yet on physical PCs.
 
 ## Delivery sequence
 

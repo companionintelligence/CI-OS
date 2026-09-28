@@ -49,11 +49,11 @@ pub fn capabilities(os: &str, arch: &str) -> HostCapabilities {
         ),
         ("macos", "x86_64") => (
             yes("macOS on Intel"),
-            yes("Intel Mac, UEFI; T2 Macs need external boot allowed in Startup Security Utility"),
+            yes("Intel Mac, UEFI; T2 Macs need Secure Boot set to No Security and external boot allowed in Startup Security Utility (Apple does not trust the Microsoft UEFI CA that signs shim)"),
         ),
         ("windows", "x86_64") => (
             yes("Windows x86_64"),
-            yes("x86_64 UEFI (Secure Boot may need to be disabled until images are shim-signed)"),
+            yes("x86_64 UEFI; Secure Boot works with the signed chain (shim → Canonical GRUB)"),
         ),
         ("windows", "aarch64") => (
             no("Windows on ARM is not supported yet"),

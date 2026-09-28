@@ -53,6 +53,9 @@ pub struct Artifact {
     /// Host platforms this artifact is for; absent means platform-independent.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platforms: Option<Vec<Platform>>,
+    /// Bootloader artifacts only (required there): which link of the boot chain this is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bootloader_role: Option<BootloaderRole>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -64,7 +67,8 @@ pub enum ArtifactKind {
     ModelBlob,
     Doc,
     Tool,
-    /// A UEFI bootloader binary (e.g. `efi/BOOTX64.EFI`) that `flash` installs into the ESP.
+    /// A UEFI bootloader binary (`efi/shimx64.efi`, `efi/BOOTX64.EFI`, ...) that `flash`
+    /// installs into the ESP. Its [`BootloaderRole`] says which link of which chain it is.
     Bootloader,
 }
 
@@ -106,6 +110,166 @@ impl ArtifactKind {
             Self::Tool => "tool",
             Self::Bootloader => "bootloader",
         }
+    }
+}
+
+/// One link of a boot chain. The staging file name under `efi/` decides it (see
+/// [`BootloaderRole::from_file_name`]); `flash` decides where on the ESP it goes
+/// ([`crate::bootcfg::esp_binaries`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BootloaderRole {
+    /// `shimx64.efi`: Microsoft-signed shim (Ubuntu `shim-signed`). Secure chain.
+    Shim,
+    /// `grubx64.efi`: Canonical-signed monolithic GRUB (`grub-efi-amd64-signed`). Secure chain.
+    Grub,
+    /// `mmx64.efi`: MokManager, Canonical-signed, shipped for recovery. Secure chain.
+    MokManager,
+    /// `BOOTX64.EFI`: unsigned standalone GRUB from `stick/scripts/build-grub-efi.sh`.
+    /// Development chain: firmware with Secure Boot enabled refuses it.
+    StandaloneGrub,
+}
+
+impl BootloaderRole {
+    pub const ALL: [BootloaderRole; 4] = [
+        Self::Shim,
+        Self::Grub,
+        Self::MokManager,
+        Self::StandaloneGrub,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Shim => "shim",
+            Self::Grub => "grub",
+            Self::MokManager => "mok-manager",
+            Self::StandaloneGrub => "standalone-grub",
+        }
+    }
+
+    /// The (case-sensitive) staging file name under `efi/`.
+    pub fn file_name(self) -> &'static str {
+        match self {
+            Self::Shim => "shimx64.efi",
+            Self::Grub => "grubx64.efi",
+            Self::MokManager => "mmx64.efi",
+            Self::StandaloneGrub => "BOOTX64.EFI",
+        }
+    }
+
+    pub fn from_file_name(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|r| r.file_name() == name)
+    }
+
+    /// Every role is an x86_64 UEFI binary today.
+    pub fn platform(self) -> Platform {
+        Platform::X86_64Uefi
+    }
+
+    pub fn chain(self) -> BootChain {
+        match self {
+            Self::Shim | Self::Grub | Self::MokManager => BootChain::Secure,
+            Self::StandaloneGrub => BootChain::Development,
+        }
+    }
+}
+
+impl fmt::Display for BootloaderRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Which boot chain a bundle carries: exactly one, or none (a bundle without a bootloader
+/// can be verified but not flashed).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BootChain {
+    /// Firmware db (Microsoft UEFI CA) -> shim -> Canonical GRUB -> Canonical-signed kernel.
+    Secure,
+    /// Unsigned standalone GRUB: boots only with Secure Boot disabled.
+    Development,
+}
+
+impl BootChain {
+    pub fn roles(self) -> &'static [BootloaderRole] {
+        match self {
+            Self::Secure => &[
+                BootloaderRole::Shim,
+                BootloaderRole::Grub,
+                BootloaderRole::MokManager,
+            ],
+            Self::Development => &[BootloaderRole::StandaloneGrub],
+        }
+    }
+
+    /// The one-line Secure Boot statement shown by `flash` (plan), `verify` and `doctor`.
+    pub fn secure_boot_line(self) -> &'static str {
+        match self {
+            Self::Secure => "Secure Boot: supported (shim → Canonical GRUB)",
+            Self::Development => {
+                "Secure Boot: NOT supported (unsigned development GRUB) — disable Secure Boot \
+                 to boot this stick"
+            }
+        }
+    }
+
+    /// The staging files that make up this chain, e.g. `efi/shimx64.efi + ...`.
+    pub fn staged_files(self) -> String {
+        self.roles()
+            .iter()
+            .map(|r| format!("efi/{}", r.file_name()))
+            .collect::<Vec<_>>()
+            .join(" + ")
+    }
+}
+
+/// Work out which boot chain `artifacts` carry. `Err` explains why they are not exactly one
+/// complete chain (both chains, an incomplete secure chain, a duplicated role).
+pub fn detect_boot_chain(artifacts: &[Artifact]) -> Result<Option<BootChain>, String> {
+    let mut seen: Vec<BootloaderRole> = Vec::new();
+    for a in artifacts
+        .iter()
+        .filter(|a| a.kind == ArtifactKind::Bootloader)
+    {
+        let Some(role) = a.bootloader_role else {
+            return Err(format!("bootloader {:?} has no bootloader_role", a.path));
+        };
+        if seen.contains(&role) {
+            return Err(format!(
+                "more than one {role} bootloader (another besides {:?}); a bundle carries one boot chain",
+                a.path
+            ));
+        }
+        seen.push(role);
+    }
+    let has = |c: BootChain| seen.iter().any(|r| r.chain() == c);
+    match (has(BootChain::Secure), has(BootChain::Development)) {
+        (false, false) => Ok(None),
+        (true, true) => Err(format!(
+            "the bundle carries both the Secure Boot chain ({}) and the development chain ({}); \
+             stage exactly one",
+            BootChain::Secure.staged_files(),
+            BootChain::Development.staged_files()
+        )),
+        (true, false) => {
+            let missing: Vec<String> = BootChain::Secure
+                .roles()
+                .iter()
+                .filter(|r| !seen.contains(r))
+                .map(|r| format!("efi/{}", r.file_name()))
+                .collect();
+            if missing.is_empty() {
+                Ok(Some(BootChain::Secure))
+            } else {
+                Err(format!(
+                    "incomplete Secure Boot chain: missing {} (the chain is {})",
+                    missing.join(", "),
+                    BootChain::Secure.staged_files()
+                ))
+            }
+        }
+        (false, true) => Ok(Some(BootChain::Development)),
     }
 }
 
@@ -293,6 +457,18 @@ impl Bundle {
         Self::parse(&bytes).with_context(|| format!("parsing {}", path.display()))
     }
 
+    /// The boot chain this bundle carries (see [`detect_boot_chain`]).
+    pub fn boot_chain(&self) -> Result<Option<BootChain>, String> {
+        detect_boot_chain(&self.artifacts)
+    }
+
+    /// The bootloader artifact playing `role`, if any.
+    pub fn bootloader(&self, role: BootloaderRole) -> Option<&Artifact> {
+        self.artifacts
+            .iter()
+            .find(|a| a.kind == ArtifactKind::Bootloader && a.bootloader_role == Some(role))
+    }
+
     /// Stable serialisation: the exact bytes that get signed.
     pub fn to_canonical_json(&self) -> Vec<u8> {
         // Invariant, not a user-reachable failure: these types contain only strings,
@@ -355,12 +531,29 @@ impl Bundle {
                         a.path
                     ));
                 }
-            } else if firmware > 0 {
-                problems.push(format!(
-                    "artifact {:?}: firmware platforms are only valid on bootloader artifacts",
-                    a.path
-                ));
+                if a.bootloader_role.is_none() {
+                    problems.push(format!(
+                        "artifact {:?}: a bootloader must have a bootloader_role",
+                        a.path
+                    ));
+                }
+            } else {
+                if firmware > 0 {
+                    problems.push(format!(
+                        "artifact {:?}: firmware platforms are only valid on bootloader artifacts",
+                        a.path
+                    ));
+                }
+                if a.bootloader_role.is_some() {
+                    problems.push(format!(
+                        "artifact {:?}: bootloader_role is only valid on bootloader artifacts",
+                        a.path
+                    ));
+                }
             }
+        }
+        if let Err(e) = detect_boot_chain(&self.artifacts) {
+            problems.push(e);
         }
         problems.extend(validate_packs(&self.model_packs));
         if let Err(e) = self.layout.check_consistency() {
@@ -387,6 +580,7 @@ mod tests {
                 sha256: crate::hashing::sha256_hex(b"x"),
                 size: 1,
                 platforms: Some(vec![Platform::LinuxX86_64]),
+                bootloader_role: None,
             }],
             model_packs: vec![ModelPack {
                 name: "starter".into(),
@@ -468,6 +662,7 @@ mod tests {
             sha256: crate::hashing::sha256_hex(b"efi"),
             size: 3,
             platforms: Some(vec![Platform::X86_64Uefi]),
+            bootloader_role: Some(BootloaderRole::StandaloneGrub),
         });
         assert!(b.validate().is_empty(), "{:?}", b.validate());
         b.artifacts[1].platforms = Some(vec![Platform::LinuxX86_64]);
@@ -478,6 +673,94 @@ mod tests {
         b.artifacts[0].platforms = None;
         b.model_packs[0].models[0].platforms = vec![Platform::X86_64Uefi];
         assert!(b.validate().join("\n").contains("firmware platform"));
+    }
+
+    fn loader(role: BootloaderRole) -> Artifact {
+        Artifact {
+            path: format!("efi/{}", role.file_name()),
+            kind: ArtifactKind::Bootloader,
+            sha256: crate::hashing::sha256_hex(role.file_name().as_bytes()),
+            size: 3,
+            platforms: Some(vec![Platform::X86_64Uefi]),
+            bootloader_role: Some(role),
+        }
+    }
+
+    #[test]
+    fn detects_the_boot_chain() {
+        use BootloaderRole::*;
+        let chain = |roles: &[BootloaderRole]| {
+            detect_boot_chain(&roles.iter().map(|r| loader(*r)).collect::<Vec<_>>())
+        };
+        assert_eq!(chain(&[]), Ok(None));
+        assert_eq!(chain(&[StandaloneGrub]), Ok(Some(BootChain::Development)));
+        assert_eq!(
+            chain(&[Shim, Grub, MokManager]),
+            Ok(Some(BootChain::Secure))
+        );
+        assert_eq!(
+            chain(&[MokManager, Shim, Grub]),
+            Ok(Some(BootChain::Secure)),
+            "order does not matter"
+        );
+        let both = chain(&[Shim, Grub, MokManager, StandaloneGrub]).unwrap_err();
+        assert!(both.contains("both the Secure Boot chain"), "{both}");
+        let partial = chain(&[Shim, Grub]).unwrap_err();
+        assert!(partial.contains("missing efi/mmx64.efi"), "{partial}");
+        let partial = chain(&[Grub]).unwrap_err();
+        assert!(
+            partial.contains("efi/shimx64.efi, efi/mmx64.efi"),
+            "{partial}"
+        );
+        assert!(chain(&[StandaloneGrub, StandaloneGrub])
+            .unwrap_err()
+            .contains("more than one standalone-grub"));
+
+        // Bundle::validate reports the same problems, and role and kind must agree.
+        let mut b = sample();
+        b.artifacts
+            .extend([loader(Shim), loader(Grub), loader(MokManager)]);
+        assert!(b.validate().is_empty(), "{:?}", b.validate());
+        assert_eq!(b.boot_chain(), Ok(Some(BootChain::Secure)));
+        assert_eq!(b.bootloader(Grub).unwrap().path, "efi/grubx64.efi");
+        b.artifacts.push(loader(StandaloneGrub));
+        assert!(b
+            .validate()
+            .join("\n")
+            .contains("both the Secure Boot chain"));
+        b.artifacts.pop();
+        b.artifacts[1].bootloader_role = None;
+        assert!(b
+            .validate()
+            .join("\n")
+            .contains("must have a bootloader_role"));
+        b.artifacts[1].bootloader_role = Some(Shim);
+        b.artifacts[0].bootloader_role = Some(Grub);
+        assert!(b
+            .validate()
+            .join("\n")
+            .contains("bootloader_role is only valid on bootloader artifacts"));
+    }
+
+    #[test]
+    fn roles_map_to_file_names_and_chains() {
+        for r in BootloaderRole::ALL {
+            assert_eq!(BootloaderRole::from_file_name(r.file_name()), Some(r));
+            assert_eq!(
+                serde_json::to_string(&r).unwrap(),
+                format!("\"{}\"", r.as_str())
+            );
+            assert!(r.chain().roles().contains(&r));
+            assert_eq!(r.platform(), Platform::X86_64Uefi);
+        }
+        assert_eq!(BootloaderRole::from_file_name("bootx64.efi"), None);
+        assert_eq!(BootloaderRole::from_file_name("fbx64.efi"), None);
+        assert!(BootChain::Secure
+            .secure_boot_line()
+            .starts_with("Secure Boot: supported"));
+        assert!(BootChain::Development
+            .secure_boot_line()
+            .contains("NOT supported"));
     }
 
     #[test]

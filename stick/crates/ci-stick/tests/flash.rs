@@ -53,6 +53,11 @@ fn tools_present() -> bool {
 
 /// A signed bundle with a fake boot image and a fake bootloader.
 fn bundle(dir: &Path) -> (PathBuf, PathBuf) {
+    bundle_with(dir, &["BOOTX64.EFI"])
+}
+
+/// A signed bundle whose efi/ holds these files (each "MZ <name>").
+fn bundle_with(dir: &Path, efi: &[&str]) -> (PathBuf, PathBuf) {
     let stage = dir.join("stage");
     fs::create_dir_all(stage.join("boot")).unwrap();
     fs::create_dir_all(stage.join("efi")).unwrap();
@@ -60,7 +65,9 @@ fn bundle(dir: &Path) -> (PathBuf, PathBuf) {
     iso[..5].copy_from_slice(b"CD001");
     iso[(2 << 20) + 7] = 0x5A;
     fs::write(stage.join("boot/test.iso"), &iso).unwrap();
-    fs::write(stage.join("efi/BOOTX64.EFI"), b"MZ fake bootloader").unwrap();
+    for f in efi {
+        fs::write(stage.join("efi").join(f), format!("MZ {f}")).unwrap();
+    }
     ok(&ci_stick(&[
         "lock",
         p(&stage),
@@ -271,6 +278,122 @@ fn refuses_tampered_bundle_and_unsafe_targets() {
         "64GB",
     ]);
     assert_eq!(o.status.code(), Some(2));
+}
+
+/// Read one file out of the image's ESP with mtools (None when it does not exist).
+fn esp_file(img: &Path, esp_offset: u64, path: &str, out: &Path) -> Option<Vec<u8>> {
+    let _ = fs::remove_file(out);
+    let st = Command::new("mcopy")
+        .env("MTOOLS_SKIP_CHECK", "1")
+        .env("MTOOLSRC", "/dev/null")
+        .args([
+            "-n",
+            "-i",
+            &format!("{}@@{esp_offset}", p(img)),
+            &format!("::/{path}"),
+            p(out),
+        ])
+        .output()
+        .expect("mcopy");
+    st.status.success().then(|| fs::read(out).unwrap())
+}
+
+#[test]
+fn secure_chain_goes_where_shim_and_canonical_grub_look() {
+    if !tools_present() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let (stage, pubkey) = bundle_with(tmp.path(), &["shimx64.efi", "grubx64.efi", "mmx64.efi"]);
+    let img = tmp.path().join("sb.img");
+    let base = [
+        "flash",
+        p(&stage),
+        "--pubkey",
+        p(&pubkey),
+        "--image",
+        p(&img),
+        "--size",
+        "64GB",
+    ];
+
+    let o = ci_stick(&[&base[..], &["--dry-run"]].concat());
+    ok(&o);
+    let plan = String::from_utf8_lossy(&o.stdout);
+    assert!(
+        plan.contains("Secure Boot: supported (shim → Canonical GRUB)"),
+        "{plan}"
+    );
+    let o = ci_stick(&["verify", p(&stage), "--pubkey", p(&pubkey)]);
+    ok(&o);
+    assert!(String::from_utf8_lossy(&o.stdout).contains("Secure Boot: supported"));
+
+    ok(&ci_stick(
+        &[&base[..], &["--work-dir", p(tmp.path())]].concat(),
+    ));
+    let esp = layout::plan(64_000_000_000)
+        .unwrap()
+        .partition(layout::PartitionRole::Esp)
+        .unwrap()
+        .start_bytes;
+    let out = tmp.path().join("out.bin");
+    let get = |path: &str| esp_file(&img, esp, path, &out);
+    assert_eq!(get("EFI/BOOT/BOOTX64.EFI").unwrap(), b"MZ shimx64.efi");
+    assert_eq!(get("EFI/BOOT/grubx64.efi").unwrap(), b"MZ grubx64.efi");
+    assert_eq!(get("EFI/BOOT/mmx64.efi").unwrap(), b"MZ mmx64.efi");
+    let cfg = get("EFI/BOOT/grub.cfg").unwrap();
+    assert!(String::from_utf8_lossy(&cfg).contains("load_env"));
+    assert_eq!(get("EFI/ubuntu/grub.cfg").unwrap(), cfg, "identical copies");
+    assert!(get("ci-stick/grubenv").is_some());
+    assert!(get("ci-stick/grub.cfg").is_none(), "no dev-chain config");
+    assert!(
+        get("EFI/BOOT/fbx64.efi").is_none(),
+        "never the fallback loader"
+    );
+
+    // The slot pointer works the same on a secure-chain stick.
+    ok(&ci_stick(&["slot", "set", "B", "--image", p(&img)]));
+    let o = ci_stick(&["slot", "show", "--image", p(&img)]);
+    assert!(String::from_utf8_lossy(&o.stdout).contains("active slot B"));
+}
+
+#[test]
+fn lock_refuses_both_chains_and_dev_chain_plan_says_so() {
+    let tmp = tempfile::tempdir().unwrap();
+    let stage = tmp.path().join("both");
+    fs::create_dir_all(stage.join("efi")).unwrap();
+    for f in ["shimx64.efi", "grubx64.efi", "mmx64.efi", "BOOTX64.EFI"] {
+        fs::write(stage.join("efi").join(f), b"MZ").unwrap();
+    }
+    let o = ci_stick(&[
+        "lock",
+        p(&stage),
+        "--id",
+        "x",
+        "--version",
+        "1",
+        "--size",
+        "64GB",
+    ]);
+    assert_eq!(o.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("both the Secure Boot chain"));
+
+    let (stage, pubkey) = bundle(&tmp.path().join("dev"));
+    let o = ci_stick(&[
+        "flash",
+        p(&stage),
+        "--pubkey",
+        p(&pubkey),
+        "--image",
+        p(&tmp.path().join("d.img")),
+        "--size",
+        "64GB",
+        "--dry-run",
+    ]);
+    ok(&o);
+    let plan = String::from_utf8_lossy(&o.stdout);
+    assert!(plan.contains("Secure Boot: NOT supported (unsigned development GRUB)"));
+    assert!(plan.contains("--allow-unsigned-bootloader"), "{plan}");
 }
 
 /// The full QEMU boot test (downloads an Ubuntu kernel, boots three VMs). Run with

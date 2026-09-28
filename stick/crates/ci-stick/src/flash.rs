@@ -6,7 +6,10 @@
 //! 1. **Verify** the bundle with [`crate::verify`] (signature required unless
 //!    `--allow-unsigned`, which is only accepted for `--image` targets).
 //! 2. **Plan**: resolve the target, compute the layout for its size, pick the boot image
-//!    and the bootloader from the manifest, check everything fits. `--dry-run` stops here.
+//!    and the boot chain from the manifest ([`BootChain`]: shim → Canonical GRUB, or the
+//!    unsigned development GRUB), apply the bootloader policy (an unsigned chain on a
+//!    `--device` needs `--allow-unsigned-bootloader`), check everything fits. `--dry-run`
+//!    stops here.
 //! 3. **Device checks** ([`crate::target`]): removable/USB candidate, nothing mounted, no
 //!    swap, no holders, `--confirm` equal to the node shown (and `--expect-serial` when
 //!    the device reports one).
@@ -34,7 +37,7 @@ use crate::gpt;
 use crate::grubenv::{self, GrubEnv, Slot};
 use crate::hashing::hash_file;
 use crate::layout::{self, Filesystem, LayoutPlan, Partition, PartitionRole};
-use crate::manifest::{Artifact, ArtifactKind, Bundle, Platform, BUNDLE_FILE};
+use crate::manifest::{Artifact, ArtifactKind, BootChain, BootloaderRole, Bundle, BUNDLE_FILE};
 use crate::progress::Progress;
 use crate::size::{fmt_binary, fmt_decimal, MIB};
 use crate::sparse;
@@ -78,7 +81,57 @@ pub struct FlashRequest {
     pub expect_serial: Option<String>,
     /// Where the sparse filesystem images are built (default: the system temp dir).
     pub work_dir: Option<PathBuf>,
+    /// `--allow-unsigned-bootloader`: accept the development (unsigned) boot chain for a
+    /// `--device` write. Image targets never need it.
+    pub allow_unsigned_bootloader: bool,
 }
+
+/// What the bootloader policy decided for a (chain, target) pair.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootloaderPolicy {
+    /// Secure chain: nothing to say.
+    Signed,
+    /// Development chain on an image file (tests, development): allowed, noted in the plan.
+    UnsignedImage,
+    /// Development chain on a real stick, explicitly allowed: loud warning.
+    UnsignedDeviceAllowed,
+}
+
+/// The bootloader policy. Pure, so it is unit-tested without a device.
+///
+/// A physical stick normally gets the Secure Boot chain. Writing the unsigned development
+/// GRUB to one produces a stick that boots only with Secure Boot disabled, so it takes an
+/// explicit `--allow-unsigned-bootloader`; image files (QEMU tests) are always allowed.
+pub fn bootloader_policy(
+    chain: BootChain,
+    is_device: bool,
+    allow_unsigned_bootloader: bool,
+) -> anyhow::Result<BootloaderPolicy> {
+    Ok(match (chain, is_device) {
+        (BootChain::Secure, _) => BootloaderPolicy::Signed,
+        (BootChain::Development, false) => BootloaderPolicy::UnsignedImage,
+        (BootChain::Development, true) if allow_unsigned_bootloader => {
+            BootloaderPolicy::UnsignedDeviceAllowed
+        }
+        (BootChain::Development, true) => bail!(
+            "this bundle carries the UNSIGNED development bootloader ({}), which boots only \
+             with Secure Boot disabled. Stage the Secure Boot chain ({}; see \
+             stick/scripts/fetch-signed-boot.sh) or, for a development stick, pass \
+             --allow-unsigned-bootloader",
+            BootChain::Development.staged_files(),
+            BootChain::Secure.staged_files()
+        ),
+    })
+}
+
+/// Banner printed (plan and stderr) when an unsigned bootloader goes onto a real stick.
+pub const UNSIGNED_DEVICE_WARNING: &str = "\
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!  WARNING: --allow-unsigned-bootloader — this stick gets the UNSIGNED         !!
+!!  development GRUB. It will NOT boot with Secure Boot enabled, and nothing    !!
+!!  verifies the boot chain. Use it for development sticks only.                !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+";
 
 /// Request-level rules that don't need to look at anything.
 pub fn validate_request(r: &FlashRequest) -> anyhow::Result<()> {
@@ -118,6 +171,14 @@ pub struct SourceFile {
     pub local: PathBuf,
 }
 
+/// A bootloader binary from the bundle and its ESP destination.
+#[derive(Debug, Clone, Serialize)]
+pub struct EspBinary {
+    pub role: BootloaderRole,
+    pub esp_path: String,
+    pub source: SourceFile,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "kebab-case", tag = "kind")]
 pub enum PlannedTarget {
@@ -155,7 +216,15 @@ pub struct FlashPlan {
     pub layout: LayoutPlan,
     pub partitions: Vec<PartitionContents>,
     pub boot_image: SourceFile,
-    pub bootloader: SourceFile,
+    pub boot_chain: BootChain,
+    /// [`BootChain::secure_boot_line`], for humans and JSON consumers alike.
+    pub secure_boot: String,
+    /// `--allow-unsigned-bootloader` on a real stick: the plan carries a loud warning.
+    pub unsigned_bootloader_on_device: bool,
+    /// Bootloader binaries and where each goes on the ESP.
+    pub bootloaders: Vec<EspBinary>,
+    /// ESP paths that receive the rendered grub.cfg.
+    pub grub_cfg: Vec<String>,
     pub slot_b: Option<SourceFile>,
     pub grubenv: Vec<(String, String)>,
     pub notes: Vec<String>,
@@ -247,23 +316,35 @@ pub fn plan(
         |a| a.kind == ArtifactKind::BootImage,
         req.boot_image.as_deref(),
     )?;
-    let loader = pick_one(
-        &bundle,
-        "x86_64 UEFI bootloader (efi/BOOTX64.EFI)",
-        |a| {
-            a.kind == ArtifactKind::Bootloader
-                && a.platforms
-                    .as_deref()
-                    .is_some_and(|p| p.contains(&Platform::X86_64Uefi))
-        },
-        None,
-    )?;
-    ensure!(
-        loader.size <= MAX_BOOTLOADER_BYTES,
-        "bootloader {} is {} — larger than any plausible BOOTX64.EFI",
-        loader.path,
-        fmt_binary(loader.size)
-    );
+    let chain = bundle
+        .boot_chain()
+        .map_err(anyhow::Error::msg)?
+        .with_context(|| {
+            format!(
+                "the bundle has no bootloader: stage the Secure Boot chain ({}, from \
+                 stick/scripts/fetch-signed-boot.sh) or the development chain ({}, from \
+                 stick/scripts/build-grub-efi.sh)",
+                BootChain::Secure.staged_files(),
+                BootChain::Development.staged_files()
+            )
+        })?;
+    let mut bootloaders = Vec::new();
+    for (role, esp_path) in bootcfg::esp_binaries(chain) {
+        let a = bundle
+            .bootloader(*role)
+            .with_context(|| format!("internal: {chain:?} chain without its {role}"))?;
+        ensure!(
+            a.size <= MAX_BOOTLOADER_BYTES,
+            "bootloader {} is {} — larger than any plausible EFI binary",
+            a.path,
+            fmt_binary(a.size)
+        );
+        bootloaders.push(EspBinary {
+            role: *role,
+            esp_path: (*esp_path).to_string(),
+            source: source(&root, a),
+        });
+    }
 
     let (planned_target, size_bytes, device) = match &req.target {
         TargetSpec::Image { path, size_bytes } => {
@@ -294,6 +375,8 @@ pub fn plan(
             )
         }
     };
+    // After the target checks, so a refused device is reported as such first.
+    let policy = bootloader_policy(chain, req.target.is_device(), req.allow_unsigned_bootloader)?;
     let layout = layout::plan(size_bytes)?;
     let slot_a = partition(&layout, PartitionRole::BootA)?;
     let slot_b = partition(&layout, PartitionRole::BootB)?;
@@ -339,40 +422,18 @@ pub fn plan(
     }
     let parts = BootPartitions::from_layout(&layout)?;
     let boot_src = source(&root, boot);
-    let loader_src = source(&root, loader);
+    let grub_cfg: Vec<String> = bootcfg::grub_cfg_paths(chain)
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let esp_contents = esp_contents(&bootloaders, &grub_cfg, parts, &env);
 
     let partitions = layout
         .partitions
         .iter()
         .map(|p| {
             let (fs_label, contents) = match p.role {
-                PartitionRole::Esp => (
-                    Some(p.label.clone()),
-                    vec![
-                        format!(
-                            "{} <- {} ({}, sha256 {})",
-                            bootcfg::ESP_BOOTLOADER,
-                            loader_src.path,
-                            fmt_binary(loader_src.size),
-                            short(&loader_src.sha256)
-                        ),
-                        format!(
-                            "{} (slot A = gpt{}, slot B = gpt{})",
-                            bootcfg::ESP_GRUB_CFG,
-                            parts.slot_a,
-                            parts.slot_b
-                        ),
-                        format!(
-                            "{} ({})",
-                            bootcfg::ESP_GRUBENV,
-                            env.vars()
-                                .iter()
-                                .map(|(k, v)| format!("{k}={v}"))
-                                .collect::<Vec<_>>()
-                                .join(" ")
-                        ),
-                    ],
-                ),
+                PartitionRole::Esp => (Some(p.label.clone()), esp_contents.clone()),
                 PartitionRole::Shared | PartitionRole::Cache => (
                     Some(p.label.clone()),
                     vec![
@@ -420,11 +481,23 @@ pub fn plan(
         })
         .collect();
 
-    let mut notes = vec![
-        "BOOTX64.EFI is a standalone GRUB that is NOT Secure Boot signed: disable Secure Boot \
-         to boot this stick (shim signing is a planned follow-up)."
-            .to_string(),
-    ];
+    let mut notes = Vec::new();
+    match policy {
+        BootloaderPolicy::Signed if req.allow_unsigned_bootloader => notes.push(
+            "--allow-unsigned-bootloader has no effect: the bundle carries the signed chain."
+                .to_string(),
+        ),
+        BootloaderPolicy::Signed => {}
+        BootloaderPolicy::UnsignedImage => notes.push(
+            "development boot chain (unsigned standalone GRUB) on an image file: fine for \
+             tests; a --device write would need --allow-unsigned-bootloader."
+                .to_string(),
+        ),
+        BootloaderPolicy::UnsignedDeviceAllowed => notes.push(
+            "UNSIGNED development bootloader written to a real stick (--allow-unsigned-bootloader)."
+                .to_string(),
+        ),
+    }
     if bundle.layout.device_bytes != size_bytes {
         notes.push(format!(
             "the bundle's recorded layout is for {}; this target is {}, so the plan above is \
@@ -448,7 +521,11 @@ pub fn plan(
         layout,
         partitions,
         boot_image: boot_src,
-        bootloader: loader_src,
+        boot_chain: chain,
+        secure_boot: chain.secure_boot_line().to_string(),
+        unsigned_bootloader_on_device: policy == BootloaderPolicy::UnsignedDeviceAllowed,
+        bootloaders,
+        grub_cfg,
         slot_b: slot_b_src,
         grubenv: env.vars().to_vec(),
         notes,
@@ -458,6 +535,44 @@ pub fn plan(
 
 fn short(sha: &str) -> &str {
     &sha[..sha.len().min(12)]
+}
+
+/// The ESP's "Contents" lines in the plan.
+fn esp_contents(
+    bootloaders: &[EspBinary],
+    grub_cfg: &[String],
+    parts: BootPartitions,
+    env: &GrubEnv,
+) -> Vec<String> {
+    let mut out: Vec<String> = bootloaders
+        .iter()
+        .map(|b| {
+            format!(
+                "{} <- {} [{}] ({}, sha256 {})",
+                b.esp_path,
+                b.source.path,
+                b.role,
+                fmt_binary(b.source.size),
+                short(&b.source.sha256)
+            )
+        })
+        .collect();
+    for cfg in grub_cfg {
+        out.push(format!(
+            "{cfg} (slot A = gpt{}, slot B = gpt{})",
+            parts.slot_a, parts.slot_b
+        ));
+    }
+    out.push(format!(
+        "{} ({})",
+        bootcfg::ESP_GRUBENV,
+        env.vars()
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    ));
+    out
 }
 
 /// Human-readable plan.
@@ -479,6 +594,10 @@ pub fn render_plan(p: &FlashPlan, dry_run: bool) -> String {
         "Bundle   {} {} — {sig}\n",
         p.bundle_id, p.bundle_version
     ));
+    out.push_str(&format!("Boot     {}\n", p.secure_boot));
+    if p.unsigned_bootloader_on_device {
+        out.push_str(UNSIGNED_DEVICE_WARNING);
+    }
     match &p.target {
         PlannedTarget::Image {
             path,
@@ -632,45 +751,55 @@ fn sparse_file(path: &Path, size: u64) -> anyhow::Result<()> {
 }
 
 fn populate_esp(p: &FlashPlan, esp: &Path, work: &Path) -> anyhow::Result<()> {
-    // Bootloader: read once, check against the (verified) manifest, then copy that buffer.
-    let bytes = fs::read(&p.bootloader.local)
-        .with_context(|| format!("reading {}", p.bootloader.local.display()))?;
-    ensure!(
-        crate::hashing::sha256_hex(&bytes) == p.bootloader.sha256,
-        "{} changed since it was verified — refusing",
-        p.bootloader.path
-    );
-    let efi = work.join("BOOTX64.EFI");
-    fs::write(&efi, &bytes)?;
+    // (local file, ESP path) pairs to copy.
+    let mut files: Vec<(PathBuf, String)> = Vec::new();
+    // Bootloaders: read once, check against the (verified) manifest, then copy that buffer.
+    for (i, b) in p.bootloaders.iter().enumerate() {
+        let bytes = fs::read(&b.source.local)
+            .with_context(|| format!("reading {}", b.source.local.display()))?;
+        ensure!(
+            crate::hashing::sha256_hex(&bytes) == b.source.sha256,
+            "{} changed since it was verified — refusing",
+            b.source.path
+        );
+        let local = work.join(format!("bootloader-{i}.efi"));
+        fs::write(&local, &bytes)?;
+        files.push((local, b.esp_path.clone()));
+    }
     let cfg = work.join("grub.cfg");
     fs::write(&cfg, bootcfg::render_grub_cfg(&p.layout)?)?;
+    for dst in &p.grub_cfg {
+        files.push((cfg.clone(), dst.clone()));
+    }
     let mut env = GrubEnv::new();
     for (k, v) in &p.grubenv {
         env.set(k, v)?;
     }
     let envf = work.join("grubenv");
     fs::write(&envf, env.encode()?)?;
+    files.push((envf, bootcfg::ESP_GRUBENV.to_string()));
 
     let i = esp.as_os_str();
-    tools::run(
-        "mmd",
-        [
-            "-i".as_ref(),
-            i,
-            "::/EFI".as_ref(),
-            "::/EFI/BOOT".as_ref(),
-            "::/ci-stick".as_ref(),
-        ],
-    )?;
-    for (src, dst) in [
-        (&efi, bootcfg::ESP_BOOTLOADER),
-        (&cfg, bootcfg::ESP_GRUB_CFG),
-        (&envf, bootcfg::ESP_GRUBENV),
-    ] {
+    let mut mmd: Vec<std::ffi::OsString> = vec!["-i".into(), i.into()];
+    mmd.extend(
+        bootcfg::esp_dirs(p.boot_chain)
+            .into_iter()
+            .map(|d| format!("::/{d}").into()),
+    );
+    tools::run("mmd", &mmd)?;
+    for (src, dst) in &files {
         let dst = format!("::/{dst}");
         tools::run("mcopy", ["-i".as_ref(), i, src.as_os_str(), dst.as_ref()])?;
     }
-    step("populated CI-EFI: EFI/BOOT/BOOTX64.EFI, ci-stick/grub.cfg, ci-stick/grubenv");
+    step(&format!(
+        "populated CI-EFI ({:?} boot chain): {}",
+        p.boot_chain,
+        files
+            .iter()
+            .map(|(_, d)| d.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
     Ok(())
 }
 
@@ -953,7 +1082,135 @@ mod tests {
             confirm: None,
             expect_serial: None,
             work_dir: None,
+            allow_unsigned_bootloader: false,
         }
+    }
+
+    #[test]
+    fn bootloader_policy_per_chain_and_target() {
+        use BootloaderPolicy::*;
+        for allow in [false, true] {
+            for dev in [false, true] {
+                assert_eq!(
+                    bootloader_policy(BootChain::Secure, dev, allow).unwrap(),
+                    Signed
+                );
+            }
+            assert_eq!(
+                bootloader_policy(BootChain::Development, false, allow).unwrap(),
+                UnsignedImage
+            );
+        }
+        let e = bootloader_policy(BootChain::Development, true, false).unwrap_err();
+        let msg = format!("{e}");
+        assert!(msg.contains("--allow-unsigned-bootloader"), "{msg}");
+        assert!(msg.contains("fetch-signed-boot.sh"), "{msg}");
+        assert_eq!(
+            bootloader_policy(BootChain::Development, true, true).unwrap(),
+            UnsignedDeviceAllowed
+        );
+    }
+
+    fn fake_plan(chain: BootChain, on_device: bool) -> FlashPlan {
+        let layout = layout::plan(64_000_000_000).unwrap();
+        let src = |p: &str| SourceFile {
+            path: p.into(),
+            size: 1024,
+            sha256: "ab".repeat(32),
+            local: p.into(),
+        };
+        let bootloaders: Vec<EspBinary> = bootcfg::esp_binaries(chain)
+            .iter()
+            .map(|(role, esp)| EspBinary {
+                role: *role,
+                esp_path: (*esp).into(),
+                source: src(&format!("efi/{}", role.file_name())),
+            })
+            .collect();
+        let grub_cfg: Vec<String> = bootcfg::grub_cfg_paths(chain)
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut env = GrubEnv::new();
+        env.set(grubenv::VAR_ACTIVE_SLOT, "A").unwrap();
+        let parts = BootPartitions::from_layout(&layout).unwrap();
+        let esp = esp_contents(&bootloaders, &grub_cfg, parts, &env);
+        FlashPlan {
+            bundle_id: "t".into(),
+            bundle_version: "1".into(),
+            signature: SignatureStatus::UnsignedAllowed,
+            target: PlannedTarget::Image {
+                path: "/tmp/x.img".into(),
+                size_bytes: 64_000_000_000,
+                overwrites_existing: false,
+            },
+            partitions: vec![PartitionContents {
+                index: 1,
+                label: "CI-EFI".into(),
+                filesystem: "vfat".into(),
+                fs_label: Some("CI-EFI".into()),
+                start_bytes: 0,
+                size_bytes: 1,
+                contents: esp,
+            }],
+            layout,
+            boot_image: src("boot/x.iso"),
+            boot_chain: chain,
+            secure_boot: chain.secure_boot_line().into(),
+            unsigned_bootloader_on_device: on_device,
+            bootloaders,
+            grub_cfg,
+            slot_b: None,
+            grubenv: env.vars().to_vec(),
+            notes: vec![],
+            device: None,
+        }
+    }
+
+    #[test]
+    fn plan_text_states_secure_boot_support_and_esp_files() {
+        let secure = render_plan(&fake_plan(BootChain::Secure, false), true);
+        assert!(
+            secure.contains("Boot     Secure Boot: supported (shim → Canonical GRUB)"),
+            "{secure}"
+        );
+        for line in [
+            "EFI/BOOT/BOOTX64.EFI <- efi/shimx64.efi [shim]",
+            "EFI/BOOT/grubx64.efi <- efi/grubx64.efi [grub]",
+            "EFI/BOOT/mmx64.efi <- efi/mmx64.efi [mok-manager]",
+            "EFI/BOOT/grub.cfg (slot A = gpt3, slot B = gpt4)",
+            "EFI/ubuntu/grub.cfg (slot A = gpt3",
+            "ci-stick/grubenv (active_slot=A)",
+        ] {
+            assert!(secure.contains(line), "{line:?} missing:\n{secure}");
+        }
+        assert!(!secure.contains("ci-stick/grub.cfg"));
+        assert!(!secure.contains("WARNING"));
+
+        let dev = render_plan(&fake_plan(BootChain::Development, false), true);
+        assert!(dev.contains(
+            "Boot     Secure Boot: NOT supported (unsigned development GRUB) — disable Secure \
+             Boot to boot this stick"
+        ));
+        assert!(dev.contains("EFI/BOOT/BOOTX64.EFI <- efi/BOOTX64.EFI [standalone-grub]"));
+        assert!(dev.contains("ci-stick/grub.cfg (slot A"));
+        assert!(!dev.contains("EFI/ubuntu"));
+        assert!(!dev.contains("WARNING"));
+
+        let loud = render_plan(&fake_plan(BootChain::Development, true), true);
+        assert!(
+            loud.contains("WARNING: --allow-unsigned-bootloader"),
+            "{loud}"
+        );
+    }
+
+    #[test]
+    fn warning_banner_is_rectangular() {
+        let widths: Vec<usize> = UNSIGNED_DEVICE_WARNING
+            .lines()
+            .map(|l| l.chars().count())
+            .collect();
+        assert!(widths.windows(2).all(|w| w[0] == w[1]), "{widths:?}");
     }
 
     #[test]

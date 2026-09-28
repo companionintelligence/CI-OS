@@ -1,8 +1,26 @@
-//! The stick's GRUB configuration (`ci-stick/grub.cfg` on the ESP).
+//! The stick's GRUB configuration and where the boot chain goes on the ESP.
 //!
-//! The standalone `BOOTX64.EFI` (built by `stick/scripts/build-grub-efi.sh`) embeds only a
-//! tiny loader config that finds the ESP it booted from and runs `configfile` on this
-//! file. Everything else happens here:
+//! One rendered `grub.cfg` serves both boot chains ([`crate::manifest::BootChain`]); only
+//! where it is written differs ([`grub_cfg_paths`]):
+//!
+//! * **Secure chain.** Firmware loads `EFI/BOOT/BOOTX64.EFI` (= shim), shim loads
+//!   `grubx64.efi` from the same directory, which is Canonical's signed *monolithic* GRUB
+//!   (`grub-efi-amd64-signed`, the disk image `grubx64.efi.signed`, not the CD image
+//!   `gcdx64.efi.signed`). Its embedded prefix is `/EFI/ubuntu` and it has no embedded
+//!   early config (its memdisk only holds a font). Ubuntu's GRUB reads
+//!   `$fw_path/grub.cfg` (the directory it was loaded from, `EFI/BOOT/`) first, then
+//!   `$prefix/grub.cfg` (`EFI/ubuntu/grub.cfg` on the same ESP), else it drops to a GRUB
+//!   shell. It never searches for `/.disk/info` (that is `gcdx64`'s memdisk config), so
+//!   a boot slot's own ISO `grub.cfg` is never picked up by accident. We write the config
+//!   to both places. Verified by booting under OVMF (see `stick/tests/secureboot/`).
+//!   Under Secure Boot GRUB cannot load modules from disk, so the config only uses
+//!   commands built into that image ([`CANONICAL_GRUB_BUILTIN_MODULES`]; `insmod` of a
+//!   built-in module is a no-op).
+//! * **Development chain.** The unsigned standalone `BOOTX64.EFI` (built by
+//!   `stick/scripts/build-grub-efi.sh`) embeds only a tiny loader config that finds the ESP
+//!   it booted from and runs `configfile` on `ci-stick/grub.cfg`.
+//!
+//! The config itself:
 //!
 //! 1. derive the stick's disk from `$cmdpath` (never assume `hd0`);
 //! 2. `load_env` the A/B pointer from `ci-stick/grubenv` ([`crate::grubenv`]), default A;
@@ -18,6 +36,7 @@ use anyhow::Context as _;
 
 use crate::grubenv::Slot;
 use crate::layout::{LayoutPlan, PartitionRole};
+use crate::manifest::{BootChain, BootloaderRole};
 
 const TEMPLATE: &str = include_str!("../templates/grub.cfg.in");
 
@@ -29,6 +48,79 @@ pub const DEFAULT_INITRD: &str = "/casper/initrd";
 pub const ESP_BOOTLOADER: &str = "EFI/BOOT/BOOTX64.EFI";
 pub const ESP_GRUB_CFG: &str = "ci-stick/grub.cfg";
 pub const ESP_GRUBENV: &str = "ci-stick/grubenv";
+/// Secure chain: shim's second stage and MokManager live next to shim.
+pub const ESP_SIGNED_GRUB: &str = "EFI/BOOT/grubx64.efi";
+pub const ESP_MOK_MANAGER: &str = "EFI/BOOT/mmx64.efi";
+/// Secure chain: Canonical GRUB reads `$fw_path/grub.cfg`, then `$prefix/grub.cfg`.
+pub const ESP_GRUB_CFG_FW_PATH: &str = "EFI/BOOT/grub.cfg";
+pub const ESP_GRUB_CFG_PREFIX: &str = "EFI/ubuntu/grub.cfg";
+
+/// Modules built into Canonical's signed `grubx64.efi` (grub2 2.12-1ubuntu7.x) that our
+/// config relies on, read out of the image's `mods` section. Under Secure Boot nothing
+/// else can be loaded, so a test keeps every `insmod` in the template inside this list.
+pub const CANONICAL_GRUB_BUILTIN_MODULES: &[&str] = &[
+    "configfile",
+    "echo",
+    "ext2",
+    "fat",
+    "iso9660",
+    "linux",
+    "loadenv",
+    "normal",
+    "part_gpt",
+    "regexp",
+    "search",
+    "search_label",
+    "sleep",
+    "test",
+];
+
+/// Where each bootloader binary of `chain` goes on the ESP.
+pub fn esp_binaries(chain: BootChain) -> &'static [(BootloaderRole, &'static str)] {
+    match chain {
+        // Firmware's removable-media path is shim; shim loads grubx64.efi (and, on
+        // request, mmx64.efi) from its own directory. No fbx64.efi: shim would run the
+        // fallback loader, which writes boot entries into the host's NVRAM.
+        BootChain::Secure => &[
+            (BootloaderRole::Shim, ESP_BOOTLOADER),
+            (BootloaderRole::Grub, ESP_SIGNED_GRUB),
+            (BootloaderRole::MokManager, ESP_MOK_MANAGER),
+        ],
+        BootChain::Development => &[(BootloaderRole::StandaloneGrub, ESP_BOOTLOADER)],
+    }
+}
+
+/// Where the (identical) rendered grub.cfg is written for `chain`.
+pub fn grub_cfg_paths(chain: BootChain) -> &'static [&'static str] {
+    match chain {
+        BootChain::Secure => &[ESP_GRUB_CFG_FW_PATH, ESP_GRUB_CFG_PREFIX],
+        BootChain::Development => &[ESP_GRUB_CFG],
+    }
+}
+
+/// ESP directories `flash` creates for `chain` (parents first).
+pub fn esp_dirs(chain: BootChain) -> Vec<String> {
+    let mut dirs: Vec<String> = Vec::new();
+    let files = esp_binaries(chain)
+        .iter()
+        .map(|(_, p)| *p)
+        .chain(grub_cfg_paths(chain).iter().copied())
+        .chain([ESP_GRUBENV]);
+    for f in files {
+        let mut acc = String::new();
+        let parts: Vec<&str> = f.split('/').collect();
+        for part in &parts[..parts.len() - 1] {
+            if !acc.is_empty() {
+                acc.push('/');
+            }
+            acc.push_str(part);
+            if !dirs.contains(&acc) {
+                dirs.push(acc.clone());
+            }
+        }
+    }
+    dirs
+}
 
 /// GPT partition numbers the boot menu needs, taken from a layout plan.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +230,78 @@ mod tests {
         assert!(c.contains("linux ($ci_disk,gpt3)/casper/vmlinuz"));
         assert!(c.contains("initrd ($ci_disk,gpt4)/casper/initrd"));
         assert!(c.contains("set ci_esp=\"($ci_disk,gpt1)\""));
+    }
+
+    fn insmods(text: &str) -> Vec<String> {
+        text.lines()
+            .filter_map(|l| l.trim().strip_prefix("insmod "))
+            .map(|m| m.trim().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn config_only_uses_modules_both_grubs_have_built_in() {
+        let used = insmods(TEMPLATE);
+        assert!(used.contains(&"loadenv".to_string()) && used.contains(&"regexp".to_string()));
+        for m in &used {
+            assert!(
+                CANONICAL_GRUB_BUILTIN_MODULES.contains(&m.as_str()),
+                "grub.cfg loads {m}, which Canonical's signed GRUB does not have built in \
+                 (it cannot load modules under Secure Boot)"
+            );
+        }
+        // The standalone development GRUB embeds its modules too (no /boot/grub on the ESP).
+        let script = include_str!("../../../scripts/build-grub-efi.sh");
+        let start = script
+            .find("modules=(")
+            .expect("modules=( in build-grub-efi.sh")
+            + 9;
+        let end = start + script[start..].find(')').expect("closing )");
+        let standalone: Vec<&str> = script[start..end].split_whitespace().collect();
+        let extra = ["search", "search_label", "sleep", "normal"];
+        for m in used.iter().map(String::as_str).chain(extra) {
+            assert!(
+                standalone.contains(&m),
+                "build-grub-efi.sh does not embed {m}"
+            );
+            assert!(CANONICAL_GRUB_BUILTIN_MODULES.contains(&m), "{m}");
+        }
+    }
+
+    #[test]
+    fn esp_placement_per_chain() {
+        assert_eq!(
+            esp_binaries(BootChain::Secure),
+            &[
+                (BootloaderRole::Shim, "EFI/BOOT/BOOTX64.EFI"),
+                (BootloaderRole::Grub, "EFI/BOOT/grubx64.efi"),
+                (BootloaderRole::MokManager, "EFI/BOOT/mmx64.efi"),
+            ]
+        );
+        assert_eq!(
+            esp_binaries(BootChain::Development),
+            &[(BootloaderRole::StandaloneGrub, "EFI/BOOT/BOOTX64.EFI")]
+        );
+        for chain in [BootChain::Secure, BootChain::Development] {
+            let roles: Vec<BootloaderRole> = esp_binaries(chain).iter().map(|(r, _)| *r).collect();
+            assert_eq!(roles, chain.roles(), "every role of {chain:?} is placed");
+        }
+        assert_eq!(
+            grub_cfg_paths(BootChain::Secure),
+            &["EFI/BOOT/grub.cfg", "EFI/ubuntu/grub.cfg"]
+        );
+        assert_eq!(
+            grub_cfg_paths(BootChain::Development),
+            &["ci-stick/grub.cfg"]
+        );
+        assert_eq!(
+            esp_dirs(BootChain::Secure),
+            vec!["EFI", "EFI/BOOT", "EFI/ubuntu", "ci-stick"]
+        );
+        assert_eq!(
+            esp_dirs(BootChain::Development),
+            vec!["EFI", "EFI/BOOT", "ci-stick"]
+        );
     }
 
     #[test]

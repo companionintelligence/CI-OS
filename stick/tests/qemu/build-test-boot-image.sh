@@ -12,6 +12,11 @@
 # its persistence), increments /boot-count on it, prints "CI-STICK-TEST boot-count=<n>"
 # and powers off. The harness (run.sh) asserts on those lines from the serial console.
 #
+# CI_STICK_TEST_SB_PROBE=1 (used by stick/tests/secureboot/) additionally prints
+# "CI-STICK-SB secureboot=<0|1> slot=<slot-id> cmdline_slot=<...>" from the SecureBoot EFI
+# variable, the kernel's lockdown mode and its Secure Boot/lockdown log lines. Unset, the
+# image is exactly what run.sh has always booted.
+#
 # Needs: apt-get (download only), dpkg-deb, zstd, cpio, gzip, xorriso, busybox-static.
 # No root. Kernel packages are cached in $CI_STICK_TEST_CACHE (default ~/.cache/ci-stick-test).
 set -euo pipefail
@@ -93,6 +98,33 @@ for arg in $(cat /proc/cmdline); do
   case "$arg" in ci_stick.slot=*) CMD_SLOT="${arg#ci_stick.slot=}" ;; esac
 done
 echo "CI-STICK-TEST slot=$SLOT cmdline_slot=$CMD_SLOT"
+EOF
+if [ "${CI_STICK_TEST_SB_PROBE:-0}" = "1" ]; then
+  # Secure Boot probe (stick/tests/secureboot/): the SecureBoot EFI variable (4 attribute
+  # bytes, then the value), what the kernel logged about it, and the lockdown mode.
+  cat >> "$root/init" <<'EOF'
+mkdir -p /sys/firmware/efi/efivars /sys/kernel/security
+mount -t efivarfs efivarfs /sys/firmware/efi/efivars 2>/dev/null
+mount -t securityfs securityfs /sys/kernel/security 2>/dev/null
+SBVAR=/sys/firmware/efi/efivars/SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c
+if [ ! -d /sys/firmware/efi ]; then
+  SB=no-efi; SBSRC=no-efi
+elif [ -r "$SBVAR" ]; then
+  # Read the whole variable (efivarfs does not seek): 4 attribute bytes, then the value.
+  # shellcheck disable=SC2046
+  set -- $(od -An -t u1 "$SBVAR")
+  SB="${5:-unknown}"; SBSRC="efivar"
+else
+  # No SecureBoot variable: firmware without Secure Boot support, i.e. not enforcing.
+  SB=0; SBSRC="efivar-absent"
+fi
+echo "CI-STICK-SB secureboot=$SB slot=$SLOT cmdline_slot=$CMD_SLOT"
+echo "CI-STICK-SB secureboot-source=$SBSRC"
+echo "CI-STICK-SB lockdown=$(cat /sys/kernel/security/lockdown 2>/dev/null | tr ' ' ',')"
+dmesg | grep -i -E 'secureboot:|locked down|lockdown:' | head -n 8 | sed 's/^/CI-STICK-SB dmesg: /'
+EOF
+fi
+cat >> "$root/init" <<'EOF'
 while read -r m; do insmod "/lib/modules/$m" 2>/dev/null; done < /lib/modules/order
 dev=
 i=0
