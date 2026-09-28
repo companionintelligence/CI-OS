@@ -257,17 +257,32 @@ GET  /api/status
 GET  /health
 
 
-On /api/configure success:
+On /api/configure (setup_service.py `configure()`):
 
-Validate pairing code
+Validate input (pairing code when the Hub requires it), take the one-attempt lock (409 while another attempt runs)
 
-Create NetworkManager connection
+Create the NetworkManager connection, persist credentials root-only
 
-Persist credentials securely
+Then one of three paths — the setup hotspot and the target WiFi share one radio, so the
+order decides whether the client ever sees the result:
 
-Write setup-complete flag
+- Wired (hotspot up, pairing required, another uplink already has internet): pair with
+  CI Portal first and return the real result — success with the device-domain redirect
+  (`flow: "wired"`) or the exact refusal. Only after a successful pair does a background
+  thread close the hotspot and join WiFi (without pairing again). On failure the hotspot
+  stays up for an immediate retry. Nothing is routed for hotspot clients (no NAT, no
+  upstream DNS).
+- WiFi only (hotspot up, no other uplink): return 202 `status: "pending"` immediately,
+  then close the hotspot, join WiFi and pair in a background thread. Failures (WiFi
+  join, credentials, cloud validation, code mismatch, refusal) are recorded and shown
+  via `/api/status.last_pairing_error` when the user returns to the portal.
+- LAN client (hotspot not running): do everything inline and return the final result.
 
-Stop hostapd + dnsmasq
+While the backend has stopped the hotspot to join WiFi it holds
+`/run/setup-device/configuring`; setup-network-monitor.sh waits for it (up to 5 min)
+and otherwise restarts the hotspot when the join fails.
+
+The setup-complete flag is not written here; it does not gate hotspot operation.
 
 Leave backend running
 

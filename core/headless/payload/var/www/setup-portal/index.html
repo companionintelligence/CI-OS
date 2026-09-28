@@ -903,8 +903,11 @@
             const formData = new FormData(form);
 
             try {
+                // FormData posts as multipart; Accept asks the backend for JSON rather
+                // than its plain-form HTML pages, which this script cannot read.
                 const response = await fetch('/api/configure', {
                     method: 'POST',
+                    headers: { 'Accept': 'application/json' },
                     body: formData
                 });
 
@@ -912,11 +915,13 @@
                     const responseData = await response.json().catch(() => ({}));
                     const redirectTarget = getRedirectTarget(responseData);
 
-                    // Submitted over the setup hotspot: the device answered first and is now
-                    // closing the hotspot to join the chosen network, so this page is about to
-                    // lose its connection. The portal is only reachable once the phone is back
-                    // on its usual network, so link it and try it once that has had time.
-                    if (responseData.status === 'pending') {
+                    // Submitted over the setup hotspot: the device is about to close the
+                    // hotspot and join the chosen network, so this page will lose its
+                    // connection. 'pending' = it answered first and pairs afterwards;
+                    // flow 'wired' = it already paired over its wired uplink. Either way the
+                    // portal is only reachable once the phone is back on its usual network,
+                    // so link it and try it once that has had time.
+                    if (responseData.status === 'pending' || responseData.flow === 'wired') {
                         successMessage.style.display = 'block';
                         successMessage.textContent = `✓ ${responseData.message || 'Settings saved.'} Then open `;
                         const portalLink = document.createElement('a');
