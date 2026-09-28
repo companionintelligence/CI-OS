@@ -30,6 +30,11 @@
   "$defs": {
     "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
     "platform": {
+      "description": "Host platforms (<os>-<arch>) plus firmware platforms (<arch>-<firmware>, bootloader artifacts only).",
+      "enum": ["linux-x86_64", "linux-arm64", "macos-arm64", "macos-x86_64", "windows-x86_64", "x86_64-uefi"]
+    },
+    "host_platform": {
+      "description": "Host operating-system platforms, which models run on.",
       "enum": ["linux-x86_64", "linux-arm64", "macos-arm64", "macos-x86_64", "windows-x86_64"]
     },
     "rel_path": {
@@ -45,7 +50,10 @@
       "required": ["path", "kind", "sha256", "size"],
       "properties": {
         "path": { "$ref": "#/$defs/rel_path" },
-        "kind": { "enum": ["boot-image", "installer", "oci-image", "model-blob", "doc", "tool"] },
+        "kind": {
+          "description": "Top-level staging directory: boot/, installers/, oci/, models/, docs/, tools/, efi/ (bootloader).",
+          "enum": ["boot-image", "installer", "oci-image", "model-blob", "doc", "tool", "bootloader"]
+        },
         "sha256": { "$ref": "#/$defs/sha256" },
         "size": { "type": "integer", "minimum": 0 },
         "platforms": {
@@ -90,7 +98,7 @@
           "type": ["integer", "null"],
           "minimum": 0
         },
-        "platforms": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/platform" } }
+        "platforms": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/host_platform" } }
       }
     },
     "layout": {

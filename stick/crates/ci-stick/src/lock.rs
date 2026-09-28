@@ -11,10 +11,13 @@
 //! | `models/`     | `model-blob` |
 //! | `docs/`       | `doc`        |
 //! | `tools/`      | `tool`       |
+//! | `efi/`        | `bootloader` |
 //!
 //! Anything else (including loose files at the root, other than `bundle.json` and its
 //! signature) is an error rather than a guess. A path component equal to a platform id
-//! (e.g. `installers/macos-arm64/…`) sets the artifact's `platforms`. Symlinks are refused:
+//! (e.g. `installers/macos-arm64/…`) sets the artifact's `platforms`. A bootloader's
+//! firmware platform comes from its UEFI removable-media file name (`BOOTX64.EFI` →
+//! `x86_64-uefi`); other names under `efi/` are refused. Symlinks are refused:
 //! the stick's data partitions are exFAT, which cannot represent them.
 //!
 //! Determinism: artifacts are sorted by path, the JSON serialisation is canonical, and
@@ -76,9 +79,24 @@ pub fn classify(path: &str) -> anyhow::Result<(ArtifactKind, Option<Vec<Platform
         bail!("{path}: is a directory name, not a file");
     }
     let mut platforms: Vec<Platform> = path.split('/').filter_map(Platform::parse).collect();
+    if kind == ArtifactKind::Bootloader {
+        let file = path.rsplit('/').next().unwrap_or_default();
+        match uefi_platform_for(file) {
+            Some(p) => platforms.push(p),
+            None => bail!("{path}: bootloaders must use a UEFI removable-media name (BOOTX64.EFI)"),
+        }
+    }
     platforms.sort();
     platforms.dedup();
     Ok((kind, (!platforms.is_empty()).then_some(platforms)))
+}
+
+/// The firmware platform implied by a UEFI removable-media boot file name.
+pub fn uefi_platform_for(file_name: &str) -> Option<Platform> {
+    match file_name {
+        "BOOTX64.EFI" => Some(Platform::X86_64Uefi),
+        _ => None,
+    }
 }
 
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> anyhow::Result<()> {
@@ -268,6 +286,7 @@ mod tests {
             ("docs/a.txt", b"a"),
             ("installers/windows-x86_64/setup.exe", b"exe"),
             ("oci/ci-hub/index.json", b"{}"),
+            ("efi/BOOTX64.EFI", b"MZ"),
         ] {
             let full = dir.path().join(p);
             fs::create_dir_all(full.parent().unwrap()).unwrap();
@@ -346,6 +365,22 @@ mod tests {
         assert_eq!(exe.kind, ArtifactKind::Installer);
         assert_eq!(exe.platforms, Some(vec![Platform::WindowsX86_64]));
         assert_eq!(find("oci/ci-hub/index.json").kind, ArtifactKind::OciImage);
+        let efi = find("efi/BOOTX64.EFI");
+        assert_eq!(efi.kind, ArtifactKind::Bootloader);
+        assert_eq!(efi.platforms, Some(vec![Platform::X86_64Uefi]));
+        assert!(
+            out.bundle.validate().is_empty(),
+            "{:?}",
+            out.bundle.validate()
+        );
+    }
+
+    #[test]
+    fn refuses_unknown_bootloader_names() {
+        assert!(classify("efi/grubx64.efi").is_err());
+        assert!(classify("efi/linux-x86_64/BOOTX64.EFI").is_ok());
+        let (_, p) = classify("efi/BOOTX64.EFI").unwrap();
+        assert_eq!(p, Some(vec![Platform::X86_64Uefi]));
     }
 
     #[test]

@@ -64,16 +64,19 @@ pub enum ArtifactKind {
     ModelBlob,
     Doc,
     Tool,
+    /// A UEFI bootloader binary (e.g. `efi/BOOTX64.EFI`) that `flash` installs into the ESP.
+    Bootloader,
 }
 
 impl ArtifactKind {
-    pub const ALL: [ArtifactKind; 6] = [
+    pub const ALL: [ArtifactKind; 7] = [
         Self::BootImage,
         Self::Installer,
         Self::OciImage,
         Self::ModelBlob,
         Self::Doc,
         Self::Tool,
+        Self::Bootloader,
     ];
 
     /// Top-level staging directory that `lock` maps to this kind.
@@ -85,6 +88,7 @@ impl ArtifactKind {
             Self::ModelBlob => "models",
             Self::Doc => "docs",
             Self::Tool => "tools",
+            Self::Bootloader => "efi",
         }
     }
 
@@ -100,11 +104,13 @@ impl ArtifactKind {
             Self::ModelBlob => "model-blob",
             Self::Doc => "doc",
             Self::Tool => "tool",
+            Self::Bootloader => "bootloader",
         }
     }
 }
 
-/// Host platform identifiers (`<os>-<arch>`).
+/// Platform identifiers: host platforms (`<os>-<arch>`) for installers, tools and models,
+/// and firmware platforms (`<arch>-<firmware>`) for bootloaders.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Platform {
     #[serde(rename = "linux-x86_64")]
@@ -117,16 +123,34 @@ pub enum Platform {
     MacosX86_64,
     #[serde(rename = "windows-x86_64")]
     WindowsX86_64,
+    /// x86_64 UEFI firmware (a `BOOTX64.EFI` bootloader).
+    #[serde(rename = "x86_64-uefi")]
+    X86_64Uefi,
 }
 
 impl Platform {
-    pub const ALL: [Platform; 5] = [
+    pub const ALL: [Platform; 6] = [
+        Self::LinuxX86_64,
+        Self::LinuxArm64,
+        Self::MacosArm64,
+        Self::MacosX86_64,
+        Self::WindowsX86_64,
+        Self::X86_64Uefi,
+    ];
+
+    /// Host operating-system platforms (valid for models, installers and tools).
+    pub const HOST: [Platform; 5] = [
         Self::LinuxX86_64,
         Self::LinuxArm64,
         Self::MacosArm64,
         Self::MacosX86_64,
         Self::WindowsX86_64,
     ];
+
+    /// Firmware platforms (valid for bootloaders only).
+    pub fn is_firmware(self) -> bool {
+        matches!(self, Self::X86_64Uefi)
+    }
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -135,6 +159,7 @@ impl Platform {
             Self::MacosArm64 => "macos-arm64",
             Self::MacosX86_64 => "macos-x86_64",
             Self::WindowsX86_64 => "windows-x86_64",
+            Self::X86_64Uefi => "x86_64-uefi",
         }
     }
 
@@ -247,6 +272,12 @@ pub fn validate_packs(packs: &[ModelPack]) -> Vec<String> {
                     pack.name
                 ));
             }
+            if let Some(p) = m.platforms.iter().find(|p| p.is_firmware()) {
+                problems.push(format!(
+                    "pack {:?}: model {r} lists firmware platform {p}; models run on host platforms",
+                    pack.name
+                ));
+            }
         }
     }
     problems
@@ -315,6 +346,21 @@ impl Bundle {
                     a.path
                 ));
             }
+            let platforms = a.platforms.as_deref().unwrap_or_default();
+            let firmware = platforms.iter().filter(|p| p.is_firmware()).count();
+            if a.kind == ArtifactKind::Bootloader {
+                if firmware == 0 || firmware != platforms.len() {
+                    problems.push(format!(
+                        "artifact {:?}: a bootloader must list only firmware platforms (e.g. x86_64-uefi)",
+                        a.path
+                    ));
+                }
+            } else if firmware > 0 {
+                problems.push(format!(
+                    "artifact {:?}: firmware platforms are only valid on bootloader artifacts",
+                    a.path
+                ));
+            }
         }
         problems.extend(validate_packs(&self.model_packs));
         if let Err(e) = self.layout.check_consistency() {
@@ -354,7 +400,7 @@ mod tests {
                     size_bytes: 815_000_000,
                     min_ram_gb: 4,
                     min_vram_gb: None,
-                    platforms: Platform::ALL.to_vec(),
+                    platforms: Platform::HOST.to_vec(),
                 }],
             }],
             layout: layout::plan(512_000_000_000).unwrap(),
@@ -411,6 +457,27 @@ mod tests {
                 "missing {needle:?} in:\n{problems}"
             );
         }
+    }
+
+    #[test]
+    fn firmware_platforms_only_on_bootloaders() {
+        let mut b = sample();
+        b.artifacts.push(Artifact {
+            path: "efi/BOOTX64.EFI".into(),
+            kind: ArtifactKind::Bootloader,
+            sha256: crate::hashing::sha256_hex(b"efi"),
+            size: 3,
+            platforms: Some(vec![Platform::X86_64Uefi]),
+        });
+        assert!(b.validate().is_empty(), "{:?}", b.validate());
+        b.artifacts[1].platforms = Some(vec![Platform::LinuxX86_64]);
+        assert!(b.validate().join("\n").contains("only firmware platforms"));
+        b.artifacts[1].platforms = Some(vec![Platform::X86_64Uefi]);
+        b.artifacts[0].platforms = Some(vec![Platform::X86_64Uefi]);
+        assert!(b.validate().join("\n").contains("only valid on bootloader"));
+        b.artifacts[0].platforms = None;
+        b.model_packs[0].models[0].platforms = vec![Platform::X86_64Uefi];
+        assert!(b.validate().join("\n").contains("firmware platform"));
     }
 
     #[test]

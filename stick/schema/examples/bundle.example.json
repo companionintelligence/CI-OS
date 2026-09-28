@@ -17,6 +17,15 @@
       "size": 7
     },
     {
+      "path": "efi/BOOTX64.EFI",
+      "kind": "bootloader",
+      "sha256": "2ae51aec19821f26c9e68a250f067ce569a3454302107efc48d4e3f2a48efe90",
+      "size": 3,
+      "platforms": [
+        "x86_64-uefi"
+      ]
+    },
+    {
       "path": "installers/macos-arm64/ci-stick-launcher.pkg",
       "kind": "installer",
       "sha256": "f238df2ae16f95a3461bb262b8db52df5808bb03a6f2d85471442835bb31c65b",

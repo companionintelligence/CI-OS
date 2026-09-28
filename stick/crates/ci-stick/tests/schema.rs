@@ -151,6 +151,23 @@ fn schema_declares_exactly_what_the_types_emit() {
         serde_names(&Platform::ALL)
     );
     assert_eq!(
+        enum_of(&schema, "/$defs/host_platform"),
+        serde_names(&Platform::HOST)
+    );
+    assert_eq!(
+        schema["$defs"]["model"]["properties"]["platforms"]["items"]["$ref"],
+        "#/$defs/host_platform",
+        "models run on host platforms only"
+    );
+    let kinds: BTreeSet<String> = artifacts
+        .iter()
+        .filter_map(|a| a["kind"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        kinds.contains("bootloader"),
+        "example needs a bootloader artifact"
+    );
+    assert_eq!(
         enum_of(&schema, "/$defs/partition/properties/role"),
         serde_names(&[
             PartitionRole::Esp,
