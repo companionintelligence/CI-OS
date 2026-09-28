@@ -201,8 +201,9 @@ refused "a regular file as --device" 2 "not a block device" -- \
   "$CI" flash "$STAGE" --pubkey "$WORK/dev.pub" --device "$FAKE" --confirm "$FAKE"
 [ "$(sha256sum < "$FAKE")" = "$before" ] && pass "regular file untouched" || fail "regular file changed"
 
-sysdisk="$(lsblk -dnpo PATH,RM,TRAN,TYPE 2>/dev/null \
-  | awk '$4 == "disk" && $2 == "0" && $3 != "usb" {print $1; exit}')"
+# A real, non-removable disk (TRAN last: it is empty for some disks).
+sysdisk="$(lsblk -dnbpo PATH,RM,TYPE,SIZE,TRAN 2>/dev/null \
+  | awk '$3 == "disk" && $2 == "0" && $4 > 0 && $5 != "usb" && $1 !~ /zram|loop/ {print $1; exit}')"
 if [ -n "$sysdisk" ]; then
   first_before=""; [ -r "$sysdisk" ] && first_before="$(head -c 1048576 "$sysdisk" | sha256sum)"
   refused "non-removable disk $sysdisk as --device (dry run)" 2 "refusing to write" -- \
