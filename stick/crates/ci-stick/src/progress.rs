@@ -46,7 +46,7 @@ impl Progress {
             }
         }
         self.last_draw = Some(now);
-        let pct = if size == 0 { 100 } else { done * 100 / size };
+        let pct = done.saturating_mul(100).checked_div(size).unwrap_or(100);
         let mut name = name.to_string();
         if name.chars().count() > 48 {
             let tail: String = name
