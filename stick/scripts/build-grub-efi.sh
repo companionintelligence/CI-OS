@@ -13,9 +13,11 @@
 # kernel command lines, the A/B pointer in ci-stick/grubenv) lives in that file, so this
 # binary does not change when the layout or the boot entries do.
 #
-# NOT SECURE BOOT SIGNED. Firmware with Secure Boot enabled will refuse this binary.
-# Booting via a Microsoft-signed shim + a signed GRUB is an explicit follow-up (see
-# docs/architecture/companion-stick.md, "Known limitations").
+# NOT SECURE BOOT SIGNED. This is the *development* boot chain (QEMU tests, development
+# sticks): firmware with Secure Boot enabled refuses it, and `ci-stick flash --device`
+# needs --allow-unsigned-bootloader for it. Real sticks use the Secure Boot chain (shim ->
+# Canonical GRUB) from stick/scripts/fetch-signed-boot.sh; see
+# docs/architecture/companion-stick.md, "Secure Boot".
 set -euo pipefail
 
 out="${1:?usage: build-grub-efi.sh <out/BOOTX64.EFI>}"
