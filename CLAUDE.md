@@ -22,6 +22,13 @@ Architecture: shared brand-theming and ecosystem-provisioning logic lives in `co
 `backends/<distro>/`. **Ubuntu is the most mature backend today, not the only target** — an
 earlier version of this repo was Ubuntu-only ("Companion Ubuntu"); that framing is superseded.
 
+**Companion Stick** (`stick/`): a Rust CLI, `ci-stick`, that turns CI-OS into a
+multi-function USB stick. The stick boots Companion OS, installs Hub/Memory/models onto a
+running host, carries signed model packs offline and updates itself (A/B). `backends/`
+stay the OS image adapters; `ci-stick` packages, signs, verifies and (later) flashes and
+updates what they build. Today it has `lock`, `verify`, `layout plan`, `models list` and
+a read-only `doctor`. See `docs/architecture/companion-stick.md` and `stick/README.md`.
+
 ## Stack
 
 - **Shared** (`core/`): plain Bash + a declarative `core/manifest/ecosystem.yaml` (the single
@@ -37,6 +44,9 @@ earlier version of this repo was Ubuntu-only ("Companion Ubuntu"); that framing 
   no longer applies; don't introduce Nix into `core/` or the other backends, since those must
   stay usable without it.
 - Docker Compose for service bootstrap (CI-Hub), distro-agnostic once Docker itself is present.
+- **`stick/`**: Rust (Cargo workspace, MSRV 1.75, `Cargo.lock` committed). **Rust is
+  first-class inside `stick/` only**, the same way Nix is inside `backends/nixos/`. Don't
+  introduce it into `core/` or the backends.
 
 ## Key commands
 
@@ -53,6 +63,9 @@ sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh
 
 # Fast checks — run before every push (same as the "PR checks" workflow)
 ./core/lib/check-repo.sh
+
+# Companion Stick CLI (stick/) — same as the "stick" job in PR checks
+(cd stick && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)
 
 # See README.md for the four customization entry points.
 ```

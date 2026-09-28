@@ -32,6 +32,16 @@ Branches cut before the reorganization use the old paths. Map them:
 | `scripts/*.sh`, `setup-fresh-ubuntu.sh`, `bootstrap-ci-os.sh` | `backends/ubuntu/provision/provision.sh` (tier-gated) + `backends/ubuntu/lib/` |
 | `configs/scripts/`, Cubic/preseed tree | removed — don't resurrect |
 
+**Companion Stick** lives in `stick/`, a Rust Cargo workspace whose binary crate is
+`crates/ci-stick`; see `docs/architecture/companion-stick.md`. Rust is first-class inside
+`stick/` only, the same way Nix is inside `backends/nixos/`. Never make `core/` or the
+shell backends depend on it. Touching `stick/` → run
+`(cd stick && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)`,
+which is the `stick` job in PR checks. Commit `stick/Cargo.lock`, never `stick/target/`. When
+you change `manifest.rs` or `layout.rs`, update `stick/schema/bundle.schema.json` and the
+example too; a test enforces this. `core/manifest/model-packs.yaml` is provisional, and its
+`digest` fields stay `null` until they are resolved by tooling. Never hand-write digests.
+
 A change to `core/headless/payload/` ships on **every** backend. When it adds a runtime
 dependency (a new binary, e.g. `iptables`), add it to each backend that installs the payload:
 `backends/{ubuntu,mint}/headless-package/DEBIAN/control`, `backends/fedora/headless-setup/install.sh`,
