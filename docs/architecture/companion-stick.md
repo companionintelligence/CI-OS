@@ -32,7 +32,8 @@ and the contracts that CI Hub and CI Memory publish; it does not reimplement the
 | `ci-stick doctor` | **done** | Read-only report on host support, candidate devices and an optional quick bundle check |
 | `ci-stick dev keygen / dev sign` | **done** | Development keys and signing only; release keys never touch this path |
 | `ci-stick build` | planned | Call `backends/<distro>` image builds and stage the bundle |
-| `ci-stick flash` | planned (3) | Safely partition and write a stick using the planned layout |
+| `ci-stick flash` | **done** | Verify, then partition and write a stick or a sparse stick image from the layout plan |
+| `ci-stick slot show / set` | **done** | Read or flip the A/B pointer (`active_slot` in the ESP's grubenv) |
 | `ci-stick install` | planned (4) | Install Hub, Memory and models onto the host with consent |
 | `ci-stick models sync / import / lock` | planned (4) | Fill the cache, import packs into Hub and resolve digests |
 | `ci-stick update` | planned (5) | Signed A/B updater with rollback |
@@ -48,12 +49,12 @@ it was built for. Here is the plan for a marketed 512 GB stick (≈ 476.8 GiB us
 
 | # | Label | FS | Size | Purpose |
 |---|-------|----|------|---------|
-| 1 | `CI-EFI` | vfat | 2 GiB | ESP: bootloader and the A/B slot selector |
+| 1 | `CI-EFI` | vfat | 2 GiB | ESP: bootloader, `ci-stick/grub.cfg` and the A/B pointer (`ci-stick/grubenv`) |
 | 2 | `CI-SHARED` | exFAT | 29 GiB | Launchers, installers and docs, readable on every host |
 | 3 | `CI-BOOT-A` | raw image | 47 GiB | Immutable boot image, slot A |
 | 4 | `CI-BOOT-B` | raw image | 47 GiB | Immutable boot image, slot B |
 | 5 | `CI-CACHE` | exFAT | 304 GiB | Content-addressed OCI images and model blobs |
-| 6 | `CI-PERSIST` | ext4 | ≈ 47.8 GiB | Live persistence, logs and updater state (takes the remainder) |
+| 6 | `CI-PERSIST` | ext4, fs label `writable` | ≈ 47.8 GiB | Live persistence, logs and updater state (takes the remainder) |
 
 **Sizing rules.** The ESP is 1 GiB below 150 GiB usable and 2 GiB above that. Shared is
 usable/16, clamped to 4–32 GiB. Each boot slot is usable/10, clamped to 8–48 GiB.
@@ -120,6 +121,9 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
   store symlinks and finding one means tampering. The canonical target must stay under the
   root. Sizes and streamed SHA-256 must match. Files the manifest doesn't list are
   reported as warnings.
+- **Bootloader.** `efi/BOOTX64.EFI` is an artifact of kind `bootloader` (platform
+  `x86_64-uefi`, taken from the UEFI file name), so the bootloader is covered by the same
+  signature as everything else.
 - **Planned trust extensions:** per-pack signatures, a signed update metadata chain with
   rollback protection (TUF-style version and expiry), and Secure Boot shim signing for
   boot images.
@@ -180,21 +184,128 @@ a booted Companion OS provisions. The stick only adds packaging, trust and deliv
 Rust is first-class inside `stick/` only, the same way Nix is inside `backends/nixos/`.
 `core/` and the shell backends must never require it.
 
+## Flashing (slice 3)
+
+`ci-stick flash <bundle> --pubkey <key> (--image <file> --size <size> | --device <dev>)`
+(`stick/crates/ci-stick/src/flash.rs`). Every step refuses before anything is written if
+it fails.
+
+1. **Verify first.** The bundle goes through `verify` with full hashing. A signature is
+   required. `--allow-unsigned` is accepted only for `--image` targets and refused with
+   `--device`. A failed verification exits 1 and writes nothing.
+2. **Plan.** Resolve the target, compute the layout for its size (not the size the bundle
+   was locked for, though the policy must match), pick the `boot-image` and the
+   `bootloader`, and check that the image fits its slot. `--dry-run` prints the target's
+   identity, the layout table and what goes into each partition, then stops.
+3. **Build without root.** Every filesystem is created in a sparse temporary file:
+   `mkfs.vfat -F 32 -n CI-EFI` (populated with `mmd`/`mcopy`, no mounting),
+   `mkfs.exfat -L CI-SHARED` / `CI-CACHE`, and `mkfs.ext4 -L writable -E
+   nodiscard,lazy_itable_init=1` for persistence.
+4. **Write.** Zero the first and last MiB, run `sgdisk --zap-all`, then run `sgdisk` with
+   the plan's exact first and last sectors. The GPT partition names are the layout labels,
+   and the type GUIDs are EFI System, Microsoft basic data (exFAT) and Linux filesystem
+   (boot slots and persistence). Only the data extents of each filesystem image are
+   copied (`SEEK_DATA`/`SEEK_HOLE`). The boot image is streamed raw into `CI-BOOT-A`,
+   hashed as it goes. `CI-BOOT-B` gets a zeroed first MiB.
+5. **Read back.** After `fsync` (and dropping the page cache for devices), the GPT must
+   parse, pass both CRCs, match the plan entry for entry, and be byte-identical to what
+   `sgdisk` wrote. Each slot must hash to its manifest digest, and every filesystem
+   extent must compare equal.
+
+Copying only data extents is safe on a stick with old contents because none of the mkfs
+tools discard: anything a filesystem relies on being zero was written by mkfs, so it is
+data, not a hole. Zero blocks are skipped only when the destination is a freshly created
+image file.
+
+**Device safety model** (`target.rs`, pure functions unit-tested over lsblk, mountinfo
+and swaps fixtures):
+
+- The disk must be one of `doctor`'s removable or USB candidates. That rules out the
+  system disk, and loop, zram, dm, md, nbd and optical devices are refused by name as
+  well.
+- No partition may be mounted. This is checked by comparing `major:minor` of the disk and
+  each partition against `/proc/self/mountinfo`, never by name. The disk must also hold
+  no swap (`/proc/swaps`) and have no holders (dm, md or LVM).
+- The disk must be at least the layout minimum.
+- A `/dev/disk/by-*` path is resolved, and the real node is always shown.
+- A write needs `--confirm <node exactly as shown>`, and also `--expect-serial` when the
+  device reports a serial. The node is opened with `O_EXCL`, so the kernel refuses if
+  anything has it mounted or claimed. Immediately before the first write, the size,
+  model, serial and `major:minor` are re-read from sysfs and compared with the plan, to
+  catch re-enumeration or a different stick.
+- `--slot-b-from` writes unsigned content into a slot, so it is accepted with `--image`
+  only (tests use it).
+
+**Boot chain and A/B.** `stick/scripts/build-grub-efi.sh` builds a standalone GRUB. Its
+embedded config finds the ESP it was loaded from (through `$cmdpath`, with a
+`search --label CI-EFI` fallback) and runs `configfile` on `ci-stick/grub.cfg`. `flash`
+renders that file from a template in the crate, and the slot partition numbers come from
+`layout.rs`. The config derives the disk from `$cmdpath` rather than assuming `hd0`,
+runs `load_env` on `ci-stick/grubenv`, and offers the active slot first and the other
+slot as a fallback:
+
+```
+linux  ($disk,gpt3)/casper/vmlinuz boot=casper live-media=/dev/disk/by-partlabel/CI-BOOT-A persistent ci_stick.slot=A quiet splash $extra_cmdline ---
+initrd ($disk,gpt3)/casper/initrd
+```
+
+`grubenv` is GRUB's own 1024-byte environment block, generated in Rust. It holds
+`active_slot=A|B` and an optional `extra_cmdline`, which tests set to `console=ttyS0,…`
+and production leaves empty. `ci-stick slot set B` rewrites only that 1 KiB file,
+through mtools at the ESP's offset, under the same device rules as `flash`.
+**Persistence** is the ext4 filesystem labelled `writable` on `CI-PERSIST`. Ubuntu's
+casper finds it by that label, and the GPT partition name stays `CI-PERSIST`. Both slots
+share it.
+
+**Tests.**
+
+- `cargo test` covers grubenv round trips and the exact format, grub.cfg rendering, GPT
+  arguments and parsing (CRCs), sparse-copy correctness, every device-refusal rule, and
+  a real `flash` plus `slot set` against a 64 GB sparse image. That last test is skipped,
+  with a note, when the gdisk, dosfstools, exfatprogs, e2fsprogs or mtools tools are
+  missing.
+- `stick/tests/qemu/run.sh` runs as the `stick-qemu` job in PR checks. It builds a tiny
+  casper-shaped test ISO: a real Ubuntu kernel plus a busybox initrd whose `/init`
+  reports its slot and `ci_stick.slot`, then increments `/boot-count` on the `writable`
+  filesystem. It flashes a sparse 64 GB image and boots it three times in QEMU as a USB
+  mass-storage device under OVMF. Boot 1 must report slot A with count 1, boot 2 must
+  report count 2, and after `slot set B`, boot 3 must report slot B with count 3. The
+  production grub.cfg is used unchanged. The same script checks that a tampered bundle,
+  `--allow-unsigned` with `--device`, a regular file and a non-removable disk are all
+  refused without writes.
+- `.github/workflows/stick-real-iso.yml` is manual. It checks the Ubuntu 24.04 desktop
+  ISO against SHA256SUMS, whose GPG signature must verify against Ubuntu's CD signing
+  key, then flashes and boots the ISO to casper.
+
+**Known limitations** (next slices):
+
+- **No Secure Boot.** `BOOTX64.EFI` is not signed, so Secure Boot has to be disabled.
+  Booting through a Microsoft-signed shim and a signed GRUB is an explicit follow-up.
+- `CI-SHARED` and `CI-CACHE` are formatted empty. Populating them (launchers, docs, OCI
+  images and models) is slice 4. exFAT can't be written without root or mounting, so
+  there is no README yet either.
+- Device writes are Linux-only. On macOS and Windows, `flash --device` and `slot --device`
+  say "not supported yet". To use another OS, write an image with `--image` and flash it
+  with that OS's tools.
+- The real-ISO boot test is manual. It is not part of PR checks, and it has not yet been
+  run on real hardware.
+- Replacing grubenv with mtools is not an atomic update. The signed A/B updater (slice 5)
+  owns atomic pointer flips and rollback.
+
 ## Delivery sequence
 
 1. Security closure (tracked separately).
-2. **Bundle schema, lockfile, `verify` and read-only `doctor`. ✅ This slice.**
-3. Safe Ubuntu x86_64 flashing, persistence and QEMU boot tests.
+2. **Bundle schema, lockfile, `verify` and read-only `doctor`. ✅**
+3. **Safe Ubuntu x86_64 flashing, persistence and QEMU boot tests. ✅**
 4. Offline Hub/Memory payload install and model import.
 5. Signed A/B updater with rollback.
 6. Other distros (Fedora, Arch, Debian) and ARM64.
 
-### Non-goals of slice 2
+### Still out of scope after slice 3
 
-- **No writes to devices.** Nothing partitions, formats, mounts, unmounts or flashes. The
-  device-listing code only runs `lsblk` and `diskutil list`.
+- Nothing mounts or unmounts anything; `flash` refuses mounted devices instead.
 - **No host install**, and no launcher yet.
-- **No updater**, no A/B slot switching and no key rotation.
+- **No updater** (manual `slot set` only) and no key rotation.
 - **No `build`.** Staging trees are assembled by hand or by scripts for now.
 - **No digest resolution** (`models lock`), and no Windows device listing (`doctor` says
   "not supported yet").

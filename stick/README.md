@@ -8,8 +8,9 @@ macOS/Windows/Linux host, carry models offline, and update itself.
 [`docs/architecture/companion-stick.md`](../docs/architecture/companion-stick.md) covers
 the architecture, trust model and roadmap.
 
-**This release never writes to a block device.** It builds and verifies bundles, plans
-layouts and runs diagnostics. Flashing, host install and updates come in later slices.
+This release builds and verifies bundles, plans layouts, runs diagnostics, and **flashes**
+sticks or stick images (Ubuntu x86_64 layout, A/B slots, persistence). Host install and
+the signed updater come in later slices.
 
 ## Build and test
 
@@ -57,13 +58,71 @@ ci-stick doctor --bundle /media/$USER/CI-SHARED --pubkey ./dev.pub          # si
 ci-stick doctor --bundle /media/$USER/CI-SHARED --pubkey ./dev.pub --full   # + sha256
 ```
 
-Exit codes: `0` ok, `1` verification failed, `2` usage or I/O error.
+Exit codes: `0` ok, `1` verification failed, `2` usage or I/O error, or a safety refusal.
+
+### Flashing
+
+> **⚠ `flash --device` ERASES THE WHOLE DEVICE.** Always run `--dry-run` first and read
+> the plan: node, model, serial and size are printed prominently. `ci-stick` only writes
+> to removable or USB disks with nothing mounted and no swap, and it refuses the system
+> disk. It opens the device exclusively and re-checks its identity right before the first
+> write, but *you* are the last check. Device writes are Linux-only for now. The
+> bootloader is **not Secure Boot signed** yet, so disable Secure Boot to boot the stick.
+
+```bash
+# Tools (Debian/Ubuntu); no root needed for image files
+sudo apt-get install gdisk dosfstools exfatprogs e2fsprogs mtools grub-efi-amd64-bin
+
+# Bootloader for the bundle: a standalone GRUB, staged as efi/BOOTX64.EFI (kind bootloader)
+stick/scripts/build-grub-efi.sh ./staging/efi/BOOTX64.EFI
+
+# A sparse stick image (write it to a stick with any imaging tool)
+ci-stick flash ./staging --pubkey ./dev.pub --image stick.img --size 64GB --dry-run
+ci-stick flash ./staging --pubkey ./dev.pub --image stick.img --size 64GB
+
+# A real stick (Linux, as root): dry run, check the plan, then confirm the node (+ serial)
+sudo ci-stick flash ./staging --pubkey ./dev.pub --device /dev/disk/by-id/usb-XYZ --dry-run
+sudo ci-stick flash ./staging --pubkey ./dev.pub --device /dev/disk/by-id/usb-XYZ \
+    --confirm /dev/sdb --expect-serial 4C530001234
+
+# A/B boot slot pointer (ci-stick/grubenv on the ESP)
+ci-stick slot show --image stick.img
+ci-stick slot set B --image stick.img
+sudo ci-stick slot set A --device /dev/sdb --confirm /dev/sdb --expect-serial 4C530001234
+```
+
+What goes where:
+
+- `CI-EFI` gets `EFI/BOOT/BOOTX64.EFI`, `ci-stick/grub.cfg` (generated from the layout)
+  and `ci-stick/grubenv` (`active_slot=A`).
+- `CI-BOOT-A` gets the bundle's boot image (an Ubuntu live ISO), written raw.
+- `CI-BOOT-B` stays empty until an update.
+- `CI-PERSIST` is ext4 with filesystem label `writable`, which is where casper keeps
+  persistence.
+- `CI-SHARED` and `CI-CACHE` are formatted empty. Their contents arrive in slice 4.
+
+`--allow-unsigned` and `--slot-b-from` are for `--image` targets only, and
+`--extra-cmdline` (e.g. `console=ttyS0,115200`) is for tests. After a write,
+`ci-stick` reads the GPT, both slots and every filesystem extent back and verifies them.
+
+### QEMU boot test
+
+```bash
+stick/tests/qemu/run.sh     # needs qemu-system-x86 ovmf xorriso busybox-static cpio zstd too
+```
+
+It flashes a sparse 64 GB image from a casper-shaped test ISO and boots it three times as
+a USB stick under UEFI: slot A, a reboot (persistence), then slot B after `slot set B`.
+It also checks the safety refusals, and it prints a PASS/FAIL summary. It uses KVM when
+`/dev/kvm` is usable and TCG otherwise. `cargo test -- --ignored qemu_boot_harness` runs
+the same script.
 
 ### Staging layout
 
 A file's top-level directory determines its artifact `kind`: `boot/` → `boot-image`,
 `installers/` → `installer`, `oci/` → `oci-image`, `models/` → `model-blob`, `docs/` →
-`doc`, `tools/` → `tool`. If any path component is a platform id (`linux-x86_64`,
+`doc`, `tools/` → `tool`, `efi/` → `bootloader` (only `BOOTX64.EFI`, which records the
+`x86_64-uefi` platform). If any path component is a platform id (`linux-x86_64`,
 `linux-arm64`, `macos-arm64`, `macos-x86_64`, `windows-x86_64`), that platform is recorded
 on the artifact. Files anywhere else, and symlinks, are errors: the stick's data
 partitions are exFAT.
@@ -88,7 +147,15 @@ stick/
     packs.rs                    model-pack catalog + fit logic
     devices.rs  host.rs         read-only device listing; host capability matrix
     doctor.rs  progress.rs  timefmt.rs
-  crates/ci-stick/tests/        CLI end-to-end + schema drift tests
+    flash.rs                    verify -> plan -> build filesystems -> write -> read back
+    target.rs                   image/device targets + the device safety rules
+    gpt.rs  sparse.rs  tools.rs sgdisk args + GPT read-back; sparse copy; external tools
+    grubenv.rs  bootcfg.rs      A/B pointer (GRUB env block); grub.cfg from the layout
+    slot.rs                     slot show / set
+  crates/ci-stick/templates/    grub.cfg template
+  crates/ci-stick/tests/        CLI end-to-end, flash-to-image, schema drift tests
+  scripts/build-grub-efi.sh     standalone GRUB EFI (not Secure Boot signed)
+  tests/qemu/                   QEMU boot harness + casper-shaped test boot image
   schema/bundle.schema.json     published JSON Schema (mirror of manifest.rs)
   schema/examples/              canonical example bundle.json
 ```

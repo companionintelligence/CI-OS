@@ -25,9 +25,11 @@ earlier version of this repo was Ubuntu-only ("Companion Ubuntu"); that framing 
 **Companion Stick** (`stick/`): a Rust CLI, `ci-stick`, that turns CI-OS into a
 multi-function USB stick. The stick boots Companion OS, installs Hub/Memory/models onto a
 running host, carries signed model packs offline and updates itself (A/B). `backends/`
-stay the OS image adapters; `ci-stick` packages, signs, verifies and (later) flashes and
-updates what they build. Today it has `lock`, `verify`, `layout plan`, `models list` and
-a read-only `doctor`. See `docs/architecture/companion-stick.md` and `stick/README.md`.
+stay the OS image adapters; `ci-stick` packages, signs, verifies, flashes and (later)
+updates what they build. Today it has `lock`, `verify`, `layout plan`, `models list`, a
+read-only `doctor`, and `flash` / `slot` (safe Ubuntu x86_64 flashing, A/B via grubenv,
+QEMU boot tests in `stick/tests/qemu/run.sh`). See `docs/architecture/companion-stick.md`
+and `stick/README.md`.
 
 ## Stack
 
