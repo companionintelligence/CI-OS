@@ -77,6 +77,18 @@ wifi_link_active_or_connecting() {
     return 1
 }
 
+# setup-backend touches this while it has stopped the hotspot to join WiFi (see
+# CONFIGURING_FLAG in setup_service.py). Ignore it once stale, in case the backend died.
+CONFIGURING_FLAG=/run/setup-device/configuring
+CONFIGURING_MAX_AGE_SECONDS=300
+
+setup_backend_configuring() {
+    [ -f "$CONFIGURING_FLAG" ] || return 1
+    local age
+    age=$(( $(date +%s) - $(stat -c %Y "$CONFIGURING_FLAG" 2>/dev/null || echo 0) ))
+    [ "$age" -lt "$CONFIGURING_MAX_AGE_SECONDS" ]
+}
+
 should_delay_hotspot_during_boot() {
     local now elapsed
     now=$(date +%s)
@@ -100,7 +112,14 @@ should_delay_hotspot_during_boot() {
 
 start_hotspot() {
     if [ "$hotspot_active" = true ]; then
-        return 0
+        # setup-backend stops the hotspot itself when it joins WiFi. If that join
+        # then fails, the services are down while this flag still says active --
+        # resync, or the device is left with neither WiFi nor a setup hotspot.
+        if systemctl is-active --quiet hostapd-setup.service 2>/dev/null; then
+            return 0
+        fi
+        log "Hotspot services are down (stopped by setup-backend); clearing state"
+        hotspot_active=false
     fi
     # Sync state: if services are already running externally, we're good (avoids restart loop)
     if systemctl is-active --quiet hostapd-setup.service 2>/dev/null && systemctl is-active --quiet dnsmasq-setup.service 2>/dev/null; then
@@ -159,6 +178,13 @@ while true; do
             if [ $fail_count -gt 0 ]; then
                 log "WiFi link active/connecting; suppressing hotspot fallback"
             fi
+            fail_count=0
+            sleep $CHECK_INTERVAL
+            continue
+        fi
+
+        if setup_backend_configuring; then
+            # setup-backend is between stopping the hotspot and bringing WiFi up.
             fail_count=0
             sleep $CHECK_INTERVAL
             continue

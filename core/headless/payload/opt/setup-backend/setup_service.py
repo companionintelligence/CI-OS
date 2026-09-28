@@ -1408,15 +1408,34 @@ def _hotspot_active():
         logger.debug(f"Could not query hostapd-setup.service state: {e}")
         return False
 
+# Present while _connect_and_pair() owns the radio (hotspot stopped, WiFi not yet up).
+# setup-network-monitor.sh holds off restarting the hotspot while it exists and is
+# recent. In /run so a crash-and-reboot never leaves it behind.
+CONFIGURING_FLAG = Path('/run/setup-device/configuring')
+
+def _mark_configuring(active):
+    try:
+        if active:
+            CONFIGURING_FLAG.parent.mkdir(parents=True, exist_ok=True)
+            CONFIGURING_FLAG.touch()
+        else:
+            CONFIGURING_FLAG.unlink(missing_ok=True)
+    except Exception as e:
+        logger.warning(f"Could not update {CONFIGURING_FLAG}: {e}")
+
+def _wants_json():
+    """The portal posts FormData (not JSON) but asks for JSON back via Accept."""
+    return request.is_json or 'application/json' in request.headers.get('Accept', '')
+
 # One configure attempt at a time: a second submit while the first is still joining
-# WiFi would race it for the same radio and NetworkManager profile.
+# WiFi would race it for the same radio and NetworkManager profile. configure() takes
+# it; whoever finishes the attempt (configure() itself, or the background thread it
+# hands off to) releases it.
 _configure_lock = threading.Lock()
 
-def _start_background_configure(ssid, password, pairing_code, connection_uuid, require_pairing, hub_state):
-    """Answer /api/configure now, then run _connect_and_pair() in a background thread."""
-    if not _configure_lock.acquire(blocking=False):
-        return jsonify({'error': 'Setup is already in progress. Please wait.'}), 409
-
+def _spawn_background_configure(ssid, password, pairing_code, connection_uuid, require_pairing, hub_state):
+    """Run _connect_and_pair() in a background thread. Caller holds _configure_lock;
+    the thread releases it."""
     def run():
         try:
             # Let the response reach the client before the hotspot goes down
@@ -1434,18 +1453,16 @@ def _start_background_configure(ssid, password, pairing_code, connection_uuid, r
         finally:
             _configure_lock.release()
 
-    try:
-        threading.Thread(target=run, name='configure-bg', daemon=True).start()
-    except Exception:
-        _configure_lock.release()
-        raise
+    threading.Thread(target=run, name='configure-bg', daemon=True).start()
 
+def _pending_response(ssid, require_pairing, want_json):
+    """Reply for an attempt that continues in the background after the hotspot closes."""
     redirect_metadata = _build_redirect_metadata()
     message = (
         f'Settings saved. The setup hotspot will now close and the device will join "{ssid}". '
         'Reconnect this phone to your usual network to continue.'
     )
-    if request.is_json:
+    if want_json:
         return jsonify({
             'status': 'pending',
             'message': message,
@@ -1475,12 +1492,45 @@ def _start_background_configure(ssid, password, pairing_code, connection_uuid, r
     </html>
     ''', 202
 
+def _configure_wired(ssid, password, pairing_code, connection_uuid, hub_state, want_json):
+    """Wired setup: pair over the uplink that already has internet, while the hotspot is up.
+
+    The phone is still on the hotspot, so it gets the real pairing result (success with
+    the device-domain redirect, or the exact refusal) instead of a "pending" guess. Only
+    after a successful pair does the device close the hotspot and join WiFi -- without
+    pairing again. On failure the hotspot and form stay up so the user can retry at once.
+
+    Nothing is routed for hotspot clients: no NAT, no upstream DNS. The phone follows the
+    redirect after it is back on its own network, so the setup AP never becomes a way
+    onto the internet or the wired LAN.
+
+    Returns (response, handed_off): handed_off means the background thread now owns
+    _configure_lock.
+    """
+    logger.info("[CONFIGURE-WIRED] Wired uplink has internet; pairing before the hotspot closes")
+    clear_pairing_failure()
+    message = (
+        f'Device paired. The setup hotspot will close in a few seconds and the device will '
+        f'join "{ssid}". Reconnect this phone to your usual network to continue.'
+    )
+    response = _pair_with_cloud(
+        pairing_code, hub_state, want_json,
+        success_extra={'flow': 'wired', 'message': message},
+    )
+    status_code = response[1] if isinstance(response, tuple) else 200
+    if status_code != 200:
+        logger.info(f"[CONFIGURE-WIRED] Pairing did not succeed ({status_code}); hotspot stays up for a retry")
+        return response, False
+    _spawn_background_configure(ssid, password, pairing_code, connection_uuid, False, hub_state)
+    return response, True
+
 @app.route('/api/configure', methods=['POST'])
 def configure():
     """Configure WiFi connection"""
-    if _configure_lock.locked():
-        # A background attempt (see _start_background_configure) still owns the radio.
+    if not _configure_lock.acquire(blocking=False):
+        # Another attempt (possibly in the background) still owns the radio.
         return jsonify({'error': 'Setup is already in progress. Please wait.'}), 409
+    handed_off = False
     try:
         # Accept both JSON and form-encoded data
         if request.is_json:
@@ -1553,17 +1603,26 @@ def configure():
         # The network monitor runs independently and starts hotspot if no connectivity detected
         # Setup is complete when WiFi connection is active, not when the flag is written
         
-        want_json = request.is_json
+        want_json = _wants_json()
         if _hotspot_active():
             # The client reached this form over the setup hotspot, and the radio serving
-            # that hotspot is the one about to join the user's WiFi. Anything done
-            # synchronously from here stops the hotspot before the response is written,
-            # so the client only ever sees a dropped connection. Answer first; finish
-            # (WiFi join, cloud pairing, Hub hand-off) in the background. A failure is
-            # recorded for /api/status (last_pairing_error) and shown on the next visit.
-            return _start_background_configure(
+            # that hotspot is the one that must join the user's WiFi.
+            if require_pairing and check_internet_connectivity(timeout=3):
+                # Wired: another uplink already has internet, so pair now and answer
+                # with the real result before touching the hotspot.
+                response, handed_off = _configure_wired(
+                    ssid, password, pairing_code, connection_uuid, hub_state, want_json
+                )
+                return response
+            # WiFi only: anything done synchronously from here stops the hotspot before
+            # the response is written. Answer first; finish (WiFi join, cloud pairing,
+            # Hub hand-off) in the background. A failure is recorded for /api/status
+            # (last_pairing_error) and shown on the next visit.
+            _spawn_background_configure(
                 ssid, password, pairing_code, connection_uuid, require_pairing, hub_state
             )
+            handed_off = True
+            return _pending_response(ssid, require_pairing, want_json)
         return _connect_and_pair(
             ssid, password, pairing_code, connection_uuid, require_pairing, hub_state, want_json
         )
@@ -1577,6 +1636,9 @@ def configure():
                 hotspot_err, exc_info=True
             )
         return jsonify({'error': 'Internal server error'}), 500
+    finally:
+        if not handed_off:
+            _configure_lock.release()
 
 def _connect_and_pair(ssid, password, pairing_code, connection_uuid, require_pairing, hub_state, want_json):
     """Stop the hotspot, join the configured WiFi, and pair with the cloud.
@@ -1585,7 +1647,11 @@ def _connect_and_pair(ssid, password, pairing_code, connection_uuid, require_pai
     on the setup hotspot (it reached the portal over the LAN), and in a background
     thread -- whose return value nobody reads -- when it is; see configure().
     """
+    _mark_configuring(True)
     try:
+        # A new attempt: whatever failed last time is no longer the current state.
+        clear_pairing_failure()
+
         # Stop hotspot services - allow time for driver to release AP mode
         time.sleep(2)
         stop_hotspot_services()
@@ -1677,10 +1743,16 @@ def _connect_and_pair(ssid, password, pairing_code, connection_uuid, require_pai
             time.sleep(1)
         
         redirect_metadata = _build_redirect_metadata()
-        pairing_failure = None
 
         if not internet_available:
             logger.warning("Internet connectivity not available within registration window. Cloud registration skipped.")
+            if not wifi_connected:
+                # Never associated: most often a wrong password that NetworkManager does
+                # not report as missing-secrets. Say so on the next portal visit.
+                record_pairing_failure(
+                    'WIFI_CONNECT_FAILED',
+                    f'Could not join WiFi network "{ssid}". Check the password and try again.'
+                )
             # Setup may still be converging; cloud registration can happen later.
             # The device will work on local network, cloud registration can happen later
             if want_json:
@@ -1739,239 +1811,8 @@ def _connect_and_pair(ssid, password, pairing_code, connection_uuid, require_pai
             </html>
             ''', 200
 
-        # Step 3: Now that we have internet, validate pairing code with cloud
-        logger.info("Internet connectivity confirmed. Starting cloud device registration...")
-        
-        try:
-            # Normalize pairing code to uppercase before cloud validation
-            normalized_pairing_code = normalize_pairing_code(pairing_code)
-            logger.info(f"Getting pairing info from cloud for pairing code: {normalized_pairing_code} (normalized from: {pairing_code})")
-            success, pairing_info = get_pairing_info_from_cloud(normalized_pairing_code)
-            
-            if not success:
-                logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
-                # Keep WiFi connected. Registration can be retried without forcing users back to AP mode.
-                error_msg = 'Failed to validate pairing code with cloud service. Device stayed connected; please verify pairing code and retry.'
-                record_pairing_failure('CLOUD_VALIDATION_FAILED', 'CI Portal could not validate the pairing code. Check the code and try again.')
-                if want_json:
-                    return jsonify({'error': error_msg, 'status': 'cloud_error', 'internet_available': True}), 500
-                else:
-                    return f'''
-                    <!DOCTYPE html>
-                    <html>
-                    <head>
-                        <meta charset="UTF-8">
-                        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                        <title>Setup Error</title>
-                        <style>
-                            body {{ font-family: sans-serif; text-align: center; padding: 50px; }}
-                            .error {{ color: #ff4444; font-size: 18px; margin-bottom: 20px; }}
-                        </style>
-                    </head>
-                    <body>
-                        <div class="error">✗ {error_msg}</div>
-                        <p>Please retry setup from your current network connection.</p>
-                    </body>
-                    </html>
-                    ''', 500
-            else:
-                # Extract pairing metadata from response (supports snake_case + camelCase)
-                cloud_device_id = pairing_info.get('device_id') or pairing_info.get('deviceId')
-                api_key = pairing_info.get('api_key')
-                cloud_pairing_code = pairing_info.get('pairing_code') or pairing_info.get('pairingCode', '')
+        return _pair_with_cloud(pairing_code, hub_state, want_json)
 
-                if not cloud_device_id:
-                    logger.warning(f"Missing device_id in cloud response: {pairing_info}")
-                else:
-                    # Validate pairing code matches (case-insensitive comparison)
-                    user_code_normalized = normalize_pairing_code(pairing_code)
-                    cloud_code_normalized = normalize_pairing_code(cloud_pairing_code)
-                    
-                    logger.info(f"[PAIRING VALIDATION] Comparing pairing codes")
-                    logger.info(f"[PAIRING VALIDATION] User entered (original): {pairing_code}")
-                    logger.info(f"[PAIRING VALIDATION] User entered (normalized): {user_code_normalized}")
-                    logger.info(f"[PAIRING VALIDATION] Cloud returned (original): {cloud_pairing_code}")
-                    logger.info(f"[PAIRING VALIDATION] Cloud returned (normalized): {cloud_code_normalized}")
-                    
-                    if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
-                        logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
-                        logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
-                        logger.info("[PAIRING VALIDATION] Pairing mismatch detected; keeping WiFi connected for retry")
-                        record_pairing_failure('PAIRING_MISMATCH', 'The pairing code did not match. Check the code and try again.')
-
-                        # Return error response
-                        if want_json:
-                            return jsonify({
-                                'error': 'Pairing code does not match. Please try again.',
-                                'status': 'pairing_mismatch',
-                                'internet_available': True
-                            }), 400
-                        else:
-                            return '''
-                                <!DOCTYPE html>
-                                <html>
-                                <head>
-                                    <meta charset="UTF-8">
-                                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                                    <title>Setup Error</title>
-                                    <style>
-                                        body { font-family: sans-serif; text-align: center; padding: 50px; }
-                                        .error { color: #ff4444; font-size: 18px; margin-bottom: 20px; }
-                                    </style>
-                                </head>
-                                <body>
-                                    <div class="error">✗ Pairing code does not match</div>
-                                    <p>Please retry setup from your current network connection.</p>
-                                </body>
-                                </html>
-                                ''', 400
-                    
-                    if api_key:
-                        logger.info(
-                            f"Retrieved from cloud - device_id: {cloud_device_id}, "
-                            "api_key: present, pairing_code matches"
-                        )
-                        logger.info("[CREDENTIALS] Saving API key from cloud GET response")
-                        save_cloud_credentials(cloud_device_id, api_key)
-                    else:
-                        logger.info(
-                            f"Retrieved from cloud - device_id: {cloud_device_id}, "
-                            "api_key not provided by GET /pair"
-                        )
-                    
-                    # Step 3: Get the actual device ID from local machine (used for DB update and Hub)
-                    local_device_id = get_device_id()
-                    logger.info(f"Local device ID: {local_device_id}")
-                    
-                    # Step 4: POST to update device_id in cloud (upsert where pairing_code matches)
-                    logger.info("Updating device_id in cloud...")
-                    update_success, update_resp = update_device_id_in_cloud(
-                        pairing_code=normalized_pairing_code,
-                        device_id=local_device_id,
-                        api_key=api_key
-                    )
-                    
-                    if update_success:
-                        logger.info(f"Device ID updated successfully in cloud: {_redact_cloud_payload(update_resp)}")
-                        clear_pairing_failure()
-                        redirect_metadata = _build_redirect_metadata(update_resp, pairing_info)
-                        # Persist api_key from POST response if it was not present in GET response.
-                        post_api_key = None
-                        if isinstance(update_resp, dict):
-                            post_api_key = update_resp.get('api_key')
-                            post_device_id = update_resp.get('device_id') or local_device_id
-                            if post_api_key:
-                                logger.info("[CREDENTIALS] Saving API key from cloud POST response")
-                                save_cloud_credentials(post_device_id, post_api_key)
-                        if hub_state.get('hub_running'):
-                            callback_ok = notify_hub_registration_callback(update_resp)
-                            if not callback_ok:
-                                logger.warning(
-                                    "Cloud registration completed, but failed to forward callback to Hub. "
-                                    "Hub may remain on registration page until manual refresh/retry."
-                                )
-                        else:
-                            # Hub not running yet: write hub.env (CI_ZONE_ID, DEVICE_ID, API_KEY) and
-                            # trigger Hub download/start (no-op if Hub is not installed on this image).
-                            # The POST response is the key's source of truth: GET /pair answers with
-                            # only `deviceId` and `status`, so `api_key` from there is all but always
-                            # absent and writing it would leave the Hub with no credential.
-                            save_hub_env(local_device_id, post_api_key or api_key)
-                            try:
-                                subprocess.run(
-                                    ['/usr/local/bin/ci-os-hub-start.sh'],
-                                    capture_output=True, timeout=30
-                                )
-                            except Exception as hub_err:
-                                logger.debug(f"Hub start script not available or failed: {hub_err}")
-                        # API key already saved from GET response, no need to save again
-                    else:
-                        # The Portal names its own refusals -- DEVICE_PROOF_REQUIRED when it
-                        # wants this hardware's key, DEVICE_REGISTERED_ELSEWHERE when another
-                        # organization holds it. Carry its code and sentence through rather
-                        # than flattening every cause into one message.
-                        detail = update_resp if isinstance(update_resp, dict) else {}
-                        pairing_failure = {
-                            'code': detail.get('code') or 'PAIRING_FAILED',
-                            'message': detail.get('error') or detail.get('message') or 'The device could not be paired.',
-                        }
-                        logger.warning(
-                            f"Pairing refused by the Portal: {pairing_failure['code']} - {pairing_failure['message']}"
-                        )
-                        record_pairing_failure(pairing_failure['code'], pairing_failure['message'])
-                        redirect_metadata = _build_redirect_metadata(pairing_info)
-                        
-        except Exception as e:
-            logger.error(f"Exception during cloud registration: {e}", exc_info=True)
-            pairing_failure = {
-                'code': 'PAIRING_ERROR',
-                'message': 'The device could not reach CI Portal to complete pairing.',
-            }
-            record_pairing_failure(pairing_failure['code'], pairing_failure['message'])
-        
-        # A refused pair is not a successful setup. WiFi is up either way, so the
-        # message says so -- the remedy is re-registration by an owner or admin, not
-        # re-entering network credentials. No redirect metadata: there is no device
-        # domain to send anyone to.
-        if pairing_failure:
-            if want_json:
-                return jsonify({
-                    'status': 'pairing_failed',
-                    'code': pairing_failure['code'],
-                    'error': pairing_failure['message'],
-                    'wifi_configured': True,
-                }), 502
-            return f'''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Pairing Failed</title>
-                <style>
-                    body {{ font-family: -apple-system, sans-serif; text-align: center; padding: 50px; background: #0d1f1b; color: #e8f4f2; }}
-                    .error {{ color: #ffb4b4; font-size: 24px; margin-bottom: 16px; }}
-                    .info {{ color: #9fb8b4; font-size: 14px; }}
-                </style>
-            </head>
-            <body>
-                <div class="error">Device could not be paired</div>
-                <p class="info">{html_escape(pairing_failure['message'])}</p>
-                <p class="info">WiFi is configured and the device is online. Pairing can be retried once this is resolved.</p>
-            </body>
-            </html>
-            ''', 502
-
-        # Return HTML response for form submissions, JSON for API calls
-        if want_json:
-            return jsonify({
-                'status': 'success',
-                'message': 'WiFi configured successfully',
-                **redirect_metadata,
-            })
-        else:
-            # Return HTML success page for form submissions
-            return '''
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <title>Setup Complete</title>
-                <style>
-                    body { font-family: -apple-system, sans-serif; text-align: center; padding: 50px; background: #0d1f1b; color: #e8f4f2; }
-                    .success { color: #72ddd4; font-size: 24px; margin-bottom: 16px; }
-                    a { color: #00a9a7; }
-                </style>
-            </head>
-            <body>
-                <div class="success">Device configured successfully!</div>
-                <p>The device will connect to the network shortly.</p>
-                <p style="margin-top: 24px;"><a href="http://localhost:5002">Open CI OS Hub</a> (on the device)</p>
-            </body>
-            </html>
-            ''', 200
-        
     except Exception as e:
         logger.error(f"Configuration error: {e}", exc_info=True)
         try:
@@ -1982,6 +1823,252 @@ def _connect_and_pair(ssid, password, pairing_code, connection_uuid, require_pai
                 hotspot_err, exc_info=True
             )
         return jsonify({'error': 'Internal server error'}), 500
+    finally:
+        _mark_configuring(False)
+
+def _pair_with_cloud(pairing_code, hub_state, want_json, success_extra=None):
+    """Validate the pairing code with CI Portal, register this device, hand off to the Hub.
+
+    Needs internet. Called by _connect_and_pair() once the device has joined WiFi, and by
+    _configure_wired() straight away when a wired uplink already has internet. Returns the
+    Flask response for /api/configure; `success_extra` is merged into the JSON success body.
+    """
+    redirect_metadata = _build_redirect_metadata()
+    pairing_failure = None
+
+    # Step 3: Now that we have internet, validate pairing code with cloud
+    logger.info("Internet connectivity confirmed. Starting cloud device registration...")
+
+    try:
+        # Normalize pairing code to uppercase before cloud validation
+        normalized_pairing_code = normalize_pairing_code(pairing_code)
+        logger.info(f"Getting pairing info from cloud for pairing code: {normalized_pairing_code} (normalized from: {pairing_code})")
+        success, pairing_info = get_pairing_info_from_cloud(normalized_pairing_code)
+
+        if not success:
+            logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
+            # Keep WiFi connected. Registration can be retried without forcing users back to AP mode.
+            error_msg = 'Failed to validate pairing code with cloud service. Device stayed connected; please verify pairing code and retry.'
+            record_pairing_failure('CLOUD_VALIDATION_FAILED', 'CI Portal could not validate the pairing code. Check the code and try again.')
+            if want_json:
+                return jsonify({'error': error_msg, 'status': 'cloud_error', 'internet_available': True}), 500
+            else:
+                return f'''
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                    <title>Setup Error</title>
+                    <style>
+                        body {{ font-family: sans-serif; text-align: center; padding: 50px; }}
+                        .error {{ color: #ff4444; font-size: 18px; margin-bottom: 20px; }}
+                    </style>
+                </head>
+                <body>
+                    <div class="error">✗ {error_msg}</div>
+                    <p>Please retry setup from your current network connection.</p>
+                </body>
+                </html>
+                ''', 500
+        else:
+            # Extract pairing metadata from response (supports snake_case + camelCase)
+            cloud_device_id = pairing_info.get('device_id') or pairing_info.get('deviceId')
+            api_key = pairing_info.get('api_key')
+            cloud_pairing_code = pairing_info.get('pairing_code') or pairing_info.get('pairingCode', '')
+
+            if not cloud_device_id:
+                logger.warning(f"Missing device_id in cloud response: {pairing_info}")
+            else:
+                # Validate pairing code matches (case-insensitive comparison)
+                user_code_normalized = normalize_pairing_code(pairing_code)
+                cloud_code_normalized = normalize_pairing_code(cloud_pairing_code)
+
+                logger.info(f"[PAIRING VALIDATION] Comparing pairing codes")
+                logger.info(f"[PAIRING VALIDATION] User entered (original): {pairing_code}")
+                logger.info(f"[PAIRING VALIDATION] User entered (normalized): {user_code_normalized}")
+                logger.info(f"[PAIRING VALIDATION] Cloud returned (original): {cloud_pairing_code}")
+                logger.info(f"[PAIRING VALIDATION] Cloud returned (normalized): {cloud_code_normalized}")
+
+                if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
+                    logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
+                    logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
+                    logger.info("[PAIRING VALIDATION] Pairing mismatch detected; keeping WiFi connected for retry")
+                    record_pairing_failure('PAIRING_MISMATCH', 'The pairing code did not match. Check the code and try again.')
+
+                    # Return error response
+                    if want_json:
+                        return jsonify({
+                            'error': 'Pairing code does not match. Please try again.',
+                            'status': 'pairing_mismatch',
+                            'internet_available': True
+                        }), 400
+                    else:
+                        return '''
+                            <!DOCTYPE html>
+                            <html>
+                            <head>
+                                <meta charset="UTF-8">
+                                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                                <title>Setup Error</title>
+                                <style>
+                                    body { font-family: sans-serif; text-align: center; padding: 50px; }
+                                    .error { color: #ff4444; font-size: 18px; margin-bottom: 20px; }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="error">✗ Pairing code does not match</div>
+                                <p>Please retry setup from your current network connection.</p>
+                            </body>
+                            </html>
+                            ''', 400
+
+                if api_key:
+                    logger.info(
+                        f"Retrieved from cloud - device_id: {cloud_device_id}, "
+                        "api_key: present, pairing_code matches"
+                    )
+                    logger.info("[CREDENTIALS] Saving API key from cloud GET response")
+                    save_cloud_credentials(cloud_device_id, api_key)
+                else:
+                    logger.info(
+                        f"Retrieved from cloud - device_id: {cloud_device_id}, "
+                        "api_key not provided by GET /pair"
+                    )
+
+                # Step 3: Get the actual device ID from local machine (used for DB update and Hub)
+                local_device_id = get_device_id()
+                logger.info(f"Local device ID: {local_device_id}")
+
+                # Step 4: POST to update device_id in cloud (upsert where pairing_code matches)
+                logger.info("Updating device_id in cloud...")
+                update_success, update_resp = update_device_id_in_cloud(
+                    pairing_code=normalized_pairing_code,
+                    device_id=local_device_id,
+                    api_key=api_key
+                )
+
+                if update_success:
+                    logger.info(f"Device ID updated successfully in cloud: {_redact_cloud_payload(update_resp)}")
+                    clear_pairing_failure()
+                    redirect_metadata = _build_redirect_metadata(update_resp, pairing_info)
+                    # Persist api_key from POST response if it was not present in GET response.
+                    post_api_key = None
+                    if isinstance(update_resp, dict):
+                        post_api_key = update_resp.get('api_key')
+                        post_device_id = update_resp.get('device_id') or local_device_id
+                        if post_api_key:
+                            logger.info("[CREDENTIALS] Saving API key from cloud POST response")
+                            save_cloud_credentials(post_device_id, post_api_key)
+                    if hub_state.get('hub_running'):
+                        callback_ok = notify_hub_registration_callback(update_resp)
+                        if not callback_ok:
+                            logger.warning(
+                                "Cloud registration completed, but failed to forward callback to Hub. "
+                                "Hub may remain on registration page until manual refresh/retry."
+                            )
+                    else:
+                        # Hub not running yet: write hub.env (CI_ZONE_ID, DEVICE_ID, API_KEY) and
+                        # trigger Hub download/start (no-op if Hub is not installed on this image).
+                        # The POST response is the key's source of truth: GET /pair answers with
+                        # only `deviceId` and `status`, so `api_key` from there is all but always
+                        # absent and writing it would leave the Hub with no credential.
+                        save_hub_env(local_device_id, post_api_key or api_key)
+                        try:
+                            subprocess.run(
+                                ['/usr/local/bin/ci-os-hub-start.sh'],
+                                capture_output=True, timeout=30
+                            )
+                        except Exception as hub_err:
+                            logger.debug(f"Hub start script not available or failed: {hub_err}")
+                    # API key already saved from GET response, no need to save again
+                else:
+                    # The Portal names its own refusals -- DEVICE_PROOF_REQUIRED when it
+                    # wants this hardware's key, DEVICE_REGISTERED_ELSEWHERE when another
+                    # organization holds it. Carry its code and sentence through rather
+                    # than flattening every cause into one message.
+                    detail = update_resp if isinstance(update_resp, dict) else {}
+                    pairing_failure = {
+                        'code': detail.get('code') or 'PAIRING_FAILED',
+                        'message': detail.get('error') or detail.get('message') or 'The device could not be paired.',
+                    }
+                    logger.warning(
+                        f"Pairing refused by the Portal: {pairing_failure['code']} - {pairing_failure['message']}"
+                    )
+                    record_pairing_failure(pairing_failure['code'], pairing_failure['message'])
+                    redirect_metadata = _build_redirect_metadata(pairing_info)
+
+    except Exception as e:
+        logger.error(f"Exception during cloud registration: {e}", exc_info=True)
+        pairing_failure = {
+            'code': 'PAIRING_ERROR',
+            'message': 'The device could not reach CI Portal to complete pairing.',
+        }
+        record_pairing_failure(pairing_failure['code'], pairing_failure['message'])
+
+    # A refused pair is not a successful setup. WiFi is up either way, so the
+    # message says so -- the remedy is re-registration by an owner or admin, not
+    # re-entering network credentials. No redirect metadata: there is no device
+    # domain to send anyone to.
+    if pairing_failure:
+        if want_json:
+            return jsonify({
+                'status': 'pairing_failed',
+                'code': pairing_failure['code'],
+                'error': pairing_failure['message'],
+                'wifi_configured': True,
+            }), 502
+        return f'''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Pairing Failed</title>
+            <style>
+                body {{ font-family: -apple-system, sans-serif; text-align: center; padding: 50px; background: #0d1f1b; color: #e8f4f2; }}
+                .error {{ color: #ffb4b4; font-size: 24px; margin-bottom: 16px; }}
+                .info {{ color: #9fb8b4; font-size: 14px; }}
+            </style>
+        </head>
+        <body>
+            <div class="error">Device could not be paired</div>
+            <p class="info">{html_escape(pairing_failure['message'])}</p>
+            <p class="info">WiFi is configured and the device is online. Pairing can be retried once this is resolved.</p>
+        </body>
+        </html>
+        ''', 502
+
+    # Return HTML response for form submissions, JSON for API calls
+    if want_json:
+        return jsonify({
+            'status': 'success',
+            'message': 'WiFi configured successfully',
+            **redirect_metadata,
+            **(success_extra or {}),
+        })
+    else:
+        # Return HTML success page for form submissions
+        return '''
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Setup Complete</title>
+            <style>
+                body { font-family: -apple-system, sans-serif; text-align: center; padding: 50px; background: #0d1f1b; color: #e8f4f2; }
+                .success { color: #72ddd4; font-size: 24px; margin-bottom: 16px; }
+                a { color: #00a9a7; }
+            </style>
+        </head>
+        <body>
+            <div class="success">Device configured successfully!</div>
+            <p>The device will connect to the network shortly.</p>
+            <p style="margin-top: 24px;"><a href="http://localhost:5002">Open CI OS Hub</a> (on the device)</p>
+        </body>
+        </html>
+        ''', 200
 
 def main():
     """Main entry point - daemon-safe"""
