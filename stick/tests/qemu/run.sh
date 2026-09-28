@@ -208,10 +208,19 @@ if [ -n "$sysdisk" ]; then
   first_before=""; [ -r "$sysdisk" ] && first_before="$(head -c 1048576 "$sysdisk" | sha256sum)"
   refused "non-removable disk $sysdisk as --device (dry run)" 2 "refusing to write" -- \
     "$CI" flash "$STAGE" --pubkey "$WORK/dev.pub" --device "$sysdisk" --dry-run
-  refused "non-removable disk $sysdisk as --device (with --confirm)" 2 "refusing to write" -- \
-    "$CI" flash "$STAGE" --pubkey "$WORK/dev.pub" --device "$sysdisk" --confirm "$sysdisk"
-  refused "slot set on non-removable disk $sysdisk" 2 "refusing to write" -- \
-    "$CI" slot set B --device "$sysdisk" --confirm "$sysdisk"
+  # The two cases below go past the dry run and would write if the safety checks ever
+  # regressed, so they aim a real write at this machine's own disk. Only run them where
+  # that is acceptable: CI's throwaway runner sets CI_STICK_TEST_SYSDISK_WRITE_REFUSAL=1.
+  # Everywhere else (a developer laptop) they are skipped; the same decisions are covered
+  # by the device-safety unit tests.
+  if [ "${CI_STICK_TEST_SYSDISK_WRITE_REFUSAL:-}" = "1" ]; then
+    refused "non-removable disk $sysdisk as --device (with --confirm)" 2 "refusing to write" -- \
+      "$CI" flash "$STAGE" --pubkey "$WORK/dev.pub" --device "$sysdisk" --confirm "$sysdisk"
+    refused "slot set on non-removable disk $sysdisk" 2 "refusing to write" -- \
+      "$CI" slot set B --device "$sysdisk" --confirm "$sysdisk"
+  else
+    echo "(skipping write-attempt refusals against $sysdisk; set CI_STICK_TEST_SYSDISK_WRITE_REFUSAL=1 on a disposable machine)"
+  fi
   if [ -n "$first_before" ]; then
     [ "$(head -c 1048576 "$sysdisk" | sha256sum)" = "$first_before" ] \
       && pass "$sysdisk first MiB unchanged" || fail "$sysdisk first MiB CHANGED"

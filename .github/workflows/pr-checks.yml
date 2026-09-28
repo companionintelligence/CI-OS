@@ -76,6 +76,9 @@ jobs:
       - name: QEMU boot test
         env:
           CI_STICK_QEMU_WORK: ${{ runner.temp }}/ci-stick-qemu
+          # Ephemeral runner: also check that write attempts at the runner's own
+          # system disk are refused (skipped by default on developer machines).
+          CI_STICK_TEST_SYSDISK_WRITE_REFUSAL: "1"
         run: stick/tests/qemu/run.sh
       - name: Upload serial logs
         if: always()
