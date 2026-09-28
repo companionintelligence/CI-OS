@@ -84,9 +84,10 @@
 #     new one, just split into two markers instead of Ubuntu's one, per the
 #     "why two separate units" note above.
 #   - The marker is written UNCONDITIONALLY at the end of a run, whether or
-#     not the underlying deploy/pull fully succeeded — matching Ubuntu's
-#     own first-boot-setup.sh design (see its header: failures are logged,
-#     not treated as reasons to retry every boot forever). This is a
+#     not the underlying deploy/pull fully succeeded. (Ubuntu's
+#     first-boot-setup.sh no longer does this: it writes its marker only on
+#     success and retries on a timer with a failure cap. This backend keeps
+#     the unconditional marker for now.) This is a
 #     deliberate choice: an appliance with, say, no registry credentials
 #     yet would otherwise attempt (and log noise from) a doomed deploy on
 #     every single boot indefinitely. Recovery is manual and explicit —

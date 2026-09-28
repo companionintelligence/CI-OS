@@ -777,8 +777,10 @@ cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-setup.sh" << 'BOOTSTRAP_SCRIPT'
 #=============================================================================
 # CI-OS First-Boot Setup
 # Runs provision.sh --tier=core once the system has a kernel, systemd, and
-# network access. This runs automatically on first boot, or can be re-run
-# manually: sudo ci-os-setup
+# network access. Runs automatically until it has completed once: at every
+# boot and every 15 minutes (ci-os-first-boot-setup.timer) while pending, with
+# at most MAX_AUTO_ATTEMPTS failed provisioning runs. `sudo ci-os-setup`
+# (passes --manual) re-runs it at any time, completed or not.
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
@@ -791,11 +793,22 @@ set -u
 BOOTSTRAP_ROOT="/usr/lib/ci-os/bootstrap"
 PROVISION_SH="${BOOTSTRAP_ROOT}/backends/ubuntu/provision/provision.sh"
 LOG_FILE="/var/log/ci-os-first-boot-setup.log"
+# Written ONLY when provisioning succeeded. The unit and timer are gated on it.
 MARKER_FILE="/var/lib/ci-os/.first-boot-setup-done"
+# Failed automatic provisioning runs so far. An offline boot is not a run --
+# waiting for network is cheap, re-downloading on every retry is not.
+ATTEMPTS_FILE="/var/lib/ci-os/first-boot-setup-attempts"
+MAX_AUTO_ATTEMPTS=3
+LOCK_FILE="/run/ci-os-first-boot-setup.lock"
+
+MANUAL=false
+if [[ "${1:-}" == "--manual" ]]; then
+    MANUAL=true
+fi
 
 exec > >(tee -a "$LOG_FILE") 2>&1
 
-echo "[CI-OS] First-boot setup starting at $(date -u)"
+echo "[CI-OS] First-boot setup starting at $(date -u)$([[ "$MANUAL" == true ]] && echo ' (manual)')"
 
 # Bail out immediately if running in a live session (safety net)
 # Detect live session: Ubuntu 24.04 does NOT pass boot=casper on the kernel
@@ -806,17 +819,41 @@ if [ -d /cdrom/casper ] || grep -q 'BOOT_IMAGE=/casper/' /proc/cmdline 2>/dev/nu
     exit 0
 fi
 
-# If already completed, skip
-if [[ -f "$MARKER_FILE" ]]; then
-    echo "[CI-OS] First-boot setup already completed. To re-run: sudo rm $MARKER_FILE && sudo ci-os-setup"
+# One run at a time: the timer and a manual `ci-os-setup` can overlap.
+exec 9>"$LOCK_FILE"
+if ! flock -n 9; then
+    echo "[CI-OS] First-boot setup is already running (see $LOG_FILE)."
     exit 0
 fi
 
+if [[ "$MANUAL" != true ]]; then
+    # Automatic run (boot or timer): skip once completed...
+    if [[ -f "$MARKER_FILE" ]]; then
+        echo "[CI-OS] First-boot setup already completed ($(cat "$MARKER_FILE")). To re-run: sudo ci-os-setup"
+        exit 0
+    fi
+    # ...and stop retrying a provisioning run that keeps failing.
+    attempts=$(cat "$ATTEMPTS_FILE" 2>/dev/null || echo 0)
+    if [[ "$attempts" =~ ^[0-9]+$ ]] && (( attempts >= MAX_AUTO_ATTEMPTS )); then
+        echo "[CI-OS] Provisioning failed $attempts times; not retrying automatically. See $LOG_FILE, then run: sudo ci-os-setup"
+        exit 0
+    fi
+fi
+
 # ── Wait for network ──────────────────────────────────────────────────────
+# ICMP first, then HTTPS: some networks drop ping but allow the downloads
+# provisioning actually needs.
+network_up() {
+    ping -c1 -W2 archive.ubuntu.com &>/dev/null && return 0
+    ping -c1 -W2 1.1.1.1 &>/dev/null && return 0
+    command -v curl >/dev/null 2>&1 \
+        && curl -fsS -o /dev/null --max-time 5 https://archive.ubuntu.com/ubuntu/ &>/dev/null
+}
+
 NETWORK_OK=false
 echo "[CI-OS] Waiting for network..."
 for i in $(seq 1 30); do
-    if ping -c1 -W2 archive.ubuntu.com &>/dev/null || ping -c1 -W2 1.1.1.1 &>/dev/null; then
+    if network_up; then
         echo "[CI-OS] Network available."
         NETWORK_OK=true
         break
@@ -826,11 +863,10 @@ for i in $(seq 1 30); do
 done
 
 if [[ "$NETWORK_OK" != "true" ]]; then
-    echo "[CI-OS] WARNING: Network not available after 60s. Skipping network-dependent setup."
-    echo "[CI-OS] Re-run later with: sudo ci-os-setup"
-    # Still mark partially complete — user can re-run manually
-    mkdir -p "$(dirname "$MARKER_FILE")"
-    echo "partial - no network - $(date -u)" > "$MARKER_FILE"
+    # No marker: the next boot, or ci-os-first-boot-setup.timer within 15
+    # minutes, tries again. Not counted as a failed attempt.
+    echo "[CI-OS] WARNING: Network not available after 60s. Setup will retry automatically"
+    echo "[CI-OS] (next boot, or within 15 minutes); or run once online: sudo ci-os-setup"
     exit 0
 fi
 
@@ -845,16 +881,40 @@ snap remove --purge thunderbird 2>/dev/null || true
 echo "[CI-OS] Unwanted snaps removed."
 
 # ── Run provisioning ───────────────────────────────────────────────────────
-if [[ -x "$PROVISION_SH" ]]; then
-    echo "[CI-OS] Running provision.sh --tier=core..."
-    bash "$PROVISION_SH" --tier=core || echo "[CI-OS] provision.sh reported issues; re-run later with: sudo ci-os-setup"
-else
+mkdir -p "$(dirname "$MARKER_FILE")"
+if [[ ! -x "$PROVISION_SH" ]]; then
+    # A broken image, not a transient failure: retrying cannot help.
     echo "[CI-OS] WARNING: $PROVISION_SH not found or not executable; skipping provisioning."
+    echo "no provisioner - $(date -u)" > "$MARKER_FILE"
+    exit 0
+fi
+
+if [[ "$MANUAL" != true ]]; then
+    # Count the run before starting it, so one killed by TimeoutStartSec
+    # (e.g. a slow model pull) still counts toward the retry limit.
+    attempts=$(cat "$ATTEMPTS_FILE" 2>/dev/null || echo 0)
+    [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=0
+    attempts=$((attempts + 1))
+    echo "$attempts" > "$ATTEMPTS_FILE"
+    echo "[CI-OS] Running provision.sh --tier=core (automatic attempt $attempts/$MAX_AUTO_ATTEMPTS)..."
+else
+    echo "[CI-OS] Running provision.sh --tier=core..."
+fi
+
+if ! bash "$PROVISION_SH" --tier=core; then
+    if [[ "$MANUAL" == true ]]; then
+        echo "[CI-OS] provision.sh reported issues (see above). Fix them and re-run: sudo ci-os-setup"
+    elif (( attempts < MAX_AUTO_ATTEMPTS )); then
+        echo "[CI-OS] provision.sh reported issues (see above). Will retry automatically (next boot, or within 15 minutes)."
+    else
+        echo "[CI-OS] provision.sh reported issues (see above). Automatic retries exhausted; run: sudo ci-os-setup"
+    fi
+    exit 0
 fi
 
 # ── Mark complete ─────────────────────────────────────────────────────────
-mkdir -p "$(dirname "$MARKER_FILE")"
 date -u > "$MARKER_FILE"
+rm -f "$ATTEMPTS_FILE"
 
 echo "[CI-OS] First-boot setup completed at $(date -u)"
 echo "[CI-OS] Log saved to $LOG_FILE"
@@ -872,7 +932,8 @@ if [[ $EUID -ne 0 ]]; then
     echo "This script must be run as root: sudo ci-os-setup"
     exit 1
 fi
-exec /usr/lib/ci-os/first-boot-setup.sh "$@"
+# --manual: run even if setup already completed or automatic retries are exhausted.
+exec /usr/lib/ci-os/first-boot-setup.sh --manual "$@"
 EOF
 chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-setup"
 
@@ -883,7 +944,8 @@ Description=CI-OS First-Boot Development Environment Setup
 Documentation=https://ci.computer
 After=network-online.target
 Wants=network-online.target
-# Only run once — script checks a marker file and exits if already done
+# Runs until provisioning has succeeded once: the script writes this marker
+# only on success, and ci-os-first-boot-setup.timer retries while it's absent.
 ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
 # NEVER run in the live USB session.
 # Ubuntu 24.04 does NOT pass boot=casper on the kernel command line. Instead
@@ -893,7 +955,8 @@ ConditionPathExists=!/cdrom/casper/vmlinuz
 [Service]
 Type=oneshot
 ExecStart=/usr/lib/ci-os/first-boot-setup.sh
-RemainAfterExit=yes
+# No RemainAfterExit: an "active (exited)" unit would ignore the retry timer.
+RemainAfterExit=no
 TimeoutStartSec=1800
 StandardOutput=journal+console
 StandardError=journal+console
@@ -903,10 +966,31 @@ Environment=DEBIAN_FRONTEND=noninteractive
 WantedBy=multi-user.target
 SVCEOF
 
-# Enable the first-boot setup service
-mkdir -p "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants"
+# Retry timer: re-runs the service every 15 minutes while setup is pending
+# (e.g. first boot was offline). Once the marker exists the service's own
+# condition makes each tick a no-op, and from the next boot the timer itself
+# no longer starts.
+cat > "$CHROOT_PATH/usr/lib/systemd/system/ci-os-first-boot-setup.timer" << 'TIMEREOF'
+[Unit]
+Description=Retry CI-OS first-boot setup until it completes
+ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
+ConditionPathExists=!/cdrom/casper/vmlinuz
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=15min
+
+[Install]
+WantedBy=timers.target
+TIMEREOF
+
+# Enable the first-boot setup service and its retry timer
+mkdir -p "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants" \
+         "$CHROOT_PATH/etc/systemd/system/timers.target.wants"
 ln -sf /usr/lib/systemd/system/ci-os-first-boot-setup.service \
     "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants/ci-os-first-boot-setup.service"
+ln -sf /usr/lib/systemd/system/ci-os-first-boot-setup.timer \
+    "$CHROOT_PATH/etc/systemd/system/timers.target.wants/ci-os-first-boot-setup.timer"
 
 echo "[+] First-boot bootstrap service installed"
 echo "[+] Bootstrap scripts copied to /usr/lib/ci-os/bootstrap/"

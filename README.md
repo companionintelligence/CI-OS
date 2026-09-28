@@ -196,7 +196,7 @@ into the squashfs and embeds the provisioning script (B) at
 on first boot:
 
 - `ci-os-first-boot-rebrand.service` — rewrites `os-release` IDs to `ci-os`.
-- `ci-os-first-boot-setup.service` — runs the staged `provision.sh --tier=core` once (idempotent, network-failure-tolerant). Extended-tier tools (VS Code, Chromium, Homebrew, Companion Launcher) are not installed at first boot — run B manually with `--tier=extended` added for those.
+- `ci-os-first-boot-setup.service` + `.timer` — runs the staged `provision.sh --tier=core` until it succeeds once: at every boot and every 15 minutes while pending (an offline first boot just waits for network), with at most 3 failed automatic provisioning runs. `sudo ci-os-setup` re-runs it at any time. Extended-tier tools (VS Code, Chromium, Homebrew, Companion Launcher) are not installed at first boot — run B manually with `--tier=extended` added for those.
 
 So a clean ISO install ends up identical to running B + C by hand. Use B/C directly
 when you want to convert a machine you already have without reimaging it.
