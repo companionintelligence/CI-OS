@@ -1,6 +1,7 @@
 {
   "permissions": {
     "allow": [
+      "Bash(.claude/hooks/session-start.sh)",
       "Bash(./core/lib/check-repo.sh)",
       "Bash(core/lib/check-repo.sh)",
       "Bash(core/lib/check-brand-mirrors.sh)",
@@ -9,11 +10,9 @@
       "Bash(shellcheck *)",
       "Bash(yamllint *)",
       "Bash(python3 -m py_compile *)",
-
       "Bash(nix flake check*)",
       "Bash(nix eval*)",
       "Bash(nix-instantiate --parse*)",
-
       "Bash(git status*)",
       "Bash(git diff*)",
       "Bash(git log*)",
@@ -23,7 +22,6 @@
       "Bash(git ls-files*)",
       "Bash(git merge-base*)",
       "Bash(git rev-list*)",
-
       "Bash(docker ps*)",
       "Bash(docker logs*)",
       "Bash(docker compose config*)",
@@ -31,5 +29,17 @@
       "Bash(docker compose logs*)"
     ],
     "deny": []
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      }
+    ]
   }
 }
