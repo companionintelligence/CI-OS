@@ -53,4 +53,5 @@ pub mod sparse;
 pub mod target;
 pub mod timefmt;
 pub mod tools;
+pub mod trusted;
 pub mod verify;
