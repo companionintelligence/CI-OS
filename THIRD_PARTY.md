@@ -1,11 +1,31 @@
 # Third-party dependencies
 
-This repository declares no third-party package dependencies — it has no
-`package.json`, `Cargo.toml`, `requirements.txt`, `pyproject.toml` or
-`pubspec.yaml` with dependency entries.
+Every direct dependency declared in this repository's manifests — both
+`dependencies` and `devDependencies` — grouped by licence, alphabetical within
+each group. Transitive dependencies are not listed; resolve them with your
+package manager's own `licenses` command.
 
-Anything this repository vendors, bundles or derives from is recorded in
-[NOTICE.md](NOTICE.md) instead.
+**8 direct dependencies** across 2 licence groups.
+
+| Licence | Count |
+| --- | ---: |
+| MIT OR Apache-2.0 | 7 |
+| BSD-3-Clause | 1 |
+
+## MIT OR Apache-2.0
+
+1. [`base64`](https://github.com/marshallpierce/rust-base64) `0.22.1` — runtime — cargo
+2. [`clap`](https://github.com/clap-rs/clap) `4.6.7` — runtime — cargo
+3. [`hex`](https://github.com/KokaKiwi/rust-hex) `0.4.3` — runtime — cargo
+4. [`serde`](https://serde.rs) `1.0.229` — runtime — cargo
+5. [`serde_json`](https://github.com/serde-rs/json) `1.0.151` — runtime — cargo
+6. [`sha2`](https://github.com/RustCrypto/hashes) `0.10.9` — runtime — cargo
+7. [`thiserror`](https://github.com/dtolnay/thiserror) `2.0.21` — runtime — cargo
+
+## BSD-3-Clause
+
+1. [`ed25519-dalek`](https://github.com/dalek-cryptography/curve25519-dalek) `2.2.0` — runtime — cargo
+
 
 ---
 

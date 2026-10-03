@@ -49,7 +49,7 @@ elif [ -f "${CI_OS_REPO:-/opt/ci-os}/backends/ubuntu/provision/install-models.sh
 elif command -v ollama >/dev/null 2>&1; then
     systemctl start ollama 2>/dev/null || true
     sleep 5
-    for model in nomic-embed-text gemma3:1b qwen3.6:27b; do
+    for model in nomic-embed-text gemma3:1b qwen3:4b; do
         ollama list 2>/dev/null | grep -q "$model" || { log "Pulling $model"; ollama pull "$model" 2>/dev/null || true; }
     done
 fi

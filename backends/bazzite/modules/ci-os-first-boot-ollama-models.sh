@@ -47,7 +47,7 @@ OLLAMA_WAIT_INTERVAL=5
 MODELS=(
     "nomic-embed-text"
     "gemma3:1b"
-    "qwen3.6:27b"
+    "qwen3:4b"
 )
 
 mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true

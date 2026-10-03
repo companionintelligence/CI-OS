@@ -32,11 +32,17 @@ on:
         required: false
         type: boolean
         default: false
+      publish_release:
+        description: 'Publish the verified ISO as a GitHub release'
+        required: false
+        type: boolean
+        default: false
 
 env:
   UBUNTU_VERSION: "24.04"
   UBUNTU_CODENAME: "noble"
   BASE_ISO_URL: "https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso"
+  BASE_ISO_SHA256: "3a4c9877b483ab46d7c3fbe165a0db275e1ae3cfe56a5657e5a47c2f99a99d1e"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -51,7 +57,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Free disk space
         run: |
@@ -104,7 +110,9 @@ jobs:
           echo "Downloading Ubuntu ${{ env.UBUNTU_VERSION }} Desktop ISO..."
           wget -q --show-progress "${{ env.BASE_ISO_URL }}" -O /tmp/ubuntu-base.iso
 
-          echo "ISO downloaded successfully:"
+          echo "${{ env.BASE_ISO_SHA256 }}  /tmp/ubuntu-base.iso" | sha256sum --check --strict
+
+          echo "ISO downloaded and SHA-256 verified:"
           ls -lh /tmp/ubuntu-base.iso
 
       - name: Build CI-OS ISO
@@ -128,13 +136,12 @@ jobs:
           ISO_NAME=$(ls companion-os-*.iso)
           echo "iso_name=$ISO_NAME" >> $GITHUB_OUTPUT
 
-          # Generate SHA256 and MD5 checksums
+          # SHA-256 is the release integrity checksum. Do not publish MD5 as a
+          # security signal.
           sha256sum "$ISO_NAME" > SHA256SUMS
-          md5sum "$ISO_NAME" > MD5SUMS
 
           echo "Checksums generated:"
           cat SHA256SUMS
-          cat MD5SUMS
 
       - name: Sign checksums (if enabled)
         if: github.event.inputs.sign == 'true' && secrets.GPG_PRIVATE_KEY != ''
@@ -150,9 +157,6 @@ jobs:
           # Sign checksums
           echo "$GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
             --armor --detach-sign --output SHA256SUMS.gpg SHA256SUMS
-
-          echo "$GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
-            --armor --detach-sign --output MD5SUMS.gpg MD5SUMS
 
           echo "Checksums signed successfully"
 
@@ -250,22 +254,20 @@ jobs:
           EOF
 
       - name: Upload ISO as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ci-os-iso-${{ steps.version.outputs.version }}
           path: |
             output/companion-os-*.iso
             output/SHA256SUMS
-            output/MD5SUMS
             output/SHA256SUMS.gpg
-            output/MD5SUMS.gpg
             output/SBOM.txt
           retention-days: 7
           compression-level: 0  # ISO is already compressed
 
       - name: Create GitHub Release
-        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v1
+        if: github.ref_type == 'tag' || github.event.inputs.publish_release == 'true'
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b # v2.5.0
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
           name: CI-OS ${{ steps.version.outputs.version }}
@@ -273,9 +275,7 @@ jobs:
           files: |
             output/companion-os-*.iso
             output/SHA256SUMS
-            output/MD5SUMS
             output/SHA256SUMS.gpg
-            output/MD5SUMS.gpg
             output/SBOM.txt
           draft: false
           prerelease: false

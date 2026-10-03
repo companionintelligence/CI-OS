@@ -22,7 +22,7 @@ ConditionPathExists=!/var/lib/ci-os/.first-boot-ollama-models-done
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-# The qwen3.6:27b model alone can be multi-gigabyte; give this real room on
+# The qwen3:4b model alone can be multi-gigabyte; give this real room on
 # a slow first-boot connection before systemd gives up on it.
 TimeoutStartSec=3600
 ExecStart=/usr/lib/ci-os/modules/ci-os-first-boot-ollama-models.sh

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CI OS Install Ollama Models
-# Pulls required Ollama models (nomic-embed-text, gemma3:1b, qwen3.6:27b).
+# Pulls required Ollama models (nomic-embed-text, gemma3:1b, qwen3:4b).
 # Idempotent: skips models already present.
 # Used by post-validation after portal setup. Run with: sudo ./backends/ubuntu/provision/install-models.sh
 #
@@ -41,7 +41,7 @@ fi
 
 # Pull models as the actual user (ollama stores models in user's home)
 sudo -u "$ACTUAL_USER" bash <<'MODEL_EOF' || log_warn "Failed to pull some Ollama models"
-for model in nomic-embed-text gemma3:1b qwen3.6:27b; do
+for model in nomic-embed-text gemma3:1b qwen3:4b; do
     if ollama list 2>/dev/null | grep -q "$model"; then
         echo "$model already installed"
     else

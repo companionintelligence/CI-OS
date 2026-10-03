@@ -150,6 +150,36 @@ validate_config() {
         log_error "Base ISO not found: $BASE_ISO"
         exit 1
     fi
+
+    # Resolve paths before any privileged cleanup.  `--work-dir` is
+    # user-controlled and setup_directories removes it recursively when
+    # `--clean` is requested, so broad/symlinked targets must fail closed.
+    local requested_work_dir="$WORK_DIR"
+    if [[ -L "$requested_work_dir" ]]; then
+        log_error "Work directory must not be a symbolic link: $requested_work_dir"
+        exit 1
+    fi
+
+    BASE_ISO="$(realpath -e -- "$BASE_ISO")"
+    WORK_DIR="$(realpath -m -- "$WORK_DIR")"
+    OUTPUT_DIR="$(realpath -m -- "$OUTPUT_DIR")"
+
+    if [[ "$WORK_DIR" == "/" || "$WORK_DIR" == "$REPO_ROOT" ||
+          "$REPO_ROOT" == "$WORK_DIR"/* || "$WORK_DIR" == "$OUTPUT_DIR" ||
+          "$OUTPUT_DIR" == "$WORK_DIR"/* || "$WORK_DIR" == "$OUTPUT_DIR"/* ]]; then
+        log_error "Unsafe work directory: $WORK_DIR"
+        exit 1
+    fi
+    if [[ "$CLEAN_WORK" == "true" && "$BASE_ISO" == "$WORK_DIR"/* ]]; then
+        log_error "Base ISO cannot be inside a work directory that will be cleaned"
+        exit 1
+    fi
+    if [[ -d "$WORK_DIR" && ! -f "$WORK_DIR/.ci-os-build-workdir" ]] &&
+       [[ -n "$(find "$WORK_DIR" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+        log_error "Refusing to use a non-empty, unmarked work directory: $WORK_DIR"
+        log_error "Choose a new empty --work-dir; this prevents later --clean from deleting unrelated files."
+        exit 1
+    fi
     
     log_info "Configuration validated"
     log_info "  Base ISO: $BASE_ISO"
@@ -162,13 +192,20 @@ validate_config() {
 # Setup working directories
 setup_directories() {
     log_info "Setting up directories..."
-    
+
     if [[ "$CLEAN_WORK" == "true" ]] && [[ -d "$WORK_DIR" ]]; then
+        if [[ ! -f "$WORK_DIR/.ci-os-build-workdir" ]] ||
+           [[ "$(<"$WORK_DIR/.ci-os-build-workdir")" != "ci-os-build-workdir-v1" ]]; then
+            log_error "Refusing to clean an unmarked work directory: $WORK_DIR"
+            log_error "Choose a new empty --work-dir or add the marker by completing one non-clean build first."
+            exit 1
+        fi
         log_warn "Cleaning work directory: $WORK_DIR"
         rm -rf "$WORK_DIR"
     fi
-    
+
     mkdir -p "$WORK_DIR"/{iso,squashfs,chroot,custom-iso}
+    printf '%s\n' 'ci-os-build-workdir-v1' > "$WORK_DIR/.ci-os-build-workdir"
     mkdir -p "$OUTPUT_DIR"
     
     log_info "Directories ready"
@@ -554,14 +591,10 @@ generate_checksums() {
     sha256sum "$iso_name" > SHA256SUMS
     log_info "SHA256: $(cat SHA256SUMS)"
     
-    # MD5
-    md5sum "$iso_name" > MD5SUMS
-    
     # Sign if requested
     if [[ "$SIGN_CHECKSUMS" == "true" ]]; then
-        log_info "Signing checksums with GPG..."
+        log_info "Signing SHA-256 checksums with GPG..."
         gpg --armor --detach-sign --output SHA256SUMS.gpg SHA256SUMS
-        gpg --armor --detach-sign --output MD5SUMS.gpg MD5SUMS
         log_info "Checksums signed"
     fi
     

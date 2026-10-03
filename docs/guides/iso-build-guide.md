@@ -76,17 +76,17 @@ sudo apt-get install -y \
 
 ### Download Base ISO
 
-Download Ubuntu 24.04 Desktop ISO:
+Download the Ubuntu 24.04.4 Desktop ISO pinned in CI, then verify it before
+building:
 
 ```bash
-wget https://releases.ubuntu.com/24.04/ubuntu-24.04.1-desktop-amd64.iso
+wget https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso
+echo '3a4c9877b483ab46d7c3fbe165a0db275e1ae3cfe56a5657e5a47c2f99a99d1e  ubuntu-24.04.4-desktop-amd64.iso' \
+  | sha256sum --check --strict
 ```
 
-Or use the latest:
-
-```bash
-wget https://releases.ubuntu.com/noble/ubuntu-24.04-desktop-amd64.iso
-```
+For a different Ubuntu point release, obtain and verify the corresponding
+upstream SHA-256 checksum rather than relying on a moving "latest" URL.
 
 ---
 
@@ -105,7 +105,7 @@ cd CI-OS
 
 ```bash
 sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
-  --base-iso /path/to/ubuntu-24.04.1-desktop-amd64.iso \
+  --base-iso /path/to/ubuntu-24.04.4-desktop-amd64.iso \
   --output-dir ./output \
   --version 1.0
 ```
@@ -128,8 +128,9 @@ Options:
   --output-dir PATH     Output directory for built ISO (default: ./output)
   --work-dir PATH       Working directory (default: ./work)
   --version VERSION     CI-OS version string (default: 1.0)
-  --sign                Sign the ISO checksums with GPG
-  --clean               Clean work directory before building
+  --sign                GPG-sign SHA256SUMS
+  --clean               Recreate only a dedicated, builder-marked work directory
+  --skip-packages       Reuse existing package artifacts for iterative chroot work
   -h, --help            Show help message
 ```
 
@@ -138,13 +139,13 @@ Options:
 **Basic build**:
 ```bash
 sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
-  --base-iso ~/ubuntu-24.04.1-desktop-amd64.iso
+  --base-iso ~/ubuntu-24.04.4-desktop-amd64.iso
 ```
 
 **Production build with signing**:
 ```bash
 sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
-  --base-iso ~/ubuntu-24.04.1-desktop-amd64.iso \
+  --base-iso ~/ubuntu-24.04.4-desktop-amd64.iso \
   --version 1.0.1 \
   --sign \
   --clean
@@ -281,10 +282,8 @@ This creates a **hybrid ISO** that works with:
 ### 7. Checksums and Signatures
 
 Generated files:
-- `SHA256SUMS` - SHA256 checksums
-- `MD5SUMS` - MD5 checksums
-- `SHA256SUMS.gpg` - GPG signature (if `--sign` used)
-- `MD5SUMS.gpg` - GPG signature (if `--sign` used)
+- `SHA256SUMS` - SHA-256 checksum for the finished ISO
+- `SHA256SUMS.gpg` - detached GPG signature of `SHA256SUMS` (if `--sign` is used)
 - `SBOM.txt` - Software Bill of Materials (CI builds only; local builds must generate separately)
 
 ---
@@ -456,38 +455,37 @@ sudo journalctl -f
 
 ### GitHub Actions Workflow
 
-The repository includes `.github/workflows/build-companion-os-iso.yml` for automated builds.
+The repository includes `.github/workflows/build-companion-os-iso.yml` for
+manually dispatched builds.
 
 #### Trigger Builds
 
 **Manual build**:
 1. Go to Actions tab
-2. Select "Build CI-OS Ubuntu 24.04 ISO"
+2. Select "Build Companion OS ISO"
 3. Click "Run workflow"
-4. Enter version number
+4. Enter a version, choose optional GPG signing of `SHA256SUMS`, and explicitly
+   opt into release publication only when intended
 
-**Tag-based release**:
-```bash
-git tag v1.0.1
-git push origin v1.0.1
-```
-
-**Scheduled builds**: Runs weekly on Sundays at 2 AM UTC
+**Release publishing**: Set the `publish_release` dispatch input to publish the
+verified ISO, `SHA256SUMS`, optional `SHA256SUMS.gpg`, and SBOM. Otherwise the
+run uploads a seven-day workflow artifact only.
 
 #### Workflow Features
 
 - ✅ Automatic dependency installation
 - ✅ Disk space cleanup (removes unused tools)
-- ✅ Downloads Ubuntu base ISO
+- ✅ Downloads and SHA-256 verifies the pinned Ubuntu base ISO
 - ✅ Builds CI-OS ISO
 - ✅ Generates checksums and SBOM
-- ✅ Optional GPG signing
-- ✅ Creates GitHub releases
-- ✅ Uploads artifacts (90-day retention)
+- ✅ Optional GPG signing of `SHA256SUMS`
+- ✅ Creates GitHub releases only when explicitly requested
+- ✅ Uploads artifacts (seven-day retention)
 
 #### GPG Signing in CI
 
-To enable signing, add repository secrets:
+To sign `SHA256SUMS`, select the signing input when dispatching the workflow
+and add these repository secrets:
 
 1. `GPG_PRIVATE_KEY` - Your GPG private key (armor format)
 2. `GPG_PASSPHRASE` - Key passphrase
@@ -512,7 +510,8 @@ Edit `.github/workflows/build-companion-os-iso.yml`:
 ```yaml
 env:
   UBUNTU_VERSION: "24.04"
-  BASE_ISO_URL: "https://releases.ubuntu.com/24.04/ubuntu-24.04.1-desktop-amd64.iso"
+  BASE_ISO_URL: "https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso"
+  BASE_ISO_SHA256: "3a4c9877b483ab46d7c3fbe165a0db275e1ae3cfe56a5657e5a47c2f99a99d1e"
 ```
 
 ### Local CI Testing
@@ -558,7 +557,7 @@ Before release, test:
 ### Security
 
 - Store GPG keys securely (use GitHub Secrets, never commit)
-- Sign all release ISOs and checksums
+- Sign the `SHA256SUMS` manifest for every release
 - Publish GPG public key on website
 - Generate and publish SBOM
 - Keep base Ubuntu ISO up to date

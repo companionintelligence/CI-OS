@@ -783,9 +783,9 @@ cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-setup.sh" << 'BOOTSTRAP_SCRIPT'
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
 
-# NOTE: Do NOT use 'set -e' here. provision.sh's own install steps already
-# tolerate individual network/third-party failures; a hard exit here would
-# also abort the marker-file bookkeeping below.
+# NOTE: Do NOT use 'set -e' here. Expected cleanup failures are best-effort.
+# Provisioning itself is checked explicitly below so the completion marker is
+# written only after a successful run.
 set -u
 
 BOOTSTRAP_ROOT="/usr/lib/ci-os/bootstrap"
@@ -828,10 +828,10 @@ done
 if [[ "$NETWORK_OK" != "true" ]]; then
     echo "[CI-OS] WARNING: Network not available after 60s. Skipping network-dependent setup."
     echo "[CI-OS] Re-run later with: sudo ci-os-setup"
-    # Still mark partially complete — user can re-run manually
-    mkdir -p "$(dirname "$MARKER_FILE")"
-    echo "partial - no network - $(date -u)" > "$MARKER_FILE"
-    exit 0
+    # Do not create the completion marker while offline. The enabled oneshot
+    # will try again on the next boot, and `ci-os-setup` remains immediately
+    # runnable without asking the user to remove a misleading marker first.
+    exit 1
 fi
 
 # ── Remove unwanted snaps (deferred from ISO build) ───────────────────────
@@ -847,9 +847,14 @@ echo "[CI-OS] Unwanted snaps removed."
 # ── Run provisioning ───────────────────────────────────────────────────────
 if [[ -x "$PROVISION_SH" ]]; then
     echo "[CI-OS] Running provision.sh --tier=core..."
-    bash "$PROVISION_SH" --tier=core || echo "[CI-OS] provision.sh reported issues; re-run later with: sudo ci-os-setup"
+    if ! bash "$PROVISION_SH" --tier=core; then
+        echo "[CI-OS] ERROR: provision.sh reported issues; setup remains incomplete."
+        echo "[CI-OS] Re-run later with: sudo ci-os-setup"
+        exit 1
+    fi
 else
-    echo "[CI-OS] WARNING: $PROVISION_SH not found or not executable; skipping provisioning."
+    echo "[CI-OS] ERROR: $PROVISION_SH not found or not executable; setup remains incomplete."
+    exit 1
 fi
 
 # ── Mark complete ─────────────────────────────────────────────────────────

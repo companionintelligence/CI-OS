@@ -12,7 +12,7 @@ CI_GTK_THEME="$(ci_select_gtk_theme)"
 WALL_URI="$(ci_wallpaper_uri)"
 
 _gs() {
-  if [[ -n "${_GS_RUN[@]:-}" ]]; then
+  if ((${#_GS_RUN[@]})); then
     "${_GS_RUN[@]}" gsettings set "$1" "$2" "$3" 2>/dev/null || true
   else
     gsettings set "$1" "$2" "$3" 2>/dev/null || true

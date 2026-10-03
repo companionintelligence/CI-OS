@@ -449,7 +449,7 @@ This completes all six backends in the rollout table.
 
 `core/manifest/ecosystem.yaml` (schema: `ecosystem.schema.json`) is the single source of truth
 for what gets installed — dev tools, the fixed 3-model Ollama/LLM set
-(`nomic-embed-text`, `gemma3:1b`, `qwen3.6:27b`), and the CI-Hub deploy — tagged `core`
+(`nomic-embed-text`, `gemma3:1b`, `qwen3:4b`), and the CI-Hub deploy — tagged `core`
 (auto-run), `extended` (opt-in), `hardware` (auto-detected, never flag-gated), or `reserved`
 (documented but not implemented here — currently just CI-Server, which has no real
 implementation in CI-OS and belongs to its own repo).

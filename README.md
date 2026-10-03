@@ -10,16 +10,70 @@ Companion OS uses the [PolyForm Noncommercial License 1.0.0](LICENSE.md). See th
 
 ## Contents
 
-1. [Interface](#interface)
-2. [What this repo is](#what-this-repo-is)
-3. [One-command setup (flashed Ubuntu)](#one-command-setup-flashed-ubuntu)
-4. [Four ways to customize Ubuntu](#four-ways-to-customize-ubuntu)
-5. [Build a branded CI-OS ISO](#build-a-branded-ci-os-iso)
-6. [Provision a fresh / existing Ubuntu](#provision-a-fresh--existing-ubuntu)
-7. [Apply CI desktop branding to a running system](#apply-ci-desktop-branding-to-a-running-system)
-8. [Headless device WiFi setup](#headless-device-wifi-setup)
-9. [Repo layout](#repo-layout)
-10. [Documentation](#documentation)
+1. [Portable Companion Stick](#portable-companion-stick)
+2. [One-command setup (flashed Ubuntu)](#one-command-setup-flashed-ubuntu)
+3. [Interface](#interface)
+4. [What this repo is](#what-this-repo-is)
+5. [Four ways to customize Ubuntu](#four-ways-to-customize-ubuntu)
+6. [Build a branded CI-OS ISO](#build-a-branded-ci-os-iso)
+7. [Provision a fresh / existing Ubuntu](#provision-a-fresh--existing-ubuntu)
+8. [Apply CI desktop branding to a running system](#apply-ci-desktop-branding-to-a-running-system)
+9. [Headless device WiFi setup](#headless-device-wifi-setup)
+10. [Repo layout](#repo-layout)
+11. [Documentation](#documentation)
+
+---
+
+## Portable Companion Stick
+
+`ci-stick` turns a removable drive into a verified, multi-purpose Companion
+recovery and installation medium. A stick can carry bootable live Linux images,
+signed CI-Hub and Companion Memory installers for the running host, and curated
+model packs that can be imported without downloading the weights again.
+
+The CLI is a standalone Rust crate at [`tools/ci-stick/`](tools/ci-stick/). Its
+bundle manifest and lock formats live under
+[`core/manifest/stick/`](core/manifest/stick/): the manifest describes the
+desired media, while the lock records the exact size and SHA-256 digest of every
+artifact. Release locks carry a detached Ed25519 signature.
+
+```bash
+cargo build --manifest-path tools/ci-stick/Cargo.toml --release
+
+# Read-only host and removable-media diagnostics
+tools/ci-stick/target/release/ci-stick doctor
+
+# Verify every byte before installing, flashing, importing, or updating
+tools/ci-stick/target/release/ci-stick verify \
+  --lock /Volumes/COMPANION/companion/lock.json \
+  --signature /Volumes/COMPANION/companion/lock.json.sig \
+  --public-key companion-release.pub \
+  --require-signature
+```
+
+Safety-sensitive commands require explicit targets and never autorun merely
+because a drive was inserted. `flash`, `install`, `models import`, and `update`
+verify release bundle content, start as dry runs, and require a narrow typed
+confirmation before changing anything. `build` writes only to a new or
+ci-stick-marked output directory and needs `--replace` to reuse it:
+
+- `ci-stick build` assembles a locked bundle from local, already-built inputs.
+- `ci-stick flash` writes one already-built, signed raw disk image to a selected
+  removable device; it never converts an arbitrary ISO into multi-boot media.
+- `ci-stick install` invokes the signed installer selected for this host.
+- `ci-stick models` lists packs and imports only verified, compatible offline model packs.
+- `ci-stick update` stages a signed release in the inactive slot and atomically
+  records a pending boot only after verification; the image health logic
+  promotes it after a successful boot.
+
+Companion Ubuntu x86_64 is the reference boot image. Fedora, Arch, Debian and
+ARM64 entries are represented explicitly in the manifest and must remain marked
+`planned` until their own boot tests pass. Apple Silicon supports host-install
+mode independently of whether a compatible Linux boot image is present.
+
+See [Companion Stick architecture](docs/architecture/companion-stick.md) and the
+[operator guide](docs/guides/companion-stick.md) for the layout, safety model,
+update process, and platform matrix.
 
 ---
 
@@ -341,15 +395,18 @@ sudo apt-get install \
 ### Quick start
 
 ```bash
-# 1. Download the Ubuntu 24.04 base ISO (any 24.04.x point release works)
+# 1. Download and verify the Ubuntu base ISO pinned in CI
 wget https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso
+echo '3a4c9877b483ab46d7c3fbe165a0db275e1ae3cfe56a5657e5a47c2f99a99d1e  ubuntu-24.04.4-desktop-amd64.iso' \
+  | sha256sum --check --strict
 
 # 2. Build — single entry point, runs as root
 sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
   --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
 ```
 
-Output: `./output/companion-os-1.0-amd64.iso` (+ `SHA256SUMS` / `MD5SUMS`).
+Output: `./output/companion-os-1.0-amd64.iso` and `SHA256SUMS` (plus
+`SHA256SUMS.gpg` when built with `--sign`).
 
 `build-iso.sh` runs in two steps: it first builds the `.deb` packages and the
 branded GNOME Shell gresource (`build-packages.sh`), then extracts the base ISO,
@@ -366,8 +423,8 @@ MOTD, first-boot bootstrap), and repacks a bootable ISO with `xorriso`.
 | `--work-dir PATH` | `./work` | Scratch space (~25 GB) |
 | `--version VERSION` | `1.0` | CI-OS version embedded in the ISO |
 | `--skip-packages` | off | Reuse existing `.deb`s/gresource (fast iteration on chroot changes only) |
-| `--clean` | off | Wipe the work directory first |
-| `--sign` | off | GPG-sign `SHA256SUMS` / `MD5SUMS` |
+| `--clean` | off | Recreate a work directory previously marked by this builder; unmarked, broad, or symlinked paths are refused |
+| `--sign` | off | GPG-sign `SHA256SUMS` |
 
 Full reference, branding color map, and iterative-dev tips:
 **[`backends/ubuntu/iso/README.md`](backends/ubuntu/iso/README.md)** and the
@@ -384,11 +441,10 @@ Full reference, branding color map, and iterative-dev tips:
 
 ### CI/CD
 
-ISOs build automatically via [`.github/workflows/build-companion-os-iso.yml`](.github/workflows/build-companion-os-iso.yml):
-
-- **Weekly** — Sundays at 2 AM UTC
-- **On tags** — push a `v*` tag to trigger a release
-- **Manual** — Workflow dispatch (choose version + optional GPG signing)
+The checked-in [ISO workflow](.github/workflows/build-companion-os-iso.yml) is
+manually dispatched. Choose the version, optional GPG signing of
+`SHA256SUMS`, and whether to publish a GitHub release. A normal run uploads a
+seven-day workflow artifact; publishing is a separate, explicit input.
 
 ---
 

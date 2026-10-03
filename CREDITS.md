@@ -1,10 +1,25 @@
 # Credits
 
-This repository declares no third-party package dependencies.
+Companion Intelligence is built on the work of the open-source community.
+This page names the projects we depend on directly, in rough order of how much
+of this repository stands on them.
 
-Companion Intelligence is nonetheless built throughout on open-source work —
-see the sibling repositories' `CREDITS.md` for the projects the platform
-depends on, and [NOTICE.md](NOTICE.md) for anything vendored here.
+## 2. Runtime dependencies
+
+| | Project | Licence | What it does |
+| :-: | --- | --- | --- |
+| <img src="https://github.com/marshallpierce.png?size=40" width="20" height="20" alt=""> | [`base64`](https://github.com/marshallpierce/rust-base64) | MIT OR Apache-2.0 | encodes and decodes base64 as bytes or utf8 |
+| <img src="https://github.com/clap-rs.png?size=40" width="20" height="20" alt=""> | [`clap`](https://github.com/clap-rs/clap) | MIT OR Apache-2.0 | A simple to use, efficient, and full-featured Command Line Argument Parser |
+| <img src="https://github.com/dalek-cryptography.png?size=40" width="20" height="20" alt=""> | [`ed25519-dalek`](https://github.com/dalek-cryptography/curve25519-dalek) | BSD-3-Clause | Fast and efficient ed25519 EdDSA key generations, signing, and verification in pure Rust. |
+| <img src="https://github.com/KokaKiwi.png?size=40" width="20" height="20" alt=""> | [`hex`](https://github.com/KokaKiwi/rust-hex) | MIT OR Apache-2.0 | Encoding and decoding data into/from hexadecimal representation. |
+| <img src="https://github.com/serde-rs.png?size=40" width="20" height="20" alt=""> | [`serde`](https://serde.rs) | MIT OR Apache-2.0 | A generic serialization/deserialization framework |
+| <img src="https://github.com/serde-rs.png?size=40" width="20" height="20" alt=""> | [`serde_json`](https://github.com/serde-rs/json) | MIT OR Apache-2.0 | A JSON serialization file format |
+| <img src="https://github.com/RustCrypto.png?size=40" width="20" height="20" alt=""> | [`sha2`](https://github.com/RustCrypto/hashes) | MIT OR Apache-2.0 | Pure Rust implementation of the SHA-2 hash function family including SHA-224, SHA-256, SHA-3 |
+| <img src="https://github.com/dtolnay.png?size=40" width="20" height="20" alt=""> | [`thiserror`](https://github.com/dtolnay/thiserror) | MIT OR Apache-2.0 | derive(Error) |
+
+---
+
+Thank you to everyone who maintains these projects.
 
 ---
 

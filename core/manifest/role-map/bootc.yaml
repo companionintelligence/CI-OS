@@ -264,7 +264,7 @@ ollama_models:
   install_method: first_boot
   confidence: CONFIRMED
   note: >-
-    The fixed 3-model set (nomic-embed-text, gemma3:1b, qwen3.6:27b) —
+    The fixed 3-model set (nomic-embed-text, gemma3:1b, qwen3:4b) —
     explicitly the plan's own recommendation (avoid multi-GB image bloat),
     reconfirmed by this backend's research rather than silently carried
     over: nothing in the research argues for baking model weights into

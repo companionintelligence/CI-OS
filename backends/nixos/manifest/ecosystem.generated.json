@@ -26,7 +26,7 @@
   "llm": {
     "provider": "ollama",
     "tier": "core",
-    "models": ["nomic-embed-text", "gemma3:1b", "qwen3.6:27b"]
+    "models": ["nomic-embed-text", "gemma3:1b", "qwen3:4b"]
   },
   "ecosystem": {
     "ci_hub": {

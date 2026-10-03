@@ -994,12 +994,12 @@ else
     ollama pull gemma3:1b
 fi
 
-# Add qwen3.6:27b model
-if ollama list 2>/dev/null | grep -q "qwen3.6:27b"; then
-     echo "qwen3.6:27b already installed"
+# Add qwen3:4b model
+if ollama list 2>/dev/null | grep -q "qwen3:4b"; then
+     echo "qwen3:4b already installed"
 else
-     echo "Pulling qwen3.6:27b..."
-     ollama pull qwen3.6:27b
+     echo "Pulling qwen3:4b..."
+     ollama pull qwen3:4b
 fi
 EOF
     

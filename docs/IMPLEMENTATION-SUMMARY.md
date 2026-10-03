@@ -19,14 +19,14 @@ Main orchestration script that:
 - Coordinates customization process
 - Repacks squashfs with high compression
 - Generates bootable hybrid ISO (BIOS + UEFI + Secure Boot)
-- Creates checksums (SHA256, MD5) and optional GPG signatures
+- Creates a SHA-256 checksum and optional GPG signature
 - Prepares artifacts for SBOM generation (SBOM generated in CI workflow)
 
 **Key Features**:
 - Clean builds with `--clean` flag
 - Configurable output and work directories
 - Version control via `--version` parameter
-- GPG signing support for production releases
+- Optional GPG signing support for `SHA256SUMS`
 - Automatic cleanup on errors
 
 #### customize-chroot.sh (`backends/ubuntu/chroot/customize-chroot.sh`)
@@ -113,26 +113,23 @@ Automated repository setup script that:
 
 **Location**: `.github/workflows/build-companion-os-iso.yml`
 
-GitHub Actions workflow that:
-- Triggers on:
-  - Weekly schedule (Sundays 2 AM UTC)
-  - Git tags (v*)
-  - Manual workflow dispatch
+GitHub Actions workflow that is manually dispatched with explicit inputs for
+optional GPG signing and release publication:
 - Workflow steps:
   1. Frees disk space (removes unnecessary tools)
   2. Installs build dependencies
-  3. Downloads Ubuntu 24.04 base ISO
+  3. Downloads and SHA-256 verifies the Ubuntu 24.04 base ISO
   4. Builds CI-OS ISO via build-iso.sh
   5. Generates checksums
   6. Optional GPG signing
   7. Creates SBOM
-  8. Publishes to GitHub Releases
+  8. Publishes to GitHub Releases only when explicitly requested
   9. Uploads build artifacts
 
 **Outputs**:
 - `companion-os-{version}-amd64.iso`
-- `SHA256SUMS` and `MD5SUMS`
-- `SHA256SUMS.gpg` and `MD5SUMS.gpg` (if signing enabled)
+- `SHA256SUMS`
+- `SHA256SUMS.gpg` (if signing is enabled)
 - `SBOM.txt`
 
 ### 5. Comprehensive Documentation ✅
@@ -228,7 +225,7 @@ Repack squashfs → Regenerate ISO → Sign & publish
 - Snap Store removed (CLI remains available)
 
 **Security Measures**:
-- GPG signing for ISOs and checksums
+- Optional GPG signing of `SHA256SUMS`
 - SBOM generation for compliance
 - Secure Boot compatibility maintained
 - Modern keyring management (signed-by directive)
@@ -358,7 +355,7 @@ Optional improvements for future releases:
 The implementation addresses **all 10 main sections** of the issue:
 
 1. **CI/CD Build Pipeline** ✅
-   - Tag-triggered builds
+   - Manually dispatched builds with explicit release publication
    - Build hardening
    - Artifact outputs (ISO, checksums, GPG, SBOM)
 
@@ -415,9 +412,10 @@ The implementation addresses **all 10 main sections** of the issue:
 
 1. **Build First ISO**:
    ```bash
-   wget https://releases.ubuntu.com/24.04/ubuntu-24.04.1-desktop-amd64.iso
+   wget https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso
+   echo '3a4c9877b483ab46d7c3fbe165a0db275e1ae3cfe56a5657e5a47c2f99a99d1e  ubuntu-24.04.4-desktop-amd64.iso' | sha256sum --check --strict
    sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
-     --base-iso ubuntu-24.04.1-desktop-amd64.iso \
+     --base-iso ubuntu-24.04.4-desktop-amd64.iso \
      --version 1.0 \
      --clean
    ```
@@ -432,7 +430,7 @@ The implementation addresses **all 10 main sections** of the issue:
 
 1. **Deploy Repository**: Set up packages.ci.computer with real domain
 2. **Generate GPG Keys**: Create production signing keys
-3. **Test CI/CD**: Push a test tag to trigger workflow
+3. **Test CI/CD**: Dispatch a test workflow run
 4. **Build Packages**: Create initial package releases
 
 ### Long Term

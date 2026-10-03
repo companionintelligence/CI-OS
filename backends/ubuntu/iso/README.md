@@ -11,6 +11,8 @@ Tools and scripts for building the branded CI-OS ISO from Ubuntu 24.04 Desktop.
 ```bash
 # 1. Download Ubuntu 24.04 base ISO (if you don't already have it)
 wget https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso
+echo '3a4c9877b483ab46d7c3fbe165a0db275e1ae3cfe56a5657e5a47c2f99a99d1e  ubuntu-24.04.4-desktop-amd64.iso' \
+  | sha256sum --check --strict
 
 # 2. Build CI-OS ISO (single entry point — runs as root)
 sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
@@ -80,7 +82,7 @@ The compiled gresource is committed to source at:
    - MOTD and CI-OS utilities
 4. Repacks squashfs, regenerates casper manifests
 5. Generates bootable ISO with xorriso (inheriting EFI/BIOS boot from base ISO)
-6. Produces SHA256/MD5 checksums
+6. Produces a SHA-256 checksum
 
 ---
 
@@ -92,9 +94,9 @@ The compiled gresource is committed to source at:
 | `--output-dir PATH` | `./output` | Where the finished ISO is written |
 | `--work-dir PATH` | `./work` | Scratch space (needs ~25 GB) |
 | `--version VERSION` | `1.0` | CI-OS version string embedded in ISO |
-| `--clean` | off | Wipe work directory before building |
+| `--clean` | off | Recreate a work directory previously marked by this builder; unmarked, broad, or symlinked paths are refused |
 | `--skip-packages` | off | Skip `build-packages.sh` (iterative builds only — use when packages/gresource haven't changed) |
-| `--sign` | off | GPG-sign SHA256SUMS and MD5SUMS |
+| `--sign` | off | GPG-sign SHA256SUMS |
 
 ---
 
@@ -222,11 +224,29 @@ qemu-system-x86_64 \
   -smp 2
 ```
 
-### USB Boot Test
+### USB boot test
 
 ```bash
-sudo dd if=output/companion-os-1.0-amd64.iso of=/dev/sdX bs=4M status=progress
+ci-stick flash \
+  --lock /path/to/release/lock.json \
+  --root /path/to/release \
+  --signature /path/to/release/lock.json.sig \
+  --public-key /path/to/trusted-release-key.pub \
+  --artifact-id companion-stick-disk-image \
+  --device /dev/sdX
 ```
+
+This first invocation is a dry run. A release bundle requires both
+`--signature` and `--public-key`; `--allow-unsigned-local` is only for a bundle
+made locally for development. Inspect the dry-run output first, then repeat
+from an elevated shell with `--execute --confirm /dev/sdX`. The writer refuses
+the system disk, verifies the signed bundle, and reads the written bytes back.
+Do not substitute an unreviewed `dd` command for those checks.
+
+`ci-stick flash` intentionally accepts a release `disk-image` artifact, not the
+standalone ISO produced by this local builder. The release pipeline must first
+assemble and lock the raw multi-partition Companion Stick image before this
+writer can use it.
 
 ### Verify Checksums
 
@@ -249,10 +269,9 @@ sudo apt-get install yaru-theme-gnome-shell
 
 ### "No space left on device"
 
-```bash
-sudo rm -rf work/
-df -h
-```
+Check `df -h`, then pass `--clean` with the same dedicated work directory. The
+builder refuses to recursively remove a directory unless it contains its exact
+marker and is not the repository root, output directory, `/`, or a symlink.
 
 ### Chroot mounts left behind
 
@@ -271,8 +290,9 @@ sudo umount -lf work/chroot/{dev/pts,sys,proc,run,dev}
 ## CI/CD
 
 The repository includes `.github/workflows/build-companion-os-iso.yml` for
-automated builds triggered by tags, manual dispatch, or weekly schedule.
-See that workflow for GitHub Secrets required for GPG signing.
+manually dispatched builds. Publishing is a separate, explicit dispatch input;
+ordinary builds upload a short-lived workflow artifact. See the workflow for
+the GitHub Secrets required for optional GPG signing.
 
 ---
 
