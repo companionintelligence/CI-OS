@@ -79,7 +79,7 @@ check_dependencies() {
     log_info "Checking dependencies..."
     local missing=()
     
-    for cmd in debootstrap mksquashfs unsquashfs xorriso rsync gpg; do
+    for cmd in debootstrap mksquashfs unsquashfs xorriso rsync gpg glib-compile-resources gresource; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
         fi
@@ -87,7 +87,7 @@ check_dependencies() {
     
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing required commands: ${missing[*]}"
-        log_info "Install with: apt-get install debootstrap squashfs-tools xorriso rsync gpg"
+        log_info "Install with: apt-get install debootstrap squashfs-tools xorriso rsync gpg libglib2.0-bin libglib2.0-dev-bin"
         exit 1
     fi
     
@@ -209,18 +209,52 @@ extract_iso() {
     log_info "ISO extracted successfully"
 }
 
+# Overlay whiteouts in a Ubuntu casper layer are character devices 0,0.
+# unsquashfs -f cannot replace a non-empty directory with one of those, so
+# delete the lower path first. Ubuntu 26.04's live layer uses this to drop
+# dracut from the minimal layer.
+apply_layer_whiteouts() {
+    local layer="$1"
+    local dest="$2"
+    local rel
+
+    while IFS= read -r rel; do
+        [[ -n "$rel" ]] || continue
+        rm -rf "${dest}/${rel}"
+    done < <(unsquashfs -ll "$layer" 2>/dev/null | awk '
+        /^c/ && /0,[[:space:]]*0/ {
+            i = index($0, "squashfs-root/")
+            if (i) print substr($0, i + length("squashfs-root/"))
+        }')
+}
+
+# Drop any whiteout device nodes the extractor left behind.
+remove_whiteout_nodes() {
+    local dest="$1"
+    local node major minor
+    while IFS= read -r -d '' node; do
+        major="$(stat -c '%t' "$node" 2>/dev/null || true)"
+        minor="$(stat -c '%T' "$node" 2>/dev/null || true)"
+        if [[ "$major" == "0" && "$minor" == "0" ]]; then
+            rm -f "$node"
+        fi
+    done < <(find "$dest" -type c -print0 2>/dev/null)
+}
+
 # Extract squashfs
 extract_squashfs() {
     log_info "Extracting squashfs filesystem (layered)..."
-    
+
     # Extract layers in order — each layer overlays the previous
     for layer in minimal.squashfs minimal.standard.squashfs minimal.standard.live.squashfs; do
         if [[ -f "$WORK_DIR/squashfs/$layer" ]]; then
             log_info "Extracting layer: $layer (this may take a few minutes)..."
+            apply_layer_whiteouts "$WORK_DIR/squashfs/$layer" "$WORK_DIR/chroot"
             unsquashfs -f -q -d "$WORK_DIR/chroot" "$WORK_DIR/squashfs/$layer"
+            remove_whiteout_nodes "$WORK_DIR/chroot"
         fi
     done
-    
+
     log_info "Squashfs extracted to: $WORK_DIR/chroot"
 }
 
@@ -237,9 +271,22 @@ setup_chroot() {
     mount -t sysfs sysfs "$chroot_dir/sys"
     mount -t devpts devpts "$chroot_dir/dev/pts"
     
-    # Copy resolv.conf for network access (skip if it's already the same file via bind mount)
-    cp /etc/resolv.conf "$chroot_dir/etc/resolv.conf" 2>/dev/null || true
-    
+    # The live image's resolv.conf is often a symlink into a path this chroot
+    # does not have, and Docker's own resolver is not visible here. Write a
+    # plain file so apt inside the chroot can reach the Ubuntu archive.
+    rm -f "$chroot_dir/etc/resolv.conf"
+    cat > "$chroot_dir/etc/resolv.conf" <<'EOF'
+nameserver 1.1.1.1
+nameserver 8.8.8.8
+EOF
+
+    # The installer CD source is not mounted. Leaving it enabled makes
+    # apt-get update fail before any package install.
+    if [[ -f "$chroot_dir/etc/apt/sources.list.d/cdrom.sources" ]]; then
+        mv "$chroot_dir/etc/apt/sources.list.d/cdrom.sources" \
+            "$chroot_dir/etc/apt/sources.list.d/cdrom.sources.disabled"
+    fi
+
     log_info "Chroot environment ready"
 }
 
