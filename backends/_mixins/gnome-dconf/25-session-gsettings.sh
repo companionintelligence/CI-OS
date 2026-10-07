@@ -28,6 +28,11 @@ _run_block() {
   if [[ -n "$WALL_URI" ]]; then
     _gs org.gnome.desktop.background picture-uri "$WALL_URI"
     _gs org.gnome.desktop.background picture-uri-dark "$WALL_URI"
+    # The source is 3:2. Zoom fills a 16:9 desktop and crops the overflow
+    # instead of stretching the grid.
+    _gs org.gnome.desktop.background picture-options "zoom"
+    _gs org.gnome.desktop.screensaver picture-uri "$WALL_URI"
+    _gs org.gnome.desktop.screensaver picture-options "zoom"
   fi
   _gs org.gnome.shell.extensions.dash-to-dock dock-fixed "$CI_DOCK_FIXED"
   _gs org.gnome.shell.extensions.dash-to-dock dock-position "$CI_DOCK_POSITION"

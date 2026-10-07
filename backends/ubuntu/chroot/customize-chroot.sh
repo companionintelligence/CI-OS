@@ -306,9 +306,11 @@ cat > "$CHROOT_PATH/etc/dconf/db/local.d/01-ci-os-wallpaper" << 'EOF'
 [org/gnome/desktop/background]
 picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
 picture-uri-dark='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+picture-options='zoom'
 
 [org/gnome/desktop/screensaver]
 picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+picture-options='zoom'
 EOF
 
 # ── Configure GDM (login screen) branding ──────────────────────────────────
@@ -322,9 +324,11 @@ cat > "$CHROOT_PATH/etc/dconf/db/gdm.d/01-ci-os-login" << 'EOF'
 [org/gnome/desktop/background]
 picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
 picture-uri-dark='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+picture-options='zoom'
 
 [org/gnome/desktop/screensaver]
 picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+picture-options='zoom'
 
 [org/gnome/login-screen]
 logo='/usr/share/pixmaps/companion-logo.png'
