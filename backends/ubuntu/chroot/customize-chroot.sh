@@ -57,39 +57,53 @@ echo "[*] Step 1: Updating OS identity..."
 
 # IMPORTANT: The squashfs is both the live session AND the base that gets
 # copied to disk during installation. Subiquity/curtin rely on ID=ubuntu and
-# VERSION_ID=24.04 to configure apt sources, run curthooks (update-initramfs,
-# grub-install), and seed snaps correctly. Setting ID=ci-os here breaks the
-# installer toolchain. Instead, we:
+# the base image's VERSION_ID (24.04 or 26.04) to configure apt sources, run
+# curthooks (update-initramfs, grub-install), and seed snaps correctly.
+# Setting ID=ci-os here breaks the installer toolchain. Instead, we:
 #  - Keep ubuntu-compatible IDs in os-release / lsb-release (live + initial install)
+#  - Keep the base image's version and codename, so a 26.04 ISO stays resolute
 #  - Brand NAME and PRETTY_NAME as CI-OS (visible in grub, neofetch, etc.)
 #  - Install a first-boot systemd service that rewrites the IDs to ci-os after
 #    the installer has finished and the system first boots into the desktop.
 
+# Save the pristine Ubuntu identity before branding overwrites it. ROCm and
+# apt look here so a 26.04 base is not mistaken for 24.04 noble.
+BASE_VERSION_ID="24.04"
+BASE_CODENAME="noble"
+if [[ -f "$CHROOT_PATH/etc/os-release" ]]; then
+    install -m 644 "$CHROOT_PATH/etc/os-release" "$CHROOT_PATH/etc/os-release.ubuntu-base"
+    _ver="$(grep -E '^VERSION_ID=' "$CHROOT_PATH/etc/os-release" | head -1 | cut -d= -f2 | tr -d '"')"
+    _code="$(grep -E '^VERSION_CODENAME=' "$CHROOT_PATH/etc/os-release" | head -1 | cut -d= -f2 | tr -d '"')"
+    [[ -n "$_ver" ]] && BASE_VERSION_ID="$_ver"
+    [[ -n "$_code" ]] && BASE_CODENAME="$_code"
+fi
+echo "[*] Base Ubuntu identity: ${BASE_VERSION_ID} (${BASE_CODENAME})"
+
 cat > "$CHROOT_PATH/etc/os-release" << EOF
 NAME="CI OS"
-VERSION="24.04 LTS (Companion Intelligence ${CI_OS_VERSION})"
+VERSION="${BASE_VERSION_ID} LTS (Companion Intelligence ${CI_OS_VERSION})"
 ID=ubuntu
 ID_LIKE=debian
-PRETTY_NAME="CI OS ${CI_OS_VERSION} (Ubuntu Noble)"
-VERSION_ID="24.04"
+PRETTY_NAME="CI OS ${CI_OS_VERSION} (Ubuntu ${BASE_CODENAME})"
+VERSION_ID="${BASE_VERSION_ID}"
 HOME_URL="https://ci.computer"
 SUPPORT_URL="https://ci.computer/support"
 BUG_REPORT_URL="https://ci.computer/bugs"
 PRIVACY_POLICY_URL="https://ci.computer/privacy"
-UBUNTU_CODENAME=noble
-VERSION_CODENAME=noble
+UBUNTU_CODENAME=${BASE_CODENAME}
+VERSION_CODENAME=${BASE_CODENAME}
 CI_OS_ID=ci-os
 CI_OS_VERSION="${CI_OS_VERSION}"
 CI_OS_BUILD="$(date -u +%Y%m%d)"
 LOGO=ci-os-logo
 EOF
 
-# lsb-release: keep DISTRIB_ID=Ubuntu and DISTRIB_RELEASE=24.04 so that
+# lsb-release: keep DISTRIB_ID=Ubuntu and the base release so that
 # lsb_release -si / -sr return values the installer and apt tooling expect.
 cat > "$CHROOT_PATH/etc/lsb-release" << EOF
 DISTRIB_ID=Ubuntu
-DISTRIB_RELEASE=24.04
-DISTRIB_CODENAME=noble
+DISTRIB_RELEASE=${BASE_VERSION_ID}
+DISTRIB_CODENAME=${BASE_CODENAME}
 DISTRIB_DESCRIPTION="CI-OS $CI_OS_VERSION"
 EOF
 
