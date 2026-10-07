@@ -283,10 +283,29 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli) {
         Ok(code) => code,
+        Err(e) if is_broken_pipe(&e) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e:#}");
             ExitCode::from(EXIT_USAGE)
         }
+    }
+}
+
+/// A reader that exits early (`grep -q`, `head`) closes stdout. That is success, not a crash.
+fn is_broken_pipe(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe)
+    })
+}
+
+fn write_stdout(text: &str) -> anyhow::Result<()> {
+    let mut out = std::io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(e).context("writing to stdout"),
     }
 }
 
@@ -451,10 +470,11 @@ fn cmd_slot(s: SlotCommand) -> anyhow::Result<ExitCode> {
     if json {
         print_json(&state)?;
     } else {
-        println!("{}: active slot {}", state.target, state.active_slot);
+        let mut text = format!("{}: active slot {}\n", state.target, state.active_slot);
         for (k, v) in &state.vars {
-            println!("  {k}={v}");
+            text.push_str(&format!("  {k}={v}\n"));
         }
+        write_stdout(&text)?;
     }
     Ok(ExitCode::SUCCESS)
 }

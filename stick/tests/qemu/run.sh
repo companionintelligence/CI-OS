@@ -112,8 +112,11 @@ echo "stick.img: apparent $apparent bytes, allocated $used bytes"
   && pass "flash wrote a sparse 64 GB image (allocated $((used / 1048576)) MiB)" \
   || fail "image is not a sparse 64 GB file (apparent $apparent, allocated $used)"
 sgdisk -p "$IMG" | tail -n 8
-"$CI" slot show --image "$IMG" | grep -q "active slot A" \
-  && pass "slot show: A after flash" || fail "slot show after flash"
+# Capture the whole report. `slot show | grep -q` closes stdout early, and with
+# pipefail a writer that then hits EPIPE fails the check even when the slot is right.
+show=$("$CI" slot show --image "$IMG") || show=""
+grep -q "active slot A" <<<"$show" \
+  && pass "slot show: A after flash" || fail "slot show after flash (${show:-no output})"
 
 # --- 3. boots ------------------------------------------------------------------------
 boot() { # boot <n>: runs QEMU, leaves the serial log in $WORK/boot<n>.log
@@ -153,10 +156,14 @@ expect 2 "CI-STICK-TEST slot=A cmdline_slot=A"
 expect 2 "CI-STICK-TEST boot-count=2 "
 
 log "slot set B"
-if "$CI" slot set B --image "$IMG" && "$CI" slot show --image "$IMG" | grep -q "active slot B"; then
+show=""
+if "$CI" slot set B --image "$IMG"; then
+  show=$("$CI" slot show --image "$IMG") || show=""
+fi
+if grep -q "active slot B" <<<"$show"; then
   pass "slot set B (grubenv active_slot=B)"
 else
-  fail "slot set B"
+  fail "slot set B (${show:-no output})"
 fi
 
 log "boot 3 (slot B, same persistence)"
@@ -202,9 +209,13 @@ refused "a regular file as --device" 2 "not a block device" -- \
 [ "$(sha256sum < "$FAKE")" = "$before" ] && pass "regular file untouched" || fail "regular file changed"
 
 # A real, non-removable disk (TRAN last: it is empty for some disks).
+# lsblk can name a disk whose node is absent (a container that sees host sysfs
+# but not the host's /dev). That is not a disk we can refuse, so skip it.
 sysdisk="$(lsblk -dnbpo PATH,RM,TYPE,SIZE,TRAN 2>/dev/null \
   | awk '$3 == "disk" && $2 == "0" && $4 > 0 && $5 != "usb" && $1 !~ /zram|loop/ {print $1; exit}')"
-if [ -n "$sysdisk" ]; then
+if [ -n "$sysdisk" ] && [ ! -e "$sysdisk" ]; then
+  echo "(lsblk listed $sysdisk but the device node is absent; skipping that case)"
+elif [ -n "$sysdisk" ]; then
   first_before=""; [ -r "$sysdisk" ] && first_before="$(head -c 1048576 "$sysdisk" | sha256sum)"
   refused "non-removable disk $sysdisk as --device (dry run)" 2 "refusing to write" -- \
     "$CI" flash "$STAGE" --pubkey "$WORK/dev.pub" --device "$sysdisk" --dry-run
