@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use ci_stick::layout::{Filesystem, PartitionRole};
-use ci_stick::manifest::{ArtifactKind, Bundle, Platform};
+use ci_stick::manifest::{ArtifactKind, BootChain, BootloaderRole, Bundle, Platform};
 use serde_json::Value;
 
 fn schema_dir() -> PathBuf {
@@ -149,6 +149,36 @@ fn schema_declares_exactly_what_the_types_emit() {
     assert_eq!(
         enum_of(&schema, "/$defs/platform"),
         serde_names(&Platform::ALL)
+    );
+    assert_eq!(
+        enum_of(&schema, "/$defs/host_platform"),
+        serde_names(&Platform::HOST)
+    );
+    assert_eq!(
+        schema["$defs"]["model"]["properties"]["platforms"]["items"]["$ref"],
+        "#/$defs/host_platform",
+        "models run on host platforms only"
+    );
+    let kinds: BTreeSet<String> = artifacts
+        .iter()
+        .filter_map(|a| a["kind"].as_str().map(str::to_string))
+        .collect();
+    assert!(
+        kinds.contains("bootloader"),
+        "example needs a bootloader artifact"
+    );
+    assert_eq!(
+        enum_of(&schema, "/$defs/bootloader_role"),
+        serde_names(&BootloaderRole::ALL)
+    );
+    assert_eq!(
+        bundle.boot_chain(),
+        Ok(Some(BootChain::Secure)),
+        "the example shows the production (Secure Boot) chain"
+    );
+    assert_eq!(
+        schema["$defs"]["artifact"]["then"]["required"][0], "bootloader_role",
+        "the schema requires a role on bootloaders"
     );
     assert_eq!(
         enum_of(&schema, "/$defs/partition/properties/role"),

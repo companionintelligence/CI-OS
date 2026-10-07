@@ -32,7 +32,8 @@ and the contracts that CI Hub and CI Memory publish; it does not reimplement the
 | `ci-stick doctor` | **done** | Read-only report on host support, candidate devices and an optional quick bundle check |
 | `ci-stick dev keygen / dev sign` | **done** | Development keys and signing only; release keys never touch this path |
 | `ci-stick build` | planned | Call `backends/<distro>` image builds and stage the bundle |
-| `ci-stick flash` | planned (3) | Safely partition and write a stick using the planned layout |
+| `ci-stick flash` | **done** | Verify, then partition and write a stick or a sparse stick image from the layout plan |
+| `ci-stick slot show / set` | **done** | Read or flip the A/B pointer (`active_slot` in the ESP's grubenv) |
 | `ci-stick install` | planned (4) | Install Hub, Memory and models onto the host with consent |
 | `ci-stick models sync / import / lock` | planned (4) | Fill the cache, import packs into Hub and resolve digests |
 | `ci-stick update` | planned (5) | Signed A/B updater with rollback |
@@ -48,12 +49,12 @@ it was built for. Here is the plan for a marketed 512 GB stick (≈ 476.8 GiB us
 
 | # | Label | FS | Size | Purpose |
 |---|-------|----|------|---------|
-| 1 | `CI-EFI` | vfat | 2 GiB | ESP: bootloader and the A/B slot selector |
+| 1 | `CI-EFI` | vfat | 2 GiB | ESP: bootloader, `ci-stick/grub.cfg` and the A/B pointer (`ci-stick/grubenv`) |
 | 2 | `CI-SHARED` | exFAT | 29 GiB | Launchers, installers and docs, readable on every host |
 | 3 | `CI-BOOT-A` | raw image | 47 GiB | Immutable boot image, slot A |
 | 4 | `CI-BOOT-B` | raw image | 47 GiB | Immutable boot image, slot B |
 | 5 | `CI-CACHE` | exFAT | 304 GiB | Content-addressed OCI images and model blobs |
-| 6 | `CI-PERSIST` | ext4 | ≈ 47.8 GiB | Live persistence, logs and updater state (takes the remainder) |
+| 6 | `CI-PERSIST` | ext4, fs label `writable` | ≈ 47.8 GiB | Live persistence, logs and updater state (takes the remainder) |
 
 **Sizing rules.** The ESP is 1 GiB below 150 GiB usable and 2 GiB above that. Shared is
 usable/16, clamped to 4–32 GiB. Each boot slot is usable/10, clamped to 8–48 GiB.
@@ -120,9 +121,14 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
   store symlinks and finding one means tampering. The canonical target must stay under the
   root. Sizes and streamed SHA-256 must match. Files the manifest doesn't list are
   reported as warnings.
-- **Planned trust extensions:** per-pack signatures, a signed update metadata chain with
-  rollback protection (TUF-style version and expiry), and Secure Boot shim signing for
-  boot images.
+- **Bootloader.** Bootloader binaries under `efi/` are artifacts of kind `bootloader`
+  (platform `x86_64-uefi`) with a `bootloader_role` taken from the file name:
+  `shimx64.efi` (`shim`), `grubx64.efi` (`grub`), `mmx64.efi` (`mok-manager`) form the
+  Secure Boot chain; `BOOTX64.EFI` (`standalone-grub`) is the unsigned development chain.
+  A bundle carries exactly one complete chain (see [Secure Boot](#secure-boot)). The
+  bootloader is covered by the same signature as everything else.
+- **Planned trust extensions:** per-pack signatures, and a signed update metadata chain
+  with rollback protection (TUF-style version and expiry).
 
 ## Host-install consent model
 
@@ -180,21 +186,269 @@ a booted Companion OS provisions. The stick only adds packaging, trust and deliv
 Rust is first-class inside `stick/` only, the same way Nix is inside `backends/nixos/`.
 `core/` and the shell backends must never require it.
 
+## Flashing (slice 3)
+
+`ci-stick flash <bundle> --pubkey <key> (--image <file> --size <size> | --device <dev>)`
+(`stick/crates/ci-stick/src/flash.rs`). Every step refuses before anything is written if
+it fails.
+
+1. **Verify first.** The bundle goes through `verify` with full hashing. A signature is
+   required. `--allow-unsigned` is accepted only for `--image` targets and refused with
+   `--device`. A failed verification exits 1 and writes nothing.
+2. **Plan.** Resolve the target, compute the layout for its size (not the size the bundle
+   was locked for, though the policy must match), pick the `boot-image` and the
+   `bootloader`, and check that the image fits its slot. `--dry-run` prints the target's
+   identity, the layout table and what goes into each partition, then stops.
+3. **Build without root.** Every filesystem is created in a sparse temporary file:
+   `mkfs.vfat -F 32 -n CI-EFI` (populated with `mmd`/`mcopy`, no mounting),
+   `mkfs.exfat -L CI-SHARED` / `CI-CACHE`, and `mkfs.ext4 -L writable -E
+   nodiscard,lazy_itable_init=1` for persistence.
+4. **Write.** Zero the first and last MiB, run `sgdisk --zap-all`, then run `sgdisk` with
+   the plan's exact first and last sectors. The GPT partition names are the layout labels,
+   and the type GUIDs are EFI System, Microsoft basic data (exFAT) and Linux filesystem
+   (boot slots and persistence). Only the data extents of each filesystem image are
+   copied (`SEEK_DATA`/`SEEK_HOLE`). The boot image is streamed raw into `CI-BOOT-A`,
+   hashed as it goes. `CI-BOOT-B` gets a zeroed first MiB.
+5. **Read back.** After `fsync` (and dropping the page cache for devices), the GPT must
+   parse, pass both CRCs, match the plan entry for entry, and be byte-identical to what
+   `sgdisk` wrote. Each slot must hash to its manifest digest, and every filesystem
+   extent must compare equal.
+
+Copying only data extents is safe on a stick with old contents because none of the mkfs
+tools discard: anything a filesystem relies on being zero was written by mkfs, so it is
+data, not a hole. Zero blocks are skipped only when the destination is a freshly created
+image file.
+
+**Device safety model** (`target.rs`, pure functions unit-tested over lsblk, mountinfo
+and swaps fixtures):
+
+- The disk must be one of `doctor`'s removable or USB candidates. That rules out the
+  system disk, and loop, zram, dm, md, nbd and optical devices are refused by name as
+  well.
+- No partition may be mounted. This is checked by comparing `major:minor` of the disk and
+  each partition against `/proc/self/mountinfo`, never by name. The disk must also hold
+  no swap (`/proc/swaps`) and have no holders (dm, md or LVM).
+- The disk must be at least the layout minimum.
+- A `/dev/disk/by-*` path is resolved, and the real node is always shown.
+- A write needs `--confirm <node exactly as shown>`, and also `--expect-serial` when the
+  device reports a serial. The node is opened with `O_EXCL`, so the kernel refuses if
+  anything has it mounted or claimed. Immediately before the first write, the size,
+  model, serial and `major:minor` are re-read from sysfs and compared with the plan, to
+  catch re-enumeration or a different stick.
+- `--slot-b-from` writes unsigned content into a slot, so it is accepted with `--image`
+  only (tests use it).
+
+**Boot chain and A/B.** Real sticks boot through shim and Canonical's signed GRUB (see
+[Secure Boot](#secure-boot)). For development and CI, `stick/scripts/build-grub-efi.sh`
+builds an unsigned standalone GRUB instead. Its embedded config finds the ESP it was
+loaded from (through `$cmdpath`, with a `search --label CI-EFI` fallback) and runs
+`configfile` on `ci-stick/grub.cfg`. Both chains read the same `grub.cfg`, which `flash`
+renders from a template in the crate; the slot partition numbers come from
+`layout.rs`. The config derives the disk from `$cmdpath` rather than assuming `hd0`,
+runs `load_env` on `ci-stick/grubenv`, and offers the active slot first and the other
+slot as a fallback:
+
+```
+linux  ($disk,gpt3)/casper/vmlinuz boot=casper live-media=/dev/disk/by-partlabel/CI-BOOT-A persistent ci_stick.slot=A quiet splash $extra_cmdline ---
+initrd ($disk,gpt3)/casper/initrd
+```
+
+`grubenv` is GRUB's own 1024-byte environment block, generated in Rust. It holds
+`active_slot=A|B` and an optional `extra_cmdline`, which tests set to `console=ttyS0,…`
+and production leaves empty. `ci-stick slot set B` rewrites only that 1 KiB file,
+through mtools at the ESP's offset, under the same device rules as `flash`.
+**Persistence** is the ext4 filesystem labelled `writable` on `CI-PERSIST`. Ubuntu's
+casper finds it by that label, and the GPT partition name stays `CI-PERSIST`. Both slots
+share it.
+
+**Tests.**
+
+- `cargo test` covers grubenv round trips and the exact format, grub.cfg rendering, GPT
+  arguments and parsing (CRCs), sparse-copy correctness, every device-refusal rule, and
+  a real `flash` plus `slot set` against a 64 GB sparse image. That last test is skipped,
+  with a note, when the gdisk, dosfstools, exfatprogs, e2fsprogs or mtools tools are
+  missing.
+- `stick/tests/qemu/run.sh` runs as the `stick-qemu` job in PR checks. It builds a tiny
+  casper-shaped test ISO: a real Ubuntu kernel plus a busybox initrd whose `/init`
+  reports its slot and `ci_stick.slot`, then increments `/boot-count` on the `writable`
+  filesystem. It flashes a sparse 64 GB image and boots it three times in QEMU as a USB
+  mass-storage device under OVMF. Boot 1 must report slot A with count 1, boot 2 must
+  report count 2, and after `slot set B`, boot 3 must report slot B with count 3. The
+  production grub.cfg is used unchanged. The same script checks that a tampered bundle,
+  `--allow-unsigned` with `--device`, a regular file and a non-removable disk are all
+  refused without writes.
+- `.github/workflows/stick-real-iso.yml` is manual. It checks the Ubuntu 24.04 desktop
+  ISO against SHA256SUMS, whose GPG signature must verify against Ubuntu's CD signing
+  key, then flashes and boots the ISO to casper.
+
+**Known limitations** (next slices):
+
+- Secure Boot works through shim for Ubuntu images; see its own limitations under
+  [Secure Boot](#secure-boot).
+- `CI-SHARED` and `CI-CACHE` are formatted empty. Populating them (launchers, docs, OCI
+  images and models) is slice 4. exFAT can't be written without root or mounting, so
+  there is no README yet either.
+- Device writes are Linux-only. On macOS and Windows, `flash --device` and `slot --device`
+  say "not supported yet". To use another OS, write an image with `--image` and flash it
+  with that OS's tools.
+- The real-ISO boot test is manual. It is not part of PR checks, and it has not yet been
+  run on real hardware.
+- Replacing grubenv with mtools is not an atomic update. The signed A/B updater (slice 5)
+  owns atomic pointer flips and rollback.
+
+## Secure Boot
+
+Companion Stick boots on PCs with UEFI Secure Boot **enabled**, through the same signed
+chain Ubuntu's own install media uses. We add no keys of our own and need no MOK
+enrollment for Ubuntu images.
+
+```
+firmware db (Microsoft Corporation UEFI CA 2011)
+  -> EFI/BOOT/BOOTX64.EFI   shim 15.8, Microsoft-signed        (shim-signed)
+  -> EFI/BOOT/grubx64.efi   GRUB 2.12, Canonical-signed        (grub-efi-amd64-signed)
+  -> /casper/vmlinuz        Canonical-signed kernel, inside the boot slot's ISO
+     EFI/BOOT/mmx64.efi     MokManager, Canonical-signed, for recovery only
+```
+
+shim trusts GRUB and the kernel through the Canonical CA certificate embedded in it
+(`.vendor_cert`). GRUB asks shim to verify the kernel before `linux` loads it; the
+initrd is not verified (as in stock Ubuntu). With Secure Boot on, the kernel runs in
+lockdown (integrity) mode.
+
+**Where the binaries come from** (`stick/scripts/fetch-signed-boot.sh <out-dir>`):
+
+1. `apt-get download shim-signed grub-efi-amd64-signed` on Ubuntu 24.04 (in a container
+   elsewhere). apt accepts a `.deb` only if its hash matches the Packages index, which the
+   archive's signed `InRelease` authenticates. Nothing is fetched outside apt.
+2. `dpkg-deb -x`, then:
+   - `shimx64.efi` is `/usr/lib/shim/shimx64.efi.signed.latest`, shim 15.8 with SBAT
+     `shim,4`. We don't use `.signed.previous`: that is shim 15.4 (`shim,1`), which the
+     SBAT revocations shipped by Windows updates and by shim 15.8 itself reject. We also
+     skip `.dualsigned`. It is the same shim with an extra Canonical signature, and only
+     firmware ever checks shim, against the Microsoft signature.
+   - `grubx64.efi` is `/usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed`. That is the
+     *disk* image; `gcdx64.efi.signed` is the CD image, see below.
+   - `mmx64.efi` is `/usr/lib/shim/mmx64.efi`.
+   - `fbx64.efi` (shim's fallback loader) is deliberately left out. shim would run it
+     from a removable path, and it writes boot entries into the host's NVRAM.
+3. `sbverify --list`: shim must be signed via *Microsoft Corporation UEFI CA 2011*, and
+   GRUB and MokManager by *Canonical Ltd. Secure Boot Signing*.
+4. `sbverify --cert`: GRUB and MokManager must verify cryptographically against the
+   Canonical CA extracted from that shim's `.vendor_cert`, which is the check shim itself
+   makes at boot. The CA is written out as `canonical-uefi-ca.pem`, and the Mac harness
+   checks its test kernel against it the same way.
+5. `signed-boot.lock` records the package versions, the `.deb` sha256s, each binary's
+   sha256, source path and SBAT generation. `--expect <lock>` re-fetches the same versions
+   and fails on any hash difference.
+
+As of this writing: `shim-signed 1.58+15.8-0ubuntu1` and
+`grub-efi-amd64-signed 1.202.5+2.12-1ubuntu7.3` (grub2 `2.12-1ubuntu7.3`, SBAT `grub,5`).
+
+**How Canonical's signed GRUB finds its config.** We read this out of the image (its
+`mods` section) and confirmed it by booting under OVMF, rather than assuming it:
+
+- `grubx64.efi.signed` is monolithic. It has an embedded prefix of `/EFI/ubuntu`, **no**
+  embedded config, and a memdisk that holds only `fonts/unicode.pf2`. It contains 124
+  built-in modules, including everything our config uses: `part_gpt fat iso9660 ext2
+  regexp loadenv test echo linux search search_label configfile normal sleep`. Under
+  Secure Boot it cannot load modules from disk. The template's `insmod` lines are no-ops
+  for built-ins, and a unit test keeps them inside that list and inside
+  `build-grub-efi.sh`'s module list.
+- Ubuntu's `normal` module loads `$fw_path/grub.cfg` first (the directory GRUB was loaded
+  from, `EFI/BOOT/`), then `$prefix/grub.cfg` (`EFI/ubuntu/grub.cfg` on the same ESP), and
+  otherwise drops to a `grub>` shell. Booting with different menu titles in each copy
+  showed `EFI/BOOT` wins when both exist, `EFI/ubuntu` is used when it is the only copy,
+  and with neither the result is the shell.
+- The `/.disk/info` search belongs to `gcdx64.efi.signed`, the CD image, whose memdisk
+  config is `search --file /.disk/info` and then `$prefix/grub.cfg`. Every boot slot's
+  Ubuntu ISO contains `/.disk/info`, so that image could load an arbitrary slot's own
+  `grub.cfg`. We never ship it.
+- `flash` therefore writes the rendered `grub.cfg` to both `EFI/BOOT/grub.cfg` and
+  `EFI/ubuntu/grub.cfg`. The development chain keeps reading `ci-stick/grub.cfg`. It is
+  one template for both chains, and nothing in it needed changing for lockdown: `$cmdpath`
+  disk detection, `load_env` of `ci-stick/grubenv` and `linux`/`initrd` from the slot's
+  ISO all work under Canonical GRUB with Secure Boot on.
+
+**Bundles, flashing and policy.** `ci-stick lock` records a chain from the staging
+tree's `efi/` directory: `shimx64.efi` + `grubx64.efi` + `mmx64.efi` (Secure Boot), or
+`BOOTX64.EFI` (development). It refuses both chains at once, an incomplete Secure Boot
+chain, and unknown names. `verify` and `doctor --bundle` print `Boot  Secure Boot:
+supported (shim → Canonical GRUB)`, or `Secure Boot: NOT supported (unsigned development
+GRUB) — disable Secure Boot to boot this stick`, and `flash` prints the same line in its
+plan. The ESP gets:
+
+| chain       | ESP files                                                                                                      |
+|-------------|----------------------------------------------------------------------------------------------------------------|
+| Secure Boot | `EFI/BOOT/BOOTX64.EFI` (= shim), `EFI/BOOT/grubx64.efi`, `EFI/BOOT/mmx64.efi`, `EFI/BOOT/grub.cfg`, `EFI/ubuntu/grub.cfg`, `ci-stick/grubenv` |
+| development | `EFI/BOOT/BOOTX64.EFI` (standalone GRUB), `ci-stick/grub.cfg`, `ci-stick/grubenv`                              |
+
+`flash --device` with the development chain is refused unless you pass
+`--allow-unsigned-bootloader`. With the flag, the plan carries a loud warning banner.
+`--image` targets accept either chain without a flag, and the CI QEMU harness
+(`stick/tests/qemu/run.sh`) still uses the development chain, so CI is unchanged.
+
+**Testing it on a Mac** (local only; no GitHub workflow runs Secure Boot tests):
+
+```bash
+brew install --cask docker && open -a Docker     # once; wait until it is running
+brew install qemu
+stick/tests/secureboot/run-on-mac.sh
+```
+
+The build runs in `ubuntu:24.04` (linux/amd64) under Docker. It fetches the signed chain,
+builds a test boot image with a Canonical-signed kernel and a busybox init that prints
+`CI-STICK-SB secureboot=<0|1> slot=A cmdline_slot=A`, and flashes a signed and an
+unsigned 64 GB stick. Only small qcow2 conversions leave the container. It also copies
+Ubuntu's OVMF out: the Secure Boot build with Microsoft keys enrolled, and the plain
+build. The boots then run on the Mac under Homebrew QEMU (HVF on Intel, TCG on Apple
+Silicon), with the stick as a USB disk:
+
+- **A.** Secure Boot on, signed chain. It boots with `secureboot=1`, slot A, boot count 1,
+  and again with boot count 2.
+- **B.** Secure Boot on, unsigned chain. The kernel is never reached, because the firmware
+  reports `Access Denied`.
+- **C.** Secure Boot off, signed chain. It boots with `secureboot=0`.
+
+`--iso <ubuntu-or-CI-OS.iso>` builds a signed stick with that ISO in slot A and boots it
+in a window with Secure Boot on, so you can check `mokutil --sb-state` and casper
+persistence by hand. It needs about 8 GB free and is slow under TCG. The script also
+runs on Linux: on an Ubuntu 24.04 host it builds without Docker.
+
+**Limitations.**
+
+- **Intel Macs with a T2 chip** don't trust the Microsoft UEFI CA 2011 that signs shim.
+  Apple's firmware trusts only Apple and the *Microsoft Windows Production CA 2011*
+  ([Apple Platform Security: boot process for an Intel-based Mac](https://support.apple.com/guide/security/sec5d0fab7c6/web)).
+  At Full or Medium Security the stick won't boot. Set Startup Security Utility to
+  **No Security** and allow booting from external media. Pre-T2 Intel Macs have no UEFI
+  Secure Boot and boot the stick as they are.
+- **Apple Silicon Macs** can't boot x86_64 sticks at all. The Mac harness *emulates* a PC
+  there.
+- **Kernels must be Canonical-signed.** Stock Ubuntu ISOs are fine. A future CI-OS image
+  with a custom or rebuilt kernel (or custom kernel modules) won't boot under Secure Boot
+  through this shim. It will need a Canonical-signed kernel, our own MOK (a key enrolled
+  by the user through MokManager on first boot), or our own shim through the shim-review
+  process with Microsoft signing. Unsigned kernel modules are also refused under lockdown.
+- SBAT and dbx revocations can retire today's shim or GRUB. Re-run
+  `fetch-signed-boot.sh` to pick up Ubuntu's updates. The lock file shows what a bundle
+  shipped.
+- Only x86_64. arm64 sticks (`shimaa64.efi`) come later.
+- Tested under OVMF (QEMU) with Microsoft's keys, not yet on physical PCs.
+
 ## Delivery sequence
 
 1. Security closure (tracked separately).
-2. **Bundle schema, lockfile, `verify` and read-only `doctor`. ✅ This slice.**
-3. Safe Ubuntu x86_64 flashing, persistence and QEMU boot tests.
+2. **Bundle schema, lockfile, `verify` and read-only `doctor`. ✅**
+3. **Safe Ubuntu x86_64 flashing, persistence and QEMU boot tests. ✅**
 4. Offline Hub/Memory payload install and model import.
 5. Signed A/B updater with rollback.
 6. Other distros (Fedora, Arch, Debian) and ARM64.
 
-### Non-goals of slice 2
+### Still out of scope after slice 3
 
-- **No writes to devices.** Nothing partitions, formats, mounts, unmounts or flashes. The
-  device-listing code only runs `lsblk` and `diskutil list`.
+- Nothing mounts or unmounts anything; `flash` refuses mounted devices instead.
 - **No host install**, and no launcher yet.
-- **No updater**, no A/B slot switching and no key rotation.
+- **No updater** (manual `slot set` only) and no key rotation.
 - **No `build`.** Staging trees are assembled by hand or by scripts for now.
 - **No digest resolution** (`models lock`), and no Windows device listing (`doctor` says
   "not supported yet").

@@ -10,10 +10,13 @@ use anyhow::{bail, Context as _};
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 
+use ci_stick::flash::{self, FlashOutcome, FlashRequest, TargetSpec};
+use ci_stick::grubenv::Slot;
 use ci_stick::manifest::{Bundle, BUNDLE_FILE, SIGNATURE_FILE};
 use ci_stick::packs::{self, PackCatalog};
 use ci_stick::progress::Progress;
 use ci_stick::size::{fmt_binary, parse_size};
+use ci_stick::slot::{self, SlotTarget};
 use ci_stick::{devices, doctor, host, layout, lock, signing, timefmt, verify};
 
 const EXIT_FAILED: u8 = 1;
@@ -23,11 +26,13 @@ const EXIT_USAGE: u8 = 2;
 #[command(
     name = "ci-stick",
     version,
-    about = "Build, verify and inspect Companion Stick bundles",
-    long_about = "Build, verify and inspect Companion Stick bundles.\n\n\
-                  This build never writes to block devices: flashing, host install and \
-                  updates arrive in later releases.\n\n\
-                  Exit codes: 0 ok, 1 verification failed, 2 usage or I/O error."
+    about = "Build, verify, inspect and flash Companion Stick bundles",
+    long_about = "Build, verify, inspect and flash Companion Stick bundles.\n\n\
+                  Only `flash` and `slot set` write to a stick, and only after verifying \
+                  the bundle and passing the device safety checks (see `flash --help`). \
+                  Host install and updates arrive in later releases.\n\n\
+                  Exit codes: 0 ok, 1 verification failed, 2 usage error, I/O error or \
+                  safety refusal."
 )]
 struct Cli {
     #[command(subcommand)]
@@ -51,6 +56,122 @@ enum Command {
     /// Development-only helpers (test keys, signing unreleased bundles).
     #[command(subcommand)]
     Dev(DevCommand),
+    /// Verify a bundle and write it to a stick image or a removable USB device.
+    Flash(Box<FlashArgs>),
+    /// Show or switch the active A/B boot slot on a flashed stick or image.
+    #[command(subcommand)]
+    Slot(SlotCommand),
+}
+
+#[derive(Args)]
+#[command(
+    long_about = "Verify a bundle and write it to a stick image or a removable USB device.\n\n\
+                  ERASES THE TARGET. Always run with --dry-run first and read the plan. \
+                  A --device write requires --confirm <device node exactly as shown> (plus \
+                  --expect-serial when the device reports a serial), and a bundle carrying \
+                  the unsigned development bootloader also needs --allow-unsigned-bootloader \
+                  (the Secure Boot chain, shim → Canonical GRUB, does not). Devices must be \
+                  removable or USB-attached, with nothing mounted and no swap; the node is \
+                  opened O_EXCL and its identity is re-checked right before the first write."
+)]
+struct FlashArgs {
+    /// Bundle root (the directory containing bundle.json and bundle.json.sig).
+    root: PathBuf,
+    /// Write a sparse stick image file (created or overwritten). Requires --size.
+    #[arg(
+        long,
+        conflicts_with = "device",
+        requires = "size",
+        required_unless_present = "device"
+    )]
+    image: Option<PathBuf>,
+    /// Image size, e.g. 64GB or 476GiB (with --image).
+    #[arg(long, requires = "image")]
+    size: Option<String>,
+    /// Whole block device to ERASE and write, e.g. /dev/sdb or /dev/disk/by-id/usb-... (Linux).
+    #[arg(long)]
+    device: Option<PathBuf>,
+    /// Trusted ed25519 public key: 64 hex characters, or a file containing it.
+    #[arg(long)]
+    pubkey: Option<String>,
+    /// DEVELOPMENT ONLY, --image only: accept an unsigned bundle.
+    #[arg(long)]
+    allow_unsigned: bool,
+    /// DEVELOPMENT ONLY: allow a --device write of a bundle whose bootloader is the unsigned
+    /// development GRUB (the stick then boots only with Secure Boot disabled).
+    #[arg(long)]
+    allow_unsigned_bootloader: bool,
+    /// Print the plan and write nothing.
+    #[arg(long)]
+    dry_run: bool,
+    /// Device writes: must equal the device node shown in the plan (e.g. /dev/sdb).
+    #[arg(long)]
+    confirm: Option<String>,
+    /// Device writes: must equal the serial shown in the plan, when the device has one.
+    #[arg(long)]
+    expect_serial: Option<String>,
+    /// Manifest path of the boot image, when the bundle carries more than one.
+    #[arg(long)]
+    boot_image: Option<String>,
+    /// TESTS/DEVELOPMENT, --image only: also write this ISO into boot slot B.
+    #[arg(long)]
+    slot_b_from: Option<PathBuf>,
+    /// Extra kernel arguments stored in grubenv (e.g. "console=ttyS0,115200" for tests).
+    #[arg(long)]
+    extra_cmdline: Option<String>,
+    /// Directory for the temporary sparse filesystem images (default: system temp dir).
+    #[arg(long)]
+    work_dir: Option<PathBuf>,
+    /// Machine-readable plan/result on stdout.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(Args)]
+#[group(required = true, multiple = false)]
+struct SlotTargetArgs {
+    /// A stick image file.
+    #[arg(long)]
+    image: Option<PathBuf>,
+    /// A stick device (Linux), e.g. /dev/sdb.
+    #[arg(long)]
+    device: Option<PathBuf>,
+}
+
+impl SlotTargetArgs {
+    fn target(&self) -> anyhow::Result<SlotTarget> {
+        match (&self.image, &self.device) {
+            (Some(i), None) => Ok(SlotTarget::Image(i.clone())),
+            (None, Some(d)) => Ok(SlotTarget::Device(d.clone())),
+            _ => bail!("give exactly one of --image <file> or --device <dev>"),
+        }
+    }
+}
+
+#[derive(Subcommand)]
+enum SlotCommand {
+    /// Show the active slot and the grubenv variables.
+    Show {
+        #[command(flatten)]
+        target: SlotTargetArgs,
+        #[arg(long)]
+        json: bool,
+    },
+    /// Make A or B the active slot (only the ESP's 1 KiB grubenv changes).
+    Set {
+        /// A or B.
+        slot: String,
+        #[command(flatten)]
+        target: SlotTargetArgs,
+        /// Device writes: must equal the device node.
+        #[arg(long)]
+        confirm: Option<String>,
+        /// Device writes: must equal the device serial, when it has one.
+        #[arg(long)]
+        expect_serial: Option<String>,
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Args)]
@@ -162,10 +283,29 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     match run(cli) {
         Ok(code) => code,
+        Err(e) if is_broken_pipe(&e) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("error: {e:#}");
             ExitCode::from(EXIT_USAGE)
         }
+    }
+}
+
+/// A reader that exits early (`grep -q`, `head`) closes stdout. That is success, not a crash.
+fn is_broken_pipe(err: &anyhow::Error) -> bool {
+    err.chain().any(|cause| {
+        cause
+            .downcast_ref::<std::io::Error>()
+            .is_some_and(|io| io.kind() == std::io::ErrorKind::BrokenPipe)
+    })
+}
+
+fn write_stdout(text: &str) -> anyhow::Result<()> {
+    let mut out = std::io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::BrokenPipe => Ok(()),
+        Err(e) => Err(e).context("writing to stdout"),
     }
 }
 
@@ -193,7 +333,150 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Models(ModelsCommand::List(a)) => cmd_models_list(a),
         Command::Doctor(a) => cmd_doctor(a),
         Command::Dev(d) => cmd_dev(d),
+        Command::Flash(a) => cmd_flash(*a),
+        Command::Slot(s) => cmd_slot(s),
     }
+}
+
+fn signature_policy(
+    pubkey: Option<&str>,
+    allow_unsigned: bool,
+) -> anyhow::Result<verify::SignaturePolicy> {
+    let key = pubkey.map(signing::parse_public_key).transpose()?;
+    Ok(match (key, allow_unsigned) {
+        (Some(k), false) => verify::SignaturePolicy::Require(k),
+        (k, true) => {
+            eprintln!(
+                "WARNING: --allow-unsigned given. An unsigned bundle proves NOTHING about who \
+                 built it. Use this only for local development bundles, never for a stick you \
+                 will hand to someone."
+            );
+            verify::SignaturePolicy::AllowUnsigned(k)
+        }
+        (None, false) => bail!(
+            "a trusted public key is required: --pubkey <hex|file> \
+             (or --allow-unsigned for development bundles)"
+        ),
+    })
+}
+
+fn cmd_flash(a: FlashArgs) -> anyhow::Result<ExitCode> {
+    let target = match (&a.image, &a.device) {
+        (Some(path), None) => {
+            let size = a.size.as_deref().context("--image requires --size")?;
+            TargetSpec::Image {
+                path: path.clone(),
+                size_bytes: parse_size(size)?,
+            }
+        }
+        (None, Some(path)) => TargetSpec::Device { path: path.clone() },
+        _ => bail!("give exactly one target: --image <file> --size <size>, or --device <dev>"),
+    };
+    if target.is_device() && a.allow_unsigned {
+        bail!(
+            "--allow-unsigned is refused with --device: a physical stick is only ever written \
+             from a signed bundle (it is accepted with --image for development)"
+        );
+    }
+    let req = FlashRequest {
+        bundle_root: a.root,
+        policy: signature_policy(a.pubkey.as_deref(), a.allow_unsigned)?,
+        target,
+        boot_image: a.boot_image,
+        slot_b_from: a.slot_b_from,
+        extra_cmdline: a.extra_cmdline,
+        dry_run: a.dry_run,
+        confirm: a.confirm,
+        expect_serial: a.expect_serial,
+        work_dir: a.work_dir,
+        allow_unsigned_bootloader: a.allow_unsigned_bootloader,
+    };
+    let mut progress = if a.json {
+        Progress::disabled()
+    } else {
+        Progress::auto(0)
+    };
+    match flash::flash(&req, &mut progress)? {
+        FlashOutcome::VerifyFailed(report) => {
+            eprintln!("refusing to flash: the bundle failed verification; nothing was written\n");
+            if a.json {
+                print_json(&report)?;
+            } else {
+                eprint!("{}", verify::render_human(&report));
+            }
+            Ok(ExitCode::from(EXIT_FAILED))
+        }
+        FlashOutcome::DryRun(plan) => {
+            if a.json {
+                print_json(&plan)?;
+            } else {
+                print!("{}", flash::render_plan(&plan, true));
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        FlashOutcome::Written(plan, report) => {
+            if a.json {
+                #[derive(Serialize)]
+                struct Out<'a> {
+                    plan: &'a flash::FlashPlan,
+                    result: &'a flash::WriteReport,
+                }
+                print_json(&Out {
+                    plan: &plan,
+                    result: &report,
+                })?;
+            } else {
+                println!(
+                    "Flashed {} {} ({} written)",
+                    plan.bundle_id,
+                    plan.bundle_version,
+                    fmt_binary(report.bytes_written)
+                );
+                for c in &report.checks {
+                    println!("  ok  {c}");
+                }
+                if let flash::PlannedTarget::Device { identity, .. } = &plan.target {
+                    println!(
+                        "Unplug and re-plug the stick (or run `sudo partprobe {}`) so the OS sees the new partitions.",
+                        identity.node
+                    );
+                }
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+fn cmd_slot(s: SlotCommand) -> anyhow::Result<ExitCode> {
+    let (state, json) = match s {
+        SlotCommand::Show { target, json } => (slot::show(&target.target()?)?, json),
+        SlotCommand::Set {
+            slot: which,
+            target,
+            confirm,
+            expect_serial,
+            json,
+        } => {
+            let which = Slot::parse(&which)?;
+            let state = slot::set(
+                &target.target()?,
+                which,
+                confirm.as_deref(),
+                expect_serial.as_deref(),
+            )?;
+            (state, json)
+        }
+    };
+    if json {
+        print_json(&state)?;
+    } else {
+        let mut text = format!("{}: active slot {}\n", state.target, state.active_slot);
+        for (k, v) in &state.vars {
+            text.push_str(&format!("  {k}={v}\n"));
+        }
+        write_stdout(&text)?;
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 fn created_at_from_env() -> anyhow::Result<Option<String>> {
@@ -280,26 +563,7 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
 }
 
 fn cmd_verify(a: VerifyArgs) -> anyhow::Result<ExitCode> {
-    let key = a
-        .pubkey
-        .as_deref()
-        .map(signing::parse_public_key)
-        .transpose()?;
-    let policy = match (key, a.allow_unsigned) {
-        (Some(k), false) => verify::SignaturePolicy::Require(k),
-        (k, true) => {
-            eprintln!(
-                "WARNING: --allow-unsigned given. An unsigned bundle proves NOTHING about who \
-                 built it. Use this only for local development bundles, never for a stick you \
-                 will hand to someone."
-            );
-            verify::SignaturePolicy::AllowUnsigned(k)
-        }
-        (None, false) => bail!(
-            "a trusted public key is required: --pubkey <hex|file> \
-             (or --allow-unsigned for development bundles)"
-        ),
-    };
+    let policy = signature_policy(a.pubkey.as_deref(), a.allow_unsigned)?;
     let mut progress = if a.json {
         Progress::disabled()
     } else {

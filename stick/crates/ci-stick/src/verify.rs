@@ -20,7 +20,7 @@ use ed25519_dalek::VerifyingKey;
 use serde::Serialize;
 
 use crate::hashing::hash_file;
-use crate::manifest::{Artifact, Bundle, BUNDLE_FILE, SIGNATURE_FILE};
+use crate::manifest::{Artifact, BootChain, Bundle, BUNDLE_FILE, SIGNATURE_FILE};
 use crate::paths::{to_manifest_path, validate_rel_path};
 use crate::progress::Progress;
 use crate::signing::{fingerprint, parse_signature, verify_detached};
@@ -81,6 +81,9 @@ pub struct VerifyReport {
     pub bundle_version: Option<String>,
     pub signature: SignatureStatus,
     pub hash_mode: HashMode,
+    /// The boot chain the (trusted) manifest carries; `None` when it has no bootloader,
+    /// an invalid set of them, or was not trusted.
+    pub boot_chain: Option<BootChain>,
     pub artifacts_total: usize,
     pub artifacts_ok: usize,
     pub bytes_checked: u64,
@@ -119,6 +122,7 @@ pub fn verify(
         bundle_version: None,
         signature: SignatureStatus::NotChecked,
         hash_mode: mode,
+        boot_chain: None,
         artifacts_total: 0,
         artifacts_ok: 0,
         bytes_checked: 0,
@@ -146,6 +150,8 @@ pub fn verify(
     };
     report.bundle_id = Some(bundle.id.clone());
     report.bundle_version = Some(bundle.version.clone());
+    // An invalid set of bootloaders is reported by validate() below.
+    report.boot_chain = bundle.boot_chain().ok().flatten();
     for problem in bundle.validate() {
         report
             .errors
@@ -425,6 +431,11 @@ pub fn render_human(r: &VerifyReport) -> String {
         HashMode::SizesOnly => "size only",
     };
     if r.bundle_id.is_some() {
+        let boot = match r.boot_chain {
+            Some(c) => c.secure_boot_line(),
+            None => "no bootloader in this bundle (it cannot be flashed)",
+        };
+        out.push_str(&format!("Boot      {boot}\n"));
         out.push_str(&format!(
             "Artifacts {}/{} ok ({mode}, {} checked)\n",
             r.artifacts_ok,
@@ -537,6 +548,47 @@ mod tests {
         assert_eq!(r.artifacts_ok, 4);
         assert!(matches!(r.signature, SignatureStatus::Valid { .. }));
         assert!(r.warnings.is_empty());
+    }
+
+    #[test]
+    fn reports_the_boot_chain() {
+        let fx = Fixture::new();
+        let r = fx.run();
+        assert_eq!(r.boot_chain, None);
+        assert!(render_human(&r).contains("Boot      no bootloader"));
+
+        fs::create_dir_all(fx.root().join("efi")).unwrap();
+        for f in ["shimx64.efi", "grubx64.efi", "mmx64.efi"] {
+            fs::write(fx.root().join("efi").join(f), b"MZ").unwrap();
+        }
+        lock(
+            fx.root(),
+            &LockOptions::default(),
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        fx.sign();
+        let r = fx.run();
+        assert!(r.ok, "{}", render_human(&r));
+        assert_eq!(r.boot_chain, Some(BootChain::Secure));
+        assert!(
+            render_human(&r).contains("Boot      Secure Boot: supported (shim → Canonical GRUB)")
+        );
+
+        for f in ["shimx64.efi", "grubx64.efi", "mmx64.efi"] {
+            fs::remove_file(fx.root().join("efi").join(f)).unwrap();
+        }
+        fs::write(fx.root().join("efi/BOOTX64.EFI"), b"MZ").unwrap();
+        lock(
+            fx.root(),
+            &LockOptions::default(),
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        fx.sign();
+        let r = fx.run();
+        assert_eq!(r.boot_chain, Some(BootChain::Development));
+        assert!(render_human(&r).contains("Secure Boot: NOT supported"));
     }
 
     #[test]

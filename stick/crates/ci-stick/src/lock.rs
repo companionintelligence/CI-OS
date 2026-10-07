@@ -11,11 +11,23 @@
 //! | `models/`     | `model-blob` |
 //! | `docs/`       | `doc`        |
 //! | `tools/`      | `tool`       |
+//! | `efi/`        | `bootloader` |
 //!
 //! Anything else (including loose files at the root, other than `bundle.json` and its
 //! signature) is an error rather than a guess. A path component equal to a platform id
-//! (e.g. `installers/macos-arm64/…`) sets the artifact's `platforms`. Symlinks are refused:
-//! the stick's data partitions are exFAT, which cannot represent them.
+//! (e.g. `installers/macos-arm64/…`) sets the artifact's `platforms`. A bootloader's
+//! file name sets its `bootloader_role` and firmware platform (`x86_64-uefi`):
+//!
+//! | file under `efi/` | role              | chain                                      |
+//! |-------------------|-------------------|--------------------------------------------|
+//! | `shimx64.efi`     | `shim`            | Secure Boot (`stick/scripts/fetch-signed-boot.sh`) |
+//! | `grubx64.efi`     | `grub`            | Secure Boot                                |
+//! | `mmx64.efi`       | `mok-manager`     | Secure Boot                                |
+//! | `BOOTX64.EFI`     | `standalone-grub` | development (`stick/scripts/build-grub-efi.sh`) |
+//!
+//! Other names under `efi/` are refused, and so is a staging tree holding both chains or
+//! only part of the Secure Boot one ([`crate::manifest::detect_boot_chain`]). Symlinks are
+//! refused: the stick's data partitions are exFAT, which cannot represent them.
 //!
 //! Determinism: artifacts are sorted by path, the JSON serialisation is canonical, and
 //! `created_at` is taken from `--created-at`/`SOURCE_DATE_EPOCH` when given, otherwise
@@ -31,8 +43,8 @@ use anyhow::{bail, Context as _};
 use crate::hashing::hash_file;
 use crate::layout::{self, LayoutPlan};
 use crate::manifest::{
-    Artifact, ArtifactKind, Bundle, ModelPack, Platform, BUNDLE_FILE, SCHEMA_VERSION,
-    SIGNATURE_FILE,
+    Artifact, ArtifactKind, BootChain, BootloaderRole, Bundle, ModelPack, Platform, BUNDLE_FILE,
+    SCHEMA_VERSION, SIGNATURE_FILE,
 };
 use crate::packs::unique_models_bytes;
 use crate::paths::to_manifest_path;
@@ -61,8 +73,16 @@ pub struct LockOutcome {
     pub warnings: Vec<String>,
 }
 
+/// What `lock` records about a staging path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Classified {
+    pub kind: ArtifactKind,
+    pub platforms: Option<Vec<Platform>>,
+    pub bootloader_role: Option<BootloaderRole>,
+}
+
 /// Classify a manifest path by its first component.
-pub fn classify(path: &str) -> anyhow::Result<(ArtifactKind, Option<Vec<Platform>>)> {
+pub fn classify(path: &str) -> anyhow::Result<Classified> {
     let mut comps = path.split('/');
     let top = comps.next().unwrap_or_default();
     let Some(kind) = ArtifactKind::from_staging_dir(top) else {
@@ -76,9 +96,29 @@ pub fn classify(path: &str) -> anyhow::Result<(ArtifactKind, Option<Vec<Platform
         bail!("{path}: is a directory name, not a file");
     }
     let mut platforms: Vec<Platform> = path.split('/').filter_map(Platform::parse).collect();
+    let mut bootloader_role = None;
+    if kind == ArtifactKind::Bootloader {
+        let file = path.rsplit('/').next().unwrap_or_default();
+        match BootloaderRole::from_file_name(file) {
+            Some(role) => {
+                platforms.push(role.platform());
+                bootloader_role = Some(role);
+            }
+            None => bail!(
+                "{path}: not a known bootloader file — stage either the Secure Boot chain \
+                 ({}) or the development chain ({})",
+                BootChain::Secure.staged_files(),
+                BootChain::Development.staged_files()
+            ),
+        }
+    }
     platforms.sort();
     platforms.dedup();
-    Ok((kind, (!platforms.is_empty()).then_some(platforms)))
+    Ok(Classified {
+        kind,
+        platforms: (!platforms.is_empty()).then_some(platforms),
+        bootloader_role,
+    })
 }
 
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<(String, PathBuf)>) -> anyhow::Result<()> {
@@ -174,7 +214,11 @@ pub fn lock(
     progress.set_total(files.len());
     let mut artifacts = Vec::with_capacity(files.len());
     for (i, (manifest_path, full)) in files.iter().enumerate() {
-        let (kind, platforms) = classify(manifest_path)?;
+        let Classified {
+            kind,
+            platforms,
+            bootloader_role,
+        } = classify(manifest_path)?;
         let expected = fs::metadata(full).map(|m| m.len()).unwrap_or(0);
         let digest = hash_file(full, |done| {
             progress.update(i + 1, manifest_path, done, expected)
@@ -186,6 +230,7 @@ pub fn lock(
             sha256: digest.sha256,
             size: digest.size,
             platforms,
+            bootloader_role,
         });
     }
     progress.finish();
@@ -268,6 +313,7 @@ mod tests {
             ("docs/a.txt", b"a"),
             ("installers/windows-x86_64/setup.exe", b"exe"),
             ("oci/ci-hub/index.json", b"{}"),
+            ("efi/BOOTX64.EFI", b"MZ"),
         ] {
             let full = dir.path().join(p);
             fs::create_dir_all(full.parent().unwrap()).unwrap();
@@ -346,6 +392,69 @@ mod tests {
         assert_eq!(exe.kind, ArtifactKind::Installer);
         assert_eq!(exe.platforms, Some(vec![Platform::WindowsX86_64]));
         assert_eq!(find("oci/ci-hub/index.json").kind, ArtifactKind::OciImage);
+        let efi = find("efi/BOOTX64.EFI");
+        assert_eq!(efi.kind, ArtifactKind::Bootloader);
+        assert_eq!(efi.platforms, Some(vec![Platform::X86_64Uefi]));
+        assert!(
+            out.bundle.validate().is_empty(),
+            "{:?}",
+            out.bundle.validate()
+        );
+    }
+
+    #[test]
+    fn classifies_bootloader_roles_and_refuses_unknown_names() {
+        for (path, role) in [
+            ("efi/BOOTX64.EFI", BootloaderRole::StandaloneGrub),
+            ("efi/shimx64.efi", BootloaderRole::Shim),
+            ("efi/grubx64.efi", BootloaderRole::Grub),
+            ("efi/mmx64.efi", BootloaderRole::MokManager),
+        ] {
+            let c = classify(path).unwrap();
+            assert_eq!(c.kind, ArtifactKind::Bootloader);
+            assert_eq!(c.bootloader_role, Some(role), "{path}");
+            assert_eq!(c.platforms, Some(vec![Platform::X86_64Uefi]));
+        }
+        for bad in ["efi/fbx64.efi", "efi/bootx64.efi", "efi/grubx64.efi.signed"] {
+            let e = classify(bad).unwrap_err();
+            assert!(format!("{e}").contains("not a known bootloader"), "{e}");
+        }
+        assert!(classify("efi/linux-x86_64/BOOTX64.EFI").is_ok());
+        assert_eq!(classify("docs/a.txt").unwrap().bootloader_role, None);
+    }
+
+    fn with_efi(files: &[&str]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("efi")).unwrap();
+        fs::create_dir_all(dir.path().join("boot")).unwrap();
+        fs::write(dir.path().join("boot/x.iso"), b"iso").unwrap();
+        for f in files {
+            fs::write(dir.path().join("efi").join(f), b"MZ").unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    fn lock_detects_the_boot_chain() {
+        let secure = with_efi(&["shimx64.efi", "grubx64.efi", "mmx64.efi"]);
+        let out = lock(secure.path(), &opts(), &mut Progress::disabled()).unwrap();
+        assert_eq!(out.bundle.boot_chain(), Ok(Some(BootChain::Secure)));
+
+        let dev = with_efi(&["BOOTX64.EFI"]);
+        let out = lock(dev.path(), &opts(), &mut Progress::disabled()).unwrap();
+        assert_eq!(out.bundle.boot_chain(), Ok(Some(BootChain::Development)));
+
+        let both = with_efi(&["shimx64.efi", "grubx64.efi", "mmx64.efi", "BOOTX64.EFI"]);
+        let e = lock(both.path(), &opts(), &mut Progress::disabled()).unwrap_err();
+        assert!(
+            format!("{e:#}").contains("both the Secure Boot chain"),
+            "{e:#}"
+        );
+        assert!(!both.path().join(BUNDLE_FILE).exists());
+
+        let partial = with_efi(&["shimx64.efi", "grubx64.efi"]);
+        let e = lock(partial.path(), &opts(), &mut Progress::disabled()).unwrap_err();
+        assert!(format!("{e:#}").contains("missing efi/mmx64.efi"), "{e:#}");
     }
 
     #[test]

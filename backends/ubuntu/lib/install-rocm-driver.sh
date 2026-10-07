@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 #=============================================================================
-# Install ROCm on Companion Ubuntu (CI-OS provisioning scripts on Ubuntu 24.04).
-# Must run with sudo/root.
+# Install ROCm on Companion Ubuntu. Must run with sudo/root.
 #
-# Targets AMD Strix Halo (gfx1151 / Ryzen AI Max) with the newest Ryzen-compatible
-# ROCm apt release (7.2.4 — there is no 7.3 on repo.radeon.com). Strix Halo uses
-# the official Ryzen path: amdgpu-install --usecase=rocm --no-dkms (inbox driver).
+# Support rule (core/lib/gpu-detect.sh): a Strix Halo-class APU (Ryzen AI Max /
+# gfx1151 / Radeon 8060S) with at least ~32 GB of RAM. Anything else exits 0
+# without downloading or installing a driver.
 #
-# - Resolves the real Ubuntu suite codename (not the marketing "ci" codename).
-# - Probes repo.radeon.com for the newest ROCm 7.x amdgpu-install line only
-#   (ignores 30.x/31.x Radeon graphics installer lines).
-# - Temporarily sets ID=ubuntu while running strict AMD tooling when needed.
+# Ubuntu 26.04 (resolute): `apt install rocm` from the Ubuntu archive. ROCm 7.1
+# is in that archive, and the inbox amdgpu driver is used. This script does not
+# install amdgpu-dkms (it fails to build on the 26.04 kernel) and does not
+# install Ubuntu 24.04 noble packages onto 26.04.
+#
+# Ubuntu 24.04 (noble): newest Ryzen-compatible ROCm apt line, 7.2.4, via
+# amdgpu-install --usecase=rocm --no-dkms. Discovery ignores 30.x/31.x Radeon
+# graphics installer lines.
 #
 # Usage:
 #   sudo ./backends/ubuntu/lib/install-rocm-driver.sh
@@ -19,14 +22,23 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=lib/os-release.sh
-source "${SCRIPT_DIR}/lib/os-release.sh"
-# shellcheck source=lib/gpu-detect.sh
-source "${SCRIPT_DIR}/lib/gpu-detect.sh"
+# shellcheck source=os-release.sh
+source "${SCRIPT_DIR}/os-release.sh"
+# shellcheck source=../../../core/lib/gpu-detect.sh
+source "${SCRIPT_DIR}/../../../core/lib/gpu-detect.sh"
 
 if [[ ${EUID:-0} -ne 0 ]]; then
   exec sudo "$0" "$@"
 fi
+
+if ! ci_os_hardware_supported; then
+  echo "[ROCm] Unsupported hardware: ${CI_OS_HARDWARE_SUPPORT_REASON}."
+  echo "[ROCm] Not installing ROCm. The desktop is unchanged."
+  ci_os_record_hardware_support || true
+  exit 0
+fi
+echo "[ROCm] Supported hardware: ${CI_OS_HARDWARE_SUPPORT_REASON}."
+ci_os_record_hardware_support || true
 
 # Newest Ryzen-compatible ROCm apt line on Ubuntu 24.04 (noble) as of 2026-07.
 FALLBACK_AMDGPU_LINE="7.2.4"
@@ -36,10 +48,9 @@ FALLBACK_CODENAMES=(noble jammy)
 ACTUAL_USER="${SUDO_USER:-${LOGNAME:-$(logname 2>/dev/null || whoami)}}"
 export DEBIAN_FRONTEND=noninteractive
 
-STRIX_HALO=0
-if is_strix_halo_from_system; then
-  STRIX_HALO=1
-fi
+# The support gate above already required a Strix Halo-class APU. The only
+# install path is the inbox driver (--no-dkms). DKMS is not used.
+STRIX_HALO=1
 
 if [[ ! -e /dev/kfd ]]; then
   echo "[ROCm] WARN: /dev/kfd not present. Ensure amdgpu is loaded (modprobe amdgpu) before GPU workloads." >&2
@@ -280,6 +291,25 @@ install_rocm_packages_no_dkms() {
   apt install -y rocm rocminfo rocm-smi-lib 2>/dev/null || apt install -y rocm
 }
 
+# Ubuntu 26.04 ships ROCm in the archive. Stay on that suite: a noble
+# amdgpu-install package is built for 24.04 and is the wrong driver here.
+if [[ "$UBUNTU_CODENAME" == "resolute" || "$UBUNTU_VERSION_ID" == "26.04" ]]; then
+  echo "[ROCm] Ubuntu ${UBUNTU_VERSION_ID} (${UBUNTU_CODENAME}): installing ROCm from the Ubuntu archive."
+  echo "[ROCm] Inbox amdgpu only. amdgpu-dkms is not installed on this release."
+  apt-get update -y
+  if ! apt-cache show rocm >/dev/null 2>&1; then
+    echo "[ROCm] ERROR: package 'rocm' is not in the Ubuntu ${UBUNTU_CODENAME} archive." >&2
+    echo "[ROCm] Not falling back to another release's amdgpu-install packages." >&2
+    exit 1
+  fi
+  apt-get install -y rocm rocminfo rocm-smi-lib
+  ensure_video_groups
+  warn_strix_halo_kernel
+  verify_rocm_after_install || true
+  echo "[ROCm] Installed from the Ubuntu archive. Log out and back in if group membership changed."
+  exit 0
+fi
+
 IFS=$'\t' read -r AMDGPU_LINE AMGPU_INSTALL_DEB < <(discover_amdgpu_install_for_codename "$UBUNTU_CODENAME" "${FALLBACK_CODENAMES[@]}")
 # Prefer the codename that actually matched in the URL path (may differ from primary on new Ubuntu releases).
 INSTALL_CODENAME="$UBUNTU_CODENAME"
@@ -308,7 +338,8 @@ if (( STRIX_HALO == 1 )); then
   echo "[ROCm] Hardware path: Strix Halo / Ryzen AI Max (gfx1151) — --no-dkms"
   warn_strix_halo_kernel
 else
-  echo "[ROCm] Hardware path: standard AMD (DKMS allowed)"
+  echo "[ROCm] Refusing to install: only the Strix Halo inbox-driver path is supported." >&2
+  exit 0
 fi
 
 if rocm_stack_satisfied "$TARGET_PKG_VER"; then
@@ -365,17 +396,8 @@ elif (( STRIX_HALO == 1 )); then
     fi
     exit 1
   fi
-elif apt install -y amdgpu-dkms; then
-  echo "[ROCm] Installing rocm packages after amdgpu-dkms..."
-  apt install -y rocm rocminfo rocm-smi-lib 2>/dev/null || apt install -y rocm
 else
-  echo "[ROCm] WARN: amdgpu-dkms install failed; trying Ubuntu rocm metapackage..." >&2
-  if try_ubuntu_rocm_metapackage; then
-    ensure_video_groups
-    verify_rocm_after_install || true
-    echo "[ROCm] Installed via Ubuntu rocm metapackage."
-    exit 0
-  fi
+  echo "[ROCm] Refusing amdgpu-dkms. The supported path is the inbox amdgpu driver." >&2
   exit 1
 fi
 

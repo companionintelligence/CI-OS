@@ -2,11 +2,23 @@
 # CI OS Post-Validation Setup
 # Runs after portal.ci.computer pairing + Hub. Heavy downloads: ROCm, Ollama models.
 # Only runs once; creates /var/lib/setup-device/post-validation-done when complete.
+#
+# The heavy install runs only on supported hardware (Strix Halo-class APU with
+# at least ~32 GB RAM). Anything else is recorded and skipped. The desktop stays
+# up, and this script does not retry the install.
 
 DATA_DIR="/var/lib/setup-device"
 HUB_ENV="${DATA_DIR}/hub.env"
 POST_VALIDATION_FLAG="${DATA_DIR}/post-validation-done"
 BOOTSTRAP_ROOT="/usr/lib/ci-os/bootstrap"
+GPU_DETECT=""
+for _candidate in /usr/lib/ci-os/gpu-detect.sh "${BOOTSTRAP_ROOT}/core/lib/gpu-detect.sh"; do
+    if [[ -f "$_candidate" ]]; then
+        GPU_DETECT="$_candidate"
+        break
+    fi
+done
+unset _candidate
 CI_OS_SCRIPTS_URL="${CI_OS_SCRIPTS_URL:-https://raw.githubusercontent.com/companionintelligence/CI-OS/main/scripts}"
 ROCM_SCRIPT="/tmp/ci-os-install-rocm-driver.sh"
 
@@ -19,6 +31,24 @@ mkdir -p "$DATA_DIR"
 
 [ ! -f "$HUB_ENV" ] && { log "hub.env not found; run WiFi setup first"; exit 0; }
 [ -f "$POST_VALIDATION_FLAG" ] && { log "Already completed"; exit 0; }
+
+if [[ ! -f "$GPU_DETECT" ]]; then
+    log "Hardware support check is missing (${GPU_DETECT}). Not installing ROCm or models."
+    printf 'supported=no\nreason=support check missing\nchecked=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        > "${DATA_DIR}/hardware-support"
+    touch "$POST_VALIDATION_FLAG"
+    exit 0
+fi
+# shellcheck source=../../../../../../core/lib/gpu-detect.sh
+source "$GPU_DETECT"
+if ! ci_os_hardware_supported; then
+    log "Unsupported hardware: ${CI_OS_HARDWARE_SUPPORT_REASON}. Skipping ROCm and model install."
+    ci_os_record_hardware_support || true
+    touch "$POST_VALIDATION_FLAG"
+    exit 0
+fi
+log "Supported hardware: ${CI_OS_HARDWARE_SUPPORT_REASON}."
+ci_os_record_hardware_support || true
 
 log "Starting post-validation setup (ROCm, Ollama models)"
 

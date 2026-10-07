@@ -26,9 +26,11 @@ cat > /etc/dconf/db/local.d/02-ci-os-wallpaper <<EOF
 [org/gnome/desktop/background]
 picture-uri='file://$DEST_WALLPAPER'
 picture-uri-dark='file://$DEST_WALLPAPER'
+picture-options='zoom'
 
 [org/gnome/desktop/screensaver]
 picture-uri='file://$DEST_WALLPAPER'
+picture-options='zoom'
 EOF
 
 dconf_update_safe
