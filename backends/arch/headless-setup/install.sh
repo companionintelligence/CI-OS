@@ -166,6 +166,9 @@ mkdir -p /usr/share/applications /var/www/setup-portal /var/lib/setup-device
 
 cp -r "$PAYLOAD_DIR/opt/setup-backend/." /opt/setup-backend/
 cp -r "$PAYLOAD_DIR/usr/local/bin/." /usr/local/bin/
+mkdir -p /usr/lib/ci-os
+cp "$REPO_ROOT/core/lib/gpu-detect.sh" /usr/lib/ci-os/gpu-detect.sh
+chmod 644 /usr/lib/ci-os/gpu-detect.sh
 cp -r "$PAYLOAD_DIR/usr/share/setup-device/defaults/." /usr/share/setup-device/defaults/
 if [[ -d "$PAYLOAD_DIR/usr/share/applications" ]]; then
   cp -r "$PAYLOAD_DIR/usr/share/applications/." /usr/share/applications/

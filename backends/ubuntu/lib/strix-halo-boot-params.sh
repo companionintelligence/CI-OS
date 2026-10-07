@@ -11,26 +11,11 @@
 # workloads on unified-memory APUs like Ryzen AI Max ("Strix Halo", gfx1151,
 # Radeon 8060S)).
 #
-# GATING: only applies when BOTH are true, so unrelated hardware (non-AMD,
-# AMD-but-not-Strix-Halo, or Strix-Halo-class CPUs in low-RAM SKUs) is left
-# alone:
-#   1. is_confidently_strix_halo() (below) detects a Strix Halo-class APU via
-#      rocminfo (reusing gpu-detect.sh's rocminfo_shows_strix_halo, which
-#      already requires gfx1151/8060S/"Strix Halo"/"RYZEN AI MAX" — already
-#      tight), or via the same lscpu Model-name probe gpu-detect.sh uses,
-#      narrowed to "ryzen ai max"/"8060s"/"strix halo". This intentionally
-#      does NOT reuse gpu-detect.sh's is_strix_halo_from_system() as-is: that
-#      function's lscpu fallback matches the bare substring "ryzen ai", which
-#      also matches non-Halo chips (e.g. "AMD Ryzen AI 9 HX 370", Strix
-#      Point). That looseness is fine for its actual job — printing a
-#      troubleshooting hint — but is not confident enough to gate a kernel
-#      boot-parameter change, which this task's constraints call out
-#      explicitly ("Ryzen AI Max series + large RAM", "confidently
-#      detected"). Same tool/field, same repo convention, tighter pattern.
-#   2. Total system RAM is at or above MIN_TOTAL_RAM_MIB — Strix Halo ships
-#      in 32/64/128 GB unified-memory configs, so this floor (just under a
-#      nominal 32 GB after firmware/kernel reservations) filters out
-#      unrelated small-RAM AMD laptops that could otherwise match #1 loosely.
+# GATING: ci_os_hardware_supported in core/lib/gpu-detect.sh. Both must be
+# true, or this script leaves GRUB alone:
+#   1. Confident Strix Halo-class APU (Ryzen AI Max / gfx1151 / Radeon 8060S).
+#      Bare "Ryzen AI" (Strix Point, e.g. HX 370) does not match.
+#   2. Total RAM at or above CI_OS_MIN_SUPPORTED_RAM_MIB (the 32 GB floor).
 #
 # SIZING: gttsize (MiB) and pages_limit (4 KiB pages) are computed from total
 # system RAM rather than hard-coded to one machine's numbers:
@@ -63,51 +48,22 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=gpu-detect.sh
-source "${SCRIPT_DIR}/gpu-detect.sh"
+# shellcheck source=../../../core/lib/gpu-detect.sh
+source "${SCRIPT_DIR}/../../../core/lib/gpu-detect.sh"
 
 GRUB_DEFAULT_FILE="/etc/default/grub"
-# ~29.3 GiB: below a nominal 32 GB Strix Halo SKU, but comfortably above
-# what /proc/meminfo reports for a real 32 GB system after reservations.
-MIN_TOTAL_RAM_MIB=30000
 
 if [[ $(id -u) -ne 0 ]]; then
   echo "[-] Missing privileges. Run with: sudo $0"
   exit 1
 fi
 
-total_ram_mib() {
-  awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo
-}
-
-# Stricter sibling of gpu-detect.sh's is_strix_halo_from_system() — see the
-# GATING note in the file header for why this doesn't just call that
-# function directly.
-is_confidently_strix_halo() {
-  if rocminfo_shows_strix_halo; then
-    return 0
-  fi
-  if command -v lscpu >/dev/null 2>&1; then
-    local cpu_model normalized
-    cpu_model="$(lscpu 2>/dev/null | awk -F: '/Model name/ {sub(/^ +/, "", $2); print $2; exit}')"
-    normalized="${cpu_model,,}"
-    [[ -n "$normalized" ]] || return 1
-    [[ "$normalized" == *"ryzen ai max"* ]] || [[ "$normalized" == *"8060s"* ]] || [[ "$normalized" == *"strix halo"* ]]
-    return
-  fi
-  return 1
-}
-
-if ! is_confidently_strix_halo; then
-  echo "[*] No AMD Strix Halo-class APU detected (Ryzen AI Max / gfx1151 / Radeon 8060S) — skipping GTT boot-param tuning."
+if ! ci_os_hardware_supported; then
+  echo "[*] Unsupported hardware (${CI_OS_HARDWARE_SUPPORT_REASON}) — skipping GTT boot-param tuning."
   exit 0
 fi
 
-TOTAL_MIB="$(total_ram_mib)"
-if (( TOTAL_MIB < MIN_TOTAL_RAM_MIB )); then
-  echo "[*] Strix Halo-class CPU detected, but system RAM (${TOTAL_MIB} MiB) is below the ${MIN_TOTAL_RAM_MIB} MiB large-unified-memory floor — skipping GTT boot-param tuning."
-  exit 0
-fi
+TOTAL_MIB="$(ci_os_total_ram_mib)"
 
 RESERVE_MIB=$(( TOTAL_MIB / 8 ))
 if (( RESERVE_MIB < 4096 )); then

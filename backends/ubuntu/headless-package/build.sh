@@ -36,6 +36,11 @@ cp -r "$PAYLOAD_DIR/setup-device-defaults" "$PACKAGE_DIR/etc/setup-device"
 cp -r "$PAYLOAD_DIR/systemd" "$PACKAGE_DIR/etc/systemd"
 cp -r "$PAYLOAD_DIR/opt" "$PACKAGE_DIR/opt"
 cp -r "$PAYLOAD_DIR/usr" "$PACKAGE_DIR/usr"
+# The support rule lives in one file. Ship it in the package so post-validation
+# can refuse unsupported hardware without a full CI-OS checkout.
+mkdir -p "$PACKAGE_DIR/usr/lib/ci-os"
+cp "$REPO_ROOT/core/lib/gpu-detect.sh" "$PACKAGE_DIR/usr/lib/ci-os/gpu-detect.sh"
+chmod 644 "$PACKAGE_DIR/usr/lib/ci-os/gpu-detect.sh"
 cp -r "$PAYLOAD_DIR/var" "$PACKAGE_DIR/var"
 mkdir -p "$PACKAGE_DIR/etc/netplan"
 cp "${SCRIPT_DIR}/netplan/50-setup-mode.yaml" "$PACKAGE_DIR/etc/netplan/50-setup-mode.yaml"

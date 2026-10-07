@@ -15,8 +15,8 @@
 #   extended - opt-in developer/workstation tooling: Homebrew, VS Code,
 #              Chromium, Companion Launcher.
 #   hardware - auto-detected (ROCm, LACT, Strix Halo tuning); included by
-#              default since the underlying scripts already no-op safely on
-#              non-matching hardware — never gate this on a flag instead.
+#              default. The support rule in core/lib/gpu-detect.sh no-ops these
+#              on anything that is not a Strix Halo-class APU with ~32 GB RAM.
 #
 # REQUIREMENTS:
 # - This script MUST be run as root (use: sudo ./provision.sh)
@@ -977,6 +977,22 @@ pull_ollama_models() {
         sleep 5
     fi
     
+    # qwen3.6:27b is part of the supported-hardware install. Small models stay.
+    PULL_QWEN=0
+    local gpu_detect
+    gpu_detect="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/gpu-detect.sh"
+    if [[ -f "$gpu_detect" ]]; then
+        # shellcheck source=../../../core/lib/gpu-detect.sh
+        source "$gpu_detect"
+        if ci_os_hardware_supported; then
+            PULL_QWEN=1
+        else
+            log_info "Skipping qwen3.6:27b: ${CI_OS_HARDWARE_SUPPORT_REASON}"
+        fi
+    else
+        log_warning "Hardware support check missing; skipping qwen3.6:27b"
+    fi
+
     # Check and pull models as the actual user (ollama stores models in user's home)
     sudo -u "$ACTUAL_USER" bash <<EOF || log_warning "Failed to pull some Ollama models"
 # Check if models are already pulled
@@ -994,12 +1010,14 @@ else
     ollama pull gemma3:1b
 fi
 
-# Add qwen3.6:27b model
+# Add qwen3.6:27b only on supported hardware (see PULL_QWEN above).
+if [[ "$PULL_QWEN" == 1 ]]; then
 if ollama list 2>/dev/null | grep -q "qwen3.6:27b"; then
      echo "qwen3.6:27b already installed"
 else
      echo "Pulling qwen3.6:27b..."
      ollama pull qwen3.6:27b
+fi
 fi
 EOF
     
@@ -1614,10 +1632,10 @@ main() {
 # Run main function
 main "$@"
 
-# Post-main: ROCm and LACT — hardware tier, auto-detected (both scripts no-op
-# safely on non-matching hardware), so gated on tier inclusion, not a
-# skip-by-default flag. Non-fatal: main setup above may succeed even if ROCm
-# download/repo fails on a given Ubuntu codename.
+# Post-main: ROCm, Strix Halo boot params, and LACT. Hardware tier. Each one
+# no-ops unless core/lib/gpu-detect.sh says this machine is supported
+# (Strix Halo-class APU, ~32 GB RAM or more). Non-fatal: a ROCm repo miss
+# does not undo the core install above.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if tier_requested hardware && [[ -f "${SCRIPT_DIR}/../lib/install-rocm-driver.sh" ]]; then
     "${SCRIPT_DIR}/../lib/install-rocm-driver.sh" || log_warning "install-rocm-driver.sh failed or was skipped; run it manually after fixing GPU/repo issues."
@@ -1686,8 +1704,19 @@ install_lact() {
         fi
 }
 
-# Call LACT install at the end (skip in --light mode)
-tier_requested hardware && install_lact || true
+# LACT is part of the supported-hardware install. Skip it everywhere else.
+if tier_requested hardware; then
+    gpu_detect="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/gpu-detect.sh"
+    if [[ -f "$gpu_detect" ]]; then
+        # shellcheck source=../../../core/lib/gpu-detect.sh
+        source "$gpu_detect"
+    fi
+    if declare -F ci_os_hardware_supported >/dev/null && ci_os_hardware_supported; then
+        install_lact || true
+    else
+        log_info "Skipping LACT: ${CI_OS_HARDWARE_SUPPORT_REASON:-hardware support check unavailable}"
+    fi
+fi
 
 # Set GNOME Power Mode to 'performance' for the user
 set_gnome_power_performance() {
