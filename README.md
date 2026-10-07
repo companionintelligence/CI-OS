@@ -426,7 +426,7 @@ truth this list mirrors:
 - **[extended]** **Homebrew**
 - **[extended]** **Chromium** and **VS Code** (Snap fallback if apt fails)
 - **[extended]** **Companion Launcher** (+ autostart) — the desktop GUI app, distinct from the CI Hub Service backend above
-- **[hardware, auto-detected]** **ROCm 7.2.4** (`backends/ubuntu/lib/install-rocm-driver.sh`, non-fatal) — Strix Halo / Ryzen AI Max uses official `--no-dkms` inbox amdgpu; other AMD GPUs may use DKMS — and **LACT** GPU monitor
+- **[hardware, supported machines only]** **ROCm** (`backends/ubuntu/lib/install-rocm-driver.sh`, non-fatal) and **LACT**. The support rule is a Strix Halo-class APU (Ryzen AI Max / gfx1151 / Radeon 8060S) with at least ~32 GB of RAM. Ubuntu 26.04 installs `rocm` from the Ubuntu archive; Ubuntu 24.04 uses ROCm 7.2.4 with `--no-dkms`. Other hardware is left alone.
 - **[hardware, auto-detected]** **Strix Halo unified-memory boot params** (`backends/ubuntu/lib/strix-halo-boot-params.sh`, non-fatal) — see note below
 - GNOME power profile set to *performance*
 
@@ -436,9 +436,9 @@ in the script header.
 
 > **Note:** Bun is no longer installed by this script.
 
-> **AMD Strix Halo (Ryzen AI Max) unified memory.** On confidently-detected
-> Strix Halo-class hardware (Ryzen AI Max / gfx1151 / Radeon 8060S) with a
-> large-RAM configuration, setup adds `iommu=pt amdgpu.gttsize=<N>
+> **AMD Strix Halo (Ryzen AI Max) unified memory.** On hardware that passes
+> the support rule (Ryzen AI Max / gfx1151 / Radeon 8060S, at least ~32 GB),
+> setup adds `iommu=pt amdgpu.gttsize=<N>
 > ttm.pages_limit=<M>` to `GRUB_CMDLINE_LINUX_DEFAULT` so the amdgpu driver
 > can address most of system RAM as GPU-visible GTT memory instead of a small
 > fixed VRAM carve-out — needed for local-LLM/ROCm/Vulkan workloads on these
