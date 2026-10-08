@@ -4,10 +4,14 @@ name: PR checks
 # + no committed build artifacts. The heavier workflows stay manual (ci-local:gated); this one
 # is deliberately not gated so every PR gets a signal. Same script runs locally:
 #   ./core/lib/check-repo.sh
+# >>> ci-local:gated original triggers below, restore with `ci-local restore`
+# on:
+#   pull_request:
+#   push:
+#     branches: [main]
+# <<< ci-local:gated
 on:
-  pull_request:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
