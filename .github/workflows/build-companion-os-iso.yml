@@ -48,6 +48,10 @@ jobs:
     permissions:
       contents: write
       id-token: write
+    env:
+      # The `secrets` context is not available in a step-level `if:` (GitHub rejects the
+      # whole workflow file), so the signing step tests this job-level flag instead.
+      GPG_KEY_PRESENT: ${{ secrets.GPG_PRIVATE_KEY != '' }}
 
     steps:
       - name: Checkout repository
@@ -137,7 +141,7 @@ jobs:
           cat MD5SUMS
 
       - name: Sign checksums (if enabled)
-        if: github.event.inputs.sign == 'true' && secrets.GPG_PRIVATE_KEY != ''
+        if: github.event.inputs.sign == 'true' && env.GPG_KEY_PRESENT == 'true'
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
