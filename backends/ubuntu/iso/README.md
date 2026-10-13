@@ -31,15 +31,28 @@ host OS must match the target OS version.
 sudo apt-get install \
   squashfs-tools \
   xorriso \
-  glib2.0-bin \
   libglib2.0-bin \
+  libglib2.0-dev-bin \
   yaru-theme-gnome-shell \
   debootstrap \
   rsync \
-  gpg
+  gpg \
+  cpio \
+  zstd \
+  imagemagick \
+  librsvg2-bin
 ```
 
-Minimum **30 GB free disk space** (work directory + ISO output).
+Minimum **30 GB free disk space** (work directory + ISO output). The build needs **network access**:
+it runs `apt` inside the image (Ubuntu archive and Docker's apt repository) while pre-installing
+the CI-Hub and wireless setup tools.
+
+`imagemagick` scales the Plymouth logo and `librsvg2-bin` / `imagemagick` render the GRUB background; `verify-iso.sh` fails the image if either is missing. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio`.
+
+> **Building on a Mac or any non-Ubuntu host:** run the whole build in a privileged
+> `ubuntu:24.04` container (`docker run --privileged --platform linux/amd64 ...`) with the repo and
+> the base ISO mounted and a named Docker volume for `--work-dir` and `--output-dir`. A privileged
+> container is needed for the chroot's `proc`/`dev` mounts.
 
 ---
 
@@ -234,6 +247,40 @@ sudo dd if=output/companion-os-1.0-amd64.iso of=/dev/sdX bs=4M status=progress
 cd output/
 sha256sum -c SHA256SUMS
 ```
+
+### Verify the image contents (pre-installed tools and branding)
+
+```bash
+backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-1.0-amd64.iso
+```
+
+Needs no root and does not boot the ISO. It extracts the root squashfs, the initrd and a few files and
+asserts that every CI-Hub and wireless-setup tool is pre-installed, that the hotspot units are guarded
+against live sessions, and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
+`BUILD_SYSTEM` and the ISO volume id (which apt, casper, the installer and Secure Boot depend on) are
+untouched. Exit status is non-zero if any check fails.
+
+---
+
+## What is pre-installed
+
+| Group | What | Notes |
+|---|---|---|
+| Wireless setup | `setup-device` package: hostapd, dnsmasq, nginx-light, python3-flask, gunicorn, network-manager, iw, and the portal, backend, hotspot and monitor scripts and units | Enabled for the installed system; guarded off in live sessions |
+| CI-Hub runtime | Docker Engine, Compose and Buildx (Docker's apt repo, key pinned by fingerprint), curl, jq, the CI-Hub deploy scripts under `/usr/lib/ci-os/bootstrap/` | The same Docker source as `core/manifest/role-map/apt.yaml`, so first boot skips it |
+| Left to first boot, on purpose | The CI-Hub container image (needs registry credentials and device pairing), model pulls, per-user developer tools | See `core/manifest/ecosystem.yaml` (`ci_hub`) |
+
+## What stays Ubuntu, and why
+
+These cannot be changed by remastering the image, and `verify-iso.sh` lists them as known:
+
+- **The installer window.** It is Canonical's `ubuntu-desktop-bootstrap` snap. Its flavour list is fixed
+  (Ubuntu, Kubuntu, Lubuntu, Xubuntu, Edubuntu), so "Welcome to Ubuntu" is inside the snap. The launcher
+  label ("Install Companion OS ...") is ours, via `/.disk/info`. Rebranding the window means shipping a
+  modified installer snap.
+- **The ISO volume id.** Casper and the signed EFI GRUB search for it.
+- **`ID=ubuntu`, `ID_LIKE`, `UBUNTU_CODENAME`, `DISTRIB_ID=Ubuntu`, `BUILD_SYSTEM=Ubuntu`.** apt, curtin,
+  casper and `unattended-upgrades` key off them.
 
 ---
 

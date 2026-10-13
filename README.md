@@ -334,9 +334,13 @@ must match the target. You also need **~30 GB free** and **root**.
 
 ```bash
 sudo apt-get install \
-  squashfs-tools xorriso glib2.0-bin libglib2.0-bin \
-  yaru-theme-gnome-shell debootstrap rsync gpg
+  squashfs-tools xorriso libglib2.0-bin libglib2.0-dev-bin \
+  yaru-theme-gnome-shell debootstrap rsync gpg cpio zstd imagemagick librsvg2-bin
 ```
+
+The build also needs network access (it installs the CI-Hub and wireless setup tools into the image).
+After a build, `backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-*.iso` checks that they are
+all there and that the branding is applied (see [`backends/ubuntu/iso/README.md`](backends/ubuntu/iso/README.md)).
 
 ### Quick start
 
