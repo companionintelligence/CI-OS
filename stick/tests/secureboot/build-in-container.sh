@@ -35,6 +35,9 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STICK="$(cd "$HERE/../.." && pwd)"
 OUT="$HERE/out"
 ISO=""
+# Device size the images are laid out for. 64GB by default; CI_STICK_SB_SIZE=123942731776 reproduces the
+# 123.9 GB "128 GB" sticks (73 GiB CI-CACHE, 12.4 GiB CI-PERSIST).
+STICK_SIZE="${CI_STICK_SB_SIZE:-64GB}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --out) OUT="${2:?}"; shift 2 ;;
@@ -144,21 +147,21 @@ make_stick() {
   else
     cp "$efi"/shimx64.efi "$efi"/grubx64.efi "$efi"/mmx64.efi "$stage/efi/"
   fi
-  "$CI" lock "$stage" --id "companion-stick-sb-$name" --version 0.0.0-test --size 64GB \
+  "$CI" lock "$stage" --id "companion-stick-sb-$name" --version 0.0.0-test --size "$STICK_SIZE" \
     --created-at 2026-01-01T00:00:00Z >/dev/null
   "$CI" dev sign "$stage" --key "$KEY.key" >/dev/null
   "$CI" verify "$stage" --pubkey "$KEY.pub" | tee -a "$INFO" | grep -E '^(Boot|Result)'
   rm -f "$WORK/$name.img"
-  "$CI" flash "$stage" --pubkey "$KEY.pub" --image "$WORK/$name.img" --size 64GB \
+  "$CI" flash "$stage" --pubkey "$KEY.pub" --image "$WORK/$name.img" --size "$STICK_SIZE" \
     --dry-run > "$OUT/plan-$name.txt"
-  "$CI" flash "$stage" --pubkey "$KEY.pub" --image "$WORK/$name.img" --size 64GB \
+  "$CI" flash "$stage" --pubkey "$KEY.pub" --image "$WORK/$name.img" --size "$STICK_SIZE" \
     --extra-cmdline "$cmdline" --work-dir "$WORK" >/dev/null 2>"$WORK/flash-$name.log" \
     || { cat "$WORK/flash-$name.log" >&2; die "flash $name"; }
   echo "flashed $name.img: $(grep -m1 '^Boot' "$OUT/plan-$name.txt")"
   qemu-img convert -O qcow2 "$WORK/$name.img" "$OUT/$name.qcow2"
   rm -f "$WORK/$name.img"
   rm -rf "${stage:?}/boot"
-  echo "wrote $OUT/$name.qcow2 ($(du -h "$OUT/$name.qcow2" | cut -f1) on disk, 64 GB virtual)"
+  echo "wrote $OUT/$name.qcow2 ($(du -h "$OUT/$name.qcow2" | cut -f1) on disk, $STICK_SIZE virtual)"
 }
 
 if [ -n "$ISO" ]; then

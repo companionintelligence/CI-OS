@@ -14,19 +14,34 @@ HW="${CI_HELLO_WORLD_TAR:-$HERE/hello-world-amd64.tar}"; [ -f "$HW" ] || { echo 
 TIMEOUT="${CI_DOCKER_TEST_TIMEOUT:-1800}"
 if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then ACCEL=(-accel kvm -cpu host); else ACCEL=(-accel tcg,thread=multi -cpu Haswell); fi
 
-xorriso -osirrox on -indev "$ISO" -extract /casper/vmlinuz "$W/vmlinuz" -extract /casper/initrd "$W/initrd" >/dev/null 2>&1 || exit 2
+# Kernel and initrd come from the ISO (xorriso, or bsdtar on a Mac; any pre-extracted copy in $W is reused).
+if [ ! -s "$W/vmlinuz" ] || [ ! -s "$W/initrd" ]; then
+  if command -v xorriso >/dev/null 2>&1; then
+    xorriso -osirrox on -indev "$ISO" -extract /casper/vmlinuz "$W/vmlinuz" -extract /casper/initrd "$W/initrd" >/dev/null 2>&1 || exit 2
+  else
+    (cd "$W" && bsdtar -xf "$ISO" casper/vmlinuz casper/initrd && mv casper/vmlinuz casper/initrd . ) || exit 2
+  fi
+fi
+# The guest script and the offline image ride in on a tiny second ISO labelled CI_TEST (needs xorriso, or
+# a pre-built $W/ci-test.iso).
 cp "$HERE/guest-docker-test.sh" "$W/t/guest-test.sh"; cp "$HW" "$W/t/hello-world.tar"
-xorriso -as mkisofs -V CI_TEST -o "$W/ci-test.iso" "$W/t" >/dev/null 2>&1
+if [ ! -s "$W/ci-test.iso" ]; then
+  xorriso -as mkisofs -V CI_TEST -o "$W/ci-test.iso" "$W/t" >/dev/null 2>&1 || { echo "need xorriso (or a pre-built $W/ci-test.iso)" >&2; exit 2; }
+fi
 
 FAILED=0; fail() { echo "FAIL: $*"; FAILED=1; }; ok() { echo "PASS: $*"; }
 boot() { # boot <n> <guest-mode> <phase>
   local log="$W/boot$1.log" run
-  run="systemd.run=\"/bin/sh -c 'mkdir -p /mnt/t && mount -o ro /dev/disk/by-label/CI_TEST /mnt/t && /bin/sh /mnt/t/guest-test.sh $2 companion $3'\""
-  local append="console=ttyS0 systemd.show_status=0 systemd.run_success_action=poweroff systemd.run_failure_action=poweroff $run"
+  # No "$" in this string: systemd expands $VAR in ExecStart. Let udev finish so the by-label link exists.
+  run="systemd.run=\"/bin/sh -c 'udevadm settle --timeout=120; mkdir -p /mnt/t; mount -o ro /dev/disk/by-label/CI_TEST /mnt/t && /bin/sh /mnt/t/guest-test.sh $2 companion $3'\""
+  # systemd.run= makes kernel-command-line.target the default target, so multi-user.target (where docker.service
+  # is enabled) would never be reached; systemd.wants= pulls it in as a normal boot would.
+  local append="console=ttyS0 systemd.show_status=0 systemd.wants=multi-user.target $run"
   local -a disk=()
   if [ "$MODE" = stick ]; then
     append="boot=casper live-media=/dev/disk/by-partlabel/CI-BOOT-A persistent ci_stick.slot=A $append"
-    disk=(-drive if=none,id=stick,format=raw,file="$W/stick.img" -device usb-storage,bus=xhci.0,drive=stick,bootindex=0)
+    local fmt=raw; [ "$(head -c3 "$W/stick.img")" = "QFI" ] && fmt=qcow2   # accept the secureboot harness's qcow2 sticks
+    disk=(-drive if=none,id=stick,format=$fmt,file="$W/stick.img" -device usb-storage,bus=xhci.0,drive=stick)
   else
     disk=(-cdrom "$ISO")
   fi
@@ -37,13 +52,14 @@ boot() { # boot <n> <guest-mode> <phase>
     -device qemu-xhci,id=xhci "${disk[@]}" \
     -drive if=none,id=t,format=raw,readonly=on,file="$W/ci-test.iso" -device usb-storage,bus=xhci.0,drive=t
   echo "boot $1 qemu exit $?"
-  tr -d '\r' < "$log" | grep -a '^CI-DOCKER-TEST' | tee "$W/boot$1.results"
+  # the first result can share a line with the login prompt, so do not anchor the match
+  tr -d '\r' < "$log" | grep -a -o 'CI-DOCKER-TEST .*' | tee "$W/boot$1.results"
   grep -aq '^CI-DOCKER-TEST DONE PASS' "$W/boot$1.results" || fail "boot $1: no 'DONE PASS' (see $log)"
   grep -a ' FAIL ' "$W/boot$1.results" && fail "boot $1: failing assertions above"
 }
 if [ "$MODE" = stick ]; then
   [ -f "$IMG" ] || { echo "stick image missing" >&2; exit 2; }
-  cp --sparse=always "$IMG" "$W/stick.img"       # never write to the artefact under test
+  cp --sparse=always "$IMG" "$W/stick.img" 2>/dev/null || cp "$IMG" "$W/stick.img"   # never write to the artefact under test
   boot 1 live-stick first; boot 2 live-stick second     # second boot proves CI-PERSIST really holds Docker's data
 else
   boot 1 live-iso first

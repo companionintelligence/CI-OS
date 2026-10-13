@@ -360,14 +360,15 @@ repack_squashfs() {
     # minimal.standard.squashfs and minimal.standard.live.squashfs (since our
     # base already contains everything from all 3 original layers).
     #
-    # ALL other squashfs files (language packs like minimal.en.squashfs,
-    # minimal.de.squashfs, enhanced-secureboot layers, etc.) are KEPT INTACT
-    # from the original ISO. This is critical because subiquity expects the
-    # full layered structure, including language overlays, to be present.
-    #
-    # install-sources.yaml mirrors the original Ubuntu structure with BOTH
-    # entries (ubuntu-desktop-minimal and ubuntu-desktop) and the full set
-    # of preinstalled_langs matching the language layers on disk.
+    # The stock LANGUAGE layers (minimal.<lang>.squashfs, minimal.standard.<lang>.squashfs and the
+    # *.no-languages ones) are REMOVED, and install-sources.yaml lists no preinstalled_langs. Why:
+    # when a source has preinstalled_langs, subiquity installs from "<base>.<lang>.squashfs"
+    # (models/source.py get_source), a layer stacked ON TOP of the base. Every stock language layer
+    # carries a stock var/lib/dpkg/status and a stock gschemas.compiled and whiteouts for the font
+    # packages it drops. Stacked over our merged base, an installed system would have all our files
+    # but a package database that has never heard of docker-ce, setup-device, tailscale, ... and the
+    # stock wallpaper schema. With no preinstalled_langs the installer uses minimal.squashfs alone;
+    # locale_support: langpack still makes it install the chosen language's packs from apt.
     # ─────────────────────────────────────────────────────────────────────────
 
     # Remove ONLY the 3 main layers we are replacing. Keep all language
@@ -375,6 +376,13 @@ repack_squashfs() {
     rm -f "$casper_dir/minimal.squashfs"
     rm -f "$casper_dir/minimal.standard.squashfs"
     rm -f "$casper_dir/minimal.standard.live.squashfs"
+
+    # Drop the stock language layers (see above), with their .size and .manifest files.
+    local lang_suffix
+    for lang_suffix in de en es fr it pt ru zh no-languages; do
+        rm -f "$casper_dir"/minimal."$lang_suffix".{squashfs,size,manifest} \
+              "$casper_dir"/minimal.standard."$lang_suffix".{squashfs,size,manifest}
+    done
 
     # Pack the full merged rootfs into minimal.squashfs
     # -quiet suppresses per-file progress output (millions of lines that crash terminals)
@@ -432,9 +440,9 @@ repack_squashfs() {
     # dispatches curthooks (grub-install, initramfs, snap seeding) based on
     # these IDs and the installer was built expecting them.
     #
-    # preinstalled_langs MUST match the language squashfs layers that exist
-    # on disk (de, en, es, fr, it, pt, ru, zh) — these are all intact from
-    # the original ISO.
+    # preinstalled_langs is [] on purpose: the stock language layers are gone
+    # (see the strategy comment above), and a non-empty list would make
+    # subiquity look for minimal.<lang>.squashfs.
     local squashfs_size
     squashfs_size="$(stat -c%s "$casper_dir/minimal.squashfs")"
     local standard_squashfs_size
@@ -456,16 +464,7 @@ repack_squashfs() {
   name:
     en: CI-OS Desktop (minimized)
   path: minimal.squashfs
-  preinstalled_langs:
-  - de
-  - en
-  - es
-  - fr
-  - it
-  - pt
-  - ru
-  - zh
-  - ''
+  preinstalled_langs: []
   size: ${installed_size}
   type: fsimage-layered
   variant: desktop
@@ -485,16 +484,7 @@ repack_squashfs() {
   name:
     en: CI-OS Desktop
   path: minimal.standard.squashfs
-  preinstalled_langs:
-  - de
-  - en
-  - es
-  - fr
-  - it
-  - pt
-  - ru
-  - zh
-  - ''
+  preinstalled_langs: []
   size: ${installed_size}
   type: fsimage-layered
   variant: desktop

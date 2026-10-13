@@ -7,6 +7,14 @@ pass() { res "$1" PASS "$2"; }
 fail() { res "$1" FAIL "$2"; FAILED=1; }
 t()    { n="$1"; shift; if o="$("$@" 2>&1)"; then pass "$n" "$(echo "$o" | head -1)"; else fail "$n" "$(echo "$o" | tail -2 | tr '\n' ' ')"; fi; }
 
+# systemd.run= starts this at basic.target; the Docker daemon (and, in a live session, its storage unit) may
+# still be coming up. Wait for it instead of failing on a race.
+i=0
+while [ "$i" -lt 150 ]; do
+  systemctl is-active --quiet docker.service && docker info >/dev/null 2>&1 && break
+  i=$((i + 1)); sleep 2
+done
+
 g="$(id -nG "$U" 2>&1)"
 case " $g " in *" docker "*) pass groups "$g" ;; *) fail groups "$g" ;; esac
 t cli runuser -u "$U" -- docker version --format '{{.Server.Version}}'      # unprivileged user, no sudo
@@ -42,6 +50,16 @@ fi
 out="$(runuser -u "$U" -- docker run --rm --network none hello-world 2>&1)"
 case "$out" in *"Hello from Docker!"*) pass run "hello-world, offline, as $U" ;; *) fail run "$(echo "$out" | tail -3 | tr '\n' ' ')" ;; esac
 
+if [ "$FAILED" != 0 ]; then
+  # Everything needed to see why, on the serial console.
+  { echo "--- systemctl status"; systemctl status docker.service containerd.service ci-os-live-container-storage.service --no-pager -l 2>&1 | head -60
+    echo "--- journal"; journalctl -b -u docker -u containerd -u ci-os-live-container-storage --no-pager 2>&1 | tail -60
+    echo "--- failed units"; systemctl --failed --no-pager 2>&1 | head -20
+    echo "--- mounts"; findmnt -R /var/lib 2>&1 | head -20; } | sed 's/^/CI-DOCKER-TEST diag /' > /dev/console
+fi
 res timing INFO "$(systemd-analyze blame --no-pager 2>/dev/null | grep -E 'docker|containerd|ci-os-live|wait-online' | sed 's/^ *//' | tr '\n' ';')"
 res DONE "$([ "$FAILED" = 0 ] && echo PASS || echo FAIL)" "mode=$MODE phase=$PHASE"
+# casper's shutdown path asks to "remove the installation medium, then press ENTER": power off from here
+# instead (QEMU runs with -no-reboot, so it exits).
+sync; echo o > /proc/sysrq-trigger 2>/dev/null
 exit "$FAILED"

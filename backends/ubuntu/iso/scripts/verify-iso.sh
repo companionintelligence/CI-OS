@@ -69,6 +69,7 @@ xorriso -osirrox on -indev "$ISO" \
     -extract /boot/grub/loopback.cfg "$ISOX/loopback.cfg" \
     -extract /.disk/info "$ISOX/disk-info" \
     -extract /casper/initrd "$ISOX/initrd" \
+    -extract /casper/install-sources.yaml "$ISOX/install-sources.yaml" \
     -extract /casper/minimal.squashfs "$ISOX/minimal.squashfs" >/dev/null 2>&1
 [[ -s "$ISOX/minimal.squashfs" ]] || { echo "could not extract /casper/minimal.squashfs from $ISO" >&2; exit 2; }
 PVD_VOLID="$(xorriso -indev "$ISO" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -1)"
@@ -300,6 +301,21 @@ EOF_LISTS
     # 8.6 size report (informational)
     note "root squashfs: $(du -h "$SQ" | cut -f1)"
 fi
+
+section "3d. Installed system: one layer, so the package database stays ours"
+# Stock language layers carry a stock var/lib/dpkg/status and gschemas.compiled; subiquity stacks
+# <base>.<lang>.squashfs on top whenever install-sources.yaml lists preinstalled_langs, which would give an
+# installed system all our files but a dpkg database without docker-ce, setup-device, tailscale, ...
+if [[ -s "$ISOX/install-sources.yaml" ]]; then
+    check "install-sources.yaml lists no preinstalled_langs (installer uses minimal.squashfs alone)" \
+        bash -c "grep -c '^  preinstalled_langs: \[\]\$' '$ISOX/install-sources.yaml' | grep -qx 2"
+    check "install-sources.yaml keeps both entries (ubuntu-desktop-minimal, ubuntu-desktop)" \
+        bash -c "grep -q '^  id: ubuntu-desktop-minimal\$' '$ISOX/install-sources.yaml' && grep -q '^  id: ubuntu-desktop\$' '$ISOX/install-sources.yaml'"
+else
+    fail "could not read /casper/install-sources.yaml"
+fi
+LANGLAYERS="$(xorriso -indev "$ISO" -ls /casper/ 2>/dev/null | tr -d "'" | tr ' ' '\n' | grep -E '^minimal(\.standard)?\.(de|en|es|fr|it|pt|ru|zh|no-languages)\.' || true)"
+if [[ -z "$LANGLAYERS" ]]; then pass "no stock language layers on the ISO"; else fail "stock language layers still on the ISO: $(echo $LANGLAYERS | tr '\n' ' ')"; fi
 
 # ── 4. branding ─────────────────────────────────────────────────────────────
 section "4. Branding: user-visible identity is Companion OS"
