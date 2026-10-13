@@ -3,11 +3,20 @@ set -e
 
 # Post-installation script for setup-device package
 
+# Only manage RUNNING services when systemd is actually PID 1. In a chroot (building the ISO, debootstrap,
+# pbuilder), a container or an image build there is nothing to stop or start, and the pkill calls below
+# would hit unrelated processes of the BUILD HOST (libvirt and NetworkManager run dnsmasq too).
+# Enabling units is a plain symlink operation and stays safe everywhere.
+SYSTEMD_RUNNING=0
+[ -d /run/systemd/system ] && SYSTEMD_RUNNING=1
+
 echo "Setting up headless device configuration..."
 
 # Reload systemd daemon first to recognize new service definitions
-echo "Reloading systemd daemon..."
-systemctl daemon-reload
+if [ "$SYSTEMD_RUNNING" = 1 ]; then
+    echo "Reloading systemd daemon..."
+    systemctl daemon-reload
+fi
 
 # Verify systemd unit files exist and are readable
 echo "Verifying systemd unit files..."
@@ -21,29 +30,33 @@ if [ ! -f /etc/systemd/system/setup-network-monitor.service ]; then
 fi
 echo "✓ Unit files verified"
 
-# Stop any existing services from old installation (clean state)
-echo "Stopping old services from any previous installation..."
-systemctl stop setup-backend.service 2>/dev/null || true
-systemctl stop setup-network-monitor.service 2>/dev/null || true
-systemctl stop hostapd-setup.service 2>/dev/null || true
-systemctl stop dnsmasq-setup.service 2>/dev/null || true
-sleep 1
+if [ "$SYSTEMD_RUNNING" = 1 ]; then
+    # Stop any existing services from old installation (clean state)
+    echo "Stopping old services from any previous installation..."
+    systemctl stop setup-backend.service 2>/dev/null || true
+    systemctl stop setup-network-monitor.service 2>/dev/null || true
+    systemctl stop hostapd-setup.service 2>/dev/null || true
+    systemctl stop dnsmasq-setup.service 2>/dev/null || true
+    sleep 1
 
-# Kill any lingering processes
-pkill -f "setup_service.py" 2>/dev/null || true
-pkill -f "setup-network-monitor.sh" 2>/dev/null || true
-pkill -f "hostapd" 2>/dev/null || true
-pkill -f "dnsmasq" 2>/dev/null || true
-sleep 1
+    # Kill any lingering processes
+    pkill -f "setup_service.py" 2>/dev/null || true
+    pkill -f "setup-network-monitor.sh" 2>/dev/null || true
+    pkill -f "hostapd" 2>/dev/null || true
+    pkill -f "dnsmasq" 2>/dev/null || true
+    sleep 1
+fi
 
 # Remove any stale setup-complete flag to allow hotspot to start on first boot if no connectivity
 echo "Resetting setup state for fresh start..."
 rm -f /var/lib/setup-device/setup-complete
 
 # Reload systemd again after stopping services (sometimes needed)
-echo "Reloading systemd daemon again..."
-systemctl daemon-reload
-sleep 1
+if [ "$SYSTEMD_RUNNING" = 1 ]; then
+    echo "Reloading systemd daemon again..."
+    systemctl daemon-reload
+    sleep 1
+fi
 
 # Enable all services for boot-time startup
 # These commands ensure services start automatically on next boot
@@ -55,9 +68,11 @@ systemctl enable setup-backend.service 2>/dev/null || true
 systemctl enable setup-network-monitor.service 2>/dev/null || true
 
 # Final daemon-reload before starting services
-echo "Final systemd daemon reload..."
-systemctl daemon-reload
-sleep 1
+if [ "$SYSTEMD_RUNNING" = 1 ]; then
+    echo "Final systemd daemon reload..."
+    systemctl daemon-reload
+    sleep 1
+fi
 
 # Make scripts executable
 chmod 755 /usr/local/bin/setup-network-monitor.sh 2>/dev/null || true
@@ -113,6 +128,18 @@ fi
 # Remove dangling site symlinks that can break nginx -t/start
 if [ -d /etc/nginx/sites-enabled ]; then
     find /etc/nginx/sites-enabled -maxdepth 1 -xtype l -delete 2>/dev/null || true
+fi
+
+# Image or chroot install (no systemd running): validate the nginx config, then stop here. The enabled
+# units start on the first real boot; there is nothing to start now.
+if [ "$SYSTEMD_RUNNING" != 1 ]; then
+    if nginx -t >/dev/null 2>&1; then
+        echo "✓ Nginx configuration is valid"
+    else
+        echo "Warning: nginx configuration test failed"
+    fi
+    echo "systemd is not running (image or chroot install): services are enabled and will start on first boot."
+    exit 0
 fi
 
 # Validate and start nginx first so portal and API proxy are available
