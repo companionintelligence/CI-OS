@@ -8,10 +8,11 @@ the first batch (123,942,731,776 bytes each). The detail lives in four documents
 
 | Document | What it covers | State |
 |---|---|---|
-| [docker-in-live-sessions.md](docker-in-live-sessions.md) | Docker and the `docker` group on the installed system, the plain live ISO and a Stick live boot | Implemented; QEMU test written, **not run on a built ISO** |
-| [tier-b-tools.md](tier-b-tools.md) | tailscale, cloudflared, gh, Ollama and the Companion Launcher baked into the ISO with pinned keys and hashes | Implemented; exercised in an amd64 container, **ISO build and boot test see below** |
+| [docker-in-live-sessions.md](docker-in-live-sessions.md) | Docker and the `docker` group on the installed system, the plain live ISO and a Stick live boot | Implemented; **plain live ISO proven in QEMU** (`docker-live.sh iso`: PASS, `hello-world` offline as the unprivileged user); Stick + persistence and the installed system still to prove |
+| [tier-b-tools.md](tier-b-tools.md) | tailscale, cloudflared, gh, Ollama and the Companion Launcher baked into the ISO with pinned keys and hashes | Implemented; built into a 7.9 GB ISO that passes `verify-iso.sh` 147/147 and boots live |
 | [model-packs-128gb.md](model-packs-128gb.md) | Which models fill the 73 GiB `CI-CACHE`, their sizes, licences, and the Ollama store layout on exFAT | Catalog implemented; **populating a stick is not** (`ci-stick models sync` does not exist) |
 | [mass-flashing.md](mass-flashing.md) | Inventory of the attached sticks, how flashing works today, the recommended station, runbook, time estimates | Investigation only; **no batch tooling, nothing written to any stick** |
+| [test-and-mass-flash-plan.md](test-and-mass-flash-plan.md) | The test ladder (QEMU on the Mac, Linux/KVM, real hardware through the tailnet IP-KVMs), the staged mass-flash programme with approval gates, safety requirements and effort | Plan; reviewed by two red teams |
 
 ## What the 128 GB stick looks like
 
