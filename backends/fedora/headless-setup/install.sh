@@ -197,7 +197,7 @@ fi
 # --- SELinux: unverified-but-plausible requirement --------------------------
 # Fedora Workstation runs SELinux in enforcing mode by default; Debian/Ubuntu
 # have no equivalent concern, so this has no counterpart in
-# backends/mint/headless-package/DEBIAN/postinst. nginx's /api/ and :5002
+# backends/mint/headless-package/DEBIAN/postinst. nginx's /api/
 # proxy_pass to 127.0.0.1 needs the standard `httpd_can_network_connect`
 # boolean under enforcing SELinux, and files placed outside their package's
 # normal locations (/var/www/setup-portal, our conf.d file) may need their

@@ -9,6 +9,10 @@
 #   1. every CI-Hub and wireless-setup tool is PRE-INSTALLED (packages, files,
 #      enabled systemd units), and the hotspot stack is guarded so it cannot
 #      start inside a live session;
+#   1b. Docker works in every boot mode (installed, plain live ISO, Companion Stick
+#      live boot) and the live and installed users end up in the docker group;
+#   1c. the optional tools (tailscale, cloudflared, gh, Ollama, Companion Launcher)
+#      are pre-installed from the pinned vendor sources (core/manifest/tier-b-pins.env);
 #   2. the user-visible branding is Companion OS, while the identifiers that
 #      apt, casper, the installer and Secure Boot depend on are untouched.
 #
@@ -21,10 +25,12 @@
 #   backends/ubuntu/iso/scripts/verify-iso.sh path/to/companion-os-*.iso
 #   VERIFY_KEEP=1 ...      keep the extracted files (printed at the end)
 #   VERIFY_WORK=DIR ...    use DIR for scratch space (needs ~8 GB free)
+#   VERIFY_TIERB=0 ...     skip section 3c (an ISO built with CI_OS_BAKE_THIRD_PARTY=0
+#                          CI_OS_BAKE_OLLAMA=0 CI_OS_BAKE_LAUNCHER=0)
 #
-# Needs: xorriso squashfs-tools zstd cpio (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio).
-#        Exit status is
-#        non-zero if any check fails.
+# Needs: xorriso squashfs-tools zstd cpio (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio);
+#        gpg is optional (without it the keyring fingerprints are reported as skipped).
+#        Exit status is non-zero if any check fails.
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
@@ -81,6 +87,12 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     usr/share/gnome-background-properties \
     etc/update-motd.d etc/systemd/system etc/sudoers.d \
     usr/lib/ci-os usr/local/bin/ci-os-info \
+    etc/group etc/gshadow etc/passwd var/cache/debconf/config.dat etc/ci-os \
+    usr/lib/systemd/system/docker.service usr/lib/systemd/system/docker.socket \
+    usr/lib/systemd/system/containerd.service usr/lib/systemd/system/ci-os-docker-group.service \
+    usr/lib/systemd/system/ci-os-live-container-storage.service \
+    etc/apt/sources.list.d usr/share/keyrings etc/xdg/autostart usr/libexec/ci-os \
+    usr/bin/ollama usr/lib/systemd/system/tailscaled.service var/lib/tailscale usr/share/ollama \
     usr/share/applications/ci-os-hub.desktop \
     usr/share/plymouth/themes/spinner/watermark.png usr/share/plymouth/themes/bgrt \
     >/dev/null 2>&1 || true
@@ -142,6 +154,151 @@ if file_has "$R/etc/systemd/system/nginx.service.d/10-not-live.conf" '^Condition
     pass "distro nginx.service is guarded against live sessions"
 else
     fail "distro nginx.service has no live-session guard"
+fi
+
+section "3b. Docker works in every boot mode (installed, plain-ISO live, Companion Stick live)"
+for u in docker.service containerd.service; do
+    unit_enabled "$u" && pass "enabled: $u" || fail "NOT enabled: $u"
+done
+in_listing 'etc/systemd/system/sockets\.target\.wants/docker\.socket -> ' \
+    && pass "enabled: docker.socket" || fail "NOT enabled: docker.socket"
+# Docker must NOT be guarded against live sessions (decision: Docker runs in the Stick live boot and the plain ISO).
+for u in docker.service docker.socket containerd.service; do
+    if grep -rqsE '/cdrom/casper|boot=casper' "$R/etc/systemd/system/$u.d" "$R/usr/lib/systemd/system/$u" 2>/dev/null; then
+        fail "live-session guard found on $u (Docker must run in a live boot)"
+    else
+        pass "no live-session guard on $u"
+    fi
+done
+for u in docker containerd; do
+    f="$R/etc/systemd/system/$u.service.d/20-ci-os-live.conf"
+    if file_has "$f" '^Wants=ci-os-live-container-storage\.service$' && file_has "$f" '^After=ci-os-live-container-storage\.service$'; then
+        pass "$u waits for the live storage unit"
+    else fail "$u has no 20-ci-os-live.conf ordering on the live storage unit"; fi
+done
+S="$R/usr/lib/systemd/system/ci-os-live-container-storage.service"
+file_has "$S" '^ConditionPathExists=/cdrom/casper/vmlinuz$' && pass "live storage unit runs only in live sessions" || fail "live storage unit is not live-only"
+file_has "$S" '^Before=.*docker\.service' && pass "live storage unit runs before docker.service" || fail "live storage unit not ordered before docker.service"
+[[ -x "$R/usr/lib/ci-os/ci-os-live-container-storage" ]] && pass "live storage script present and executable" || fail "live storage script missing"
+G="$R/usr/lib/systemd/system/ci-os-docker-group.service"
+file_has "$G" '^ConditionPathExists=!/cdrom/casper/vmlinuz$' && pass "docker-group unit is installed-system only" || fail "docker-group unit missing its not-live condition"
+unit_enabled ci-os-docker-group.service && pass "enabled: ci-os-docker-group.service" || fail "NOT enabled: ci-os-docker-group.service"
+[[ -x "$R/usr/lib/ci-os/ci-os-docker-group" ]] && pass "docker-group script present and executable" || fail "docker-group script missing"
+# Group and the live user's group list.
+grep -qE '^docker:x:[0-9]+:' "$R/etc/group" && pass "group docker exists in the image" || fail "group docker missing from /etc/group"
+if awk 'BEGIN{RS=""} /Name: passwd\/user-default-groups/' "$R/var/cache/debconf/config.dat" 2>/dev/null | grep -Eq '^Value: .*(^| )docker( |$)'; then
+    pass "debconf passwd/user-default-groups contains docker (casper live user gets it)"
+else fail "debconf passwd/user-default-groups lacks docker (live user would not be in docker)"; fi
+# user-setup-apply skips creating the live user if any 1000-59999 account exists in the image.
+if awk -F: '$3>=1000 && $3<=59999 {f=1} END{exit !f}' "$R/etc/passwd"; then
+    fail "image has a UID 1000-59999 account: casper will NOT create the live user"
+else pass "no UID 1000-59999 account in the image (casper creates the live user)"; fi
+# casper has no USERGROUPS; do not cargo-cult it.
+check "casper.conf does not pretend to set USERGROUPS (casper ignores it)" bash -c "! grep -q USERGROUPS '$R/etc/casper.conf'"
+check "docker.io is not installed (conflicts with docker-ce)" bash -c "! awk 'BEGIN{RS=\"\"} \$1==\"Package: docker.io\"' '$R/var/lib/dpkg/status' | grep -q 'install ok installed'"
+
+section "3c. Optional tools (Tier B): tailscale, cloudflared, gh, Ollama, Companion Launcher"
+if [[ "${VERIFY_TIERB:-1}" == 0 ]]; then
+    note "skipped (VERIFY_TIERB=0)"
+else
+    PINS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../core/manifest/tier-b-pins.env"
+    # shellcheck source=../../../../core/manifest/tier-b-pins.env
+    if [[ -f "$PINS" ]]; then source "$PINS"; else fail "pins file not found: $PINS"; fi
+    BAKED="$R/usr/lib/ci-os/baked-hub-tools.txt"
+    baked_has() { grep -q -E -- "$1" "$BAKED" 2>/dev/null; }
+    guarded() { file_has "$R/etc/systemd/system/$1.d/10-not-live.conf" '^ConditionPathExists=!/cdrom/casper/vmlinuz'; }
+
+    # 8.1 what was baked is recorded, and the knobs were all on
+    for k in bake-third-party bake-ollama bake-launcher; do
+        if baked_has "^${k}=1\$"; then pass "baked-hub-tools.txt: ${k}=1"; else fail "baked-hub-tools.txt does not say ${k}=1 (rebuild, or run with VERIFY_TIERB=0)"; fi
+    done
+
+    # 8.2 apt-installed third-party tools: package, binary, source list with Signed-By, keyring on disk
+    for p in tailscale cloudflared gh; do
+        if pkg_ok "$p"; then pass "package installed: $p"; else fail "package NOT installed: $p"; fi
+        if baked_has "^${p}=[0-9]"; then pass "version recorded: $(grep -E "^${p}=" "$BAKED" | head -1)"; else fail "no version recorded for $p"; fi
+    done
+    for f in /usr/sbin/tailscaled /usr/bin/tailscale /usr/bin/cloudflared /usr/bin/gh; do
+        if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
+    done
+    # list file -> keyring it must point at (the vendors' own names, so their instructions rewrite the same files)
+    while IFS='|' read -r list ring url; do
+        lf="$R/etc/apt/sources.list.d/$list"
+        ring_re="${ring//./\\.}"; url_re="${url//./\\.}"
+        if file_has "$lf" "^deb \\[[^]]*signed-by=${ring_re}(\\]| ).*${url_re}"; then
+            pass "apt source $list is signed-by ${ring}"
+        else
+            fail "apt source $list missing or without the expected Signed-By (${ring})"
+        fi
+        if in_listing " ${ring//./\\.}( ->|\$)"; then pass "keyring present: $ring"; else fail "keyring MISSING: $ring"; fi
+    done <<'EOF_LISTS'
+tailscale.list|/usr/share/keyrings/tailscale-archive-keyring.gpg|pkgs.tailscale.com/stable/ubuntu
+cloudflared.list|/usr/share/keyrings/cloudflare-main.gpg|pkg.cloudflare.com/cloudflared
+github-cli.list|/usr/share/keyrings/githubcli-archive-keyring.gpg|cli.github.com/packages
+EOF_LISTS
+    # no unsigned / trusted=yes / legacy apt-key source slipped in
+    if grep -r -l -E 'trusted=yes|allow-insecure' "$R/etc/apt/sources.list.d" 2>/dev/null | grep -q .; then fail "an apt source uses trusted=yes/allow-insecure"; else pass "no apt source disables signature checks"; fi
+    # the keyring fingerprints equal the pins (host gpg, throwaway home; skipped without gpg)
+    if command -v gpg >/dev/null 2>&1; then
+        GPG_TMP="$WORK/gnupg"; mkdir -p "$GPG_TMP"; chmod 700 "$GPG_TMP"
+        prim() { GNUPGHOME="$GPG_TMP" gpg --batch --no-tty --show-keys --with-colons "$1" 2>/dev/null |
+                 awk -F: '$1=="pub"{w=1; next} $1=="sub"||$1=="sec"||$1=="ssb"{w=0} $1=="fpr"&&w{print $10; w=0}'; }
+        for pair in "usr/share/keyrings/tailscale-archive-keyring.gpg:${TAILSCALE_KEY_FPR:-}" \
+                    "usr/share/keyrings/cloudflare-main.gpg:${CLOUDFLARED_KEY_FPR:-}" \
+                    "usr/share/keyrings/githubcli-archive-keyring.gpg:${GH_KEY_FPR:-}"; do
+            kf="${pair%%:*}"; want="${pair##*:}"; got="$(prim "$R/$kf")"
+            if [[ -n "$want" && "$got" == "$want" ]]; then pass "keyring ${kf##*/} holds exactly the pinned key ($want)"; else fail "keyring ${kf##*/}: expected only $want, found: ${got:-nothing}"; fi
+        done
+    else
+        note "gpg not installed: keyring fingerprints not checked"
+    fi
+
+    # 8.3 services: tailscaled enabled + guarded; cloudflared and gh ship no unit
+    if unit_enabled tailscaled.service; then pass "enabled for the installed system: tailscaled.service"; else fail "tailscaled.service NOT enabled"; fi
+    if guarded tailscaled.service; then pass "never starts in a live session (casper): tailscaled.service"; else fail "tailscaled.service has no live-session guard"; fi
+    if in_listing 'wants/cloudflared[^ ]*\.service -> ' || in_listing 'system/cloudflared[^ ]*\.service( ->|$)'; then
+        fail "a cloudflared systemd unit exists; it needs a live-session guard and a decision"
+    else
+        pass "cloudflared installs no systemd unit (nothing to start)"
+    fi
+    if in_listing ' /var/lib/tailscale/tailscaled\.state$'; then fail "tailscaled ran during the build (state file in the image)"; else pass "no tailscaled state in the image"; fi
+
+    # 8.4 Ollama: binary, libs, user, unit (enabled + guarded), no models, binary checksum equals the recorded one
+    for f in /usr/bin/ollama /usr/lib/ollama/libggml-base.so.0 /usr/lib/ollama/vulkan/libggml-vulkan.so \
+             /etc/systemd/system/ollama.service /usr/libexec/ci-os/ollama-models-env; do
+        if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
+    done
+    if file_has "$R/etc/passwd" '^ollama:x:[0-9]{2,3}:[0-9]+:[^:]*:/usr/share/ollama:/bin/false$'; then pass "system user 'ollama' (uid < 1000, home /usr/share/ollama, no login)"; else fail "no suitable 'ollama' system user"; fi
+    check "group 'ollama' exists" file_has "$R/etc/group" '^ollama:'
+    if unit_enabled ollama.service; then pass "enabled for the installed system: ollama.service"; else fail "ollama.service NOT enabled"; fi
+    if guarded ollama.service; then pass "never starts in a live session (casper): ollama.service"; else fail "ollama.service has no live-session guard"; fi
+    check "ollama.service uses the models-dir selector (safe when CI-CACHE is absent)" file_has "$R/etc/systemd/system/ollama.service" '^ExecStartPre=-\+/usr/libexec/ci-os/ollama-models-env$'
+    check "ollama.service reads the selector's optional env file" file_has "$R/etc/systemd/system/ollama.service" '^EnvironmentFile=-/run/ollama/ci-models\.env$'
+    if in_listing ' /usr/share/ollama/\.ollama(/| ->|$)'; then fail "model data is baked into the image"; else pass "no models in the image (they live on CI-CACHE or are pulled at first boot)"; fi
+    if [[ -f "$R/usr/bin/ollama" ]]; then
+        rec="$(sed -n 's/^ollama-bin-sha256=//p' "$BAKED" | head -1)"; act="$(sha256sum "$R/usr/bin/ollama" | cut -d' ' -f1)"
+        if [[ -n "$rec" && "$rec" == "$act" ]]; then pass "usr/bin/ollama sha256 equals the one recorded at build time"; else fail "usr/bin/ollama sha256 ($act) differs from the recorded one (${rec:-none})"; fi
+        if [[ "$(head -c4 "$R/usr/bin/ollama" | od -An -tx1 | tr -d ' \n')" == "7f454c46" ]]; then pass "usr/bin/ollama is an ELF binary"; else fail "usr/bin/ollama is not an ELF binary"; fi
+    else
+        fail "usr/bin/ollama could not be extracted"
+    fi
+    if baked_has "^ollama=${OLLAMA_VERSION:-x}\$" && baked_has "^ollama-tarball-sha256=${OLLAMA_SHA256:-x}\$"; then pass "baked Ollama is the pinned release (${OLLAMA_VERSION:-?})"; else fail "baked Ollama version/tarball hash differs from core/manifest/tier-b-pins.env"; fi
+
+    # 8.5 Companion Launcher: right package and binary name (drift: ci-os-hub-desktop is the CRATE name, not the binary)
+    if pkg_ok "${LAUNCHER_PACKAGE:-companion-hub}"; then pass "package installed: ${LAUNCHER_PACKAGE:-companion-hub}"; else fail "package NOT installed: ${LAUNCHER_PACKAGE:-companion-hub}"; fi
+    for f in /usr/bin/companion-hub /usr/bin/cihub; do
+        if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
+    done
+    if in_listing ' /usr/bin/ci-os-hub-desktop( ->|$)'; then fail "unexpected /usr/bin/ci-os-hub-desktop: the Launcher binary is companion-hub; fix the references"; else pass "no stale ci-os-hub-desktop binary"; fi
+    if baked_has "^${LAUNCHER_PACKAGE:-companion-hub}=${LAUNCHER_VERSION:-x}\$"; then pass "baked Launcher is the pinned release (${LAUNCHER_VERSION:-?})"; else fail "baked Launcher version differs from the pin"; fi
+    if in_listing ' /etc/xdg/autostart/companion-launcher\.desktop$'; then
+        check "Launcher autostart goes through the live-session guard wrapper" file_has "$R/etc/xdg/autostart/companion-launcher.desktop" '^Exec=/usr/libexec/ci-os/launcher-autostart$'
+    else
+        note "Launcher autostart not baked (CI_OS_LAUNCHER_AUTOSTART=0, the default)"
+    fi
+
+    # 8.6 size report (informational)
+    note "root squashfs: $(du -h "$SQ" | cut -f1)"
 fi
 
 # ── 4. branding ─────────────────────────────────────────────────────────────

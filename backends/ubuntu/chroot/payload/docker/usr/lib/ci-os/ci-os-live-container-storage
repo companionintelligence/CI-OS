@@ -1,0 +1,76 @@
+#!/bin/bash
+# Companion OS live session: give Docker and containerd a backing filesystem that overlayfs can use.
+#
+# In a casper live session "/" is an overlayfs whose upper layer is tmpfs (plain ISO) or the ext4 'writable'
+# partition (Companion Stick, boot=casper persistent). Docker's overlay2 driver and containerd's overlayfs
+# snapshotter need a real filesystem under their data roots (xfs ftype=1, ext4, btrfs, tmpfs...), not an
+# overlayfs, so /var/lib/docker and /var/lib/containerd are bind-mounted from:
+#   persist  the 'writable' (or legacy 'casper-rw') ext4 volume, when casper is actually using it
+#   tmpfs    otherwise (size-capped; contents vanish at shutdown, like the rest of a plain live session)
+# Not a live session: does nothing (the installed system keeps /var/lib/docker on its own disk).
+set -euo pipefail
+say() { echo "ci-os-live-container-storage: $*"; }
+
+action="${1:-start}"
+BASE=/run/ci-os/live-container
+
+if [ "$action" = stop ]; then
+    for d in docker containerd; do mountpoint -q "/var/lib/$d" && umount "/var/lib/$d" 2>/dev/null || true; done
+    mountpoint -q "$BASE/persist" && { umount "$BASE/persist" 2>/dev/null || umount -l "$BASE/persist" || true; }
+    mountpoint -q "$BASE/tmpfs"   && { umount "$BASE/tmpfs"   2>/dev/null || umount -l "$BASE/tmpfs"   || true; }
+    rm -f "$BASE/backing"
+    exit 0
+fi
+
+[ -e /cdrom/casper/vmlinuz ] || { say "not a live session; nothing to do"; exit 0; }
+
+CI_LIVE_TMPFS_SIZE="40%"                       # tmpfs mode only; override in /etc/ci-os/live-container.conf
+# shellcheck disable=SC1091
+[ -r /etc/ci-os/live-container.conf ] && . /etc/ci-os/live-container.conf
+
+mkdir -p "$BASE/persist" "$BASE/tmpfs"
+chmod 0711 /run/ci-os "$BASE"
+
+want_persist=0
+case " $(cat /proc/cmdline) " in *" persistent "*) want_persist=1 ;; esac
+case " $(cat /proc/cmdline) " in *" nopersistent "*) want_persist=0 ;; esac
+
+store=""; backing=tmpfs
+if [ "$want_persist" = 1 ]; then
+    label=writable
+    for _ in $(seq 1 20); do                                      # udev may still be creating the symlinks
+        if [ -e /dev/disk/by-label/writable ] || [ -e /dev/disk/by-label/casper-rw ]; then break; fi
+        sleep 0.5
+    done
+    [ -e /dev/disk/by-label/writable ] || label=casper-rw
+    dev="$(readlink -f "/dev/disk/by-label/$label" 2>/dev/null || true)"
+    if [ -b "$dev" ]; then
+        fstype="$(blkid -o value -s TYPE "$dev" 2>/dev/null || true)"
+        if [ "$fstype" != ext4 ]; then
+            say "persistence volume $dev is '$fstype', not ext4: using tmpfs"
+        elif [ ! -d "/sys/fs/ext4/$(basename "$dev")" ]; then
+            # casper mounts the volume as the overlay upper layer in the initramfs. If it is not mounted, casper
+            # fell back to tmpfs for "/", and so do we (never mount a volume casper did not claim).
+            say "$dev is not mounted by casper (no persistence in use): using tmpfs"
+        else
+            # Same device, same options as casper's own mount ("rw,noatime"), so the kernel shares the superblock.
+            mount -t ext4 -o rw,noatime "$dev" "$BASE/persist"
+            store="$BASE/persist/ci-container"      # sibling of casper's upper/ and work/: casper never touches it
+            backing=persist
+        fi
+    else
+        say "no 'writable' volume found: using tmpfs"
+    fi
+fi
+if [ "$backing" = tmpfs ]; then
+    mount -t tmpfs -o "size=${CI_LIVE_TMPFS_SIZE},mode=0711" tmpfs "$BASE/tmpfs"
+    store="$BASE/tmpfs"
+fi
+
+for d in docker containerd; do
+    mkdir -p "$store/$d" "/var/lib/$d"
+    chmod 0711 "$store"
+    mountpoint -q "/var/lib/$d" || mount --bind "$store/$d" "/var/lib/$d"
+done
+echo "$backing" > "$BASE/backing"
+say "Docker and containerd data live on $backing ($(findmnt -no FSTYPE -T /var/lib/docker))"

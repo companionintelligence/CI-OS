@@ -40,14 +40,19 @@ gh:
   install_method: apt_repo
   repo:
     key_url: "https://cli.github.com/packages/githubcli-archive-keyring.gpg"
+    # The vendor keyring holds two primary keys; 2C61... expired 2026-09-05. The repo is signed by this one.
+    key_fingerprint: "7F38BBB59D064DBCB3D84D725612B36462313325"
     list: "deb [arch={arch} signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
   packages: [gh]
 
 cloudflared:
   install_method: apt_repo
   repo:
-    key_url: "https://pkg.cloudflare.com/cloudflare-public-v2.gpg"
-    list: "deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main"
+    # cloudflare-main.gpg is the vendor's current key file (the old cloudflare-public-v2.gpg serves the identical file).
+    key_url: "https://pkg.cloudflare.com/cloudflare-main.gpg"
+    list: "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main"
+    # Primary-key fingerprint, enforced by the ISO build (core/manifest/tier-b-pins.env).
+    key_fingerprint: "CC94B39C77AE7342A68B89628A682D308D4E5E73"
   packages: [cloudflared]
 
 vscode:
@@ -58,6 +63,7 @@ tailscale:
   install_method: apt_repo
   repo:
     key_url: "https://pkgs.tailscale.com/stable/ubuntu/{codename}.noarmor.gpg"
+    key_fingerprint: "2596A99EAAB33821893C0A79458CA832957F5868"
     list_url: "https://pkgs.tailscale.com/stable/ubuntu/{codename}.tailscale-keyring.list"
   packages: [tailscale]
 
@@ -78,3 +84,4 @@ lact:
 ollama:
   install_method: curl_script
   url: "https://ollama.com/install.sh"
+  # The Ubuntu ISO does not run install.sh: it installs the pinned release tarball (core/manifest/tier-b-pins.env).

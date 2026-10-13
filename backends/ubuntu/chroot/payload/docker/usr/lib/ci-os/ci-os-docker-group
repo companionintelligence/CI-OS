@@ -1,0 +1,26 @@
+#!/bin/bash
+# Companion OS: put the machine's administrators (members of 'sudo') in the 'docker' group.
+#
+# Why this exists: the installer (ubuntu-desktop-bootstrap / Subiquity 24.04.x) creates the first user with
+# `useradd --groups <fixed list>,sudo`; the list is baked into the snap and 'docker' is not in it, and
+# /etc/adduser.conf is not consulted by useradd. So the group is granted here, offline, before any login.
+# Idempotent and quick: safe to run on every boot (and from a .path unit).
+# Opt out: touch /etc/ci-os/no-docker-group
+set -u
+[ -e /etc/ci-os/no-docker-group ] && { echo "ci-os-docker-group: /etc/ci-os/no-docker-group present; leaving groups alone"; exit 0; }
+
+if ! getent group docker >/dev/null; then
+    groupadd --system docker || { echo "ci-os-docker-group: cannot create group docker" >&2; exit 0; }
+fi
+
+uid_min="$(awk '$1=="UID_MIN"{print $2}' /etc/login.defs 2>/dev/null)"; uid_min="${uid_min:-1000}"
+uid_max="$(awk '$1=="UID_MAX"{print $2}' /etc/login.defs 2>/dev/null)"; uid_max="${uid_max:-60000}"
+
+rc=0
+for u in $(getent group sudo | cut -d: -f4 | tr ',' ' '); do
+    uid="$(id -u "$u" 2>/dev/null)" || continue
+    { [ "$uid" -ge "$uid_min" ] && [ "$uid" -le "$uid_max" ]; } || continue
+    if id -nG "$u" | tr ' ' '\n' | grep -qx docker; then continue; fi
+    if usermod -aG docker "$u"; then echo "ci-os-docker-group: added $u to docker"; else echo "ci-os-docker-group: usermod failed for $u" >&2; rc=1; fi
+done
+exit "$rc"

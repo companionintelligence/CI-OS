@@ -7,16 +7,16 @@
     "reserved": "Documented as part of the ecosystem but not implemented by CI-OS itself — owned by a separate repo. Exists so the manifest is a complete map of the ecosystem, not just of what this repo happens to install."
   },
   "dev_tools": [
-    {"id": "docker", "tier": "core", "role": "containerization", "services": ["docker"]},
+    {"id": "docker", "tier": "core", "role": "containerization", "services": ["docker"], "baked_in_iso": true},
     {"id": "uv", "tier": "core", "installer": {"method": "curl_script", "url": "https://astral.sh/uv/install.sh"}},
     {"id": "homebrew", "tier": "extended", "note": "Only used today as an apt fallback path for a couple of tools; not required for a working appliance."},
     {"id": "asdf", "tier": "core"},
     {"id": "node", "tier": "core", "version": "22.15.1", "via": "asdf"},
     {"id": "bun", "tier": "extended", "note": "Demoted from an inconsistent state (present in the ISO's auto-run path, explicitly removed from setup-fresh-ubuntu.sh with \"no longer required\"). No component in this repo requires Bun at build or run time — CI-Hub ships as a prebuilt Docker image, and there is no bun.lockb/bunfig.toml anywhere in-tree."},
-    {"id": "gh", "tier": "core"},
-    {"id": "cloudflared", "tier": "core"},
+    {"id": "gh", "tier": "core", "baked_in_iso": true},
+    {"id": "cloudflared", "tier": "core", "baked_in_iso": true},
     {"id": "vscode", "tier": "extended"},
-    {"id": "tailscale", "tier": "core"},
+    {"id": "tailscale", "tier": "core", "baked_in_iso": true},
     {"id": "chromium", "tier": "extended"},
     {"id": "telemetry_removal", "tier": "core"},
     {"id": "ci_user", "tier": "core", "note": "Creates the 'ci' system user, adds it to the docker group."},
@@ -42,8 +42,9 @@
     "companion_launcher": {
       "tier": "extended",
       "display_name": "Companion Launcher",
-      "note": "Renamed from \"Companion Hub Desktop\" to resolve the 3-way \"Hub\" naming collision (see docs/architecture/multi-distro-design.md). A native/Electron GUI launcher app, unrelated to the ci_hub backend above beyond opening a browser tab to it.",
-      "installer": {"method": "external_deb", "source": "https://dl.ci.computer"}
+      "note": "Renamed from \"Companion Hub Desktop\" to resolve the 3-way \"Hub\" naming collision (see docs/architecture/multi-distro-design.md). A native/Electron GUI launcher app, unrelated to the ci_hub backend above beyond opening a browser tab to it. Debian package and Linux binary are both `companion-hub` (they were `ci-os-hub-desktop` up to release v0.1.4). The Ubuntu ISO bakes the release pinned in core/manifest/tier-b-pins.env.",
+      "installer": {"method": "external_deb", "source": "https://dl.ci.computer", "package": "companion-hub", "binary": "companion-hub"},
+      "baked_in_iso": true
     },
     "ci_server": {
       "tier": "reserved",

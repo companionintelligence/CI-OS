@@ -1221,7 +1221,11 @@ install_companion_launcher() {
 # Fedora build of Companion Launcher ever ships and someone installs it
 # manually ahead of this script gaining real support for it.
 configure_companion_launcher_autostart() {
-    if ! command_exists ci-os-hub-desktop; then
+    local launcher_bin=""
+    if command_exists companion-hub; then launcher_bin="companion-hub"
+    elif command_exists ci-os-hub-desktop; then launcher_bin="ci-os-hub-desktop"   # legacy (<= v0.1.4)
+    fi
+    if [[ -z "$launcher_bin" ]]; then
         log_info "Companion Launcher binary not found (expected — no Fedora build is published yet), skipping autostart configuration"
         return 0
     fi
@@ -1234,7 +1238,7 @@ configure_companion_launcher_autostart() {
 Type=Application
 Name=Companion Launcher
 Comment=Start Companion Launcher
-Exec=ci-os-hub-desktop
+Exec=${launcher_bin}
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF

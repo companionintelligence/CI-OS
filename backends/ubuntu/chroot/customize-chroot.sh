@@ -10,6 +10,7 @@
 # 4. Configures AMD GPU support (ROCm, drivers)
 # 5. Sets up Plymouth, GRUB themes
 # 6. Pre-installs the wireless setup stack, Docker and the CI-Hub tooling (Step 10d)
+# 7. Pre-installs the optional tools: tailscale, cloudflared, gh, Ollama, Companion Launcher (Step 10e)
 #
 # Usage:
 #   ./backends/ubuntu/chroot/customize-chroot.sh <chroot_path> <version>
@@ -808,12 +809,51 @@ rm -f "$CHROOT_PATH/tmp/preinstall-hub-wireless.sh" "$CHROOT_PATH/tmp/setup-devi
 # 3. Service layout. The setup-mode units were enabled by the package. The distro dnsmasq.service must stay
 # off (it fights systemd-resolved for port 53; only dnsmasq-setup.service should run), Docker is on.
 chroot_exec "systemctl disable dnsmasq.service" || true
-chroot_exec "systemctl enable docker.service containerd.service"
+chroot_exec "systemctl enable docker.service docker.socket containerd.service"
+
+# 3b. Docker for everyone, in every boot mode.
+# - Docker is deliberately NOT guarded against live sessions: it must work on the installed system, in the plain
+#   ISO live session and in a Companion Stick live boot (the Stick runs the Hub and its models from the live OS).
+# - The live user gets the 'docker' group from casper. casper.conf has no USERGROUPS (casper ignores it); the
+#   live user's groups come from the debconf question passwd/user-default-groups that user-setup reads from the
+#   rootfs, so the group is appended there.
+# - The installer-created user cannot be put in 'docker' by the installer (ubuntu-desktop-bootstrap hands
+#   `useradd --groups` a list baked into the snap), so an offline oneshot adds the machine's administrators
+#   (members of 'sudo') to 'docker' at boot, before any session starts. `docker` membership is root-equivalent;
+#   opt out with: touch /etc/ci-os/no-docker-group
+# - In a live session "/" is an overlayfs, which overlay2/containerd cannot use as a data root, so a live-only
+#   oneshot bind-mounts /var/lib/docker and /var/lib/containerd from tmpfs (plain ISO) or the Stick's ext4
+#   CI-PERSIST volume. Inert on an installed system. See docs/architecture/docker-in-live-sessions.md.
+DOCKER_PAYLOAD="$REPO_ROOT/backends/ubuntu/chroot/payload/docker"
+install -d -m 0755 "$CHROOT_PATH/usr/lib/ci-os" "$CHROOT_PATH/usr/lib/systemd/system" \
+    "$CHROOT_PATH/etc/systemd/system/docker.service.d" "$CHROOT_PATH/etc/systemd/system/containerd.service.d" \
+    "$CHROOT_PATH/etc/ci-os"
+install -m 0755 "$DOCKER_PAYLOAD/usr/lib/ci-os/ci-os-docker-group"             "$CHROOT_PATH/usr/lib/ci-os/ci-os-docker-group"
+install -m 0755 "$DOCKER_PAYLOAD/usr/lib/ci-os/ci-os-live-container-storage"   "$CHROOT_PATH/usr/lib/ci-os/ci-os-live-container-storage"
+install -m 0644 "$DOCKER_PAYLOAD/usr/lib/systemd/system/ci-os-docker-group.service"             "$CHROOT_PATH/usr/lib/systemd/system/"
+install -m 0644 "$DOCKER_PAYLOAD/usr/lib/systemd/system/ci-os-live-container-storage.service"   "$CHROOT_PATH/usr/lib/systemd/system/"
+install -m 0644 "$DOCKER_PAYLOAD/etc/systemd/system/docker.service.d/20-ci-os-live.conf"       "$CHROOT_PATH/etc/systemd/system/docker.service.d/20-ci-os-live.conf"
+install -m 0644 "$DOCKER_PAYLOAD/etc/systemd/system/containerd.service.d/20-ci-os-live.conf"   "$CHROOT_PATH/etc/systemd/system/containerd.service.d/20-ci-os-live.conf"
+chroot_exec "systemctl enable ci-os-docker-group.service"
+
+cat > "$CHROOT_PATH/tmp/live-user-docker-group.sh" << 'EOSCRIPT'
+#!/bin/bash
+set -euo pipefail
+getent group docker >/dev/null || { echo "docker group missing: docker-ce did not create it" >&2; exit 1; }
+cur="$(echo 'get passwd/user-default-groups' | debconf-communicate user-setup | cut -d' ' -f2-)"
+[ -n "$cur" ] || { echo "user-setup default group list is empty" >&2; exit 1; }
+case " $cur " in *" docker "*) ;; *) cur="$cur docker" ;; esac
+echo "user-setup passwd/user-default-groups string $cur" | debconf-set-selections
+echo 'get passwd/user-default-groups' | debconf-communicate user-setup | grep -Eq ' docker( |$)'
+EOSCRIPT
+chmod 755 "$CHROOT_PATH/tmp/live-user-docker-group.sh"
+chroot_exec "/tmp/live-user-docker-group.sh"
+rm -f "$CHROOT_PATH/tmp/live-user-docker-group.sh"
 
 # 4. Live-session guard. These units belong to an installed appliance: in a live session they must not
 # take over Wi-Fi, bind ports 53/80 or run a hotspot. /cdrom/casper/vmlinuz is the live-session test the
 # first-boot units already use: casper does not always put boot=casper on the kernel command line, but the
-# live medium is always mounted at /cdrom.
+# live medium is always mounted at /cdrom. Docker and containerd are intentionally absent from this list (3b).
 for _unit in hostapd-setup.service dnsmasq-setup.service setup-backend.service \
              setup-network-monitor.service nginx.service; do
     mkdir -p "$CHROOT_PATH/etc/systemd/system/${_unit}.d"
@@ -824,7 +864,363 @@ ConditionPathExists=!/cdrom/casper/vmlinuz
 EOF
 done
 
+# 5. Record what was baked (verify-iso.sh and Step 10e read this file). Step 10e appends to it.
+mkdir -p "$CHROOT_PATH/usr/lib/ci-os"
+{
+    echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    chroot "$CHROOT_PATH" dpkg-query -W -f='${Package}=${Version}\n' \
+        setup-device docker-ce docker-ce-cli containerd.io docker-compose-plugin docker-buildx-plugin \
+        hostapd dnsmasq nginx-light gunicorn iw
+} > "$CHROOT_PATH/usr/lib/ci-os/baked-hub-tools.txt"
+
 echo "[+] Wireless setup stack, Docker and CI-Hub tooling pre-installed"
+
+
+#=============================================================================
+# 10e. Pre-install the optional ("Tier B") tools: tailscale, cloudflared, gh, Ollama, Companion Launcher
+#
+# Runs after Step 10d (Docker, wireless stack; /usr/lib/ci-os/baked-hub-tools.txt exists).
+# Knobs (all default ON; 0 disables):
+#   CI_OS_BAKE_THIRD_PARTY  tailscale + cloudflared + gh from the vendors' apt repositories
+#   CI_OS_BAKE_OLLAMA       Ollama from the vendor's release tarball (never install.sh)
+#   CI_OS_BAKE_LAUNCHER     Companion Launcher (.deb from dl.ci.computer)
+#   CI_OS_OLLAMA_CUDA       all (default) | none   - "none" drops cuda_v12 + cuda_v13 (about 2.0 GiB installed)
+#   CI_OS_LAUNCHER_AUTOSTART  0 (default) | 1      - XDG autostart of the Launcher on the installed system
+#   CI_OS_TIERB_PINS        path of the pins file (default core/manifest/tier-b-pins.env)
+#   CI_OS_CACHE_DIR         download cache for the Ollama tarball (default ~/.cache/ci-os)
+# Fails closed: any key-fingerprint or sha256 mismatch aborts the build. Everything is downloaded and verified
+# on the build host BEFORE the chroot is touched. Nothing is started in the chroot, and every service that would
+# run is guarded against live sessions.
+#=============================================================================
+echo "[*] Step 10e: Pre-installing optional tools (Tier B)..."
+
+CI_OS_BAKE_THIRD_PARTY="${CI_OS_BAKE_THIRD_PARTY:-1}"
+CI_OS_BAKE_OLLAMA="${CI_OS_BAKE_OLLAMA:-1}"
+CI_OS_BAKE_LAUNCHER="${CI_OS_BAKE_LAUNCHER:-1}"
+CI_OS_OLLAMA_CUDA="${CI_OS_OLLAMA_CUDA:-all}"
+CI_OS_LAUNCHER_AUTOSTART="${CI_OS_LAUNCHER_AUTOSTART:-0}"
+TIERB_PINS="${CI_OS_TIERB_PINS:-$REPO_ROOT/core/manifest/tier-b-pins.env}"
+
+tb_die() { echo "[ERROR] Step 10e: $*" >&2; exit 1; }
+for _k in CI_OS_BAKE_THIRD_PARTY CI_OS_BAKE_OLLAMA CI_OS_BAKE_LAUNCHER CI_OS_LAUNCHER_AUTOSTART; do
+    case "${!_k}" in 0|1) ;; *) tb_die "$_k must be 0 or 1 (got '${!_k}')" ;; esac
+done
+case "$CI_OS_OLLAMA_CUDA" in all|none) ;; *) tb_die "CI_OS_OLLAMA_CUDA must be all or none (got '$CI_OS_OLLAMA_CUDA')" ;; esac
+
+if [[ "$CI_OS_BAKE_THIRD_PARTY$CI_OS_BAKE_OLLAMA$CI_OS_BAKE_LAUNCHER" == "000" ]]; then
+    echo "[+] Step 10e: all Tier B knobs are 0, nothing to do"
+else
+    [[ -f "$TIERB_PINS" ]] || tb_die "pins file not found: $TIERB_PINS"
+    # shellcheck source=../../../core/manifest/tier-b-pins.env
+    source "$TIERB_PINS"
+
+    for _t in curl gpg sha256sum tar zstd awk dpkg-deb install mktemp; do
+        command -v "$_t" >/dev/null 2>&1 || tb_die "build host is missing '$_t'"
+    done
+    [[ -f "$CHROOT_PATH/usr/lib/ci-os/baked-hub-tools.txt" ]] || tb_die "Step 10d has not run (no baked-hub-tools.txt)"
+
+    TB_WORK="$(mktemp -d)"
+    TB_GNUPGHOME="$TB_WORK/gnupg"; install -d -m 700 "$TB_GNUPGHOME"      # throwaway: never the host's keyring
+    TB_CACHE="${CI_OS_CACHE_DIR:-${XDG_CACHE_HOME:-${HOME:-/root}/.cache}/ci-os}"; install -d -m 755 "$TB_CACHE"
+    TB_POLICY_RC="$CHROOT_PATH/usr/sbin/policy-rc.d"
+
+    # policy-rc.d (exit 101) stops maintainer scripts from starting anything; always restored, even on failure.
+    tb_policy_on() {
+        [[ -e "$TB_POLICY_RC" && ! -e "$TB_POLICY_RC.ci-os-orig" ]] && mv "$TB_POLICY_RC" "$TB_POLICY_RC.ci-os-orig"
+        printf '#!/bin/sh\nexit 101\n' > "$TB_POLICY_RC"; chmod 755 "$TB_POLICY_RC"
+    }
+    tb_policy_off() {
+        rm -f "$TB_POLICY_RC"
+        [[ -e "$TB_POLICY_RC.ci-os-orig" ]] && mv "$TB_POLICY_RC.ci-os-orig" "$TB_POLICY_RC"
+        return 0
+    }
+    tb_cleanup() { tb_policy_off; rm -rf "$TB_WORK"; }
+    trap tb_cleanup EXIT
+
+    tb_fetch() {   # URL DEST
+        curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 3600 \
+            -o "$2" "$1" || tb_die "download failed: $1"
+    }
+    tb_sha256_of() { sha256sum "$1" | awk '{print $1}'; }
+    tb_size_of() { wc -c < "$1" | tr -d '[:space:]'; }
+    tb_expect_sha256() {   # FILE WANT_SHA256 LABEL
+        local got; got="$(tb_sha256_of "$1")"
+        [[ "$got" == "$2" ]] || tb_die "$3: sha256 mismatch (got $got, pinned $2)"
+    }
+    # Primary-key fingerprints of a key file, one per line (sub-key fingerprints are not listed).
+    tb_primary_fprs() {
+        GNUPGHOME="$TB_GNUPGHOME" gpg --batch --no-tty --show-keys --with-colons "$1" 2>/dev/null |
+            awk -F: '$1=="pub"{w=1; next} $1=="sub"||$1=="sec"||$1=="ssb"{w=0} $1=="fpr"&&w{print $10; w=0}'
+    }
+    # tb_check_key FILE REQUIRED_FPR [TOLERATED_FPR...]: REQUIRED must be present; any other primary key must be tolerated.
+    tb_check_key() {
+        local file="$1" required="$2" got fpr extra ok; shift 2
+        if head -c 10 "$file" | grep -q -- '-----BEGIN'; then tb_die "$file is ASCII-armored; apt needs a binary keyring"; fi
+        got="$(tb_primary_fprs "$file")"
+        [[ -n "$got" ]] || tb_die "no OpenPGP key in $file"
+        grep -qx "$required" <<<"$got" || tb_die "$file does not contain the pinned key $required (found: $(tr '\n' ' ' <<<"$got"))"
+        while IFS= read -r fpr; do
+            ok=0; [[ "$fpr" == "$required" ]] && ok=1
+            for extra in "$@"; do [[ "$fpr" == "$extra" ]] && ok=1; done
+            [[ $ok -eq 1 ]] || tb_die "$file contains an unpinned key $fpr"
+        done <<<"$got"
+    }
+
+    TB_CODENAME="$(chroot "$CHROOT_PATH" /bin/bash -c '. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}"')"
+    [[ "$TB_CODENAME" =~ ^[a-z]+$ ]] || tb_die "cannot determine the Ubuntu codename of the image (got '$TB_CODENAME')"
+
+    #---- 1. Download and verify everything first (the chroot is untouched until all of this has passed) ---------------
+    TB_APT_PKGS=""
+    if [[ "$CI_OS_BAKE_THIRD_PARTY" == 1 ]]; then
+        tb_fetch "https://pkgs.tailscale.com/stable/ubuntu/${TB_CODENAME}.noarmor.gpg" "$TB_WORK/tailscale.gpg"
+        tb_check_key "$TB_WORK/tailscale.gpg" "$TAILSCALE_KEY_FPR"
+
+        tb_fetch "https://pkg.cloudflare.com/cloudflare-main.gpg" "$TB_WORK/cloudflare-main.gpg"
+        tb_check_key "$TB_WORK/cloudflare-main.gpg" "$CLOUDFLARED_KEY_FPR"
+
+        # GitHub's keyring carries an expired key (2C61...) next to the live one (7F38...). Keep only the live key.
+        tb_fetch "https://cli.github.com/packages/githubcli-archive-keyring.gpg" "$TB_WORK/gh-vendor.gpg"
+        tb_check_key "$TB_WORK/gh-vendor.gpg" "$GH_KEY_FPR" "$GH_KEY_FPR_EXPIRED"
+        GNUPGHOME="$TB_GNUPGHOME" gpg --batch --no-tty --quiet --import "$TB_WORK/gh-vendor.gpg" 2>/dev/null || true
+        GNUPGHOME="$TB_GNUPGHOME" gpg --batch --no-tty --export --export-options export-minimal "$GH_KEY_FPR" > "$TB_WORK/gh.gpg"
+        tb_check_key "$TB_WORK/gh.gpg" "$GH_KEY_FPR"
+        [[ "$(tb_primary_fprs "$TB_WORK/gh.gpg" | wc -l | tr -d '[:space:]')" == 1 ]] || tb_die "gh keyring must hold exactly one key"
+        TB_APT_PKGS="tailscale cloudflared gh"
+    fi
+
+    TB_LAUNCHER_DEB=""
+    if [[ "$CI_OS_BAKE_LAUNCHER" == 1 ]]; then
+        TB_LAUNCHER_DEB="$TB_CACHE/${LAUNCHER_PACKAGE}_${LAUNCHER_VERSION}_amd64.deb"
+        if [[ ! -f "$TB_LAUNCHER_DEB" ]] || [[ "$(tb_sha256_of "$TB_LAUNCHER_DEB")" != "$LAUNCHER_SHA256" ]]; then
+            tb_fetch "$LAUNCHER_URL" "$TB_LAUNCHER_DEB.part"; mv "$TB_LAUNCHER_DEB.part" "$TB_LAUNCHER_DEB"
+        fi
+        tb_expect_sha256 "$TB_LAUNCHER_DEB" "$LAUNCHER_SHA256" "Companion Launcher .deb"
+        [[ "$(tb_size_of "$TB_LAUNCHER_DEB")" == "$LAUNCHER_SIZE" ]] || tb_die "Companion Launcher .deb size differs from the pin"
+        [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Package)" == "$LAUNCHER_PACKAGE" ]] || tb_die "unexpected package name in the Launcher .deb"
+        [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Version)" == "$LAUNCHER_VERSION" ]] || tb_die "unexpected version in the Launcher .deb"
+        [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Architecture)" == "amd64" ]] || tb_die "Launcher .deb is not amd64"
+        # Member names only (perms owner size date time NAME [-> target]); written to a file so no pipe is closed early.
+        dpkg-deb -c "$TB_LAUNCHER_DEB" | sed -E -e 's/^[^ ]+ +[^ ]+ +[0-9]+ +[0-9-]+ +[0-9:]+ +//' -e 's/ -> .*$//' > "$TB_WORK/launcher.members"
+        grep -qx './usr/bin/companion-hub' "$TB_WORK/launcher.members" || tb_die "Launcher .deb has no /usr/bin/companion-hub"
+        # A launcher must not bring its own system services, cron jobs or sudo rules.
+        if grep -E '^\./(etc/|lib/systemd|usr/lib/systemd)' "$TB_WORK/launcher.members" | grep -q .; then
+            tb_die "Launcher .deb ships files under /etc or systemd; review before baking"
+        fi
+    fi
+
+    TB_OLLAMA_TAR=""
+    if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
+        TB_OLLAMA_TAR="$TB_CACHE/ollama-linux-amd64-${OLLAMA_VERSION}.tar.zst"
+        if [[ ! -f "$TB_OLLAMA_TAR" ]] || [[ "$(tb_size_of "$TB_OLLAMA_TAR")" != "$OLLAMA_SIZE" ]] || [[ "$(tb_sha256_of "$TB_OLLAMA_TAR")" != "$OLLAMA_SHA256" ]]; then
+            tb_fetch "$OLLAMA_URL" "$TB_OLLAMA_TAR.part"; mv "$TB_OLLAMA_TAR.part" "$TB_OLLAMA_TAR"
+        fi
+        tb_expect_sha256 "$TB_OLLAMA_TAR" "$OLLAMA_SHA256" "Ollama tarball"
+        # The tarball is root-owned and extracted as root: refuse anything but bin/ollama and lib/ollama/**.
+        zstd -dc "$TB_OLLAMA_TAR" | tar -t > "$TB_WORK/ollama.members"
+        grep -q . "$TB_WORK/ollama.members" || tb_die "Ollama tarball is empty"
+        if grep -E '(^|/)\.{1,2}(/|$)' "$TB_WORK/ollama.members" | grep -q .; then tb_die "Ollama tarball has a '.' or '..' path component"; fi
+        if grep -v -E '^(bin/ollama|lib/ollama(/[A-Za-z0-9._+-]+)*/?)$' "$TB_WORK/ollama.members" | grep -q .; then
+            tb_die "Ollama tarball has unexpected members: $(grep -v -E '^(bin/ollama|lib/ollama(/[A-Za-z0-9._+-]+)*/?)$' "$TB_WORK/ollama.members" | head -3 | tr '\n' ' ')"
+        fi
+        grep -qx 'bin/ollama' "$TB_WORK/ollama.members" || tb_die "Ollama tarball has no bin/ollama"
+        zstd -dc "$TB_OLLAMA_TAR" | tar -tv > "$TB_WORK/ollama.tv"
+        awk '$1 !~ /^[-dl]/' "$TB_WORK/ollama.tv" > "$TB_WORK/ollama.odd"
+        [[ ! -s "$TB_WORK/ollama.odd" ]] || tb_die "Ollama tarball has members that are not files, directories or symlinks"
+        awk '$1 ~ /^l/ {print $NF}' "$TB_WORK/ollama.tv" > "$TB_WORK/ollama.links"
+        if grep -E '^/|\.\.' "$TB_WORK/ollama.links" | grep -q .; then tb_die "Ollama tarball has an absolute or escaping symlink"; fi
+    fi
+
+    #---- 2. Mutate the chroot: apt sources, Ollama files and units, the Launcher autostart -------------------------------
+    if [[ "$CI_OS_BAKE_THIRD_PARTY" == 1 ]]; then
+        install -d -m 0755 "$CHROOT_PATH/usr/share/keyrings" "$CHROOT_PATH/etc/apt/sources.list.d"
+        # File names and key paths are the vendors' own, so a later run of their install instructions (or provision.sh)
+        # rewrites the same files instead of adding a second source with a different Signed-By (apt would then exit 100).
+        install -m 0644 "$TB_WORK/tailscale.gpg"        "$CHROOT_PATH/usr/share/keyrings/tailscale-archive-keyring.gpg"
+        install -m 0644 "$TB_WORK/cloudflare-main.gpg"  "$CHROOT_PATH/usr/share/keyrings/cloudflare-main.gpg"
+        install -m 0644 "$TB_WORK/gh.gpg"               "$CHROOT_PATH/usr/share/keyrings/githubcli-archive-keyring.gpg"
+        printf 'deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu %s main\n' \
+            "$TB_CODENAME" > "$CHROOT_PATH/etc/apt/sources.list.d/tailscale.list"
+        printf 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main\n' \
+            > "$CHROOT_PATH/etc/apt/sources.list.d/cloudflared.list"
+        printf 'deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\n' \
+            > "$CHROOT_PATH/etc/apt/sources.list.d/github-cli.list"
+        chmod 0644 "$CHROOT_PATH"/etc/apt/sources.list.d/{tailscale,cloudflared,github-cli}.list
+
+        # tailscaled is enabled by the package's postinst; keep it out of live sessions. cloudflared and gh ship no unit.
+        install -d -m 0755 "$CHROOT_PATH/etc/systemd/system/tailscaled.service.d"
+        cat > "$CHROOT_PATH/etc/systemd/system/tailscaled.service.d/10-not-live.conf" << 'EOF'
+[Unit]
+# Companion OS: tailscaled belongs to the installed appliance, never to a casper live session (ISO or Companion Stick).
+# Stock Ubuntu 24.04 does not put boot=casper on the command line, so also test for the live medium at /cdrom.
+ConditionPathExists=!/cdrom/casper/vmlinuz
+ConditionKernelCommandLine=!boot=casper
+EOF
+    fi
+
+    if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
+        # Same as `curl .../ollama-linux-amd64.tar.zst | sudo tar x -C /usr` in the vendor's manual-install docs.
+        rm -rf "$CHROOT_PATH/usr/lib/ollama"
+        zstd -dc "$TB_OLLAMA_TAR" | tar -x --no-same-owner -C "$CHROOT_PATH/usr"
+        [[ "$CI_OS_OLLAMA_CUDA" == none ]] && rm -rf "$CHROOT_PATH/usr/lib/ollama/cuda_v12" "$CHROOT_PATH/usr/lib/ollama/cuda_v13"
+        [[ -x "$CHROOT_PATH/usr/bin/ollama" ]] || tb_die "usr/bin/ollama missing after extraction"
+        [[ "$(head -c4 "$CHROOT_PATH/usr/bin/ollama" | od -An -tx1 | tr -d ' \n')" == "7f454c46" ]] || tb_die "usr/bin/ollama is not an ELF binary"
+        [[ -e "$CHROOT_PATH/usr/lib/ollama/libggml-base.so.0" ]] || tb_die "usr/lib/ollama/libggml-base.so.0 missing after extraction"
+
+        install -d -m 0755 "$CHROOT_PATH/usr/libexec/ci-os" "$CHROOT_PATH/etc/ci-os"
+        install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/ci-os-ollama-models-env.sh" \
+            "$CHROOT_PATH/usr/libexec/ci-os/ollama-models-env"
+
+        # Based on the vendor's unit (docs/linux: User=ollama, ExecStart=/usr/bin/ollama serve, Restart=always).
+        # Added: a runtime directory for the models-dir selection, and the live-session guard in a drop-in.
+        cat > "$CHROOT_PATH/etc/systemd/system/ollama.service" << 'EOF'
+[Unit]
+Description=Ollama Service
+Documentation=https://docs.ollama.com/linux
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/ollama serve
+User=ollama
+Group=ollama
+Restart=always
+RestartSec=3
+Environment="PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+# Companion Stick: put models on the CI-CACHE volume when it is attached, else keep the default directory.
+RuntimeDirectory=ollama
+RuntimeDirectoryMode=0755
+ExecStartPre=-+/usr/libexec/ci-os/ollama-models-env
+ExecStopPost=-+/usr/libexec/ci-os/ollama-models-env release
+EnvironmentFile=-/run/ollama/ci-models.env
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        install -d -m 0755 "$CHROOT_PATH/etc/systemd/system/ollama.service.d"
+        cat > "$CHROOT_PATH/etc/systemd/system/ollama.service.d/10-not-live.conf" << 'EOF'
+[Unit]
+# Companion OS: Ollama runs on the installed appliance, never in a casper live session (ISO or Companion Stick).
+ConditionPathExists=!/cdrom/casper/vmlinuz
+ConditionKernelCommandLine=!boot=casper
+EOF
+    fi
+
+    if [[ "$CI_OS_BAKE_LAUNCHER" == 1 && "$CI_OS_LAUNCHER_AUTOSTART" == 1 ]]; then
+        install -d -m 0755 "$CHROOT_PATH/usr/libexec/ci-os" "$CHROOT_PATH/etc/xdg/autostart"
+        cat > "$CHROOT_PATH/usr/libexec/ci-os/launcher-autostart" << 'EOF'
+#!/bin/sh
+# Start the Companion Launcher at graphical login on the installed system only, never in a live session.
+[ -e /cdrom/casper/vmlinuz ] && exit 0
+exec /usr/bin/companion-hub "$@"
+EOF
+        chmod 0755 "$CHROOT_PATH/usr/libexec/ci-os/launcher-autostart"
+        cat > "$CHROOT_PATH/etc/xdg/autostart/companion-launcher.desktop" << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=Companion Launcher
+Comment=Start Companion Launcher
+Exec=/usr/libexec/ci-os/launcher-autostart
+Terminal=false
+X-GNOME-Autostart-enabled=true
+EOF
+    fi
+
+    #---- 3. Install inside the chroot. The chroot is NOT booted: nothing may start, stop or signal anything. ----------------
+    if [[ -n "$TB_LAUNCHER_DEB" ]]; then install -m 0644 "$TB_LAUNCHER_DEB" "$CHROOT_PATH/tmp/companion-hub.deb"; fi
+    cat > "$CHROOT_PATH/tmp/preinstall-tier-b.sh" << 'EOSCRIPT'
+#!/bin/bash
+# usage: preinstall-tier-b.sh "<apt packages or empty>" <launcher 0|1> <ollama 0|1>
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive LC_ALL=C
+export SYSTEMD_OFFLINE=1        # systemctl enable/disable act on symlinks only; start/stop/daemon-reload are no-ops
+export CI_OS_IMAGE_BUILD=1
+apt_pkgs="$1"; launcher="$2"; ollama="$3"
+
+if [ -n "$apt_pkgs" ]; then
+    apt-get update --error-on=any
+    declare -A origin=([tailscale]=pkgs.tailscale.com [cloudflared]=pkg.cloudflare.com [gh]=cli.github.com)
+    for p in $apt_pkgs; do
+        # The newest version of each package must come from its vendor repository (Ubuntu's archive carries an old gh).
+        top="$(apt-cache madison "$p" | sed -n 1p)"
+        case "$top" in *"${origin[$p]}"*) ;; *) echo "[ERROR] newest '$p' is not from ${origin[$p]}: ${top:-none}" >&2; exit 1 ;; esac
+    done
+    # shellcheck disable=SC2086
+    apt-get install -y --no-install-recommends $apt_pkgs
+fi
+
+if [ "$launcher" = 1 ]; then
+    apt-get install -y --no-install-recommends /tmp/companion-hub.deb
+fi
+
+if [ "$ollama" = 1 ]; then
+    # What the vendor's install.sh configure_systemd() does, without running install.sh (it needs a booted system and
+    # would install NVIDIA/ROCm drivers from the network).
+    getent group ollama >/dev/null || groupadd --system ollama
+    id ollama >/dev/null 2>&1 || useradd --system --gid ollama --shell /bin/false --create-home --home-dir /usr/share/ollama ollama
+    for g in render video; do
+        if getent group "$g" >/dev/null; then usermod -a -G "$g" ollama; fi
+    done
+    systemctl enable ollama.service
+fi
+
+apt-get clean
+rm -rf /var/lib/apt/lists/* /tmp/companion-hub.deb
+EOSCRIPT
+    chmod +x "$CHROOT_PATH/tmp/preinstall-tier-b.sh"
+    tb_policy_on
+    chroot "$CHROOT_PATH" /tmp/preinstall-tier-b.sh "$TB_APT_PKGS" "$CI_OS_BAKE_LAUNCHER" "$CI_OS_BAKE_OLLAMA"
+    tb_policy_off
+    rm -f "$CHROOT_PATH/tmp/preinstall-tier-b.sh"
+
+    #---- 4. Assert the result (host-side, so a broken chroot cannot lie) --------------------------------------------------
+    for _r in /proc/[0-9]*/root; do
+        [[ "$(readlink "$_r" 2>/dev/null)" == "$CHROOT_PATH" ]] && tb_die "process still rooted in the chroot: $_r"
+    done
+    tb_pkg_ok() { [[ "$(chroot "$CHROOT_PATH" dpkg-query -W -f='${Status}' "$1" 2>/dev/null || true)" == "install ok installed" ]] || tb_die "package $1 is not installed"; }
+    tb_enabled() { [[ -L "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants/$1" ]] || tb_die "$1 is not enabled"; }
+    tb_guard() { grep -q '^ConditionPathExists=!/cdrom/casper/vmlinuz' "$CHROOT_PATH/etc/systemd/system/$1.d/10-not-live.conf" 2>/dev/null || tb_die "$1 has no live-session guard"; }
+
+    if [[ "$CI_OS_BAKE_THIRD_PARTY" == 1 ]]; then
+        for _p in tailscale cloudflared gh; do tb_pkg_ok "$_p"; done
+        tb_enabled tailscaled.service; tb_guard tailscaled.service
+        [[ ! -e "$CHROOT_PATH/var/lib/tailscale/tailscaled.state" ]] || tb_die "tailscaled ran in the chroot (state file exists)"
+        if compgen -G "$CHROOT_PATH/usr/lib/systemd/system/cloudflared*.service" >/dev/null || compgen -G "$CHROOT_PATH/etc/systemd/system/cloudflared*.service" >/dev/null; then
+            tb_die "a cloudflared unit appeared; decide whether it must be guarded"
+        fi
+        for _f in usr/sbin/tailscaled usr/bin/tailscale usr/bin/cloudflared usr/bin/gh; do [[ -x "$CHROOT_PATH/$_f" ]] || tb_die "missing $_f"; done
+    fi
+    if [[ "$CI_OS_BAKE_LAUNCHER" == 1 ]]; then
+        tb_pkg_ok "$LAUNCHER_PACKAGE"
+        [[ -x "$CHROOT_PATH/usr/bin/$LAUNCHER_BINARY" ]] || tb_die "missing /usr/bin/$LAUNCHER_BINARY"
+        chroot "$CHROOT_PATH" test -x /usr/bin/cihub || tb_die "/usr/bin/cihub symlink missing or dangling"
+    fi
+    if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
+        chroot "$CHROOT_PATH" getent passwd ollama >/dev/null || tb_die "ollama user missing"
+        [[ "$(chroot "$CHROOT_PATH" id -u ollama)" -lt 1000 ]] || tb_die "ollama must be a system user (uid < 1000)"
+        tb_enabled ollama.service; tb_guard ollama.service
+        [[ ! -e "$CHROOT_PATH/usr/share/ollama/.ollama" ]] || tb_die "model data exists in the image"
+        # Soft: --version must not start a server, but a failure to run an x86-64 binary on an exotic build host is not fatal.
+        timeout 30 chroot "$CHROOT_PATH" /usr/bin/ollama --version 2>&1 | head -n 3 || true
+    fi
+
+    #---- 5. Record what was baked ---------------------------------------------------------------------------------------------
+    {
+        echo "tierb-pins-reviewed=$TIERB_PINS_REVIEWED"
+        echo "bake-third-party=$CI_OS_BAKE_THIRD_PARTY"
+        echo "bake-ollama=$CI_OS_BAKE_OLLAMA"
+        echo "bake-launcher=$CI_OS_BAKE_LAUNCHER"
+        [[ "$CI_OS_BAKE_THIRD_PARTY" == 1 ]] && chroot "$CHROOT_PATH" dpkg-query -W -f='${Package}=${Version}\n' tailscale cloudflared gh
+        [[ "$CI_OS_BAKE_LAUNCHER" == 1 ]]    && chroot "$CHROOT_PATH" dpkg-query -W -f='${Package}=${Version}\n' "$LAUNCHER_PACKAGE"
+        if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
+            echo "ollama=$OLLAMA_VERSION"
+            echo "ollama-tarball-sha256=$OLLAMA_SHA256"
+            echo "ollama-bin-sha256=$(tb_sha256_of "$CHROOT_PATH/usr/bin/ollama")"
+            echo "ollama-cuda=$CI_OS_OLLAMA_CUDA"
+        fi
+    } >> "$CHROOT_PATH/usr/lib/ci-os/baked-hub-tools.txt"
+
+    tb_cleanup; trap - EXIT
+    echo "[+] Step 10e: optional tools pre-installed (third-party=$CI_OS_BAKE_THIRD_PARTY ollama=$CI_OS_BAKE_OLLAMA launcher=$CI_OS_BAKE_LAUNCHER)"
+fi
 
 #=============================================================================
 # 10c. Include Bootstrap Scripts & First-Boot Setup Service

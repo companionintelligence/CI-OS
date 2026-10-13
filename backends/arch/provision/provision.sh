@@ -1136,7 +1136,11 @@ install_companion_launcher() {
 # today, since install_companion_launcher() above never installs the binary.
 # Kept for the same forward-compatibility reason Fedora's version is kept.
 configure_companion_launcher_autostart() {
-    if ! command_exists ci-os-hub-desktop; then
+    local launcher_bin=""
+    if command_exists companion-hub; then launcher_bin="companion-hub"
+    elif command_exists ci-os-hub-desktop; then launcher_bin="ci-os-hub-desktop"   # legacy (<= v0.1.4)
+    fi
+    if [[ -z "$launcher_bin" ]]; then
         log_info "Companion Launcher binary not found (expected — no Arch build is published yet), skipping autostart configuration"
         return 0
     fi
@@ -1149,7 +1153,7 @@ configure_companion_launcher_autostart() {
 Type=Application
 Name=Companion Launcher
 Comment=Start Companion Launcher
-Exec=ci-os-hub-desktop
+Exec=${launcher_bin}
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF

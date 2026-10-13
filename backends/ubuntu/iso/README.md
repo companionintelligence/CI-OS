@@ -40,12 +40,16 @@ sudo apt-get install \
   cpio \
   zstd \
   imagemagick \
-  librsvg2-bin
+  librsvg2-bin \
+  curl
 ```
 
-Minimum **30 GB free disk space** (work directory + ISO output). The build needs **network access**:
-it runs `apt` inside the image (Ubuntu archive and Docker's apt repository) while pre-installing
-the CI-Hub and wireless setup tools.
+Minimum **35 GB free disk space** (work directory + ISO output, plus the 1.4 GB Ollama tarball cache in
+`~/.cache/ci-os`, override with `CI_OS_CACHE_DIR`). The build needs **network access**: it runs `apt`
+inside the image (Ubuntu archive, Docker's, Tailscale's, Cloudflare's and GitHub's apt repositories) and
+downloads the Ollama release tarball (github.com) and the Companion Launcher `.deb` (dl.ci.computer) while
+pre-installing the tools. Every third-party key fingerprint and download hash is pinned in
+`core/manifest/tier-b-pins.env` and the build fails closed on a mismatch.
 
 `imagemagick` scales the Plymouth logo and `librsvg2-bin` / `imagemagick` render the GRUB background; `verify-iso.sh` fails the image if either is missing. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio`.
 
@@ -256,7 +260,8 @@ backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-1.0-amd64.iso
 
 Needs no root and does not boot the ISO. It extracts the root squashfs, the initrd and a few files and
 asserts that every CI-Hub and wireless-setup tool is pre-installed, that the hotspot units are guarded
-against live sessions, and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
+against live sessions, that Docker is unguarded and the docker group is set up, that the optional tools
+are installed from their pinned sources, and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
 `BUILD_SYSTEM` and the ISO volume id (which apt, casper, the installer and Secure Boot depend on) are
 untouched. Exit status is non-zero if any check fails.
 
@@ -268,6 +273,8 @@ untouched. Exit status is non-zero if any check fails.
 |---|---|---|
 | Wireless setup | `setup-device` package: hostapd, dnsmasq, nginx-light, python3-flask, gunicorn, network-manager, iw, and the portal, backend, hotspot and monitor scripts and units | Enabled for the installed system; guarded off in live sessions |
 | CI-Hub runtime | Docker Engine, Compose and Buildx (Docker's apt repo, key pinned by fingerprint), curl, jq, the CI-Hub deploy scripts under `/usr/lib/ci-os/bootstrap/` | The same Docker source as `core/manifest/role-map/apt.yaml`, so first boot skips it |
+| Docker everywhere | Docker runs on the installed system, in the plain live ISO and in a Companion Stick live boot; the live user and the installer-created administrator are in the `docker` group | Live sessions get a tmpfs (ISO) or the Stick's `CI-PERSIST` volume as Docker's data root. `docker` membership is root-equivalent; opt out with `touch /etc/ci-os/no-docker-group`. See `docs/architecture/docker-in-live-sessions.md` |
+| Optional tools | tailscale, cloudflared, GitHub CLI (vendor apt repos), Ollama (pinned release tarball, runs on the installed system only) and the Companion Launcher (pinned `.deb`, `companion-hub`) | On by default. `CI_OS_BAKE_THIRD_PARTY`, `CI_OS_BAKE_OLLAMA`, `CI_OS_BAKE_LAUNCHER` = 0 turn a group off; `CI_OS_OLLAMA_CUDA=none` saves 1.5 GB. See `docs/architecture/tier-b-tools.md` |
 | Left to first boot, on purpose | The CI-Hub container image (needs registry credentials and device pairing), model pulls, per-user developer tools | See `core/manifest/ecosystem.yaml` (`ci_hub`) |
 
 ## What stays Ubuntu, and why

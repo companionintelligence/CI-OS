@@ -177,23 +177,34 @@ def _build_redirect_metadata(*cloud_payloads):
     }
 
 
+# Process names of the Companion Launcher. The binary has been `companion-hub` since CI-Hub 2026-06-03;
+# `ci-os-hub-desktop` is the name up to release v0.1.4 and is kept so an old install is still detected.
+LAUNCHER_PROCESS_NAMES = ('companion-hub', 'ci-os-hub-desktop')
+
+
 def _hub_running():
-    """Detect whether Companion Launcher (ci-os-hub-desktop) is running on the device.
+    """Detect whether Companion Launcher (companion-hub) is running on the device.
 
     Named _hub_running/get_hub_pairing_state for the pairing-state concept, not
     because this checks the CI Hub Service backend — it checks the desktop
     launcher process. See docs/architecture/multi-distro-design.md.
+
+    `pgrep -x` matches the exact process name, so a shell command line that merely
+    mentions the name (or this very service) is not mistaken for the launcher.
     """
-    try:
-        proc = subprocess.run(
-            ['pgrep', '-f', 'ci-os-hub-desktop'],
-            capture_output=True,
-            text=True,
-            timeout=3
-        )
-        return proc.returncode == 0
-    except Exception:
-        return False
+    for name in LAUNCHER_PROCESS_NAMES:
+        try:
+            proc = subprocess.run(
+                ['pgrep', '-x', name],
+                capture_output=True,
+                text=True,
+                timeout=3
+            )
+            if proc.returncode == 0:
+                return True
+        except Exception:
+            continue
+    return False
 
 
 def get_hub_pairing_state():

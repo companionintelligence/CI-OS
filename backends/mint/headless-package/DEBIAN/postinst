@@ -8,7 +8,9 @@ set -e
 # would hit unrelated processes of the BUILD HOST (libvirt and NetworkManager run dnsmasq too).
 # Enabling units is a plain symlink operation and stays safe everywhere.
 SYSTEMD_RUNNING=0
-[ -d /run/systemd/system ] && SYSTEMD_RUNNING=1
+# ischroot (debianutils) is true inside a chroot even when the build host runs systemd and /run/systemd/system
+# is visible; it is the second line of defence next to build-iso.sh giving the chroot a private /run.
+if [ -d /run/systemd/system ] && ! ischroot 2>/dev/null; then SYSTEMD_RUNNING=1; fi
 
 echo "Setting up headless device configuration..."
 
