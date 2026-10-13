@@ -65,12 +65,16 @@ space to models.
 | Device | ESP | Shared | Boot (A+B) | Cache | Persist |
 |--------|-----|--------|------------|-------|---------|
 | 57 GiB (minimum) | 1 | 4 | 2 × 8 | 27 | ~9 |
-| 128 GB | 1 | 7 | 2 × 11 | 77 | ~12.2 |
+| 128 GB (exactly 128e9 B) | 1 | 7 | 2 × 11 | 77 | ~12.2 |
+| 123.9 GB (the "128 GB" sticks on the desk, 123,942,731,776 B) | 1 | 7 | 2 × 11 | 73 | ~12.4 |
 | 256 GB | 2 | 14 | 2 × 23 | 152 | ~24.4 |
 | 512 GB | 2 | 29 | 2 × 47 | 304 | ~47.8 |
 
 Devices below **57 GiB** are refused. A nominal "64 GB" stick reports 57.5–59.6 GiB,
-depending on the vendor. Run `ci-stick layout plan --size <X>` to get exact numbers.
+depending on the vendor, and a nominal "128 GB" stick can report 3 % less than 128e9 B
+(the sticks used for the first batch report 123,942,731,776 B and get a 73 GiB cache, not
+77). Run `ci-stick layout plan --size <exact bytes>` to get exact numbers; never size model
+packs from the marketing figure.
 
 **Why this shape.**
 
@@ -157,9 +161,23 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
   test enforces this.
 - `digest` stays `null` until a `models lock` step resolves it from the registry. Digests
   are never typed by hand. A release bundle will require every digest to be resolved.
-- Sizes are approximate until they are resolved. `ci-stick models list --device 512GB`
-  shows what fits. Today, all packs together come to ≈ 284 GB, which fits the 512 GB
-  layout's 304 GiB cache.
+- `size_bytes` is the exact byte size the Ollama registry lists (config plus layers), read
+  on a given date; registry tags are mutable, so the digest-pinning `models lock` step is
+  what makes a bundle reproducible. `ci-stick models list --device 512GB` shows what fits.
+  Today, all packs together come to ≈ 320 GB, which fits the 512 GB layout's 304 GiB cache.
+- **128 GB sticks:** the `stick-128` pack (21 ranked models, 74.4 GB) fills the 73 GiB
+  cache of a 123.9 GB stick with 5 % to spare; `stick-128-oci` (19 models, 59.2 GB) keeps
+  15 GiB for OCI images. Why these models, the licences and the rejected list:
+  [model-packs-128gb.md](model-packs-128gb.md).
+- **Cache layout and Ollama.** The cache is an Ollama model store rooted at
+  `<CI-CACHE>/models/` (`blobs/sha256-<hex>`, `manifests/registry.ollama.ai/library/<name>/<tag>`),
+  with OCI images under `<CI-CACHE>/oci/`. A booted Companion OS points Ollama at it
+  (`OLLAMA_MODELS`, `OLLAMA_NOPRUNE=1`) through `ollama-models-env`
+  ([tier-b-tools.md](tier-b-tools.md), section 5). Ollama deletes unreferenced files under
+  `blobs/` at start-up unless `OLLAMA_NOPRUNE` is set, so never put other files there.
+  exFAT has no symlinks or permissions (ownership comes from mount options). When a stick
+  is populated from macOS, copy with `COPYFILE_DISABLE=1` and run `dot_clean`, or the
+  AppleDouble `._*` files inside `manifests/` are read as manifests named `._latest`.
 - Each licence travels with its model. The launcher shows licences before import, and any
   entry marked `unverified` blocks a release.
 
@@ -286,8 +304,13 @@ share it.
 - Secure Boot works through shim for Ubuntu images; see its own limitations under
   [Secure Boot](#secure-boot).
 - `CI-SHARED` and `CI-CACHE` are formatted empty. Populating them (launchers, docs, OCI
-  images and models) is slice 4. exFAT can't be written without root or mounting, so
-  there is no README yet either.
+  images and models) is slice 4; the model half needs a daemon-free `ci-stick models sync`
+  that fetches manifests and blobs from the registry, verifies size and sha256, and writes
+  the manifest last (a prototype was proven against the public registry and a real Ollama
+  daemon; see [model-packs-128gb.md](model-packs-128gb.md), section 5.4). exFAT can't be
+  written without root or mounting, so there is no README yet either.
+- Mass flashing (several sticks at once, intake capacity test, per-stick identity,
+  independent verification) has no tooling yet: [mass-flashing.md](mass-flashing.md).
 - Device writes are Linux-only. On macOS and Windows, `flash --device` and `slot --device`
   say "not supported yet". To use another OS, write an image with `--image` and flash it
   with that OS's tools.
