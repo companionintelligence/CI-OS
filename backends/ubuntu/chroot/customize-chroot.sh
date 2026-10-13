@@ -9,7 +9,7 @@
 # 3. Installs CI-OS packages and branding
 # 4. Configures AMD GPU support (ROCm, drivers)
 # 5. Sets up Plymouth, GRUB themes
-# 6. Configures the installer (whitelabel.yaml)
+# 6. Pre-installs the wireless setup stack, Docker and the CI-Hub tooling (Step 10d)
 #
 # Usage:
 #   ./backends/ubuntu/chroot/customize-chroot.sh <chroot_path> <version>
@@ -62,7 +62,7 @@ echo "[*] Step 1: Updating OS identity..."
 # Setting ID=ci-os here breaks the installer toolchain. Instead, we:
 #  - Keep ubuntu-compatible IDs in os-release / lsb-release (live + initial install)
 #  - Keep the base image's version and codename, so a 26.04 ISO stays resolute
-#  - Brand NAME and PRETTY_NAME as CI-OS (visible in grub, neofetch, etc.)
+#  - Brand NAME and PRETTY_NAME as Companion OS (visible in Settings > About, neofetch, etc.)
 #  - Install a first-boot systemd service that rewrites the IDs to ci-os after
 #    the installer has finished and the system first boots into the desktop.
 
@@ -80,11 +80,11 @@ fi
 echo "[*] Base Ubuntu identity: ${BASE_VERSION_ID} (${BASE_CODENAME})"
 
 cat > "$CHROOT_PATH/etc/os-release" << EOF
-NAME="CI OS"
+NAME="Companion OS"
 VERSION="${BASE_VERSION_ID} LTS (Companion Intelligence ${CI_OS_VERSION})"
 ID=ubuntu
 ID_LIKE=debian
-PRETTY_NAME="CI OS ${CI_OS_VERSION} (Ubuntu ${BASE_CODENAME})"
+PRETTY_NAME="Companion OS ${CI_OS_VERSION}"
 VERSION_ID="${BASE_VERSION_ID}"
 HOME_URL="https://ci.computer"
 SUPPORT_URL="https://ci.computer/support"
@@ -104,7 +104,7 @@ cat > "$CHROOT_PATH/etc/lsb-release" << EOF
 DISTRIB_ID=Ubuntu
 DISTRIB_RELEASE=${BASE_VERSION_ID}
 DISTRIB_CODENAME=${BASE_CODENAME}
-DISTRIB_DESCRIPTION="CI-OS $CI_OS_VERSION"
+DISTRIB_DESCRIPTION="Companion OS $CI_OS_VERSION"
 EOF
 
 # ---------------------------------------------------------------------------
@@ -130,11 +130,11 @@ else
   UBUNTU_CODENAME="$(grep '^UBUNTU_CODENAME=' /etc/os-release | cut -d= -f2 | tr -d '"' || echo noble)"
   UBUNTU_VER="$(grep '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"' || echo 24.04)"
   cat > /etc/os-release << __EOF__
-NAME="CI OS"
+NAME="Companion OS"
 VERSION="${UBUNTU_VER} LTS (Companion Intelligence ${CI_OS_VERSION})"
 ID=ubuntu
 ID_LIKE=debian
-PRETTY_NAME="CI OS ${CI_OS_VERSION} (Ubuntu ${UBUNTU_CODENAME})"
+PRETTY_NAME="Companion OS ${CI_OS_VERSION}"
 VERSION_ID="${UBUNTU_VER}"
 VERSION_CODENAME=${UBUNTU_CODENAME}
 UBUNTU_CODENAME=${UBUNTU_CODENAME}
@@ -188,20 +188,29 @@ ln -sf /usr/lib/systemd/system/ci-os-first-boot-rebrand.service \
 echo "[+] OS identity configured (Ubuntu-compatible IDs for installer, CI-OS rebrand on first boot)"
 
 # Update hostname default
-echo "ci-os" > "$CHROOT_PATH/etc/hostname"
+echo "companion-os" > "$CHROOT_PATH/etc/hostname"
+
+# Live-session identity. casper derives HOST and USERNAME from the first word of /.disk/info at boot (and
+# rewrites casper.conf) unless FLAVOUR is set, which is why a stock live session is always ubuntu@ubuntu.
+# Setting FLAVOUR explicitly turns that off. The live boot reads the copy of this file that lives INSIDE
+# casper/initrd, so build-iso.sh (brand_boot_media) copies this file there.
+cat > "$CHROOT_PATH/etc/casper.conf" << 'EOF'
+# This file should go in /etc/casper.conf
+# Values are used by casper, the live-session boot scripts. A copy is baked into casper/initrd.
+export USERNAME="companion"
+export USERFULLNAME="Companion OS live session"
+export HOST="companion-os"
+# casper keys several decisions off BUILD_SYSTEM; leave it as Ubuntu.
+export BUILD_SYSTEM="Ubuntu"
+# Any non-empty value stops casper deriving HOST and USERNAME from /.disk/info.
+export FLAVOUR="Companion"
+EOF
 
 # Create custom issue banner
 cat > "$CHROOT_PATH/etc/issue" << 'EOF'
 
-   ██████╗██╗      ██████╗ ███████╗
-  ██╔════╝██║     ██╔═══██╗██╔════╝
-  ██║     ██║     ██║   ██║███████╗
-  ██║     ██║     ██║   ██║╚════██║
-  ╚██████╗██║     ╚██████╔╝███████║
-   ╚═════╝╚═╝      ╚═════╝ ╚══════╝
-  
-  Companion Intelligence Operating System
-  https://ci.computer
+  Companion OS
+  Companion Intelligence - https://ci.computer
 
 EOF
 
@@ -307,6 +316,7 @@ if [[ -f "$REPO_ROOT/core/render/inputs/background.png" ]]; then
 elif [[ -f "$REPO_ROOT/assets/wallpapers/ci-os-wallpaper.svg" ]]; then
     copy_to_chroot "$REPO_ROOT/assets/wallpapers/ci-os-wallpaper.svg" "/usr/share/backgrounds/ci-os-wallpaper.svg"
     echo "[+] Wallpaper installed from assets/wallpapers/ci-os-wallpaper.svg"
+    WALLPAPER_EXT="svg"
     # Update dconf to point to the SVG path
     sed -i "s|ci-os-wallpaper.png|ci-os-wallpaper.svg|g" \
         "$CHROOT_PATH/etc/dconf/db/local.d/01-ci-os-wallpaper" || true
@@ -365,6 +375,59 @@ cat > "$CHROOT_PATH/etc/dconf/db/gdm.d/locks/01-ci-os-login" << 'EOF'
 /org/gnome/login-screen/logo
 EOF
 
+# ── Make the wallpaper actually apply ─────────────────────────────────────
+# Without /etc/dconf/profile/user, dconf reads ONLY the user's own database, so the system "local" database
+# written above is ignored, and Ubuntu's 10_ubuntu-settings.gschema.override (the Ubuntu wallpaper) wins.
+mkdir -p "$CHROOT_PATH/etc/dconf/profile"
+cat > "$CHROOT_PATH/etc/dconf/profile/user" << 'EOF'
+user-db:user
+system-db:local
+EOF
+
+# Belt and braces: override the schema default itself. Sorts after Ubuntu's 10_ override, applies to every
+# session type, and does not depend on the dconf profile.
+cat > "$CHROOT_PATH/usr/share/glib-2.0/schemas/90_companion-os.gschema.override" << 'EOF'
+[org.gnome.desktop.background]
+picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+picture-uri-dark='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+picture-options='zoom'
+
+[org.gnome.desktop.screensaver]
+picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
+picture-options='zoom'
+EOF
+
+# The SVG fallback above rewrote a file that did not exist yet; apply the extension to what was written.
+if [[ "${WALLPAPER_EXT:-png}" != "png" ]]; then
+    sed -i "s|ci-os-wallpaper\.png|ci-os-wallpaper.${WALLPAPER_EXT}|g" \
+        "$CHROOT_PATH/etc/dconf/db/local.d/01-ci-os-wallpaper" \
+        "$CHROOT_PATH/etc/dconf/db/gdm.d/01-ci-os-login" \
+        "$CHROOT_PATH/usr/share/glib-2.0/schemas/90_companion-os.gschema.override"
+fi
+
+# Settings > Background should offer ours, not Ubuntu's collections. dpkg-divert so a package upgrade does
+# not bring them back.
+for xml in ubuntu-wallpapers.xml noble-wallpapers.xml resolute-wallpapers.xml; do
+    if [[ -f "$CHROOT_PATH/usr/share/gnome-background-properties/$xml" ]]; then
+        chroot_exec "dpkg-divert --local --rename --divert /usr/share/gnome-background-properties/$xml.disabled --add /usr/share/gnome-background-properties/$xml" || true
+    fi
+done
+cat > "$CHROOT_PATH/usr/share/gnome-background-properties/ci-os-wallpapers.xml" << EOF
+<?xml version="1.0"?>
+<!DOCTYPE wallpapers SYSTEM "gnome-wp-list.dtd">
+<wallpapers>
+  <wallpaper deleted="false">
+    <name>Companion OS</name>
+    <filename>/usr/share/backgrounds/ci-os-wallpaper.${WALLPAPER_EXT:-png}</filename>
+    <options>zoom</options>
+    <pcolor>${CI_LIGHT_PRIMARY}</pcolor>
+    <scolor>${CI_LIGHT_PRIMARY}</scolor>
+    <shade_type>solid</shade_type>
+  </wallpaper>
+</wallpapers>
+EOF
+chroot_exec "glib-compile-schemas /usr/share/glib-2.0/schemas" || echo "[WARN] glib-compile-schemas failed"
+
 # Update dconf database (compiles local + gdm databases)
 chroot_exec "dconf update" || true
 
@@ -383,7 +446,7 @@ source "$REPO_ROOT/core/lib/grub-merge.sh"
 # ci_grub_merge_key so they never clobber other keys already in this file.
 sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' "$CHROOT_PATH/etc/default/grub" || true
 
-ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_DISTRIBUTOR "CI OS"
+ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_DISTRIBUTOR "Companion OS"
 ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_GFXMODE "auto"
 ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT_STYLE "menu"
 ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT "5"
@@ -430,6 +493,21 @@ mkdir -p "$STAGE/backends/ubuntu/desktop-theme" "$STAGE/core/lib" \
 cp "$REPO_ROOT/backends/ubuntu/desktop-theme/10-plymouth.sh" "$STAGE/backends/ubuntu/desktop-theme/"
 cp "$REPO_ROOT/core/lib/theme-lib.sh" "$STAGE/core/lib/"
 cp "$REPO_ROOT/core/render/inputs/Logo_Banner_Color.png" "$STAGE/core/render/inputs/"
+
+# The stock desktop image has no ImageMagick, so 10-plymouth.sh cannot do its 50% watermark scaling inside the
+# chroot and would copy the full-size banner (1024 px wide, about four times Ubuntu's own splash logo).
+# Pre-scale on the build host instead. Skipped if the chroot does have ImageMagick, so it is never scaled twice.
+if ! chroot "$CHROOT_PATH" /bin/sh -c 'command -v convert || command -v magick' >/dev/null 2>&1; then
+    _wm="$STAGE/core/render/inputs/Logo_Banner_Color.png"
+    if command -v convert >/dev/null 2>&1; then
+        convert "$_wm" -resize 50% "$_wm"
+    elif command -v magick >/dev/null 2>&1; then
+        magick "$_wm" -resize 50% "$_wm"
+    else
+        echo "[WARN] ImageMagick is not installed on the build host: the Plymouth watermark will be full size"
+        echo "[WARN] (apt-get install imagemagick). verify-iso.sh flags this."
+    fi
+fi
 cp "$REPO_ROOT/vendor/brand/tokens/tokens.sh" "$STAGE/vendor/brand/tokens/"
 
 chroot_exec "bash /tmp/ci-brand/backends/ubuntu/desktop-theme/10-plymouth.sh"
@@ -490,108 +568,38 @@ chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm"
 echo "[+] AMD GPU support configured (ROCm available via ci-os-install-rocm)"
 
 #=============================================================================
-# 7. Configure Installer (Ubuntu Desktop Installer Whitelabel)
+# 7. Installer
 #=============================================================================
-echo "[*] Step 7: Configuring installer..."
-
-mkdir -p "$CHROOT_PATH/usr/share/desktop-provision"
-
-# Create whitelabel configuration
-cat > "$CHROOT_PATH/usr/share/desktop-provision/whitelabel.yaml" << 'EOF'
-# CI-OS Installer Whitelabel Configuration
-app:
-  name: "Companion Intelligence Installer"
-  
-theme:
-  primary_color: "#066c80"    # Primary Dark Green
-  accent_color: "#00a9a7"     # Medium Green
-  
-pages:
-  try_install:
-    visible: true
-  telemetry:
-    visible: false            # Disable telemetry opt-in page
-  
-mode: normal                  # Use 'oem' for OEM mode (GNOME Initial Setup on first boot)
-EOF
-
-# Colors only — source from the canon, not the retired logo-ramp literals.
-# The heredoc above stays single-quoted (no other $ references to worry
-# about breaking); substitute after the fact instead, matching the pattern
-# already used elsewhere in this file (see the wallpaper dconf rewrite above).
-sed -i "s/#066c80/${CI_LIGHT_PRIMARY}/g; s/#00a9a7/${CI_DARK_PRIMARY}/g" \
-    "$CHROOT_PATH/usr/share/desktop-provision/whitelabel.yaml"
-
-# Create custom installer slides directory
-mkdir -p "$CHROOT_PATH/usr/share/desktop-provision/slides"
-
-cat > "$CHROOT_PATH/usr/share/desktop-provision/slides/index.html" << 'EOF'
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background: linear-gradient(135deg, #066c80 0%, #00a9a7 100%);
-            color: white;
-            margin: 0;
-            padding: 40px;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
-        }
-        h1 {
-            font-size: 3em;
-            margin-bottom: 20px;
-        }
-        p {
-            font-size: 1.5em;
-            max-width: 600px;
-            text-align: center;
-            line-height: 1.6;
-        }
-    </style>
-</head>
-<body>
-    <h1>🚀 Uncloud Modern Life</h1>
-    <p>Welcome to CI-OS — your sovereign computing platform with no ads, no surveillance, and seamless AMD AI hardware integration.</p>
-</body>
-</html>
-EOF
-
-# Colors only, same canon substitution as whitelabel.yaml above — font stack
-# is intentionally untouched.
-sed -i "s/#066c80/${CI_LIGHT_PRIMARY}/g; s/#00a9a7/${CI_DARK_PRIMARY}/g" \
-    "$CHROOT_PATH/usr/share/desktop-provision/slides/index.html"
-
-echo "[+] Installer configured"
+# Nothing to configure, on purpose. The 24.04 installer is Canonical's ubuntu-desktop-bootstrap snap
+# (Flutter UI + Subiquity). Its FlavorService only accepts Ubuntu, Kubuntu, Lubuntu, Xubuntu and Edubuntu, so
+# the window cannot be given another name or palette from the image. The whitelabel.yaml and slideshow this
+# step used to write under /usr/share/desktop-provision were never read by it.
+# What the image CAN control is the launcher label ("Install Companion OS ..."), which casper derives from
+# /.disk/info at boot: see brand_boot_media in backends/ubuntu/iso/scripts/build-iso.sh. Rebranding the
+# installer window itself would mean shipping a modified installer snap.
+echo "[*] Step 7: Installer: nothing to configure (launcher label comes from /.disk/info)"
 
 #=============================================================================
 # 8. Create CI-OS MOTD
 #=============================================================================
-echo "[*] Step 8: Creating CI-OS MOTD..."
+echo "[*] Step 8: Creating Companion OS MOTD..."
 
 cat > "$CHROOT_PATH/etc/update-motd.d/00-ci-os-header" << 'EOF'
 #!/bin/sh
 cat << 'MOTD'
 
-   ██████╗██╗      ██████╗ ███████╗
-  ██╔════╝██║     ██╔═══██╗██╔════╝
-  ██║     ██║     ██║   ██║███████╗
-  ██║     ██║     ██║   ██║╚════██║
-  ╚██████╗██║     ╚██████╔╝███████║
-   ╚═════╝╚═╝      ╚═════╝ ╚══════╝
-  
-  Companion Intelligence Operating System
-  https://ci.computer
+  Companion OS
+  Companion Intelligence - https://ci.computer
 
 MOTD
 EOF
 
 chmod +x "$CHROOT_PATH/etc/update-motd.d/00-ci-os-header"
+
+# Ubuntu's own welcome line and the Ubuntu Pro advert. (50-motd-news and 10-help-text are handled in Step 2.)
+for _motd in 00-header 91-contract-ua-esm-status; do
+    [[ -e "$CHROOT_PATH/etc/update-motd.d/$_motd" ]] && chmod -x "$CHROOT_PATH/etc/update-motd.d/$_motd"
+done
 
 echo "[+] MOTD created"
 
@@ -608,7 +616,7 @@ cat > "$CHROOT_PATH/usr/local/bin/ci-os-info" << 'EOF'
 #=============================================================================
 
 echo "======================================"
-echo "  CI-OS System Information"
+echo "  Companion OS System Information"
 echo "======================================"
 echo
 
@@ -719,6 +727,104 @@ chroot_exec "/tmp/install-dev-packages.sh"
 rm -f "$CHROOT_PATH/tmp/install-dev-packages.sh"
 
 echo "[+] Development packages pre-installed"
+
+#=============================================================================
+# 10d. Pre-install the wireless setup stack, Docker and the CI-Hub tooling
+#=============================================================================
+echo "[*] Step 10d: Pre-installing wireless setup stack, Docker and CI-Hub tooling..."
+
+# Why this lives in the image and not at first boot: a freshly installed appliance has no network until the
+# wireless setup portal has run, so the tools that bring it online, and the Docker engine the Hub runs on,
+# have to be there already.
+# Stays at first boot on purpose (core/manifest/ecosystem.yaml, ci_hub): the CI-Hub container image itself
+# (registry credentials and device pairing), model pulls, and per-user developer tools.
+
+# 1. Build the setup-device package without touching the build host or the repo tree.
+SETUP_DEB_DIR="$(mktemp -d)"
+if ! SETUP_DEVICE_OUTPUT_DIR="$SETUP_DEB_DIR" \
+     SETUP_DEVICE_PKGROOT="$SETUP_DEB_DIR/pkgroot" \
+     SETUP_DEVICE_SKIP_BUILD_DEPS=1 \
+     "$REPO_ROOT/backends/ubuntu/headless-package/build.sh" > "$SETUP_DEB_DIR/build.log" 2>&1; then
+    cat "$SETUP_DEB_DIR/build.log" >&2
+    echo "[ERROR] setup-device package build failed" >&2
+    exit 1
+fi
+SETUP_DEB="$(find "$SETUP_DEB_DIR" -maxdepth 1 -name 'setup-device_*.deb' | head -1)"
+[[ -f "$SETUP_DEB" ]] || { echo "[ERROR] setup-device .deb was not produced" >&2; exit 1; }
+install -m 644 "$SETUP_DEB" "$CHROOT_PATH/tmp/setup-device.deb"
+rm -rf "$SETUP_DEB_DIR"
+
+# 2. Install inside the chroot. policy-rc.d keeps maintainer scripts from starting daemons here (the
+# setup-device scripts also skip all service management when systemd is not running).
+cat > "$CHROOT_PATH/usr/sbin/policy-rc.d" << 'EOF'
+#!/bin/sh
+exit 101
+EOF
+chmod 755 "$CHROOT_PATH/usr/sbin/policy-rc.d"
+
+cat > "$CHROOT_PATH/tmp/preinstall-hub-wireless.sh" << 'EOSCRIPT'
+#!/bin/bash
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+# curl and iw are not in the stock desktop image; ci-hub.sh and the hotspot scripts need them.
+apt-get install -y --no-install-recommends curl iw ca-certificates gnupg
+
+# Docker Engine + Compose from Docker's apt repository: the same source as core/manifest/role-map/apt.yaml
+# and provision.sh install_docker, so first boot finds Docker already installed and skips it. The signing
+# key is pinned by fingerprint.
+DOCKER_KEY_FPR="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+got_fpr="$(gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc | awk -F: '/^fpr:/ {print $10; exit}')"
+if [ "$got_fpr" != "$DOCKER_KEY_FPR" ]; then
+    echo "Docker apt key fingerprint mismatch (got $got_fpr)" >&2
+    exit 1
+fi
+chmod a+r /etc/apt/keyrings/docker.asc
+cat > /etc/apt/sources.list.d/docker.sources << EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+apt-get update
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Wireless setup stack. The package's Depends (hostapd, dnsmasq, nginx-light, python3-flask, gunicorn,
+# network-manager) are pulled in by apt.
+apt-get install -y /tmp/setup-device.deb
+
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+EOSCRIPT
+chmod +x "$CHROOT_PATH/tmp/preinstall-hub-wireless.sh"
+chroot_exec "/tmp/preinstall-hub-wireless.sh"
+rm -f "$CHROOT_PATH/tmp/preinstall-hub-wireless.sh" "$CHROOT_PATH/tmp/setup-device.deb" \
+      "$CHROOT_PATH/usr/sbin/policy-rc.d"
+
+# 3. Service layout. The setup-mode units were enabled by the package. The distro dnsmasq.service must stay
+# off (it fights systemd-resolved for port 53; only dnsmasq-setup.service should run), Docker is on.
+chroot_exec "systemctl disable dnsmasq.service" || true
+chroot_exec "systemctl enable docker.service containerd.service"
+
+# 4. Live-session guard. These units belong to an installed appliance: in a live session they must not
+# take over Wi-Fi, bind ports 53/80 or run a hotspot. /cdrom/casper/vmlinuz is the live-session test the
+# first-boot units already use: casper does not always put boot=casper on the kernel command line, but the
+# live medium is always mounted at /cdrom.
+for _unit in hostapd-setup.service dnsmasq-setup.service setup-backend.service \
+             setup-network-monitor.service nginx.service; do
+    mkdir -p "$CHROOT_PATH/etc/systemd/system/${_unit}.d"
+    cat > "$CHROOT_PATH/etc/systemd/system/${_unit}.d/10-not-live.conf" << 'EOF'
+[Unit]
+# Companion OS: wireless setup mode is for the installed appliance, never a live session.
+ConditionPathExists=!/cdrom/casper/vmlinuz
+EOF
+done
+
+echo "[+] Wireless setup stack, Docker and CI-Hub tooling pre-installed"
 
 #=============================================================================
 # 10c. Include Bootstrap Scripts & First-Boot Setup Service

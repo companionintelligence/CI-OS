@@ -79,7 +79,7 @@ check_dependencies() {
     log_info "Checking dependencies..."
     local missing=()
     
-    for cmd in debootstrap mksquashfs unsquashfs xorriso rsync gpg glib-compile-resources gresource; do
+    for cmd in debootstrap mksquashfs unsquashfs xorriso rsync gpg glib-compile-resources gresource cpio zstd; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
         fi
@@ -87,7 +87,7 @@ check_dependencies() {
     
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing required commands: ${missing[*]}"
-        log_info "Install with: apt-get install debootstrap squashfs-tools xorriso rsync gpg libglib2.0-bin libglib2.0-dev-bin"
+        log_info "Install with: apt-get install debootstrap squashfs-tools xorriso rsync gpg libglib2.0-bin libglib2.0-dev-bin cpio zstd"
         exit 1
     fi
     
@@ -506,6 +506,60 @@ ISYAML
 }
 
 # Generate ISO
+# Rebrand the parts of the live boot that are NOT in the root filesystem.
+#
+#  1. casper/initrd is copied verbatim from the base ISO, and the live session's Plymouth splash (the Ubuntu
+#     logo) and casper.conf (live user and host name "ubuntu") live inside it. Appending a small compressed
+#     cpio overlay replaces exactly those files without unpacking and repacking the whole initrd: the
+#     kernel unpacks concatenated archives in order and later files win.
+#  2. /.disk/info decides the launcher label ("Install ...") and, unless casper.conf sets FLAVOUR, the live
+#     user and host name. Keep its field layout: casper reads field 1 (flavour), fields 1-3 (launcher label),
+#     subiquity reads field 2 (release) and pollinate wants the trailing "(serial)".
+#
+# The ISO volume id is deliberately NOT touched: the signed EFI GRUB searches for it (see generate_iso).
+brand_boot_media() {
+    log_info "Rebranding live boot media (initrd splash + live identity, .disk/info)..."
+    local custom="$WORK_DIR/custom-iso"
+    local initrd="$custom/casper/initrd"
+    local watermark="$WORK_DIR/chroot/usr/share/plymouth/themes/spinner/watermark.png"
+    local casper_conf="$WORK_DIR/chroot/etc/casper.conf"
+
+    if [[ ! -f "$initrd" ]]; then
+        log_error "casper/initrd not found at $initrd"; return 1
+    fi
+    if [[ ! -f "$watermark" || ! -f "$casper_conf" ]]; then
+        log_error "branded watermark or casper.conf missing from the chroot (Step 5 / Step 1 did not run?)"; return 1
+    fi
+
+    local ov="$WORK_DIR/initrd-overlay"
+    rm -rf "$ov"
+    mkdir -p "$ov/usr/share/plymouth/themes/spinner" "$ov/etc"
+    install -m 644 "$watermark" "$ov/usr/share/plymouth/themes/spinner/watermark.png"
+    install -m 644 "$watermark" "$ov/usr/share/plymouth/ubuntu-logo.png"
+    install -m 644 "$casper_conf" "$ov/etc/casper.conf"
+
+    ( cd "$ov" && find . -mindepth 1 | LC_ALL=C sort | cpio --quiet -o -H newc -R 0:0 ) \
+        | zstd -q -19 -T0 > "$WORK_DIR/initrd-overlay.cpio.zst"
+    chmod u+w "$initrd"
+    # Pad to a 4-byte boundary (the kernel skips NUL padding between archives), then append.
+    local size pad
+    size="$(stat -c%s "$initrd")"
+    pad=$(( (4 - size % 4) % 4 ))
+    if (( pad > 0 )); then head -c "$pad" /dev/zero >> "$initrd"; fi
+    cat "$WORK_DIR/initrd-overlay.cpio.zst" >> "$initrd"
+    log_info "initrd overlay appended ($(stat -c%s "$WORK_DIR/initrd-overlay.cpio.zst") bytes)"
+
+    local info="$custom/.disk/info"
+    if [[ -f "$info" ]]; then
+        chmod u+w "$custom/.disk" "$info" 2>/dev/null || true
+        cp "$info" "$info.orig"
+        # "Ubuntu 24.04.5 LTS "Noble Numbat" - Release amd64 (date)" -> "Companion-OS 24.04.5 LTS ...":
+        # the hyphen keeps field 1 a single word (FLAVOUR) and becomes a space in the launcher label.
+        sed -i '1s/^Ubuntu\b/Companion-OS/' "$info"
+        log_info ".disk/info: $(tr -d '\n' < "$info")"
+    fi
+}
+
 generate_iso() {
     log_info "Generating CI-OS ISO..."
     
@@ -540,20 +594,20 @@ generate_iso() {
         log_info "Editing GRUB configuration (display text only)..."
         cp "$grub_cfg" "$grub_cfg.orig"
         sed -i \
-            -e 's/\(menuentry "\)Try or Install Ubuntu/\1Try or Install CI-OS/' \
-            -e 's/\(menuentry "\)Ubuntu (safe graphics)/\1CI-OS (safe graphics)/' \
-            -e 's/\(menuentry[[:space:]]*"\)Ubuntu\b/\1CI-OS/' \
+            -e 's/\(menuentry "\)Try or Install Ubuntu/\1Try or Install Companion OS/' \
+            -e 's/\(menuentry "\)Ubuntu (safe graphics)/\1Companion OS (safe graphics)/' \
+            -e 's/\(menuentry[[:space:]]*"\)Ubuntu\b/\1Companion OS/' \
             "$grub_cfg"
-        log_info "GRUB menuentry titles updated to CI-OS"
+        log_info "GRUB menuentry titles updated to Companion OS"
     fi
 
     # Also edit loopback.cfg if present (used for booting ISO from GRUB)
     local loopback_cfg="$WORK_DIR/custom-iso/boot/grub/loopback.cfg"
     if [[ -f "$loopback_cfg" ]]; then
         sed -i \
-            -e 's/\(menuentry "\)Try or Install Ubuntu/\1Try or Install CI-OS/' \
-            -e 's/\(menuentry "\)Ubuntu (safe graphics)/\1CI-OS (safe graphics)/' \
-            -e 's/\(menuentry[[:space:]]*"\)Ubuntu\b/\1CI-OS/' \
+            -e 's/\(menuentry "\)Try or Install Ubuntu/\1Try or Install Companion OS/' \
+            -e 's/\(menuentry "\)Ubuntu (safe graphics)/\1Companion OS (safe graphics)/' \
+            -e 's/\(menuentry[[:space:]]*"\)Ubuntu\b/\1Companion OS/' \
             "$loopback_cfg"
     fi
 
@@ -571,6 +625,7 @@ generate_iso() {
         -map "$grub_cfg" /boot/grub/grub.cfg
     )
     [[ -f "$loopback_cfg" ]] && xorriso_maps+=(-map "$loopback_cfg" /boot/grub/loopback.cfg)
+    [[ -f "$WORK_DIR/custom-iso/.disk/info" ]] && xorriso_maps+=(-map "$WORK_DIR/custom-iso/.disk/info" /.disk/info)
 
     xorriso \
         -indev "$BASE_ISO" \
@@ -657,6 +712,7 @@ main() {
     
     # Finalize
     repack_squashfs
+    brand_boot_media
     generate_iso
     
     log_info "Build complete!"

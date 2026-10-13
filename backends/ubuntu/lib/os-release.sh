@@ -184,11 +184,11 @@ ci_os_write_branded_os_release() {
   ubuntu_codename="$(ci_os_ubuntu_codename)"
 
   cat >"$os_path" <<EOF
-NAME="CI OS"
+NAME="Companion OS"
 VERSION="${ubuntu_ver} LTS (Companion Intelligence ${ci_version})"
 ID=ubuntu
 ID_LIKE=debian
-PRETTY_NAME="CI OS ${ci_version} (Ubuntu ${ubuntu_codename})"
+PRETTY_NAME="Companion OS ${ci_version}"
 VERSION_ID="${ubuntu_ver}"
 VERSION_CODENAME=${ubuntu_codename}
 UBUNTU_CODENAME=${ubuntu_codename}
@@ -200,12 +200,14 @@ BUG_REPORT_URL="https://ci.computer/bugs"
 PRIVACY_POLICY_URL="https://ci.computer/privacy"
 LOGO=ci-os-logo
 
-# CI OS — Companion Intelligence Operating System
+# Companion OS — Companion Intelligence
 # Machine identity stays Ubuntu-compatible for apt, Docker, and AMDGPU/ROCm installers.
 EOF
   chmod 644 "$os_path"
 }
 
+# DISTRIB_ID stays Ubuntu: unattended-upgrades matches its allowed origins on ${distro_id} (which comes
+# from this field), so any other value silently stops automatic security updates.
 ci_os_write_branded_lsb_release() {
   local lsb_path="${1:-/etc/lsb-release}"
   local ci_version ubuntu_ver ubuntu_codename
@@ -214,10 +216,10 @@ ci_os_write_branded_lsb_release() {
   ubuntu_codename="$(ci_os_ubuntu_codename)"
 
   cat >"$lsb_path" <<EOF
-DISTRIB_ID=CI-OS
+DISTRIB_ID=Ubuntu
 DISTRIB_RELEASE=${ubuntu_ver}
 DISTRIB_CODENAME=${ubuntu_codename}
-DISTRIB_DESCRIPTION="CI OS ${ci_version} (Ubuntu ${ubuntu_ver} ${ubuntu_codename})"
+DISTRIB_DESCRIPTION="Companion OS ${ci_version}"
 EOF
   chmod 644 "$lsb_path"
 }
