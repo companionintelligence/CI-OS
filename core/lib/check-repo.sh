@@ -1,14 +1,28 @@
 #!/usr/bin/env bash
 # Fast repo checks, run on every PR (.github/workflows/pr-checks.yml) and before any push.
-# Needs: bash, shellcheck, python3, yamllint. Exits non-zero on the first failing category.
+# Needs: bash 3.2+ (so it runs on a stock macOS too), git, shellcheck, python3, yamllint.
+# Runs every category and exits non-zero if any of them failed.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT"
 rc=0
 
+missing=()
+for tool in git shellcheck python3 yamllint; do
+  command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+done
+if [ ${#missing[@]} -gt 0 ]; then
+  echo "✖ missing tools: ${missing[*]}" >&2
+  echo "  macOS:         brew install shellcheck yamllint" >&2
+  echo "  Debian/Ubuntu: sudo apt-get install shellcheck yamllint python3" >&2
+  exit 2
+fi
+
 # Shell sources: *.sh plus extensionless maintainer scripts and payload bins with a shell shebang.
 # vendor/ is generated (vendor-brand.sh) and linted upstream.
-mapfile -t SH < <(
+# (Arrays are filled with read loops, not mapfile: macOS ships bash 3.2, which has no mapfile.)
+SH=()
+while IFS= read -r f; do SH+=("$f"); done < <(
   { git ls-files '*.sh'
     git ls-files | grep -E '(^|/)DEBIAN/(preinst|postinst|prerm|postrm)$'
     git ls-files 'core/headless/payload/usr/local/bin/*' | while read -r f; do
@@ -22,14 +36,30 @@ echo "── shellcheck -S error"
 LC_ALL=C.UTF-8 shellcheck -x -S error "${SH[@]}" || rc=1
 
 echo "── python3 py_compile"
-mapfile -t PY < <(git ls-files '*.py')
+PY=()
+while IFS= read -r f; do PY+=("$f"); done < <(git ls-files '*.py')
 if [ ${#PY[@]} -gt 0 ]; then
   PYTHONPYCACHEPREFIX="$(mktemp -d)" python3 -m py_compile "${PY[@]}" || rc=1
 fi
 
 echo "── yamllint (relaxed)"
-mapfile -t YML < <(git ls-files '*.yml' '*.yaml')
+YML=()
+while IFS= read -r f; do YML+=("$f"); done < <(git ls-files '*.yml' '*.yaml')
 yamllint -d relaxed --no-warnings "${YML[@]}" || rc=1
+
+echo "── shebang files are executable"
+# A file that starts with #! but is stored as mode 100644 fails with "Permission denied" when
+# run as ./script. Fix with `chmod +x` (git records it), or drop the shebang if it is only
+# ever sourced. vendor/ is generated.
+noexec=""
+while IFS=$' \t' read -r mode _ _ f; do
+  [ "$mode" = 100644 ] || continue
+  case "$f" in vendor/*) continue ;; esac
+  if [ -f "$f" ] && head -c 2 "$f" | grep -q '^#!'; then noexec="$noexec$f"$'\n'; fi
+done < <(git ls-files -s)
+if [ -n "$noexec" ]; then
+  echo "✖ these files start with #! but are not executable (chmod +x):"; printf '%s' "$noexec"; rc=1
+fi
 
 echo "── no committed build artifacts"
 # .gitignore already excludes these; this catches force-adds and old branches that predate it.
