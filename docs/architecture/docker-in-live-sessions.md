@@ -272,11 +272,11 @@ TimeoutStartSec=60
 [Unit]
 # No-op on an installed system (the storage unit's ConditionPathExists skips it). In a live session it puts
 # /var/lib/docker and /var/lib/containerd on a filesystem overlayfs can use before the daemons start.
-Wants=ci-os-live-container-storage.service
+Requires=ci-os-live-container-storage.service
 After=ci-os-live-container-storage.service
 ```
 
-`Wants=` (not `Requires=`) so a storage failure still lets Docker try and fail visibly. The drop-in file names must never be `10-not-live.conf`, so they cannot collide with a future guard.
+`Requires=` (a skipped unit, as on an installed system, satisfies it): if the storage unit fails, Docker must not start on the live overlayfs, where it appears to run and then fails on the first pull or run. The unit's start timeout is 300 s (it was 60 s; see "Test results"). The drop-in file names must never be `10-not-live.conf`, so they cannot collide with a future guard.
 
 Wiring into `customize-chroot.sh` Step 10d (after `systemctl enable docker...`): put the five files above under `backends/ubuntu/chroot/files/docker-live/` and `install -D -m 755 / 644` them into `$CHROOT_PATH`, then `chroot_exec "systemctl enable ci-os-docker-group.service"` (a `WantedBy` symlink; the storage unit needs no enable, it is pulled in by the drop-ins). `Mint` shares the casper boot flow and can reuse the same files.
 
@@ -311,7 +311,7 @@ for u in docker.service docker.socket containerd.service; do
 done
 for u in docker containerd; do
  f="$R/etc/systemd/system/$u.service.d/20-ci-os-live.conf"
- if file_has "$f" '^Wants=ci-os-live-container-storage\.service$' && file_has "$f" '^After=ci-os-live-container-storage\.service$'; then
+ if file_has "$f" '^Requires=ci-os-live-container-storage\.service$' && file_has "$f" '^After=ci-os-live-container-storage\.service$'; then
  pass "$u waits for the live storage unit"
  else fail "$u has no 20-ci-os-live.conf ordering on the live storage unit"; fi
 done
@@ -376,3 +376,12 @@ Expected pass table for the three modes:
 ## 9. What I could not verify (see `unverified`)
 
 Nothing in this stream was run on a built Companion OS ISO, a real casper boot or a real Stick; the live-session facts come from the Launchpad casper/user-setup/adduser sources, Subiquity tags, container tests that reproduce the user-setup and storage logic, and a nested-overlay test on a non-Ubuntu kernel.
+
+## 10. Test results (QEMU, TCG on an Apple-silicon Mac, ISO built from commit 3a3ead3)
+
+| Test | Result |
+|---|---|
+| Plain ISO live, `docker-live.sh iso` | **PASS**: `docker` in the live user's groups, daemon active, data root on tmpfs, containerd snapshotter `overlayfs` works, `hello-world` loaded and run offline as the unprivileged user |
+| Stick live (123,942,731,776-byte image), boot 1 | **PASS**: data root on ext4 (`CI-PERSIST`), marker `persist`, same offline `hello-world` run |
+| Stick live, boot 2 (persistence) | **FAIL, fixed in the next build**: `ci-os-live-container-storage.service` hit its 60 s start timeout (it had used the same ~15 s of CPU as in boot 1, but took 57 s of wall time while a 7.9 GB ISO build was running on the same Mac, after an ext4 journal replay from the previous boot's power-off). Docker then started on the overlayfs and the persisted image was not found. Fix: `TimeoutStartSec=300` and `Requires=` instead of `Wants=`. **Re-run on an idle machine after the next ISO build** |
+| Installed system | not run |

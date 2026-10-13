@@ -173,7 +173,7 @@ for u in docker.service docker.socket containerd.service; do
 done
 for u in docker containerd; do
     f="$R/etc/systemd/system/$u.service.d/20-ci-os-live.conf"
-    if file_has "$f" '^Wants=ci-os-live-container-storage\.service$' && file_has "$f" '^After=ci-os-live-container-storage\.service$'; then
+    if file_has "$f" '^Requires=ci-os-live-container-storage\.service$' && file_has "$f" '^After=ci-os-live-container-storage\.service$'; then
         pass "$u waits for the live storage unit"
     else fail "$u has no 20-ci-os-live.conf ordering on the live storage unit"; fi
 done

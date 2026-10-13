@@ -11,4 +11,6 @@ Type=oneshot
 RemainAfterExit=yes
 ExecStart=/usr/lib/ci-os/ci-os-live-container-storage start
 ExecStop=/usr/lib/ci-os/ci-os-live-container-storage stop
-TimeoutStartSec=60
+# Slow media: a persistence volume needing a journal replay on a USB 2 link, or an emulated CPU, took
+# almost a minute in testing. A real hang is bounded by this.
+TimeoutStartSec=300
