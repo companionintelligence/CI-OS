@@ -632,7 +632,7 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   │   ├── provision/             # B: provision.sh, bootstrap-ci-os.sh, install-models.sh
 │   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Plymouth/GRUB/wallpaper/etc. steps
 │   │   ├── lib/                   # apt-specific helpers (os-release, ROCm, telemetry removal, ...)
-│   │   ├── packages/              # .deb sources: ci-os-branding, companion-os-base/keyring, ...
+│   │   ├── packages/              # .deb sources: ci-os-branding (GNOME Shell branding)
 │   │   └── headless-package/      # D: build.sh, DEBIAN/ control scripts, netplan (apt packaging only)
 │   ├── mint/                     # Phase 2 — apt/dpkg + Bash, no ISO mode
 │   │   ├── provision/             # B: thin wrapper around backends/ubuntu/provision/provision.sh

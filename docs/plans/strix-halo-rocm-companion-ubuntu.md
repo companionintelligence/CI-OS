@@ -31,13 +31,13 @@ flowchart TD
 
 ## Code changes
 
-### 1. Primary: [`scripts/install-rocm-driver.sh`](ci-os/scripts/install-rocm-driver.sh)
+### 1. Primary: [`scripts/install-rocm-driver.sh`](../../backends/ubuntu/lib/install-rocm-driver.sh)
 
 - Bump fallback to **7.2.4**:
   - `FALLBACK_AMDGPU_LINE="7.2.4"`
   - `FALLBACK_AMDGPU_DEB="amdgpu-install_7.2.4.70204-1_all.deb"`
 - Fix discovery so it only considers **ROCm 7.x** installer lines (href matching `7.*`), newest first — never 30.x/31.x graphics lines.
-- Source [`scripts/lib/gpu-detect.sh`](ci-os/scripts/lib/gpu-detect.sh) early.
+- Source [`scripts/lib/gpu-detect.sh`](../../core/lib/gpu-detect.sh) early.
 - **Strix Halo / Ryzen AI Max path** (when `is_strix_halo_from_system` or equivalent matches):
   - Run `amdgpu-install -y --usecase=rocm --no-dkms`
   - Do **not** require or install `amdgpu-dkms` for “already satisfied”
@@ -48,13 +48,13 @@ flowchart TD
 
 ### 2. Docs / messaging (light)
 
-- [`README.md`](ci-os/README.md): clarify Companion Ubuntu scripting (not a proper OS); ROCm helper targets **7.2.4** + Strix Halo `--no-dkms`.
-- [`docs/guides/quick-start-guide.md`](ci-os/docs/guides/quick-start-guide.md) / [`docs/guides/installation-guide.md`](ci-os/docs/guides/installation-guide.md): same version + Strix Halo note if they already mention ROCm.
-- Workflow release blurb in [`.github/workflows/build-companion-os-iso.yml`](.github/workflows/build-companion-os-iso.yml): `ROCm 7.2+` → `ROCm 7.2.4` (ISO remains secondary).
+- [`README.md`](../../README.md): clarify Companion Ubuntu scripting (not a proper OS); ROCm helper targets **7.2.4** + Strix Halo `--no-dkms`.
+- [`docs/guides/quick-start-guide.md`](../guides/quick-start-guide.md) / [`docs/guides/installation-guide.md`](../guides/installation-guide.md): same version + Strix Halo note if they already mention ROCm.
+- Workflow release blurb in [`.github/workflows/build-companion-os-iso.yml`](../../.github/workflows/build-companion-os-iso.yml): `ROCm 7.2+` → `ROCm 7.2.4` (ISO remains secondary).
 
 ### 3. Leave alone unless needed
 
-- [`scripts/lib/strix-halo-boot-params.sh`](ci-os/scripts/lib/strix-halo-boot-params.sh) — already correct; keep as post-ROCm hook.
+- [`scripts/lib/strix-halo-boot-params.sh`](../../backends/ubuntu/lib/strix-halo-boot-params.sh) — already correct; keep as post-ROCm hook.
 - ISO chroot (`customize-chroot.sh`) — only ships the helper; no ISO rebuild work.
 
 ## Out of scope

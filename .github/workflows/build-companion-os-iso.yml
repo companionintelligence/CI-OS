@@ -170,10 +170,7 @@ jobs:
           Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
           Custom Packages:
-          - companion-os-base
-          - companion-os-keyring
-          - companion-agents (stub)
-          - companion-memory (stub)
+          - ci-os-branding
 
           For complete Ubuntu package list, see filesystem.manifest in the ISO.
           EOF

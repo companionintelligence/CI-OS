@@ -88,10 +88,11 @@ no package-manager assumptions; each `backends/<distro>/` uses that distro's nat
 
 ## Cross-repo connections
 
-- Hosts: CI-Hub, CI-Gateway. **CI-Server has no implementation in this repo** — it's tracked
-  only as a `reserved` entry in `core/manifest/ecosystem.yaml`, pointing at its own repo.
-- Boot config in configs/ (desktop-only now — the legacy Cubic/preseed customization tree was
-  removed as dead code)
+- Hosts: CI-Hub (local TLS/routing is the Hub-managed Traefik stack; the former CI-Gateway repo
+  was retired). **CI-Server has no implementation in this repo** — it's tracked only as a
+  `reserved` entry in `core/manifest/ecosystem.yaml`, pointing at its own repo.
+- Desktop and boot theming lives in `backends/<distro>/desktop-theme/` (the legacy `configs/`
+  Cubic/preseed customization tree was removed as dead code)
 - Assets in assets/
 
 
