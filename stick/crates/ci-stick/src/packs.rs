@@ -225,7 +225,18 @@ mod tests {
         let path = find_catalog(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("catalog in repo");
         let cat = PackCatalog::load(&path).unwrap();
         let names: Vec<&str> = cat.packs.iter().map(|p| p.name.as_str()).collect();
-        assert_eq!(names, ["starter", "balanced", "coding", "vision", "large"]);
+        assert_eq!(
+            names,
+            [
+                "starter",
+                "balanced",
+                "coding",
+                "vision",
+                "large",
+                "stick-128",
+                "stick-128-oci"
+            ]
+        );
         assert_eq!(cat.status, "provisional");
         // Digests are resolved by a later `models lock` step, never invented by hand.
         assert!(cat
@@ -246,6 +257,60 @@ mod tests {
         // The whole catalog fits the 512 GB layout's cache.
         let cache = crate::layout::plan(512_000_000_000).unwrap().cache_bytes();
         assert!(unique_models_bytes(&cat.packs) <= cache);
+    }
+
+    /// The 128 GB stick packs are sized for the sticks that are actually on the desk: a "128 GB" stick
+    /// reports 123,942,731,776 bytes (115.4 GiB), which gets a 73 GiB cache, not the 77 GiB that a stick
+    /// of exactly 128e9 bytes would. Both packs must leave headroom for exFAT overhead, tmp files and
+    /// (for `stick-128-oci`) 15 GiB of OCI images.
+    #[test]
+    fn stick_128_packs_fit_the_real_128gb_stick_with_headroom() {
+        const REAL_128GB_STICK: u64 = 123_942_731_776;
+        const GIB: u64 = 1 << 30;
+        let path = find_catalog(Path::new(env!("CARGO_MANIFEST_DIR"))).expect("catalog in repo");
+        let cat = PackCatalog::load(&path).unwrap();
+        let cache = crate::layout::plan(REAL_128GB_STICK).unwrap().cache_bytes();
+        assert_eq!(
+            cache,
+            73 * GIB,
+            "layout policy changed: re-size the stick packs"
+        );
+        let by_name = |n: &str| cat.packs.iter().find(|p| p.name == n).unwrap();
+        let full = by_name("stick-128");
+        let oci = by_name("stick-128-oci");
+        // 3 % headroom on the raw model bytes (exFAT cluster rounding adds ~9 MB for these packs).
+        assert!(
+            full.size_bytes() * 100 <= cache * 97,
+            "stick-128 leaves less than 3 % free: {} of {cache}",
+            full.size_bytes()
+        );
+        assert!(
+            (oci.size_bytes() + 15 * GIB) * 100 <= cache * 97,
+            "stick-128-oci plus 15 GiB of OCI images leaves less than 3 % free"
+        );
+        // stick-128-oci is stick-128 minus its lowest-ranked models, never a different set.
+        for m in &oci.models {
+            assert!(
+                full.models.iter().any(|f| f.reference() == m.reference()),
+                "{} is in stick-128-oci but not in stick-128",
+                m.reference()
+            );
+        }
+        // The three models the ecosystem manifest pre-pulls are the first three ranks of stick-128.
+        let first: Vec<String> = full.models.iter().take(3).map(|m| m.reference()).collect();
+        assert_eq!(
+            first,
+            ["nomic-embed-text:latest", "gemma3:1b", "qwen3.6:27b"]
+        );
+        // `cargo test` must not silently accept an unlicensed or cloud-only entry.
+        for m in full.models.iter() {
+            assert_ne!(m.license, "unverified", "{}", m.reference());
+            assert!(
+                !m.tag.contains("cloud"),
+                "{} is a cloud-only tag",
+                m.reference()
+            );
+        }
     }
 
     #[test]
