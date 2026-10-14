@@ -180,7 +180,7 @@ chmod +x "$CHROOT_PATH/usr/lib/ci-os/first-boot-rebrand.sh"
 
 cat > "$CHROOT_PATH/usr/lib/systemd/system/ci-os-first-boot-rebrand.service" << 'SVCEOF'
 [Unit]
-Description=CI-OS First-Boot Identity Rebranding
+Description=Companion OS first-boot identity rebranding
 Documentation=https://ci.computer
 After=local-fs.target
 Before=display-manager.service gdm.service
@@ -608,7 +608,7 @@ rm "$CHROOT_PATH/tmp/install-amd.sh"
 mkdir -p "$CHROOT_PATH/usr/local/bin"
 cat > "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm" << 'EOFSCRIPT'
 #!/bin/bash
-# Delegates to the maintained CI OS ROCm installer (Ubuntu codename + AMDGPU repo probe).
+# Delegates to the maintained Companion OS ROCm installer (Ubuntu codename + AMDGPU repo probe).
 set -euo pipefail
 if [[ $EUID -ne 0 ]]; then
   exec sudo "$0" "$@"
@@ -1517,7 +1517,7 @@ chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-setup"
 # ── Create systemd service unit for first-boot auto-execution ───────────────
 cat > "$CHROOT_PATH/usr/lib/systemd/system/ci-os-first-boot-setup.service" << 'SVCEOF'
 [Unit]
-Description=CI-OS First-Boot Development Environment Setup
+Description=Companion OS first-boot development environment setup
 Documentation=https://ci.computer
 After=network-online.target
 Wants=network-online.target
@@ -1549,7 +1549,7 @@ SVCEOF
 # no longer starts.
 cat > "$CHROOT_PATH/usr/lib/systemd/system/ci-os-first-boot-setup.timer" << 'TIMEREOF'
 [Unit]
-Description=Retry CI-OS first-boot setup until it completes
+Description=Retry Companion OS first-boot setup until it completes
 ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
 ConditionPathExists=!/cdrom/casper/vmlinuz
 

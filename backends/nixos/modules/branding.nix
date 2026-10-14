@@ -374,8 +374,8 @@ let
   #    of reproducing per-login dynamic content. This is a disclosed gap,
   #    the same category as every prior backend's own MOTD uncertainty (this
   #    backend's is a real structural limit of the option, not just an
-  #    unverified assumption) — only the static banner (the CI OS ASCII mark
-  #    + tagline, `render-motd.sh`'s 00-ci-header equivalent) is reproduced
+  #    unverified assumption) — only the static banner (the CI ASCII mark
+  #    + tagline, `render-motd.sh`'s 00-ci-os-header equivalent) is reproduced
   #    here; the live system-info block (10-ci-sysinfo) is not, and can't
   #    be via this option. The ANSI color escapes Ubuntu's version prints
   #    via `echo -e` are also dropped here (plain text only) — cosmetic, not
@@ -391,7 +391,7 @@ let
      ╚██████╗██║    ╚██████╔╝███████║
       ╚═════╝╚═╝     ╚═════╝ ╚══════╝
 
-     Companion Intelligence Operating System
+     Companion OS
      Uncloud Modern Life
   '';
 in

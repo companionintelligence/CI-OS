@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# CI OS Theme Validation for Fedora Workstation / GNOME Shell (read-only
+# Companion OS Theme Validation for Fedora Workstation / GNOME Shell (read-only
 # checks).
 #
 # Adapted from backends/ubuntu/desktop-theme/80-validate-ci-theme.sh and
@@ -57,7 +57,7 @@ check_warn() {
 
 echo ""
 echo "=========================================="
-echo " CI OS Theme Validation (Fedora / GNOME)"
+echo " Companion OS Theme Validation (Fedora / GNOME)"
 echo "=========================================="
 echo ""
 
@@ -102,10 +102,10 @@ if [[ -f "/etc/default/grub" ]]; then
     else
         check_pass "GRUB_TERMINAL not forced to console (background can render)"
     fi
-    if grep -qE '^GRUB_DISTRIBUTOR="CI OS"' /etc/default/grub 2>/dev/null; then
-        check_pass "GRUB_DISTRIBUTOR set to CI OS"
+    if grep -qE '^GRUB_DISTRIBUTOR="Companion OS"' /etc/default/grub 2>/dev/null; then
+        check_pass "GRUB_DISTRIBUTOR set to Companion OS"
     else
-        check_warn "GRUB_DISTRIBUTOR not set to CI OS"
+        check_warn "GRUB_DISTRIBUTOR not set to Companion OS"
     fi
 else
     check_warn "/etc/default/grub not found"
@@ -198,9 +198,9 @@ fi
 log_info "Checking wallpaper..."
 
 if [[ -f "/usr/share/backgrounds/ci-os-wallpaper.png" ]]; then
-    check_pass "CI OS wallpaper installed"
+    check_pass "Companion OS wallpaper installed"
 else
-    check_warn "CI OS wallpaper not found at /usr/share/backgrounds/ci-os-wallpaper.png"
+    check_warn "Companion OS wallpaper not found at /usr/share/backgrounds/ci-os-wallpaper.png"
 fi
 
 # Check 7: MOTD (Message of the Day) — shared render-motd.sh, same as
@@ -209,15 +209,15 @@ fi
 # independently verified for this pass, so this warns rather than fails.
 log_info "Checking MOTD configuration..."
 
-if [[ -f "/etc/update-motd.d/00-ci-header" ]]; then
-    if grep -q "CI OS" /etc/update-motd.d/00-ci-header 2>/dev/null; then
-        check_pass "CI OS MOTD header file exists"
+if [[ -f "/etc/update-motd.d/00-ci-os-header" ]]; then
+    if grep -q "Companion OS" /etc/update-motd.d/00-ci-os-header 2>/dev/null; then
+        check_pass "Companion OS MOTD header file exists"
     else
         check_warn "MOTD header exists but may not have CI branding"
     fi
     check_warn "Whether Fedora's stock SSH/login actually renders /etc/update-motd.d content was not verified for this backend — confirm at an actual login before relying on it"
 else
-    check_warn "CI OS MOTD header not found"
+    check_warn "Companion OS MOTD header not found"
 fi
 
 # Check 8: Brand Assets (fully portable — kept as-is)

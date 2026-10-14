@@ -317,7 +317,10 @@ are installed from their pinned sources, that the Settings > About logo, the doc
 `/etc/netplan` file sets a global renderer other than NetworkManager; the setup-mode profile sets
 `renderer: networkd` on `eth0` only), and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
 `BUILD_SYSTEM` and the ISO volume id (which apt, casper, the installer and Secure Boot depend on) are
-untouched. It also checks the live GRUB menu: the background is an 8-bit PNG, `grub.cfg` loads it with
+untouched. The product name is the same everywhere a user reads it: the installer's source names in
+`install-sources.yaml`, the text-mode splash title (`Companion OS <version>`, the version `os-release` carries),
+the Hub launcher entry, and no retired spelling of the name (the list is `OLD_NAMES` in the script) in the
+identity, GRUB, MOTD and installer files. It also checks the live GRUB menu: the background is an 8-bit PNG, `grub.cfg` loads it with
 `gfxterm` and `insmod`s only `all_video`, `gfxterm` and `png`, the menu colours equal what the brand tokens
 give, and the installed system's GRUB background is 8-bit too. Exit status is non-zero if any check fails.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CI MOTD: disable Ubuntu promo scripts, add CI header.
+# CI MOTD: disable Ubuntu promo scripts, add the Companion OS header.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/core/lib/theme-lib.sh"
 require_root
@@ -32,10 +32,13 @@ if [[ -f /etc/apt/apt.conf.d/20apt-esm-hook.conf ]]; then
   mv /etc/apt/apt.conf.d/20apt-esm-hook.conf /etc/apt/apt.conf.d/20apt-esm-hook.conf.disabled 2>/dev/null || true
 fi
 
-cat > "$MOTD_DIR/00-ci-header" <<'EOF'
+# 00-ci-os-header is the name customize-chroot.sh uses for the ISO; an older run of this script
+# left 00-ci-header behind, which would print a second banner.
+rm -f "$MOTD_DIR/00-ci-header"
+cat > "$MOTD_DIR/00-ci-os-header" <<'EOF'
 #!/bin/bash
 #
-# CI OS Welcome Message
+# Companion OS Welcome Message
 #
 
 CYAN='\033[0;36m'
@@ -50,11 +53,11 @@ echo -e "${CYAN} ██║     ██║    ██║   ██║╚════
 echo -e "${CYAN} ╚██████╗██║    ╚██████╔╝███████║${NC}"
 echo -e "${CYAN}  ╚═════╝╚═╝     ╚═════╝ ╚══════╝${NC}"
 echo ""
-echo -e " ${GREEN}Companion Intelligence Operating System${NC}"
+echo -e " ${GREEN}Companion OS${NC}"
 echo " Uncloud Modern Life"
 echo ""
 EOF
-chmod +x "$MOTD_DIR/00-ci-header"
+chmod +x "$MOTD_DIR/00-ci-os-header"
 
 cat > "$MOTD_DIR/10-ci-sysinfo" <<'EOF'
 #!/bin/bash

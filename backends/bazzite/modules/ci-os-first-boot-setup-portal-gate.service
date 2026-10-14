@@ -20,7 +20,7 @@
 # it after local-fs.target (implicit default) is sufficient.
 
 [Unit]
-Description=CI-OS first-boot setup-portal enablement gate
+Description=Companion OS first-boot setup-portal enablement gate
 Documentation=https://ci.computer
 ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-portal-gate-done
 

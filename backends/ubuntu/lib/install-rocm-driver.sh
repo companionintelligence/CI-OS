@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #=============================================================================
-# Install ROCm on Companion Ubuntu. Must run with sudo/root.
+# Install ROCm on Companion OS. Must run with sudo/root.
 #
 # Support rule (core/lib/gpu-detect.sh): a Strix Halo-class APU (Ryzen AI Max /
 # gfx1151 / Radeon 8060S) with at least ~32 GB of RAM. Anything else exits 0
@@ -330,7 +330,7 @@ TARGET_PKG_VER=$(pkg_ver_from_amdgpu_deb "$AMGPU_INSTALL_DEB") || {
   exit 1
 }
 
-echo "[ROCm] Companion Ubuntu provisioning (CI-OS scripts on Ubuntu ${UBUNTU_VERSION_ID})"
+echo "[ROCm] Companion OS provisioning (CI-OS scripts on Ubuntu ${UBUNTU_VERSION_ID})"
 echo "[ROCm] Marketing version: $(ci_os_marketing_version)"
 echo "[ROCm] Ubuntu base: ${UBUNTU_VERSION_ID} (${UBUNTU_CODENAME}); AMDGPU repo suite: ${INSTALL_CODENAME}"
 echo "[ROCm] Using AMDGPU installer: ${AMGPU_INSTALL_DEB} (package version ${TARGET_PKG_VER}; line ${AMDGPU_LINE})"

@@ -498,11 +498,11 @@ repack_squashfs() {
     cat > "$casper_dir/install-sources.yaml" << ISYAML
 - default: true
   description:
-    en: CI-OS Desktop (minimized)
+    en: Companion OS (minimized)
   id: ubuntu-desktop-minimal
   locale_support: langpack
   name:
-    en: CI-OS Desktop (minimized)
+    en: Companion OS (minimized)
   path: minimal.squashfs
   preinstalled_langs: []
   size: ${installed_size}
@@ -518,11 +518,11 @@ repack_squashfs() {
       snapd_system_label: enhanced-secureboot-desktop
 - default: false
   description:
-    en: CI-OS Desktop (full)
+    en: Companion OS
   id: ubuntu-desktop
   locale_support: langpack
   name:
-    en: CI-OS Desktop
+    en: Companion OS
   path: minimal.standard.squashfs
   preinstalled_langs: []
   size: ${installed_size}

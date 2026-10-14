@@ -743,7 +743,7 @@ def save_cloud_credentials(device_id, api_key):
         return False
 
 def save_hub_env(device_id, api_key):
-    """Write hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY, CI_CLOUD_API_KEY for CI OS Hub to consume."""
+    """Write hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY, CI_CLOUD_API_KEY for Companion Hub to consume."""
     try:
         # An absent key is an empty value, never the text `None`. This file is
         # sourced by ci-os-hub-start.sh (which hands off to provision.sh
@@ -762,7 +762,7 @@ def save_hub_env(device_id, api_key):
             f"CI_CLOUD_API_URL={CI_CLOUD_API_URL.rstrip('/')}",
         ]
         _write_secret_file(HUB_ENV, '\n'.join(lines) + '\n')
-        logger.info(f"[HUB] Wrote hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY for CI OS Hub")
+        logger.info(f"[HUB] Wrote hub.env with CI_ZONE_ID, DEVICE_ID, API_KEY for Companion Hub")
         return True
     except Exception as e:
         logger.error(f"Failed to write hub.env: {e}")
@@ -2076,7 +2076,7 @@ def _pair_with_cloud(pairing_code, hub_state, want_json, success_extra=None):
         <body>
             <div class="success">Device configured successfully!</div>
             <p>The device will connect to the network shortly.</p>
-            <p style="margin-top: 24px;"><a href="http://localhost:5002">Open CI OS Hub</a> (on the device)</p>
+            <p style="margin-top: 24px;"><a href="http://localhost:5002">Open Companion Hub</a> (on the device)</p>
         </body>
         </html>
         ''', 200

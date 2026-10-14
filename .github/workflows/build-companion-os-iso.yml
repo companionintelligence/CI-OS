@@ -178,11 +178,11 @@ jobs:
 
           # Create a simple SBOM listing packages in the ISO
           cat > output/SBOM.txt << EOF
-          CI-OS Software Bill of Materials
-          =================================
+          Companion OS Software Bill of Materials
+          =======================================
 
           Base: Ubuntu 24.04 (Noble Numbat)
-          CI-OS Version: ${{ steps.version.outputs.version }}
+          Companion OS Version: ${{ steps.version.outputs.version }}
           Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
           Custom Packages:
@@ -197,12 +197,12 @@ jobs:
         id: release_notes
         run: |
           cat > release-notes.md << EOF
-          # CI-OS ${{ steps.version.outputs.version }} - Ubuntu 24.04 Based
+          # Companion OS ${{ steps.version.outputs.version }} - Ubuntu 24.04 Based
 
           ## What's New
 
           - 🚀 **Based on Ubuntu 24.04 (Noble Numbat)** - Latest LTS release
-          - 🎨 **Custom Branding** - CI-OS identity with dark green color scheme (#066c80, #00a9a7, #72ddd4)
+          - 🎨 **Custom Branding** - Companion OS identity and the Companion Intelligence brand look
           - 🔒 **Privacy First** - No ads, no surveillance, telemetry disabled
           - 💻 **AMD GPU Ready** - ROCm 7.2.4 (Strix Halo: --no-dkms inbox amdgpu)
           - 🛠️ **Developer Friendly** - Compatible with Docker, VS Code, Node.js
@@ -221,7 +221,7 @@ jobs:
 
           ## AMD GPU Support
 
-          Companion Ubuntu provisioning installs ROCm 7.2.4. On Strix Halo (gfx1151)
+          Companion OS provisioning installs ROCm 7.2.4. On Strix Halo (gfx1151)
           the helper uses the official Ryzen path (\`--no-dkms\` / inbox amdgpu):
           \`\`\`bash
           sudo ci-os-install-rocm
@@ -281,7 +281,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
-          name: CI-OS ${{ steps.version.outputs.version }}
+          name: Companion OS ${{ steps.version.outputs.version }}
           body_path: release-notes.md
           files: |
             output/companion-os-*.iso

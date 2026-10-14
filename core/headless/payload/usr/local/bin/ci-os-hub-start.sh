@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI OS Hub - Start after setup verification
+# Companion Hub - Start after setup verification
 # Reads /var/lib/setup-device/hub.env (CI_ZONE_ID, DEVICE_ID, API_KEY, CI_CLOUD_API_URL)
 # and hands off to provision.sh --step=ci-hub — the single entrypoint every
 # CI-Hub deploy path uses (first boot, manual run, and this one). Previously

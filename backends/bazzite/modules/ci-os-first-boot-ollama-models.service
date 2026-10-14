@@ -9,7 +9,7 @@
 # first-boot step actually does (pull model weights only).
 
 [Unit]
-Description=CI-OS first-boot Ollama model pull
+Description=Companion OS first-boot Ollama model pull
 Documentation=https://ci.computer
 # ollama.service is baked+enabled at image build time (see the .sh header)
 # — order after it, but don't hard-require it: the script itself polls for

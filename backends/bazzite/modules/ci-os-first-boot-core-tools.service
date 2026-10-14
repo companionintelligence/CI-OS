@@ -14,7 +14,7 @@
 # git clone) despite doing no container/registry work.
 
 [Unit]
-Description=CI-OS first-boot ci user + uv + asdf/Node setup
+Description=Companion OS first-boot ci user + uv + asdf/Node setup
 Documentation=https://ci.computer
 After=network-online.target
 Wants=network-online.target

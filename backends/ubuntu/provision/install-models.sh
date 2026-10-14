@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CI OS Install Ollama Models
+# Companion OS Install Ollama Models
 # Pulls nomic-embed-text and gemma3:1b on every machine. Pulls qwen3.6:27b only
 # when the hardware support rule passes (Strix Halo-class APU, ~32 GB RAM or more).
 # Idempotent: skips models already present.

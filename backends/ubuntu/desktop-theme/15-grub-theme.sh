@@ -30,7 +30,7 @@ if [[ -f "$GRUB_BG_DEST" ]]; then
   ci_grub_merge_key "$GRUB_DEFAULT_FILE" GRUB_BACKGROUND "$GRUB_BG_DEST"
 fi
 
-ci_grub_merge_key "$GRUB_DEFAULT_FILE" GRUB_DISTRIBUTOR "CI OS"
+ci_grub_merge_key "$GRUB_DEFAULT_FILE" GRUB_DISTRIBUTOR "Companion OS"
 ci_grub_merge_key "$GRUB_DEFAULT_FILE" GRUB_GFXMODE "auto"
 ci_grub_merge_key "$GRUB_DEFAULT_FILE" GRUB_TIMEOUT_STYLE "menu"
 ci_grub_merge_key "$GRUB_DEFAULT_FILE" GRUB_TIMEOUT "5"
@@ -44,4 +44,4 @@ else
   log_warn "Neither update-grub nor grub-mkconfig found; GRUB config not regenerated"
 fi
 
-log_success "GRUB theme applied (background + CI OS distributor name)"
+log_success "GRUB theme applied (background + Companion OS distributor name)"

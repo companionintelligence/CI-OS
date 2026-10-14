@@ -166,7 +166,7 @@ COPY core/lib/grub-merge.sh /tmp/grub-merge.sh
 RUN [ -f /etc/default/grub ] || touch /etc/default/grub && \
     . /tmp/grub-merge.sh && \
     ci_grub_merge_key /etc/default/grub GRUB_BACKGROUND "/usr/share/pixmaps/ci-os-grub-bg.png" && \
-    ci_grub_merge_key /etc/default/grub GRUB_DISTRIBUTOR "CI OS" && \
+    ci_grub_merge_key /etc/default/grub GRUB_DISTRIBUTOR "Companion OS" && \
     ci_grub_merge_key /etc/default/grub GRUB_GFXMODE "auto" && \
     ci_grub_merge_key /etc/default/grub GRUB_TIMEOUT_STYLE "menu" && \
     ci_grub_merge_key /etc/default/grub GRUB_TIMEOUT "5"

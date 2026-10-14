@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared CI OS ↔ Ubuntu identity helpers for setup scripts.
+# Shared Companion OS ↔ Ubuntu identity helpers for setup scripts.
 # Branding lives in NAME/PRETTY_NAME/CI_OS_*; apt/AMD/Docker expect ID=ubuntu + real codename.
 
 # shellcheck shell=bash
@@ -48,7 +48,7 @@ ci_os_find_ubuntu_base_os_release() {
     return 0
   fi
 
-  # Oldest Ubuntu backup is usually the pristine upstream os-release before CI OS branding.
+  # Oldest Ubuntu backup is usually the pristine upstream os-release before Companion OS branding.
   while IFS= read -r f; do
     [[ -f "$f" ]] || continue
     id="$(grep -E '^ID=' "$f" | head -1 | cut -d= -f2 | tr -d '"')"

@@ -18,7 +18,7 @@
 # idempotency design this ConditionPathExists implements.
 
 [Unit]
-Description=CI-OS first-boot CI Hub Service deploy
+Description=Companion OS first-boot CI Hub Service deploy
 Documentation=https://ci.computer
 After=network-online.target podman.socket
 Wants=network-online.target

@@ -21,7 +21,7 @@
 #
 # Options:
 #   --no-headless   Skip headless WiFi setup (captive portal)
-#   --no-rebrand    Skip CI OS branding (Plymouth, wallpaper, Chromium, etc.)
+#   --no-rebrand    Skip Companion OS branding (Plymouth, wallpaper, Chromium, etc.)
 #   --no-reboot     Do not prompt for reboot at end
 #   --yes, -y       Non-interactive: skip all prompts, do not reboot
 #
@@ -111,7 +111,7 @@ echo ""
 log_info "Repo root: $REPO_ROOT"
 log_info "Will run:"
 log_info "  ✓ System setup (Docker, Tailscale, Ollama, Node/Bun)"
-[[ $DO_REBRAND -eq 1 ]] && log_info "  ✓ Complete CI OS rebranding"
+[[ $DO_REBRAND -eq 1 ]] && log_info "  ✓ Complete Companion OS rebranding"
 [[ $DO_HEADLESS -eq 1 ]] && log_info "  ✓ Headless device setup (WiFi captive portal) — runs last"
 echo ""
 
@@ -137,7 +137,7 @@ fi
 # 2. Complete rebranding
 #-----------------------------------------------------------------------------
 if [[ $DO_REBRAND -eq 1 ]]; then
-    log_header "Step 2: Complete CI OS rebranding"
+    log_header "Step 2: Complete Companion OS rebranding"
     echo ""
 
     REBRAND="$REPO_ROOT/backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh"

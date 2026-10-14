@@ -593,7 +593,7 @@ in
         };
       };
 
-      # CI OS Hub proxy — <captivePortalDomain>:5002 -> Hub (when on the
+      # Companion Hub proxy — <captivePortalDomain>:5002 -> Hub (when on the
       # setup network), matching the payload's own second server block.
       virtualHosts."ci-os-hub-proxy" = {
         serverName = cfg.captivePortalDomain;

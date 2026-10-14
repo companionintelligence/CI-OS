@@ -21,6 +21,25 @@ BG_DARK_GREEN="$(ci_hex0x "$CI_DARK_BACKGROUND")"
 PROGRESS_BG="$(ci_hex0x "$CI_DARK_SECONDARY")"
 PROGRESS_FG="$(ci_hex0x "$CI_DARK_PRIMARY")"
 
+# The text-mode splash (safe-graphics boot, and the fallback when no graphics come up) is titled with the product
+# and its version: the build's CI_OS_VERSION (run_theme_step exports it), else the CI_OS_VERSION a branded
+# /etc/os-release carries, else a branded PRETTY_NAME as it stands. With none of them the title is plain "Companion OS":
+# an invented version number would be worse than none.
+ci_text_splash_title() {
+  local ver="${CI_OS_VERSION:-}" pretty=""
+  if [[ -z "$ver" && -r /etc/os-release ]]; then
+    ver="$( . /etc/os-release 2>/dev/null && echo "${CI_OS_VERSION:-}" || true )"
+    pretty="$( . /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-}" || true )"
+  fi
+  if [[ -n "$ver" ]]; then
+    echo "Companion OS $ver"
+  elif [[ "$pretty" == "Companion OS"* ]]; then
+    echo "$pretty"
+  else
+    echo "Companion OS"
+  fi
+}
+
 if [[ ! -f "$LOGO_SOURCE" ]]; then
   log_error "Logo file not found: $LOGO_SOURCE"
   exit 1
@@ -86,14 +105,15 @@ if [[ -f "$UBUNTU_TEXT_PLYMOUTH" ]]; then
   TEXT_WHITE="$(ci_hex0x "$CI_DARK_FOREGROUND")"
   TEXT_BROWN="$(ci_hex0x "$CI_DARK_PRIMARY")"
   TEXT_BLUE="$(ci_hex0x "$CI_LIGHT_PRIMARY")"
+  TEXT_TITLE="$(ci_text_splash_title)"
   cat > "$UBUNTU_TEXT_PLYMOUTH" <<PLYMOUTH_EOF
 [Plymouth Theme]
-Name=CI OS Text
-Description=Text mode theme with CI OS branding
+Name=Companion OS Text
+Description=Text mode theme with Companion OS branding
 ModuleName=ubuntu-text
 
 [ubuntu-text]
-title=CI OS 0.0.1
+title=$TEXT_TITLE
 black=0x000000
 white=$TEXT_WHITE
 brown=$TEXT_BROWN

@@ -16,7 +16,9 @@
 #   2. the user-visible branding is Companion OS, while the identifiers that
 #      apt, casper, the installer and Secure Boot depend on are untouched, and the
 #      identity files are exactly what the shared writer (backends/ubuntu/lib/os-release.sh)
-#      produces for the ISO's own Ubuntu base;
+#      produces for the ISO's own Ubuntu base; the product is named Companion OS everywhere a
+#      user reads it (installer source names, text splash title, Hub entry) and no retired
+#      spelling (CI OS, Companion Ubuntu, Intelligence Operating System) is left in those files;
 #   2b. the Settings > About logo, the dock start icon, the LOGO= icon and the greeter logo
 #      are the canon mark: their pixels and paths are checked against the vendored mark and the
 #      brand tokens (the About PNGs hold only the mode's primary colour, the greeter only the mark's
@@ -127,7 +129,7 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/apt/sources.list.d usr/share/keyrings etc/xdg/autostart usr/libexec/ci-os \
     usr/bin/ollama usr/lib/systemd/system/tailscaled.service var/lib/tailscale usr/share/ollama \
     usr/share/applications/ci-os-hub.desktop \
-    usr/share/plymouth/themes/spinner/watermark.png usr/share/plymouth/themes/bgrt \
+    usr/share/plymouth/themes/spinner/watermark.png usr/share/plymouth/themes/bgrt usr/share/plymouth/themes/ubuntu-text \
     usr/share/icons/Yaru/scalable/places usr/share/icons/hicolor/scalable/apps usr/share/icons/hicolor/icon-theme.cache \
     usr/share/pixmaps var/lib/dpkg/diversions etc/dconf/db/gdm.d \
     >/dev/null 2>&1 || true
@@ -472,6 +474,36 @@ check "live session user is not 'ubuntu'" bash -c "! grep -q -E '^export USERNAM
 check "casper keeps BUILD_SYSTEM=Ubuntu (casper logic depends on it)" file_has "$R/etc/casper.conf" '^export BUILD_SYSTEM="Ubuntu"'
 check "MOTD header is Companion OS" bash -c "grep -q 'Companion OS' '$R'/etc/update-motd.d/00-ci-os-header"
 if in_listing '^-rw-r--r-- .* /etc/update-motd\.d/00-header$'; then pass "Ubuntu's own MOTD welcome (00-header) is disabled"; else fail "Ubuntu's own MOTD welcome (00-header) is still executable"; fi
+
+# The product name in the rest of what a user reads. The product is "Companion OS"; "CI OS", "CI-OS Desktop", "Companion
+# Ubuntu" and "Intelligence Operating System" were earlier spellings of it. The installer lists the sources in
+# install-sources.yaml by their en: names ("Companion OS (minimized)" and "Companion OS"), and the text-mode splash (the
+# safe-graphics boot) is titled with the product and the version os-release carries.
+ISRC="$ISOX/install-sources.yaml"
+check "install-sources.yaml names every source Companion OS (each en: line starts with it)" \
+    awk '/^[[:space:]]+en:/ { n++; if ($0 !~ /en: Companion OS( |$)/) bad++ } END { exit !(n >= 2 && !bad) }' "$ISRC"
+check "install-sources.yaml has no CI-OS or CI OS spelling" bash -c "[[ -s '$ISRC' ]] && ! grep -q -E 'CI[ -]OS' '$ISRC'"
+TEXT_PLYMOUTH="$R/usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth"
+check "Plymouth text theme is named Companion OS Text" file_has "$TEXT_PLYMOUTH" '^Name=Companion OS Text$'
+check "Plymouth text theme description says Companion OS" file_has "$TEXT_PLYMOUTH" '^Description=.*Companion OS'
+if [[ -n "$ISO_CI_VERSION" ]]; then
+    check "Plymouth text splash title is 'Companion OS $ISO_CI_VERSION' (the version os-release carries)" \
+        grep -q -x -F -- "title=Companion OS $ISO_CI_VERSION" "$TEXT_PLYMOUTH"
+else
+    check "Plymouth text splash title is 'Companion OS <version>'" file_has "$TEXT_PLYMOUTH" '^title=Companion OS [0-9][^ ]*$'
+fi
+check "Plymouth text splash title is not the 0.0.1 placeholder" bash -c "[[ -s '$TEXT_PLYMOUTH' ]] && ! grep -q -E '^title=.* 0\\.0\\.1\$' '$TEXT_PLYMOUTH'"
+OLD_NAMES='CI OS|Companion Ubuntu|Intelligence Operating System|Companion Intelligence OS'
+old_name_hits=""
+for f in "$R/usr/lib/os-release" "$R/etc/lsb-release" "$R/etc/issue" "$R/etc/issue.net" "$R/etc/default/grub" "$R"/etc/update-motd.d/* \
+         "$R/usr/share/applications/ci-os-hub.desktop" "$TEXT_PLYMOUTH" "$ISRC" "$ISOX/disk-info" "$ISOX/grub.cfg" "$ISOX/loopback.cfg"; do
+    if [[ -f "$f" ]] && grep -q -E -- "$OLD_NAMES" "$f"; then old_name_hits="$old_name_hits ${f#"$WORK"/}"; fi
+done
+if [[ -z "$old_name_hits" ]]; then
+    pass "no retired product name (CI OS, Companion Ubuntu, Intelligence Operating System) in os-release, issue, GRUB, MOTD, the Hub entry, the splash or the installer sources"
+else
+    fail "a retired product name is still in:$old_name_hits"
+fi
 
 section "4b. About logo, dock start icon, LOGO icon, greeter logo"
 # The canon comes from the repo this script lives in (vendor/brand: the tokens and the vendored marks), never from a

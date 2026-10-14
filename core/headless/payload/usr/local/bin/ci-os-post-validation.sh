@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI OS Post-Validation Setup
+# Companion OS Post-Validation Setup
 # Runs after portal.ci.computer pairing + Hub. Heavy downloads: ROCm, Ollama models.
 # Only runs once; creates /var/lib/setup-device/post-validation-done when complete.
 #

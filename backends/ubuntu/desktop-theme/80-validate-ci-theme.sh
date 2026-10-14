@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# CI OS Dark Green Theme Validation (read-only checks).
+# Companion OS Theme Validation (read-only checks).
 #
 # Usage:
 #   ./apply-ci-os-desktop.sh --validate
@@ -45,7 +45,7 @@ check_warn() {
 
 echo ""
 echo "=========================================="
-echo " CI OS Dark Green Theme Validation"
+echo " Companion OS Theme Validation"
 echo "=========================================="
 echo ""
 
@@ -99,10 +99,10 @@ if [[ -f "/etc/default/grub" ]]; then
     else
         check_pass "GRUB_TERMINAL not forced to console (background can render)"
     fi
-    if grep -qE '^GRUB_DISTRIBUTOR="CI OS"' /etc/default/grub 2>/dev/null; then
-        check_pass "GRUB_DISTRIBUTOR set to CI OS"
+    if grep -qE '^GRUB_DISTRIBUTOR="Companion OS"' /etc/default/grub 2>/dev/null; then
+        check_pass "GRUB_DISTRIBUTOR set to Companion OS"
     else
-        check_warn "GRUB_DISTRIBUTOR not set to CI OS"
+        check_warn "GRUB_DISTRIBUTOR not set to Companion OS"
     fi
 else
     check_warn "/etc/default/grub not found"
@@ -112,8 +112,8 @@ fi
 log_info "Checking OS identity..."
 
 if [[ -f "/etc/os-release" ]]; then
-    if grep -q "CI OS" /etc/os-release 2>/dev/null; then
-        check_pass "/etc/os-release shows CI OS identity"
+    if grep -q "Companion OS" /etc/os-release 2>/dev/null; then
+        check_pass "/etc/os-release shows Companion OS identity"
     else
         check_fail "/etc/os-release still shows Ubuntu branding"
     fi
@@ -192,14 +192,14 @@ fi
 # Check 6: MOTD (Message of the Day)
 log_info "Checking MOTD configuration..."
 
-if [[ -f "/etc/update-motd.d/00-ci-header" ]]; then
-    if grep -q "CI OS" /etc/update-motd.d/00-ci-header 2>/dev/null; then
-        check_pass "CI OS MOTD header exists"
+if [[ -f "/etc/update-motd.d/00-ci-os-header" ]]; then
+    if grep -q "Companion OS" /etc/update-motd.d/00-ci-os-header 2>/dev/null; then
+        check_pass "Companion OS MOTD header exists"
     else
         check_warn "MOTD header exists but may not have CI branding"
     fi
 else
-    check_warn "CI OS MOTD header not found"
+    check_warn "Companion OS MOTD header not found"
 fi
 
 if [[ -f "/etc/update-motd.d/50-motd-news" ]]; then
@@ -223,7 +223,7 @@ if grep -i "ubuntu" /etc/os-release 2>/dev/null | grep -v "ID_LIKE\|CODENAME" | 
 fi
 
 if grep -qi "ubuntu" /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth 2>/dev/null; then
-    if ! grep -q "CI OS" /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth 2>/dev/null; then
+    if ! grep -q "Companion OS" /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth 2>/dev/null; then
         check_warn "Plymouth text theme still references Ubuntu"
         UBUNTU_FOUND=1
     fi
@@ -237,9 +237,9 @@ fi
 log_info "Checking wallpaper..."
 
 if [[ -f "/usr/share/backgrounds/ci-os-wallpaper.png" ]]; then
-    check_pass "CI OS wallpaper installed"
+    check_pass "Companion OS wallpaper installed"
 else
-    check_warn "CI OS wallpaper not found at /usr/share/backgrounds/ci-os-wallpaper.png"
+    check_warn "Companion OS wallpaper not found at /usr/share/backgrounds/ci-os-wallpaper.png"
 fi
 
 # Check 9: Start Icon (GNOME)

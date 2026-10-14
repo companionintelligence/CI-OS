@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI OS WiFi recovery - reload driver if chip is unresponsive
+# Companion OS WiFi recovery - reload driver if chip is unresponsive
 # Run when: sudo setup-wifi-recover
 # Use if WiFi disappears after setup or hotspot cycles
 

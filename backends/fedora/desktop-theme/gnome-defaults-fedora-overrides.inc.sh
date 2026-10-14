@@ -44,7 +44,7 @@ ci_select_cursor_theme() {
 # own comments consistently call this "teal/phthalo" (e.g.
 # backends/mint/desktop-theme/cinnamon-defaults.inc.sh: "prefer an accent
 # close to the CI teal/phthalo primary"; backends/_mixins/gnome-dconf/
-# 27-terminal-theme.sh's "CI-OS Blue Teal" terminal profile). A raw RGB
+# 27-terminal-theme.sh's blue/teal terminal profile). A raw RGB
 # distance from #0a6358 to libadwaita's two closest named swatches (teal
 # #2190a4, green #3a944a) is numerically slightly closer to "green"
 # (~4900 vs ~8300 squared distance) — but "teal" is the name this brand
