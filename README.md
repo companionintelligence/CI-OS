@@ -1,7 +1,7 @@
 ## Companion OS
 ### UnCloud Linux · a multi-distro Companion Intelligence appliance builder
 
-![Companion OS logo](assets/logos/ci-holo-depth.png)
+![Companion OS logo](assets/logos/2024_CI__LogoMark_Color_med.svg)
 
 **© Companion Intelligence — Lifescope Inc**  
 Companion OS uses the [PolyForm Noncommercial License 1.0.0](LICENSE.md). See the [License FAQ](License-FAQ.md).
