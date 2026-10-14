@@ -425,6 +425,7 @@ check "01-network-manager-all.yaml still has renderer: NetworkManager" \
 section "4. Branding: user-visible identity is Companion OS"
 check "os-release NAME is Companion OS" file_has "$R/usr/lib/os-release" '^NAME="Companion OS"$'
 check "os-release PRETTY_NAME starts with Companion OS" file_has "$R/usr/lib/os-release" '^PRETTY_NAME="Companion OS '
+check "os-release VERSION names the product Companion OS (not the company)" file_has "$R/usr/lib/os-release" '^VERSION="[0-9.]+ LTS \(Companion OS [^)]+\)"$'
 check "os-release keeps ID=ubuntu (apt and the installer rely on it)" file_has "$R/usr/lib/os-release" '^ID=ubuntu$'
 check "os-release keeps VERSION_CODENAME (apt sources)" file_has "$R/usr/lib/os-release" '^VERSION_CODENAME=[a-z]+$'
 check "lsb-release description is Companion OS" file_has "$R/etc/lsb-release" '^DISTRIB_DESCRIPTION="Companion OS'
@@ -508,14 +509,14 @@ else
     check "Plymouth text splash title is 'Companion OS <version>'" file_has "$TEXT_PLYMOUTH" '^title=Companion OS [0-9][^ ]*$'
 fi
 check "Plymouth text splash title is not the 0.0.1 placeholder" bash -c "[[ -s '$TEXT_PLYMOUTH' ]] && ! grep -q -E '^title=.* 0\\.0\\.1\$' '$TEXT_PLYMOUTH'"
-OLD_NAMES='CI OS|Companion Ubuntu|Intelligence Operating System|Companion Intelligence OS'
+OLD_NAMES='CI OS|Companion Ubuntu|Intelligence Operating System|Companion Intelligence OS|Companion Intelligence [0-9]'
 old_name_hits=""
 for f in "$R/usr/lib/os-release" "$R/etc/lsb-release" "$R/etc/issue" "$R/etc/issue.net" "$R/etc/default/grub" "$R"/etc/update-motd.d/* \
          "$R/usr/share/applications/ci-os-hub.desktop" "$TEXT_PLYMOUTH" "$ISRC" "$ISOX/disk-info" "$ISOX/grub.cfg" "$ISOX/loopback.cfg"; do
     if [[ -f "$f" ]] && grep -q -E -- "$OLD_NAMES" "$f"; then old_name_hits="$old_name_hits ${f#"$WORK"/}"; fi
 done
 if [[ -z "$old_name_hits" ]]; then
-    pass "no retired product name (CI OS, Companion Ubuntu, Intelligence Operating System) in os-release, issue, GRUB, MOTD, the Hub entry, the splash or the installer sources"
+    pass "no retired product name (CI OS, Companion Ubuntu, Intelligence Operating System, Companion Intelligence <version>) in os-release, issue, GRUB, MOTD, the Hub entry, the splash or the installer sources"
 else
     fail "a retired product name is still in:$old_name_hits"
 fi

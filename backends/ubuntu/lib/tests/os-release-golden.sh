@@ -5,8 +5,10 @@
 # customize-chroot.sh used to write /etc/os-release and /etc/lsb-release with heredocs of its own. It now
 # runs the shared writer (50-os-release.sh -> ci_os_write_branded_os_release / _lsb_release), which is also
 # what the first-boot rebrand and the post-install re-skin run. The expected text below is exactly what
-# those heredocs wrote for a stock 24.04 (noble) base and CI_OS_VERSION=1.0, so a pass proves the identity
-# files of the ISO did not change. They are what apt, curtin and unattended-upgrades key off: ID=ubuntu,
+# those heredocs wrote for a stock 24.04 (noble) base and CI_OS_VERSION=1.0, except VERSION=, which put the
+# company name in front of the version and now names the product ("... (Companion OS 1.0)") like NAME= and
+# PRETTY_NAME= (check-repo.sh refuses the old spelling). A pass proves the identity files of the ISO are otherwise unchanged. They are what apt, curtin
+# and unattended-upgrades key off: ID=ubuntu,
 # ID_LIKE=debian, VERSION_ID, VERSION_CODENAME, UBUNTU_CODENAME and DISTRIB_ID=Ubuntu must never drift.
 #
 # CI_OS_BUILD is the day of the build, so it is compared as a placeholder (its position is still pinned).
@@ -42,7 +44,7 @@ export CI_OS_VERSION=1.0
 
 cat >"$TMP/os-release.expected" <<'EOF'
 NAME="Companion OS"
-VERSION="24.04 LTS (Companion Intelligence 1.0)"
+VERSION="24.04 LTS (Companion OS 1.0)"
 ID=ubuntu
 ID_LIKE=debian
 PRETTY_NAME="Companion OS 1.0"

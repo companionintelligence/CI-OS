@@ -45,14 +45,15 @@ if [ -n "$post_incr" ]; then
 fi
 
 echo "── no retired product names in backends/, core/ and .github/"
-# The product is "Companion OS". "CI OS", "CI-OS Desktop", "CI-OS Blue Teal", "Companion Ubuntu", "Companion Intelligence OS"
-# and "Companion Intelligence Operating System" were earlier spellings of it (the GRUB distributor, the text splash, the
-# installer's source names, the MOTD banner, the Hub launcher entry, the terminal and KDE profiles, release notes), and the
+# The product is "Companion OS". "CI OS", "CI-OS Desktop", "CI-OS Blue Teal", "Companion Ubuntu", "Companion Intelligence OS",
+# "Companion Intelligence Operating System" and "Companion Intelligence <version>" (os-release VERSION=) were earlier
+# spellings of it (the GRUB distributor, the text splash, the installer's source names, the MOTD banner, the Hub launcher
+# entry, the terminal and KDE profiles, release notes, the os-release version string), and the
 # image checks of verify-iso.sh would only catch a return after a full build. The repo name "CI-OS", the CI_OS_* variables and
 # ci-os-* paths are not product names and do not match. Three places spell the old names on purpose and are not scanned:
 # this file, verify-iso.sh (it asserts they are absent from a built image) and iso/tests (a test plants one to see that it
 # is caught). docs/ keeps the history and stick/ is a separate change.
-old_names="$(git grep -nE 'CI OS|CI-OS Desktop|CI-OS Blue Teal|Companion Ubuntu|Intelligence Operating System|Companion Intelligence OS' -- backends core .github ':(exclude)core/lib/check-repo.sh' ':(exclude)backends/ubuntu/iso/scripts/verify-iso.sh' ':(exclude)backends/ubuntu/iso/tests' 2>/dev/null || true)"
+old_names="$(git grep -nE 'CI OS|CI-OS Desktop|CI-OS Blue Teal|Companion Ubuntu|Intelligence Operating System|Companion Intelligence OS|Companion Intelligence [0-9$]' -- backends core .github ':(exclude)core/lib/check-repo.sh' ':(exclude)backends/ubuntu/iso/scripts/verify-iso.sh' ':(exclude)backends/ubuntu/iso/tests' 2>/dev/null || true)"
 if [ -n "$old_names" ]; then
   echo "✖ a retired product name is back; the name is \"Companion OS\":"; echo "$old_names"; rc=1
 fi

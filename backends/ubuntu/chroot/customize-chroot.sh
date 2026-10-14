@@ -179,7 +179,7 @@ else
   UBUNTU_VER="$(grep '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"' || echo 24.04)"
   cat > /etc/os-release << __EOF__
 NAME="Companion OS"
-VERSION="${UBUNTU_VER} LTS (Companion Intelligence ${CI_OS_VERSION})"
+VERSION="${UBUNTU_VER} LTS (Companion OS ${CI_OS_VERSION})"
 ID=ubuntu
 ID_LIKE=debian
 PRETTY_NAME="Companion OS ${CI_OS_VERSION}"

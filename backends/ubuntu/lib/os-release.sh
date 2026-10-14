@@ -204,7 +204,7 @@ ci_os_write_branded_os_release() {
 
   cat >"$os_path" <<EOF
 NAME="Companion OS"
-VERSION="${ubuntu_ver} LTS (Companion Intelligence ${ci_version})"
+VERSION="${ubuntu_ver} LTS (Companion OS ${ci_version})"
 ID=ubuntu
 ID_LIKE=debian
 PRETTY_NAME="Companion OS ${ci_version}"
