@@ -600,7 +600,7 @@ brand_initrd_plymouth() {
             return 1
         fi
     done
-    if ! grep -q -x "title=$title" "$ov/$themes/ubuntu-text/ubuntu-text.plymouth"; then
+    if ! grep -q -x -F -- "title=$title" "$ov/$themes/ubuntu-text/ubuntu-text.plymouth"; then
         log_error "the initrd text splash theme was not written with its title '$title'"
         return 1
     fi
