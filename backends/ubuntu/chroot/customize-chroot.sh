@@ -44,11 +44,31 @@ echo "[*] CI-OS Version: $CI_OS_VERSION"
 # it first means a host that cannot render them (build-iso.sh checks the tools, but this script can be run
 # directly) stops now, with a message, and not in Step 3 with os-release rewritten and packages removed.
 # Removed again after Step 5c.
-if ! command -v rsvg-convert >/dev/null 2>&1 && ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
-    echo "[ERROR] Neither rsvg-convert nor ImageMagick is installed on this host; the logo PNGs (greeter, Plymouth, Settings > About) cannot be rendered." >&2
+# Both are needed, the rule build-iso.sh applies: rsvg-convert draws the marks, ImageMagick composes the GRUB
+# background (Step 4) and scales the Plymouth watermark (Step 5), and without it those two steps only warn and
+# ship a degraded image that verify-iso.sh catches after the build.
+render_missing=()
+command -v rsvg-convert >/dev/null 2>&1 || render_missing+=("rsvg-convert (librsvg2-bin)")
+if ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+    render_missing+=("magick or convert (imagemagick)")
+fi
+if [[ ${#render_missing[@]} -gt 0 ]]; then
+    echo "[ERROR] Missing on this host: ${render_missing[*]}; the logo PNGs, the GRUB background and the Plymouth watermark cannot be rendered." >&2
     echo "[ERROR] apt-get install librsvg2-bin imagemagick" >&2
     exit 1
 fi
+# What this script makes outside the chroot proper (the host render directory, the Plymouth overlay, the staged copy
+# of the repo that run_theme_step puts in the chroot's /tmp) is removed on EVERY exit, so a theme step that fails
+# under set -e does not leave a host temp directory behind per attempt. The paths are removed again where their
+# steps finish; Step 10e's own EXIT trap calls this too, and puts this one back.
+LOGO_RENDER_DIR=""
+PLYMOUTH_OVERLAY=""
+ci_brand_cleanup() {
+    if [[ -n "$LOGO_RENDER_DIR" ]]; then rm -rf "$LOGO_RENDER_DIR"; fi
+    if [[ -n "$PLYMOUTH_OVERLAY" ]]; then rm -rf "$PLYMOUTH_OVERLAY"; fi
+    rm -rf "$CHROOT_PATH/tmp/ci-brand"
+}
+trap ci_brand_cleanup EXIT
 LOGO_RENDER_DIR="$(mktemp -d)"
 bash "$REPO_ROOT/core/render/render-mark-png.sh" "$LOGO_RENDER_DIR/companion-logo.png" 256
 # 128 px, the size of Ubuntu's bgrt-fallback.png (10-plymouth.sh installs it over that file).
@@ -1014,7 +1034,7 @@ else
         [[ -e "$TB_POLICY_RC.ci-os-orig" ]] && mv "$TB_POLICY_RC.ci-os-orig" "$TB_POLICY_RC"
         return 0
     }
-    tb_cleanup() { tb_policy_off; rm -rf "$TB_WORK"; }
+    tb_cleanup() { tb_policy_off; rm -rf "$TB_WORK"; ci_brand_cleanup; }
     trap tb_cleanup EXIT
 
     tb_fetch() {   # URL DEST
@@ -1298,7 +1318,7 @@ EOSCRIPT
         fi
     } >> "$CHROOT_PATH/usr/lib/ci-os/baked-hub-tools.txt"
 
-    tb_cleanup; trap - EXIT
+    tb_cleanup; trap ci_brand_cleanup EXIT
     echo "[+] Step 10e: optional tools pre-installed (third-party=$CI_OS_BAKE_THIRD_PARTY ollama=$CI_OS_BAKE_OLLAMA launcher=$CI_OS_BAKE_LAUNCHER)"
 fi
 
