@@ -2,7 +2,8 @@
 # Shared context for the theming scripts under backends/ubuntu/desktop-theme/,
 # backends/_mixins/{gnome-dconf,kde-plasma}/, and core/render/*.sh (sourced,
 # not executed alone). Genuinely distro-portable: everything here is a logging
-# helper, the canon tokens, or ci_divert_file, which does nothing without dpkg.
+# helper, the canon tokens, ci_divert_file (which does nothing without dpkg), or
+# a Plymouth theme-file writer (plain sed and cat).
 # shellcheck shell=bash
 
 # Callers at a known depth from the repo root may already export REPO_ROOT
@@ -86,4 +87,52 @@ ci_install_file() {
   local src="$1" dest="$2" mode="${3:-644}"
   ci_divert_file "$dest"
   install -D -m "$mode" "$src" "$dest"
+}
+
+# ci_plymouth_recolor <conf>
+# Repaint a Plymouth theme file (bgrt.plymouth, spinner.plymouth) in the canon boot palette, in place: the
+# ground is the dark background (navy), the progress bar's track the dark secondary and its fill the dark
+# primary (sage). Only those four colour lines change. Fonts, image directory and alignment stay as the file
+# has them, so the one call serves the rootfs copy (10-plymouth.sh) and the copy inside the casper initrd
+# (build-iso.sh), which has to keep the Ubuntu fonts because they are the only fonts that initrd carries.
+# The ground shows in the spinner theme. The bgrt theme (Ubuntu's default) does not use it while it draws the firmware
+# logo or bgrt-fallback.png: the two-step plugin paints solid black behind either, so there only the progress bar
+# colours are seen. Needs no root and no dpkg.
+ci_plymouth_recolor() {
+  local conf="$1" ground track fill
+  ground="$(ci_hex0x "$CI_DARK_BACKGROUND")"
+  track="$(ci_hex0x "$CI_DARK_SECONDARY")"
+  fill="$(ci_hex0x "$CI_DARK_PRIMARY")"
+  sed -i \
+    -e "s/BackgroundStartColor=0x[0-9a-fA-F]*/BackgroundStartColor=$ground/" \
+    -e "s/BackgroundEndColor=0x[0-9a-fA-F]*/BackgroundEndColor=$ground/" \
+    -e "s/ProgressBarBackgroundColor=0x[0-9a-fA-F]*/ProgressBarBackgroundColor=$track/" \
+    -e "s/ProgressBarForegroundColor=0x[0-9a-fA-F]*/ProgressBarForegroundColor=$fill/" \
+    "$conf"
+}
+
+# ci_plymouth_text_theme <conf> <title>
+# Write the ubuntu-text theme file (the text-mode splash: safe-graphics boot, and the fallback when no graphics
+# come up) in the canon colours, titled <title>. The file is written whole, so it does not matter what the stock
+# one said: white is the dark foreground, brown the dark primary, blue the light primary, black stays black.
+# The ModuleName stays ubuntu-text: that is the Plymouth plugin the theme loads, not a name anybody reads.
+ci_plymouth_text_theme() {
+  local conf="$1" title="$2" white brown blue
+  white="$(ci_hex0x "$CI_DARK_FOREGROUND")"
+  brown="$(ci_hex0x "$CI_DARK_PRIMARY")"
+  blue="$(ci_hex0x "$CI_LIGHT_PRIMARY")"
+  cat > "$conf" <<PLYMOUTH_EOF
+[Plymouth Theme]
+Name=Companion OS Text
+Description=Text mode theme with Companion OS branding
+ModuleName=ubuntu-text
+
+[ubuntu-text]
+title=$title
+black=0x000000
+white=$white
+brown=$brown
+blue=$blue
+PLYMOUTH_EOF
+  chmod 644 "$conf"
 }

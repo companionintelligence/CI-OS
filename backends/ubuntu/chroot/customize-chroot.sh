@@ -39,17 +39,21 @@ echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
 
 # Render the logo PNGs on THIS host before anything in the chroot changes. The stock desktop image has neither
-# rsvg-convert nor ImageMagick, so the greeter logo (Step 3) and the Settings > About logos (Step 5c) are drawn
-# here from the vendored marks and installed from this directory. Doing it first means a host that cannot render
-# them (build-iso.sh checks the tools, but this script can be run directly) stops now, with a message, and not in
-# Step 3 with os-release rewritten and packages removed. Removed again after Step 5c.
+# rsvg-convert nor ImageMagick, so the greeter logo (Step 3), the Plymouth firmware-logo fallback (Step 5) and the
+# Settings > About logos (Step 5c) are drawn here from the vendored marks and installed from this directory. Doing
+# it first means a host that cannot render them (build-iso.sh checks the tools, but this script can be run
+# directly) stops now, with a message, and not in Step 3 with os-release rewritten and packages removed.
+# Removed again after Step 5c.
 if ! command -v rsvg-convert >/dev/null 2>&1 && ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
-    echo "[ERROR] Neither rsvg-convert nor ImageMagick is installed on this host; the logo PNGs (greeter, Settings > About) cannot be rendered." >&2
+    echo "[ERROR] Neither rsvg-convert nor ImageMagick is installed on this host; the logo PNGs (greeter, Plymouth, Settings > About) cannot be rendered." >&2
     echo "[ERROR] apt-get install librsvg2-bin imagemagick" >&2
     exit 1
 fi
 LOGO_RENDER_DIR="$(mktemp -d)"
 bash "$REPO_ROOT/core/render/render-mark-png.sh" "$LOGO_RENDER_DIR/companion-logo.png" 256
+# 128 px, the size of Ubuntu's bgrt-fallback.png (10-plymouth.sh installs it over that file).
+mkdir -p "$LOGO_RENDER_DIR/plymouth/core/render/output"
+bash "$REPO_ROOT/core/render/render-mark-png.sh" "$LOGO_RENDER_DIR/plymouth/core/render/output/ci-os-bgrt-fallback.png" 128
 mkdir -p "$LOGO_RENDER_DIR/about/core/render/output"
 bash "$REPO_ROOT/core/render/render-mark-png.sh" "$LOGO_RENDER_DIR/about/core/render/output/ci-os-about-logo.png" 192 "$CI_LIGHT_PRIMARY"
 bash "$REPO_ROOT/core/render/render-mark-png.sh" "$LOGO_RENDER_DIR/about/core/render/output/ci-os-about-logo-dark.png" 192 "$CI_DARK_PRIMARY"
@@ -512,19 +516,22 @@ echo "[*] Step 5: Configuring Plymouth splash..."
 # repo). run_theme_step stages it into the chroot (see its comment).
 #
 # Note: this brands Plymouth for the INSTALLED system's own boots (curtin
-# regenerates the initramfs from this rootfs during install finalization).
-# The live/installer-session splash itself, before GRUB hands off, is driven
-# by casper/initrd copied verbatim from the stock Ubuntu ISO — rebuilding
-# that is a materially higher-risk change for a several-second one-time
-# screen, so it's an accepted residual gap, not something chased here.
+# regenerates the initramfs from this rootfs during install finalization)
+# and the live session's rootfs copies. The live/installer-session splash
+# itself, before GRUB hands off, is drawn from the copies inside casper/initrd,
+# which is copied verbatim from the stock Ubuntu ISO: build-iso.sh
+# (brand_boot_media) appends an overlay to it that repaints those copies with
+# the same helpers and takes the watermark and the firmware-logo fallback from
+# this rootfs, so they have to be right here first.
 
-# The stock desktop image has no ImageMagick, so 10-plymouth.sh cannot do its 50% watermark scaling inside the
-# chroot and would copy the full-size banner (1024 px wide, about four times Ubuntu's own splash logo).
-# Pre-scale on the build host instead, into an overlay laid over the staged inputs. Skipped if the chroot does
-# have ImageMagick, so it is never scaled twice.
-PLYMOUTH_OVERLAY=""
+# The stock desktop image has no ImageMagick or rsvg-convert, so the overlay carries what 10-plymouth.sh cannot
+# draw inside the chroot. The firmware-logo fallback (rendered at the top of this script) is always staged. The
+# watermark is pre-scaled on the build host to 50% (10-plymouth.sh would otherwise copy the full-size banner,
+# 1024 px wide, about four times Ubuntu's own splash logo), laid over the staged inputs; skipped if the chroot
+# does have ImageMagick, so it is never scaled twice.
+PLYMOUTH_OVERLAY="$(mktemp -d)"
+cp -R "$LOGO_RENDER_DIR/plymouth/." "$PLYMOUTH_OVERLAY/"
 if ! chroot "$CHROOT_PATH" /bin/sh -c 'command -v convert || command -v magick' >/dev/null 2>&1; then
-    PLYMOUTH_OVERLAY="$(mktemp -d)"
     mkdir -p "$PLYMOUTH_OVERLAY/core/render/inputs"
     _wm="$PLYMOUTH_OVERLAY/core/render/inputs/Logo_Banner_Color.png"
     cp "$REPO_ROOT/core/render/inputs/Logo_Banner_Color.png" "$_wm"
@@ -539,9 +546,9 @@ if ! chroot "$CHROOT_PATH" /bin/sh -c 'command -v convert || command -v magick' 
 fi
 
 run_theme_step 10-plymouth.sh "$PLYMOUTH_OVERLAY"
-if [[ -n "$PLYMOUTH_OVERLAY" ]]; then rm -rf "$PLYMOUTH_OVERLAY"; fi
+rm -rf "$PLYMOUTH_OVERLAY"
 
-echo "[+] Plymouth configured from the canon tokens (installed-system boots)"
+echo "[+] Plymouth configured from the canon tokens (installed-system boots, live initrd overlay source)"
 
 #=============================================================================
 # 5b. Dock "Show Applications" button (Yaru start-here-symbolic)

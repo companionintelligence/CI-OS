@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # Plymouth boot splash: CI logo and colors (no GNOME/dconf here).
+#
+# This step brands the ROOTFS copy of the themes, which is what an installed system boots with (curtin
+# regenerates its initramfs from it). The live session's own splash is drawn from the casper initrd, which carries
+# its own copies of the same theme files; build-iso.sh (brand_boot_media) repaints those with the same
+# ci_plymouth_* helpers and takes the watermark and the fallback logo from this rootfs. Note that the bgrt theme,
+# the default, paints black behind the firmware logo (or the fallback below); see ci_plymouth_recolor.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/theme-lib.sh"
 require_root
@@ -13,13 +19,20 @@ UBUNTU_TEXT_PLYMOUTH="$PLYMOUTH_UBUNTU_TEXT_DIR/ubuntu-text.plymouth"
 PLYMOUTH_SPINNER_CONF="$PLYMOUTH_SPINNER_DIR/spinner.plymouth"
 PLYMOUTH_BGRT_CONF="/usr/share/plymouth/themes/bgrt/bgrt.plymouth"
 
-# Boot palette from the canon tokens (vendor/brand/tokens/tokens.sh, sourced by lib.sh):
-# ground = the dark background (navy), progress = the dark primary (sage), track = dark secondary.
-# Before this the boot screen was painted in the logo ramp (#066c80 / #00a9a7 / #72ddd4), which
-# is artwork, not the brand palette. Design review: see the PR that introduced this.
-BG_DARK_GREEN="$(ci_hex0x "$CI_DARK_BACKGROUND")"
-PROGRESS_BG="$(ci_hex0x "$CI_DARK_SECONDARY")"
-PROGRESS_FG="$(ci_hex0x "$CI_DARK_PRIMARY")"
+# The firmware-logo fallback: the bgrt theme draws the firmware's own boot logo (the ACPI BGRT table) and, where
+# there is none (legacy BIOS, most VMs, some firmware), bgrt-fallback.png from the theme directory, which is
+# Ubuntu's logo in a circle of friends. Same size as Ubuntu's file, so the layout does not move.
+FALLBACK_DEST="$PLYMOUTH_SPINNER_DIR/bgrt-fallback.png"
+FALLBACK_PX=128
+FALLBACK_PNG_NAME="ci-os-bgrt-fallback.png"
+FALLBACK_STAGED_DIR="$REPO_ROOT/core/render/output"
+MARK_SVG="$REPO_ROOT/vendor/brand/logos/mark.svg"
+RENDER_MARK="$REPO_ROOT/core/render/render-mark-png.sh"
+
+# The boot palette (ground = the dark background, progress = the dark primary, track = the dark secondary) is
+# ci_plymouth_recolor's, from the canon tokens (vendor/brand/tokens/tokens.sh, sourced by theme-lib.sh). Before
+# the canon the boot screen was painted in the logo ramp (#066c80 / #00a9a7 / #72ddd4), which is artwork, not
+# the brand palette.
 
 # The text-mode splash (safe-graphics boot, and the fallback when no graphics come up) is titled with the product
 # and its version: the build's CI_OS_VERSION (run_theme_step exports it), else the CI_OS_VERSION a branded
@@ -82,44 +95,65 @@ else
 fi
 chmod 644 "$WATERMARK_DEST"
 
+# --- the firmware-logo fallback: staged (image build) or rendered here (live system) -----------------------
+# The colour mark, transparent background, FALLBACK_PX square. The stock desktop image has no rsvg-convert or
+# ImageMagick, so an image build renders it on the build host (core/render/render-mark-png.sh) and stages it in
+# core/render/output/; with nothing staged (a live system) this step renders it itself. A live system with no
+# renderer keeps Ubuntu's fallback logo, says so, and goes on; an image build never ships it, so it fails instead.
+FALLBACK_PNG="$FALLBACK_STAGED_DIR/$FALLBACK_PNG_NAME"
+RENDER_TMP=""
+cleanup() {
+  if [[ -n "$RENDER_TMP" ]]; then rm -rf "$RENDER_TMP"; fi
+}
+trap cleanup EXIT
+if [[ ! -f "$FALLBACK_PNG" ]]; then
+  if ci_image_build; then
+    log_error "No pre-rendered firmware-logo fallback in $FALLBACK_STAGED_DIR: customize-chroot.sh renders it on the build host and stages it"
+    exit 1
+  fi
+  FALLBACK_PNG=""
+  if [[ ! -f "$MARK_SVG" || ! -f "$RENDER_MARK" ]]; then
+    log_warn "No pre-rendered firmware-logo fallback in $FALLBACK_STAGED_DIR and no $RENDER_MARK or $MARK_SVG to render one"
+  elif ! command -v rsvg-convert >/dev/null 2>&1 && ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+    log_warn "Neither rsvg-convert nor ImageMagick is installed, so the firmware-logo fallback cannot be drawn (apt-get install librsvg2-bin)"
+  else
+    RENDER_TMP="$(mktemp -d)"
+    log_info "Rendering the firmware-logo fallback..."
+    if bash "$RENDER_MARK" "$RENDER_TMP/$FALLBACK_PNG_NAME" "$FALLBACK_PX"; then
+      FALLBACK_PNG="$RENDER_TMP/$FALLBACK_PNG_NAME"
+    else
+      log_warn "Rendering the firmware-logo fallback failed"
+    fi
+  fi
+  if [[ -z "$FALLBACK_PNG" ]]; then
+    log_warn "Machines with no firmware boot logo keep Ubuntu's fallback logo; the rest of this step still applies. Re-run: apply-ci-os-desktop.sh --only plymouth"
+  fi
+fi
+if [[ -n "$FALLBACK_PNG" ]]; then
+  if [[ -f "$FALLBACK_DEST" ]]; then
+    backup_file "$FALLBACK_DEST" bgrt-fallback.png.bak
+  fi
+  # bgrt-fallback.png belongs to a Plymouth theme package: ci_install_file diverts Ubuntu's file first, so an
+  # upgrade of the package puts it at bgrt-fallback.png.ubuntu-stock and cannot bring the Ubuntu logo back.
+  ci_install_file "$FALLBACK_PNG" "$FALLBACK_DEST"
+fi
+
 if [[ -f "$PLYMOUTH_SPINNER_CONF" ]]; then
   backup_file "$PLYMOUTH_SPINNER_CONF" spinner.plymouth.bak
-  sed -i "s/BackgroundStartColor=0x[0-9a-fA-F]*/BackgroundStartColor=$BG_DARK_GREEN/" "$PLYMOUTH_SPINNER_CONF"
-  sed -i "s/BackgroundEndColor=0x[0-9a-fA-F]*/BackgroundEndColor=$BG_DARK_GREEN/" "$PLYMOUTH_SPINNER_CONF"
-  sed -i "s/ProgressBarBackgroundColor=0x[0-9a-fA-F]*/ProgressBarBackgroundColor=$PROGRESS_BG/" "$PLYMOUTH_SPINNER_CONF"
-  sed -i "s/ProgressBarForegroundColor=0x[0-9a-fA-F]*/ProgressBarForegroundColor=$PROGRESS_FG/" "$PLYMOUTH_SPINNER_CONF"
+  ci_plymouth_recolor "$PLYMOUTH_SPINNER_CONF"
 fi
 
 if [[ -f "$PLYMOUTH_BGRT_CONF" ]]; then
   backup_file "$PLYMOUTH_BGRT_CONF" bgrt.plymouth.bak
+  # The rootfs has Cantarell; the casper initrd's copy keeps Ubuntu's fonts, the only ones it carries.
   sed -i "s/Font=Ubuntu 12/Font=Cantarell 12/" "$PLYMOUTH_BGRT_CONF"
   sed -i "s/TitleFont=Ubuntu Light 30/TitleFont=Cantarell Light 30/" "$PLYMOUTH_BGRT_CONF"
-  sed -i "s/BackgroundStartColor=0x[0-9a-fA-F]*/BackgroundStartColor=$BG_DARK_GREEN/" "$PLYMOUTH_BGRT_CONF"
-  sed -i "s/BackgroundEndColor=0x[0-9a-fA-F]*/BackgroundEndColor=$BG_DARK_GREEN/" "$PLYMOUTH_BGRT_CONF"
-  sed -i "s/ProgressBarBackgroundColor=0x[0-9a-fA-F]*/ProgressBarBackgroundColor=$PROGRESS_BG/" "$PLYMOUTH_BGRT_CONF"
-  sed -i "s/ProgressBarForegroundColor=0x[0-9a-fA-F]*/ProgressBarForegroundColor=$PROGRESS_FG/" "$PLYMOUTH_BGRT_CONF"
+  ci_plymouth_recolor "$PLYMOUTH_BGRT_CONF"
 fi
 
 if [[ -f "$UBUNTU_TEXT_PLYMOUTH" ]]; then
   backup_file "$UBUNTU_TEXT_PLYMOUTH" ubuntu-text.plymouth.bak
-  TEXT_WHITE="$(ci_hex0x "$CI_DARK_FOREGROUND")"
-  TEXT_BROWN="$(ci_hex0x "$CI_DARK_PRIMARY")"
-  TEXT_BLUE="$(ci_hex0x "$CI_LIGHT_PRIMARY")"
-  TEXT_TITLE="$(ci_text_splash_title)"
-  cat > "$UBUNTU_TEXT_PLYMOUTH" <<PLYMOUTH_EOF
-[Plymouth Theme]
-Name=Companion OS Text
-Description=Text mode theme with Companion OS branding
-ModuleName=ubuntu-text
-
-[ubuntu-text]
-title=$TEXT_TITLE
-black=0x000000
-white=$TEXT_WHITE
-brown=$TEXT_BROWN
-blue=$TEXT_BLUE
-PLYMOUTH_EOF
-  chmod 644 "$UBUNTU_TEXT_PLYMOUTH"
+  ci_plymouth_text_theme "$UBUNTU_TEXT_PLYMOUTH" "$(ci_text_splash_title)"
 fi
 
 if command -v update-alternatives >/dev/null 2>&1; then
