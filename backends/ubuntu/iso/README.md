@@ -104,7 +104,8 @@ The compiled gresource is committed to source at:
    - AMD GPU / ROCm helper tools
    - Installer whitelabel (whitelabel.yaml, slides)
    - MOTD and CI-OS utilities
-4. Repacks squashfs, regenerates casper manifests
+4. Repacks squashfs, regenerates casper manifests (the two placeholder casper layers mirror the rootfs
+   directory modes, so `/tmp` stays `1777` in the overlay)
 5. Generates bootable ISO with xorriso (inheriting EFI/BIOS boot from base ISO)
 6. Produces SHA256/MD5 checksums
 
@@ -270,7 +271,9 @@ backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-1.0-amd64.iso
 Needs no root and does not boot the ISO. It extracts the root squashfs, the initrd and a few files and
 asserts that every CI-Hub and wireless-setup tool is pre-installed, that the hotspot units are guarded
 against live sessions, that Docker is unguarded and the docker group is set up, that the optional tools
-are installed from their pinned sources, that the Settings > About logo, the dock start icon, the `LOGO=` icon and the greeter logo are the canon mark and diverted from the packages that own the stock files, and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
+are installed from their pinned sources, that the Settings > About logo, the dock start icon, the `LOGO=` icon and the greeter logo are the canon mark and diverted from the packages that own the stock files, that the placeholder casper layers keep the rootfs directory modes
+(`/tmp` is `1777`; `tests/placeholder-layer-modes.sh` checks the build step in a privileged container),
+and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
 `BUILD_SYSTEM` and the ISO volume id (which apt, casper, the installer and Secure Boot depend on) are
 untouched. Exit status is non-zero if any check fails.
 

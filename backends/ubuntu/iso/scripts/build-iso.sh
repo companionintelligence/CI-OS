@@ -356,6 +356,28 @@ apply_customizations() {
     log_info "Customizations applied"
 }
 
+# Create the skeleton of an empty casper placeholder layer in $2, mirroring the
+# directory modes of the rootfs in $1.
+#
+# casper stacks the layers with overlayfs, and a directory that exists in several layers
+# takes its mode from the TOPMOST one. A placeholder made with a plain `mkdir -p` gets 0755
+# (root's umask), which turns /tmp into drwxr-xr-x for the whole live session: the installer
+# and the desktop launcher can no longer write their temp files (the launcher is shown as
+# untrusted and the installer does not start). /tmp has to stay 1777 whatever the umask is.
+# The layer's own root is mirrored too: it is the mktemp -d directory, mode 0700.
+make_placeholder_layer() {
+    local chroot_dir="$1"
+    local empty_dir="$2"
+    local d
+
+    chmod --reference="$chroot_dir" "$empty_dir"
+    for d in etc var tmp; do
+        mkdir -p "$empty_dir/$d"
+        chmod --reference="$chroot_dir/$d" "$empty_dir/$d"
+    done
+    chmod 1777 "$empty_dir/tmp"
+}
+
 # Repack squashfs
 repack_squashfs() {
     log_info "Repacking squashfs filesystem..."
@@ -394,6 +416,13 @@ repack_squashfs() {
               "$casper_dir"/minimal.standard."$lang_suffix".{squashfs,size,manifest}
     done
 
+    # mksquashfs packs /tmp itself (only its contents are excluded below), so it has to be 1777
+    # before the pack, whatever the unsquashed layers or the customization steps left behind.
+    if [[ "$(stat -c %a "$chroot_dir/tmp")" != 1777 ]]; then
+        log_warn "chroot /tmp was not mode 1777; fixing it before packing"
+        chmod 1777 "$chroot_dir/tmp"
+    fi
+
     # Pack the full merged rootfs into minimal.squashfs
     # -quiet suppresses per-file progress output (millions of lines that crash terminals)
     log_info "Compressing rootfs into minimal.squashfs (this takes 5-15 minutes)..."
@@ -410,10 +439,11 @@ repack_squashfs() {
     # Create empty placeholder layers for standard and live.
     # Our minimal.squashfs already contains everything from all 3 original
     # layers plus our customizations, so these layers need to exist (casper
-    # and the installer expect them) but don't need to add any content.
+    # and the installer expect them) but don't need to add any content. Their
+    # directory modes must mirror the rootfs, though (see make_placeholder_layer).
     local empty_dir
     empty_dir="$(mktemp -d)"
-    mkdir -p "$empty_dir"/{etc,var,tmp}
+    make_placeholder_layer "$chroot_dir" "$empty_dir"
     for placeholder in minimal.standard.squashfs minimal.standard.live.squashfs; do
         log_info "Creating placeholder layer: $placeholder"
         mksquashfs "$empty_dir" "$casper_dir/$placeholder" \
@@ -738,5 +768,8 @@ main() {
     log_info "Checksums: $OUTPUT_DIR/SHA256SUMS"
 }
 
-# Run main function
-main "$@"
+# Run main unless this file is being sourced (tests/placeholder-layer-modes.sh sources it for
+# make_placeholder_layer).
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi

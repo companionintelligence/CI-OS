@@ -16,7 +16,8 @@
 #   2. the user-visible branding is Companion OS, while the identifiers that
 #      apt, casper, the installer and Secure Boot depend on are untouched;
 #   2b. the Settings > About logo, the dock start icon, the LOGO= icon and the greeter logo
-#      are the canon mark, and the stock files are dpkg-diverted so an upgrade cannot restore them.
+#      are the canon mark, and the stock files are dpkg-diverted so an upgrade cannot restore them;
+#   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777).
 #
 # What is deliberately NOT asserted, because it cannot be changed by remastering:
 # the installer window's own text (a Canonical snap with a fixed flavour list)
@@ -72,7 +73,9 @@ xorriso -osirrox on -indev "$ISO" \
     -extract /.disk/info "$ISOX/disk-info" \
     -extract /casper/initrd "$ISOX/initrd" \
     -extract /casper/install-sources.yaml "$ISOX/install-sources.yaml" \
-    -extract /casper/minimal.squashfs "$ISOX/minimal.squashfs" >/dev/null 2>&1
+    -extract /casper/minimal.squashfs "$ISOX/minimal.squashfs" \
+    -extract /casper/minimal.standard.squashfs "$ISOX/minimal.standard.squashfs" \
+    -extract /casper/minimal.standard.live.squashfs "$ISOX/minimal.standard.live.squashfs" >/dev/null 2>&1
 [[ -s "$ISOX/minimal.squashfs" ]] || { echo "could not extract /casper/minimal.squashfs from $ISO" >&2; exit 2; }
 PVD_VOLID="$(xorriso -indev "$ISO" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -1)"
 
@@ -324,6 +327,43 @@ else
 fi
 LANGLAYERS="$(xorriso -indev "$ISO" -ls /casper/ 2>/dev/null | tr -d "'" | tr ' ' '\n' | grep -E '^minimal(\.standard)?\.(de|en|es|fr|it|pt|ru|zh|no-languages)\.' || true)"
 if [[ -z "$LANGLAYERS" ]]; then pass "no stock language layers on the ISO"; else fail "stock language layers still on the ISO: $(echo $LANGLAYERS | tr '\n' ' ')"; fi
+
+section "3e. Casper overlay layers must not change directory modes"
+# casper stacks minimal.squashfs, minimal.standard.squashfs and minimal.standard.live.squashfs with overlayfs, and a
+# directory that exists in several layers takes its mode from the TOPMOST one. The two upper layers are placeholders;
+# made with a plain mkdir they turn /tmp into drwxr-xr-x for the whole live session, and then the installer and the
+# desktop launcher (shown as untrusted) cannot write their temp files. So every directory in an upper layer must carry
+# the same mode as the same path in the root layer, and /tmp must be sticky and world-writable everywhere.
+LL_PREFIX='^[^ ]+ +[^ ]+ +[0-9]+ +[0-9-]+ +[0-9:]+ ?' # "mode owner/group size date time " in front of the path
+dir_mode() { # dir_mode <listing> <path>: mode of that directory in an `unsquashfs -ll` listing; "" = the layer root
+    awk -v want="$2" -v pre="$LL_PREFIX" '$1 ~ /^d/ { p = $0; sub(pre, "", p); if (p == want) { print $1; exit } }' "$1"
+}
+tmp_root="$(dir_mode "$LISTING" /tmp)"
+if [[ "$tmp_root" == drwxrwxrwt ]]; then pass "root layer: /tmp is drwxrwxrwt"; else fail "root layer: /tmp is ${tmp_root:-missing}, must be drwxrwxrwt"; fi
+for layer in minimal.standard minimal.standard.live; do
+    LSQ="$ISOX/$layer.squashfs"
+    if [[ ! -s "$LSQ" ]]; then fail "could not extract /casper/$layer.squashfs"; continue; fi
+    LAYERLIST="$WORK/$layer.listing.txt"
+    unsquashfs -ll "$LSQ" 2>/dev/null | sed 's#squashfs-root##' > "$LAYERLIST"
+    ndirs=0; nbad=0
+    while IFS=$'\t' read -r mode path; do
+        ndirs=$((ndirs + 1))
+        base="$(dir_mode "$LISTING" "$path")"
+        # A directory the root layer does not have cannot change one of its modes.
+        [[ -n "$base" ]] || continue
+        if [[ "$mode" != "$base" ]]; then
+            nbad=$((nbad + 1))
+            fail "layer $layer: ${path:-/ (layer root)} is $mode but the root layer has $base"
+        fi
+    done < <(awk -v pre="$LL_PREFIX" '$1 ~ /^d/ { p = $0; sub(pre, "", p); print $1 "\t" p }' "$LAYERLIST")
+    if [[ "$ndirs" -eq 0 ]]; then
+        fail "layer $layer: no directories found in its listing (unreadable squashfs?)"
+    elif [[ "$nbad" -eq 0 ]]; then
+        pass "layer $layer: all $ndirs directories have the same mode as in the root layer"
+    fi
+    tmp_layer="$(dir_mode "$LAYERLIST" /tmp)"
+    if [[ "$tmp_layer" == drwxrwxrwt ]]; then pass "layer $layer: /tmp is drwxrwxrwt"; else fail "layer $layer: /tmp is ${tmp_layer:-missing}, must be drwxrwxrwt"; fi
+done
 
 # ── 4. branding ─────────────────────────────────────────────────────────────
 section "4. Branding: user-visible identity is Companion OS"
