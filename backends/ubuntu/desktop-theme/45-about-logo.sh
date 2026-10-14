@@ -7,9 +7,14 @@
 # and a base-files upgrade cannot bring the Ubuntu wordmark back.
 #
 # The PNGs are the one-colour mark (vendor/brand/logos/mark-mono.svg) at 192 px, filled with the canon
-# primary of each mode (CI_LIGHT_PRIMARY, CI_DARK_PRIMARY). The stock desktop image has no rsvg-convert,
-# so an image build renders them on the build host (core/render/render-mark-png.sh) and stages them in
-# core/render/output/; with nothing staged (a live system) this step renders them itself.
+# primary of each mode (CI_LIGHT_PRIMARY, CI_DARK_PRIMARY). The stock desktop image has no rsvg-convert
+# or ImageMagick, so an image build renders them on the build host (core/render/render-mark-png.sh) and
+# stages them in core/render/output/; with nothing staged (a live system) this step renders them itself.
+#
+# On a live system with neither renderer installed (apt-get install librsvg2-bin) the PNGs cannot be
+# drawn: the step warns, leaves Settings > About as it is, and still installs the ci-os-logo icon and the
+# Hub launcher icon, then exits 0 so apply-ci-os-desktop.sh goes on to os-release and motd. An image
+# build never degrades like that: without the staged PNGs it fails instead of shipping Ubuntu's wordmark.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/theme-lib.sh"
 require_root
@@ -34,20 +39,38 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# --- the About PNGs: staged (image build) or rendered here (live system) -------------------------------
+HAVE_PNGS=1
 if [[ ! -f "$PNG_DIR/$LIGHT_PNG_NAME" || ! -f "$PNG_DIR/$DARK_PNG_NAME" ]]; then
-  if [[ ! -f "$RENDER_MARK" ]]; then
-    log_error "No pre-rendered About logo in $PNG_DIR and no $RENDER_MARK to render one"
+  if ci_image_build; then
+    log_error "No pre-rendered About logo in $PNG_DIR: customize-chroot.sh renders it on the build host and stages it"
     exit 1
   fi
-  RENDER_TMP="$(mktemp -d)"
-  PNG_DIR="$RENDER_TMP"
-  log_info "Rendering the About logo..."
-  bash "$RENDER_MARK" "$PNG_DIR/$LIGHT_PNG_NAME" "$ABOUT_LOGO_PX" "$CI_LIGHT_PRIMARY"
-  bash "$RENDER_MARK" "$PNG_DIR/$DARK_PNG_NAME" "$ABOUT_LOGO_PX" "$CI_DARK_PRIMARY"
+  HAVE_PNGS=0
+  if [[ ! -f "$RENDER_MARK" ]]; then
+    log_warn "No pre-rendered About logo in $PNG_DIR and no $RENDER_MARK to render one"
+  elif ! command -v rsvg-convert >/dev/null 2>&1 && ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+    log_warn "Neither rsvg-convert nor ImageMagick is installed, so the About logo cannot be drawn (apt-get install librsvg2-bin)"
+  else
+    RENDER_TMP="$(mktemp -d)"
+    log_info "Rendering the About logo..."
+    if bash "$RENDER_MARK" "$RENDER_TMP/$LIGHT_PNG_NAME" "$ABOUT_LOGO_PX" "$CI_LIGHT_PRIMARY" &&
+      bash "$RENDER_MARK" "$RENDER_TMP/$DARK_PNG_NAME" "$ABOUT_LOGO_PX" "$CI_DARK_PRIMARY"; then
+      PNG_DIR="$RENDER_TMP"
+      HAVE_PNGS=1
+    else
+      log_warn "Rendering the About logo failed"
+    fi
+  fi
+  if [[ $HAVE_PNGS -eq 0 ]]; then
+    log_warn "Settings > About keeps Ubuntu's wordmark; the rest of this step still applies. Re-run: apply-ci-os-desktop.sh --only about-logo"
+  fi
 fi
 
-ci_install_file "$PNG_DIR/$LIGHT_PNG_NAME" /usr/share/pixmaps/ubuntu-logo-text.png
-ci_install_file "$PNG_DIR/$DARK_PNG_NAME" /usr/share/pixmaps/ubuntu-logo-text-dark.png
+if [[ $HAVE_PNGS -eq 1 ]]; then
+  ci_install_file "$PNG_DIR/$LIGHT_PNG_NAME" /usr/share/pixmaps/ubuntu-logo-text.png
+  ci_install_file "$PNG_DIR/$DARK_PNG_NAME" /usr/share/pixmaps/ubuntu-logo-text-dark.png
+fi
 
 # os-release says LOGO=ci-os-logo: give that name an icon the theme lookup can resolve.
 ci_install_file "$MARK_SVG" "$ICON_DEST"
@@ -67,4 +90,8 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
   done
 fi
 
-log_success "About logo (light + dark) and ci-os-logo icon installed from the canon mark"
+if [[ $HAVE_PNGS -eq 1 ]]; then
+  log_success "About logo (light + dark) and ci-os-logo icon installed from the canon mark"
+else
+  log_success "ci-os-logo icon installed from the canon mark (About logo NOT replaced: no renderer)"
+fi

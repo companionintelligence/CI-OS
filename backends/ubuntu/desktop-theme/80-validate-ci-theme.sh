@@ -275,7 +275,7 @@ for about_logo in ubuntu-logo-text.png ubuntu-logo-text-dark.png; do
     elif command -v dpkg-divert >/dev/null 2>&1 && [[ -n "$(dpkg-divert --list "/usr/share/pixmaps/$about_logo" 2>/dev/null)" ]]; then
         check_pass "Settings > About logo replaced, stock file diverted: $about_logo"
     else
-        check_warn "Settings > About logo is still Ubuntu's: $about_logo (run: apply-ci-os-desktop.sh --only about-logo)"
+        check_warn "Settings > About logo is still Ubuntu's: $about_logo (needs rsvg-convert or ImageMagick: apt-get install librsvg2-bin, then apply-ci-os-desktop.sh --only about-logo)"
     fi
 done
 
