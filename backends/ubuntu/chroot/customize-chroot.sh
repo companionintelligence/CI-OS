@@ -38,6 +38,22 @@ source "$REPO_ROOT/vendor/brand/tokens/tokens.sh"
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
 
+# Render the logo PNGs on THIS host before anything in the chroot changes. The stock desktop image has neither
+# rsvg-convert nor ImageMagick, so the greeter logo (Step 3) and the Settings > About logos (Step 5c) are drawn
+# here from the vendored marks and installed from this directory. Doing it first means a host that cannot render
+# them (build-iso.sh checks the tools, but this script can be run directly) stops now, with a message, and not in
+# Step 3 with os-release rewritten and packages removed. Removed again after Step 5c.
+if ! command -v rsvg-convert >/dev/null 2>&1 && ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
+    echo "[ERROR] Neither rsvg-convert nor ImageMagick is installed on this host; the logo PNGs (greeter, Settings > About) cannot be rendered." >&2
+    echo "[ERROR] apt-get install librsvg2-bin imagemagick" >&2
+    exit 1
+fi
+LOGO_RENDER_DIR="$(mktemp -d)"
+bash "$REPO_ROOT/core/render/render-mark-png.sh" "$LOGO_RENDER_DIR/companion-logo.png" 256
+mkdir -p "$LOGO_RENDER_DIR/about/core/render/output"
+bash "$REPO_ROOT/core/render/render-mark-png.sh" "$LOGO_RENDER_DIR/about/core/render/output/ci-os-about-logo.png" 192 "$CI_LIGHT_PRIMARY"
+bash "$REPO_ROOT/core/render/render-mark-png.sh" "$LOGO_RENDER_DIR/about/core/render/output/ci-os-about-logo-dark.png" 192 "$CI_DARK_PRIMARY"
+
 # Helper function to run commands in chroot
 chroot_exec() {
     chroot "$CHROOT_PATH" /bin/bash -c "$*"
@@ -313,9 +329,9 @@ fi
 echo "[*] Step 3: Installing CI-OS branding..."
 
 # Greeter logo (the gdm dconf logo= key below points here): the colour mark from the vendored canon at 256 px,
-# rendered on the build host. assets/logos/ci-holo-depth.png (a pastel hologram, no CI-Common counterpart) is
-# no longer used.
-bash "$REPO_ROOT/core/render/render-mark-png.sh" "$CHROOT_PATH/usr/share/pixmaps/companion-logo.png" 256
+# rendered on the build host at the top of this script. assets/logos/ci-holo-depth.png (a pastel hologram, no
+# CI-Common counterpart) is no longer used.
+install -D -m 644 "$LOGO_RENDER_DIR/companion-logo.png" "$CHROOT_PATH/usr/share/pixmaps/companion-logo.png"
 
 # Copy wallpaper — try primary path first, then fallback, warn if neither exists
 if [[ -f "$REPO_ROOT/core/render/inputs/background.png" ]]; then
@@ -547,14 +563,11 @@ echo "[*] Step 5c: Replacing the Settings > About logo..."
 
 # 45-about-logo.sh installs two PNGs over base-files' /usr/share/pixmaps/ubuntu-logo-text{,-dark}.png (the paths
 # gnome-control-center hard-codes) and the mark as the ci-os-logo icon that os-release LOGO= names. The PNGs are
-# the one-colour mark filled with the canon primary of each mode, rendered here on the build host (the chroot has
-# no rsvg-convert) and handed to the step as an overlay.
-ABOUT_OVERLAY="$(mktemp -d)"
-mkdir -p "$ABOUT_OVERLAY/core/render/output"
-bash "$REPO_ROOT/core/render/render-mark-png.sh" "$ABOUT_OVERLAY/core/render/output/ci-os-about-logo.png" 192 "$CI_LIGHT_PRIMARY"
-bash "$REPO_ROOT/core/render/render-mark-png.sh" "$ABOUT_OVERLAY/core/render/output/ci-os-about-logo-dark.png" 192 "$CI_DARK_PRIMARY"
-run_theme_step 45-about-logo.sh "$ABOUT_OVERLAY"
-rm -rf "$ABOUT_OVERLAY"
+# the one-colour mark filled with the canon primary of each mode, rendered on the build host at the top of this
+# script (the chroot has no rsvg-convert) and handed to the step as an overlay. In an image build the step fails
+# without them rather than leave Ubuntu's wordmark.
+run_theme_step 45-about-logo.sh "$LOGO_RENDER_DIR/about"
+rm -rf "$LOGO_RENDER_DIR"
 
 echo "[+] About logo replaced (light and dark)"
 
