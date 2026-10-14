@@ -35,6 +35,15 @@ for f in "${SH[@]}"; do bash -n "$f" || { echo "✖ syntax: $f"; rc=1; }; done
 echo "── shellcheck -S error"
 LC_ALL=C.UTF-8 shellcheck -x -S error "${SH[@]}" || rc=1
 
+echo "── no ((VAR++)) statements in shell scripts"
+# ((n++)) and ((n--)) exit with status 1 while n is 0, so under `set -e` the first increment ends the
+# script: the Fedora, Arch and Mint 80-validate-ci-theme.sh did exactly that and printed one check.
+# Use n=$((n + 1)).
+post_incr="$(git grep -nE '^[[:space:]]*\(\([[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*(\+\+|--)[[:space:]]*\)\)' -- '*.sh' ':(exclude)vendor' 2>/dev/null || true)"
+if [ -n "$post_incr" ]; then
+  echo "✖ a ((VAR++)) statement aborts a set -e script while VAR is 0; write VAR=\$((VAR + 1)):"; echo "$post_incr"; rc=1
+fi
+
 echo "── python3 py_compile"
 PY=()
 while IFS= read -r f; do PY+=("$f"); done < <(git ls-files '*.py')
