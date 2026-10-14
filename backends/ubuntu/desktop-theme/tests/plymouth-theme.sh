@@ -242,7 +242,19 @@ OUT="$(env -i PATH="$NOREND" CI_OS_VERSION=7.3 bash "$REPO/backends/ubuntu/deskt
 set -e
 expect "live run with no renderer exits 0 (apply-ci-os-desktop.sh goes on to the next step)" test "$RC" -eq 0
 expect "...warns that the fallback cannot be drawn" bash -c "grep -q 'cannot be drawn' <<<\"\$1\"" _ "$OUT"
+expect "...and warns that the watermark is copied at full size (nothing on a live system scaled it)" \
+    bash -c "grep -q 'copying logo at full size' <<<\"\$1\"" _ "$OUT"
 expect "...and leaves Ubuntu's fallback logo as it was" test "$(sha "$FALLBACK")" = "$STOCK_FB_SHA"
+
+# ── an image build in a chroot with no ImageMagick (the stock desktop image): the host scaled the logo ─────
+# customize-chroot.sh scales Logo_Banner_Color.png on the build host and lays it over the step's inputs, so the step
+# copies it as it is and must not say it is copying the logo at full size.
+set +e
+OUT="$(env -i PATH="$NOREND" CI_BRAND_IMAGE_BUILD=1 CI_OS_VERSION=7.3 bash "$WORK/repo/backends/ubuntu/desktop-theme/10-plymouth.sh" 2>&1)"; RC=$?
+set -e
+expect "image build with no ImageMagick exits 0 (the host pre-scaled the logo)" test "$RC" -eq 0
+expect "...and does not warn about a full-size logo" bash -c "! grep -q 'copying logo at full size' <<<\"\$1\"" _ "$OUT"
+expect "...and installs the input logo as it is" cmp -s "$THEMES/spinner/watermark.png" "$WORK/repo/core/render/inputs/Logo_Banner_Color.png"
 
 echo
 echo "$PASS passed, $FAIL failed"

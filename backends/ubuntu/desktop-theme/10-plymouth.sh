@@ -105,7 +105,10 @@ if [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]] && command -v convert >/dev/null 2>&
 elif [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]] && command -v magick >/dev/null 2>&1; then
   magick "$LOGO_SOURCE" -resize "${WATERMARK_SCALE_PERCENT}%" "$WATERMARK_NEW"
 else
-  if [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]]; then
+  # An image build runs in the stock desktop chroot, which has no ImageMagick: customize-chroot.sh scaled the logo on
+  # the build host (which must have ImageMagick) and laid it over $LOGO_SOURCE, so it is copied as it is and there is
+  # nothing to warn about; verify-iso.sh checks the width. Only a live system can really end up with the full-size logo.
+  if [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]] && ! ci_image_build; then
     log_warn "ImageMagick not found; copying logo at full size."
   fi
   cp "$LOGO_SOURCE" "$WATERMARK_NEW"
