@@ -57,6 +57,14 @@ if [ -n "$old_names" ]; then
   echo "✖ a retired product name is back; the name is \"Companion OS\":"; echo "$old_names"; rc=1
 fi
 
+echo "── no block-letter banner art in backends/, core/ and .github/"
+# A grep for the retired names reads text, not pictures: the MOTD banner drew the letters C, I, O, S in full-block
+# characters, which spelled "CI OS" and passed every check above. Draw no names; write them.
+block_art="$(git grep -InF '█' -- backends core .github ':(exclude)core/lib/check-repo.sh' 2>/dev/null || true)"
+if [ -n "$block_art" ]; then
+  echo "✖ block-letter art (U+2588) is back; it can spell a retired name that no text check can see:"; echo "$block_art"; rc=1
+fi
+
 echo "── python3 py_compile"
 PY=()
 while IFS= read -r f; do PY+=("$f"); done < <(git ls-files '*.py')

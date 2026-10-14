@@ -374,25 +374,20 @@ let
   #    of reproducing per-login dynamic content. This is a disclosed gap,
   #    the same category as every prior backend's own MOTD uncertainty (this
   #    backend's is a real structural limit of the option, not just an
-  #    unverified assumption) — only the static banner (the CI ASCII mark
-  #    + tagline, `render-motd.sh`'s 00-ci-os-header equivalent) is reproduced
-  #    here; the live system-info block (10-ci-sysinfo) is not, and can't
-  #    be via this option. The ANSI color escapes Ubuntu's version prints
+  #    unverified assumption) — only the static banner (the product name
+  #    and the line below it, the same text `render-motd.sh` writes as
+  #    00-ci-os-header) is reproduced here; the live system-info block
+  #    (10-ci-sysinfo) is not, and can't be via this option. No block-letter
+  #    art either (check-repo.sh refuses it: it once spelled a retired name).
+  #    The ANSI color escapes Ubuntu's version prints
   #    via `echo -e` are also dropped here (plain text only) — cosmetic, not
   #    load-bearing, and avoids embedding raw escape bytes in this source
   #    file.
   # ==========================================================================
   motdBanner = ''
 
-      ██████╗██╗     ██████╗ ███████╗
-     ██╔════╝██║    ██╔═══██╗██╔════╝
-     ██║     ██║    ██║   ██║███████╗
-     ██║     ██║    ██║   ██║╚════██║
-     ╚██████╗██║    ╚██████╔╝███████║
-      ╚═════╝╚═╝     ╚═════╝ ╚══════╝
-
      Companion OS
-     Uncloud Modern Life
+     Companion Intelligence - https://ci.computer
   '';
 in
 {

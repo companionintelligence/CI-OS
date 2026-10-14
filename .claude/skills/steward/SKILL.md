@@ -13,7 +13,7 @@ description: CI-OS conventions for driving a PR to mergeable — validation to r
 
 It is exactly what the `PR checks` workflow runs (bash -n, `shellcheck -S error`,
 `py_compile`, yamllint, no tracked build artifacts, no retired product name such as "CI OS" or
-"Companion Ubuntu" back in `backends/`, `core/` or `.github/`: the name is "Companion OS"). If it fails locally, don't push. The
+"Companion Ubuntu" back in `backends/`, `core/` or `.github/`: the name is "Companion OS"; and no block-letter banner art, which can spell one in a way a text grep cannot read). If it fails locally, don't push. The
 other workflows (`build-companion-os-iso.yml`, `style-canon-lint.yml`) are manual-only
 (`ci-local:gated` markers) — don't restore their triggers in a PR; that's a maintainer call.
 

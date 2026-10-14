@@ -34,28 +34,18 @@ fi
 
 # 00-ci-os-header is the name customize-chroot.sh uses for the ISO; an older run of this script
 # left 00-ci-header behind, which would print a second banner.
+# The banner is the same text as the one the ISO ships (customize-chroot.sh Step 8), so an image and a re-skinned
+# system greet alike. It is words only: the block-letter art that stood here spelled a retired name, and check-repo.sh
+# refuses block art in the sources. Keep the two in step by hand.
 rm -f "$MOTD_DIR/00-ci-header"
 cat > "$MOTD_DIR/00-ci-os-header" <<'EOF'
-#!/bin/bash
-#
-# Companion OS Welcome Message
-#
+#!/bin/sh
+cat << 'MOTD'
 
-CYAN='\033[0;36m'
-GREEN='\033[0;32m'
-NC='\033[0m'
+  Companion OS
+  Companion Intelligence - https://ci.computer
 
-echo ""
-echo -e "${CYAN}  ██████╗██╗     ██████╗ ███████╗${NC}"
-echo -e "${CYAN} ██╔════╝██║    ██╔═══██╗██╔════╝${NC}"
-echo -e "${CYAN} ██║     ██║    ██║   ██║███████╗${NC}"
-echo -e "${CYAN} ██║     ██║    ██║   ██║╚════██║${NC}"
-echo -e "${CYAN} ╚██████╗██║    ╚██████╔╝███████║${NC}"
-echo -e "${CYAN}  ╚═════╝╚═╝     ╚═════╝ ╚══════╝${NC}"
-echo ""
-echo -e " ${GREEN}Companion OS${NC}"
-echo " Uncloud Modern Life"
-echo ""
+MOTD
 EOF
 chmod +x "$MOTD_DIR/00-ci-os-header"
 

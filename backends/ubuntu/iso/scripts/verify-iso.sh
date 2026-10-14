@@ -519,6 +519,18 @@ if [[ -z "$old_name_hits" ]]; then
 else
     fail "a retired product name is still in:$old_name_hits"
 fi
+# A name drawn in block letters is invisible to the grep above (the old MOTD banner spelled "CI OS" that way), so the
+# MOTD carries words only. U+2588 is written as bytes so this file holds no block art itself.
+BLOCK_ART=$'\xe2\x96\x88'
+block_art_hits=""
+for f in "$R"/etc/update-motd.d/* "$R/etc/issue" "$R/etc/issue.net"; do
+    if [[ -f "$f" ]] && grep -q -F -- "$BLOCK_ART" "$f"; then block_art_hits="$block_art_hits ${f#"$WORK"/}"; fi
+done
+if [[ -z "$block_art_hits" ]]; then
+    pass "the MOTD and issue banners are words only (no block-letter art that could spell a retired name)"
+else
+    fail "block-letter banner art in:$block_art_hits"
+fi
 
 section "4b. About logo, dock start icon, LOGO icon, greeter logo"
 # The canon comes from the repo this script lives in (vendor/brand: the tokens and the vendored marks), never from a

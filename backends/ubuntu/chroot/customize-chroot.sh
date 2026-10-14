@@ -664,6 +664,7 @@ echo "[*] Step 7: Installer: nothing to configure (launcher label comes from /.d
 #=============================================================================
 echo "[*] Step 8: Creating Companion OS MOTD..."
 
+# The same text core/render/render-motd.sh writes when it re-skins an installed system: keep the two in step.
 cat > "$CHROOT_PATH/etc/update-motd.d/00-ci-os-header" << 'EOF'
 #!/bin/sh
 cat << 'MOTD'
