@@ -8,7 +8,7 @@
 # 2. Extract base Ubuntu ISO
 # 3. Customize the squashfs rootfs
 # 4. Apply branding and identity changes
-# 5. Repack the ISO
+# 5. Repack the ISO, with a regenerated /md5sum.txt (md5sum-txt.sh) that "Check disc for defects" can verify
 # 6. Generate checksums and signatures
 #
 # Usage:
@@ -93,8 +93,9 @@ check_dependencies() {
     local missing=()
     
     # unmkinitramfs (initramfs-tools-core) unpacks the stock casper initrd, to take the live Plymouth theme files from it.
+    # awk and dd are what md5sum-txt.sh (the image's md5sum.txt) runs on.
     for cmd in debootstrap mksquashfs unsquashfs xorriso rsync gpg glib-compile-resources gresource cpio zstd \
-               unmkinitramfs curl sha256sum tar dpkg-deb; do
+               unmkinitramfs curl sha256sum tar dpkg-deb awk dd; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
         fi
@@ -747,6 +748,58 @@ GRUB_GFX_BLOCK
     log_info "GRUB menu: background $(basename "$bg") ($(stat -c%s "$bg") bytes), colours $normal and $highlight"
 }
 
+# The base ISO's md5sum.txt has to follow the convention md5sum-txt.sh was written against (it lists every regular file but
+# /md5sum.txt, /EFI and the subdirectories of /boot/grub). Checked up front, so that a base ISO of another shape fails the
+# build now and not after the hour the rootfs takes.
+check_base_md5sum() {
+    log_info "Checking the base ISO's md5sum.txt..."
+    if ! "$SCRIPT_DIR/md5sum-txt.sh" check-stock --base-iso "$BASE_ISO"; then
+        log_error "the base ISO's md5sum.txt is not what md5sum-txt.sh expects: the image's md5sum.txt cannot be regenerated, so no image is built"
+        exit 1
+    fi
+}
+
+# Write the md5sum.txt of the image that the xorriso edit operations in "$@" make out of the base ISO.
+#
+# The medium's /md5sum.txt is what "Check disc for defects" (casper-md5check) verifies. This build replaces the casper layers
+# and manifests, the initrd, grub.cfg, loopback.cfg and .disk/info and adds the GRUB background, so the stock file, mapped
+# through unchanged, mismatches every one of them and lists the language layers this build deletes. md5sum-txt.sh keeps the
+# stock hash of every file nothing touches, hashes the mapped sources, drops the deleted files and appends the new ones.
+#
+# $1 is the output file; the rest are the operations exactly as xorriso gets them (-rm_r PATH... -- and -map SRC ISOPATH), so
+# the list of files cannot drift from what is written to the image. Fails the build rather than let the stale file through.
+write_md5sum_txt() {
+    local out="$1"; shift
+    local -a args=(regenerate --base-iso "$BASE_ISO" --out "$out")
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -rm_r)
+                shift
+                while [[ $# -gt 0 && "$1" != "--" ]]; do args+=(--rm "$1"); shift; done
+                [[ $# -eq 0 ]] || shift
+                ;;
+            -map)
+                [[ $# -ge 3 ]] || { log_error "write_md5sum_txt: -map needs a source and an image path"; return 1; }
+                args+=(--map "$2" "$3"); shift 3
+                ;;
+            *)
+                log_error "write_md5sum_txt: xorriso operation not understood: $1"; return 1
+                ;;
+        esac
+    done
+
+    rm -f "$out"
+    if ! "$SCRIPT_DIR/md5sum-txt.sh" "${args[@]}"; then
+        log_error "could not write the image's md5sum.txt; refusing to ship the stale stock one"
+        return 1
+    fi
+    if [[ ! -s "$out" ]]; then
+        log_error "md5sum-txt.sh reported success but wrote no $out"; return 1
+    fi
+    log_info "md5sum.txt: $(wc -l < "$out") entries ($out)"
+}
+
 # Generate ISO
 generate_iso() {
     log_info "Generating CI-OS ISO..."
@@ -813,13 +866,20 @@ generate_iso() {
     log_info "Building ISO with xorriso (inheriting boot from base ISO)..."
     rm -f "$iso_path"
 
-    local -a xorriso_maps=(
+    local -a xorriso_edits=(
+        -rm_r /casper --
         -map "$WORK_DIR/custom-iso/casper" /casper
         -map "$grub_cfg" /boot/grub/grub.cfg
         -map "$WORK_DIR/ci-os-bg.png" /boot/grub/ci-os-bg.png
     )
-    [[ -f "$loopback_cfg" ]] && xorriso_maps+=(-map "$loopback_cfg" /boot/grub/loopback.cfg)
-    [[ -f "$WORK_DIR/custom-iso/.disk/info" ]] && xorriso_maps+=(-map "$WORK_DIR/custom-iso/.disk/info" /.disk/info)
+    [[ -f "$loopback_cfg" ]] && xorriso_edits+=(-map "$loopback_cfg" /boot/grub/loopback.cfg)
+    [[ -f "$WORK_DIR/custom-iso/.disk/info" ]] && xorriso_edits+=(-map "$WORK_DIR/custom-iso/.disk/info" /.disk/info)
+
+    # The stock md5sum.txt is wrong for every file above. The new one is computed from the very operations xorriso is given
+    # and mapped in by the same run, after the others (see write_md5sum_txt).
+    local md5_new="$WORK_DIR/md5sum.txt.new"
+    write_md5sum_txt "$md5_new" "${xorriso_edits[@]}" || return 1
+    xorriso_edits+=(-map "$md5_new" /md5sum.txt)
 
     xorriso \
         -indev "$BASE_ISO" \
@@ -827,11 +887,19 @@ generate_iso() {
         -volid "$orig_volid" \
         -boot_image any replay \
         -pathspecs on \
-        -rm_r /casper -- \
-        "${xorriso_maps[@]}" \
+        "${xorriso_edits[@]}" \
         -commit_eject all
     
     log_info "ISO generated: $iso_path"
+
+    # Read every file back out of the finished image and compare it with md5sum.txt, streaming (nothing is extracted).
+    # A mismatch means the list of files the script modelled is not what xorriso wrote, and "Check disc for defects"
+    # would fail on this image: stop before checksums are written for it.
+    log_info "Checking md5sum.txt against the finished image (a minute or two)..."
+    if ! "$SCRIPT_DIR/md5sum-txt.sh" verify "$iso_path"; then
+        log_error "the finished image does not match its own md5sum.txt; $iso_path is NOT usable (no checksums were written for it)"
+        return 1
+    fi
     
     # Generate checksums
     generate_checksums "$iso_path"
@@ -874,6 +942,7 @@ main() {
     parse_args "$@"
     check_dependencies
     validate_config
+    check_base_md5sum
     setup_directories
 
     # Build packages (including branded gresource) unless skipped
