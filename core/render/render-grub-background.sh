@@ -39,9 +39,15 @@ BG_HEX="$CI_DARK_BACKGROUND"
 # Logo sized to roughly a fifth of the canvas height, centered.
 LOGO_PX=$(( HEIGHT / 5 ))
 
+# The rsvg-convert branch draws the mark into a private directory and composes it onto the canvas. (A mktemp file
+# with ".png" appended to its name left the file mktemp had created behind on every run.)
+tmp_dir=""
+trap 'if [[ -n "$tmp_dir" ]]; then rm -rf "$tmp_dir"; fi' EXIT
+
 if command -v rsvg-convert >/dev/null 2>&1; then
   log_info "Rendering GRUB background with rsvg-convert..."
-  tmp_logo="$(mktemp --suffix=.png 2>/dev/null || mktemp -t cios-logo).png"
+  tmp_dir="$(mktemp -d)"
+  tmp_logo="$tmp_dir/logo.png"
   rsvg-convert -w "$LOGO_PX" -h "$LOGO_PX" -o "$tmp_logo" "$LOGO_SVG"
   if command -v magick >/dev/null 2>&1; then
     magick -size "${WIDTH}x${HEIGHT}" "xc:${BG_HEX}" "$tmp_logo" -gravity center -composite -depth 8 "PNG24:$OUTPUT_PATH"
@@ -49,10 +55,8 @@ if command -v rsvg-convert >/dev/null 2>&1; then
     convert -size "${WIDTH}x${HEIGHT}" "xc:${BG_HEX}" "$tmp_logo" -gravity center -composite -depth 8 "PNG24:$OUTPUT_PATH"
   else
     log_error "rsvg-convert produced the logo, but neither 'magick' nor 'convert' (ImageMagick) is available to compose the background."
-    rm -f "$tmp_logo"
     exit 1
   fi
-  rm -f "$tmp_logo"
 elif command -v magick >/dev/null 2>&1; then
   log_info "Rendering GRUB background with ImageMagick (magick)..."
   magick -background "$BG_HEX" -size "${LOGO_PX}x${LOGO_PX}" "$LOGO_SVG" -gravity center -extent "${WIDTH}x${HEIGHT}" -depth 8 "PNG24:$OUTPUT_PATH"
