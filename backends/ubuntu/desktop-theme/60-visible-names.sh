@@ -17,6 +17,12 @@
 # diverts the stock file to <path>.ubuntu-stock first, so an upgrade of the package unpacks Ubuntu's file to the
 # diverted name and ours stays. The edit is made on a copy before anything is diverted, so a file that needs no
 # change (renamed already, or a stock text this step does not know) is left alone and not diverted.
+#
+# On a live system any of the packages may be absent (not every desktop has the tiling extension) or newer than the
+# stock text known here, so a file this step cannot rename is reported and the step goes on. An image build is the base
+# ISO's own files, all of which verify-iso.sh requires to read Companion OS, so there the step ends by checking that every
+# one of them does, and fails if one is missing or kept a name it did not recognise: a "success" that ships Ubuntu's name
+# is found only after the whole build otherwise.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/theme-lib.sh"
 require_root
@@ -80,5 +86,20 @@ rename_in() {
 for f in "${SESSION_FILES[@]}"; do rename_in "$f" "$SESSION_SED"; done
 for f in "${PANEL_FILES[@]}"; do rename_in "$f" "$PANEL_SED"; done
 for f in "${EXTENSION_FILES[@]}"; do rename_in "$f" "$EXTENSION_SED"; done
+
+if ci_image_build; then
+  UNNAMED=()
+  for f in "${SESSION_FILES[@]}" "${PANEL_FILES[@]}"; do
+    grep -q -E '^Name=Companion OS( |$)' "$f" 2>/dev/null || UNNAMED+=("$f")
+  done
+  for f in "${EXTENSION_FILES[@]}"; do
+    grep -q -E '^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"Companion OS ' "$f" 2>/dev/null || UNNAMED+=("$f")
+  done
+  if [[ ${#UNNAMED[@]} -gt 0 ]]; then
+    log_error "These do not read Companion OS after the rename (missing, or a stock text this step does not know): ${UNNAMED[*]}"
+    log_error "The base ISO changed shape; review the new text before branding it."
+    exit 1
+  fi
+fi
 
 log_success "Companion OS display names: $RENAMED file(s) renamed, $KEPT already done or without a stock name (the session picker and the Settings entry change at the next login)"

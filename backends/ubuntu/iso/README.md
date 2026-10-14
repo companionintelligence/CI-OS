@@ -97,7 +97,7 @@ The compiled gresource is committed to source at:
      `mark-mono.svg`: its path data, `currentColor`, viewBox cropped), the Settings > About logo (`/usr/share/pixmaps/ubuntu-logo-text.png`
      and `-dark.png`: the one-colour mark in the canon primary of each mode), the `ci-os-logo` icon that
      `LOGO=` in os-release names (setup-device's payload ships the same file for its Hub launcher entry,
-     "Companion Hub (browser)", on every backend), and the greeter logo (`/usr/share/pixmaps/companion-logo.png`: the
+     "Companion Hub (browser)", on every backend that installs the payload: Ubuntu, Mint, Fedora and Arch; NixOS stages no launcher entry and Bazzite no captive portal), and the greeter logo (`/usr/share/pixmaps/companion-logo.png`: the
      colour mark at 256 px). The package-owned stock files are `dpkg-divert`ed to `*.ubuntu-stock`, so an
      `apt upgrade` cannot restore Ubuntu's. `customize-chroot.sh` runs these and the Plymouth step from
      `backends/ubuntu/desktop-theme/` inside the chroot with `run_theme_step` (Steps 5, 5b, 5c): the same
@@ -107,7 +107,10 @@ The compiled gresource is committed to source at:
      the Settings sidebar entry reads "Companion OS Desktop" (`gnome-ubuntu-panel.desktop`), and the Extensions
      app lists "Companion OS Dock", "Companion OS AppIndicators" and "Companion OS Tiling Assistant". Only
      those lines change, on a copy and with the stock file diverted. File names, extension uuids, `Exec=`,
-     `DesktopNames=` and the other identifiers the session and shell find them by stay Ubuntu's.
+     `DesktopNames=` and the other identifiers the session and shell find them by stay Ubuntu's. On a live
+     system a file that is missing or has a stock text the step does not know is reported and skipped; in an
+     image build the step fails instead, because the base ISO has all eight files and `verify-iso.sh` requires
+     every one of them to read Companion OS.
    - GRUB configuration
    - AMD GPU / ROCm helper tools
    - Installer whitelabel (whitelabel.yaml, slides)

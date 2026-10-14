@@ -13,7 +13,9 @@
 #   - Name[xx]=/Comment[xx]= lines are left alone, and a name the step does not know is not touched or diverted;
 #   - all eight stock files are dpkg-diverted to *.ubuntu-stock with their stock bytes, and a package upgrade leaves
 #     our file in place;
-#   - a second run changes nothing, and a system without one of the packages still finishes;
+#   - a second run changes nothing, and a live system without one of the packages (or with a name the step does not
+#     know) still finishes, while an IMAGE build in the same state fails, since the base ISO's eight files must all
+#     read Companion OS;
 #   - a pattern that would change anything but a display name stops the step before it installs.
 #
 # It changes /usr/share of the machine it runs on, so run it in a throw-away container, with the repo mounted
@@ -190,9 +192,13 @@ cleanup_machine() {
 trap 'cleanup_machine; rm -rf "$WORK"' EXIT
 
 OUT=""; RC=0
-run_step() { # run_step <repo>
+run_step() { # run_step <repo> [live]: as an image build, or as a live system with "live"
     set +e
-    OUT="$(CI_BRAND_IMAGE_BUILD=1 bash "$1/backends/ubuntu/desktop-theme/60-visible-names.sh" 2>&1)"; RC=$?
+    if [[ "${2:-}" == live ]]; then
+        OUT="$(env -u CI_BRAND_IMAGE_BUILD bash "$1/backends/ubuntu/desktop-theme/60-visible-names.sh" 2>&1)"; RC=$?
+    else
+        OUT="$(CI_BRAND_IMAGE_BUILD=1 bash "$1/backends/ubuntu/desktop-theme/60-visible-names.sh" 2>&1)"; RC=$?
+    fi
     set -e
 }
 hashes() { sha256sum "${ALL[@]}" 2>/dev/null; }
@@ -255,20 +261,34 @@ expect "second run diverts nothing more" test "$(dpkg-divert --list | sort)" = "
 cleanup_machine
 install_all
 dpkg --purge ci-fake-ext-tiling >/dev/null
+run_step "$REPO" live
+expect "live step without the tiling extension still exits 0" test "$RC" -eq 0
+expect "live step without the tiling extension warns about it" bash -c "grep -q 'Not installed, nothing to rename: $TILING' <<<\"\$1\"" _ "$OUT"
+expect "live step without the tiling extension still renames the others" grep -q -x 'Name=Companion OS' "$XS/ubuntu.desktop"
+install_all
+# An image build starts from the base ISO, which has all eight files: a missing one is a base ISO that changed shape.
+cleanup_machine
+install_all
+dpkg --purge ci-fake-ext-tiling >/dev/null
 run_step "$REPO"
-expect "step without the tiling extension still exits 0" test "$RC" -eq 0
-expect "step without the tiling extension warns about it" bash -c "grep -q 'Not installed, nothing to rename: $TILING' <<<\"\$1\"" _ "$OUT"
-expect "step without the tiling extension still renames the others" grep -q -x 'Name=Companion OS' "$XS/ubuntu.desktop"
+expect "an image build without the tiling extension fails" test "$RC" -ne 0
+expect "...and names the file that does not read Companion OS" bash -c "grep -q 'do not read Companion OS.*tiling-assistant@ubuntu.com' <<<\"\$1\"" _ "$OUT"
 install_all
 
 # ── a stock text this step does not know is left alone, and not diverted ─────
 cleanup_machine
 sed -i 's/^"name": "Ubuntu Dock",$/"name": "Dock",/' "$STOCK$DOCK"
 install_all
-run_step "$REPO"
-expect "step exits 0 with an extension name it does not know" test "$RC" -eq 0
+run_step "$REPO" live
+expect "live step exits 0 with an extension name it does not know" test "$RC" -eq 0
 expect "an unknown extension name stays as shipped" grep -q '^"name": "Dock",$' "$DOCK"
 expect "a file that needed no change is not diverted" test -z "$(dpkg-divert --list "$DOCK")"
+cleanup_machine
+install_all
+run_step "$REPO"
+expect "an image build with an extension name it does not know fails" test "$RC" -ne 0
+expect "...and names the dock extension" bash -c "grep -q 'do not read Companion OS.*ubuntu-dock@ubuntu.com' <<<\"\$1\"" _ "$OUT"
+expect "...but the unknown name is still not touched or diverted" bash -c "grep -q '^\"name\": \"Dock\",\$' '$DOCK' && [[ -z \"\$(dpkg-divert --list '$DOCK')\" ]]"
 
 # ── the tripwire: a pattern that touches anything but a display name stops the step ───
 cleanup_machine
