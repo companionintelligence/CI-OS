@@ -53,13 +53,30 @@ ci_image_build() { [[ "${CI_BRAND_IMAGE_BUILD:-0}" == 1 ]]; }
 # For base-files' pixmaps dpkg-divert prints "diverting ... from an Essential package with rename is
 # dangerous". It is about files an Essential package needs while it unpacks; these are plain data, and
 # reinstalling base-files was tested to leave our file in place and the stock one at <path>.ubuntu-stock.
+#
+# A <path>.ubuntu-stock with NO diversion registered is a leftover, and dpkg-divert refuses to rename over
+# it (even when the content is identical). It happens when build-iso.sh rebuilds without --clean: it
+# re-extracts the stock layers over the chroot of the previous run, which puts back the stock file AND the
+# stock /var/lib/dpkg/diversions (so the registry forgets the diversion) but cannot remove a file that is in
+# no layer. In an image build <path> is then the freshly extracted stock file and the leftover is stale, so it
+# is replaced. On a live system the leftover might be somebody's only copy of the stock file: it is removed
+# only when it equals <path>, otherwise it is left alone, the file is not diverted, and the caller still
+# installs its file over <path>.
 ci_divert_file() {
-  local path="$1"
+  local path="$1" stock="${1}.ubuntu-stock"
   command -v dpkg-divert >/dev/null 2>&1 || return 0
   dpkg -S "$path" >/dev/null 2>&1 || return 0
   [[ -z "$(dpkg-divert --list "$path" 2>/dev/null)" ]] || return 0
-  dpkg-divert --local --rename --divert "${path}.ubuntu-stock" --add "$path" >/dev/null
-  log_info "Diverted stock file: $path -> ${path}.ubuntu-stock"
+  if [[ -e "$stock" || -L "$stock" ]]; then
+    if ci_image_build || cmp -s "$path" "$stock"; then
+      rm -f "$stock"
+    else
+      log_warn "$stock exists but $path is not diverted, and the two differ: leaving it alone and not diverting (a package upgrade can restore the stock file)"
+      return 0
+    fi
+  fi
+  dpkg-divert --local --rename --divert "$stock" --add "$path" >/dev/null
+  log_info "Diverted stock file: $path -> $stock"
 }
 
 # ci_install_file <src> <dest> [mode]

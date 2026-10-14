@@ -417,6 +417,14 @@ fi
 # not bring them back.
 for xml in ubuntu-wallpapers.xml noble-wallpapers.xml resolute-wallpapers.xml; do
     if [[ -f "$CHROOT_PATH/usr/share/gnome-background-properties/$xml" ]]; then
+        # A rebuild without --clean re-extracts the stock layers over this chroot: the stock xml and the stock
+        # diversions registry come back, but the .disabled file of the previous run (in no layer) stays, and
+        # dpkg-divert refuses to rename over it. The `|| true` below would hide that, and Settings > Background
+        # would offer Ubuntu's collections. With no diversion registered the xml is the fresh stock file, so the
+        # leftover is stale (the same reasoning as ci_divert_file in core/lib/theme-lib.sh).
+        if [[ -z "$(chroot_exec "dpkg-divert --list /usr/share/gnome-background-properties/$xml" 2>/dev/null)" ]]; then
+            rm -f "$CHROOT_PATH/usr/share/gnome-background-properties/$xml.disabled"
+        fi
         chroot_exec "dpkg-divert --local --rename --divert /usr/share/gnome-background-properties/$xml.disabled --add /usr/share/gnome-background-properties/$xml" || true
     fi
 done

@@ -121,7 +121,7 @@ The compiled gresource is committed to source at:
 | `--output-dir PATH` | `./output` | Where the finished ISO is written |
 | `--work-dir PATH` | `./work` | Scratch space (needs ~25 GB) |
 | `--version VERSION` | `1.0` | CI-OS version string embedded in ISO |
-| `--clean` | off | Wipe work directory before building |
+| `--clean` | off | Wipe work directory before building. Without it the chroot of the previous run is reused: the stock layers are extracted over it again and the customization re-runs on top, so every step must be repeat-safe. The `dpkg-divert` helper is (`core/lib/tests/divert-file.sh` runs it through a rebuild in a throw-away container) |
 | `--skip-packages` | off | Skip `build-packages.sh` (iterative builds only — use when packages/gresource haven't changed) |
 | `--sign` | off | GPG-sign SHA256SUMS and MD5SUMS |
 
