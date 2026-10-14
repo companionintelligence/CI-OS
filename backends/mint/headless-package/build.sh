@@ -64,6 +64,7 @@ REQUIRED_FILES=(
     "etc/dnsmasq.d/setup-portal.conf"
     "usr/share/setup-device/defaults/hostapd-setup.conf"
     "usr/share/setup-device/defaults/setup-portal.conf"
+    "usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
     "etc/nginx/sites-available/setup-portal"
     "etc/setup-device/device.conf"
     "etc/systemd/system/hostapd-setup.service"

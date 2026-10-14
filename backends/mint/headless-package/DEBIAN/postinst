@@ -104,6 +104,13 @@ chmod 644 /etc/dnsmasq.d/setup-portal.conf 2>/dev/null || true
 chmod 644 /etc/nginx/sites-available/setup-portal 2>/dev/null || true
 chmod 755 /opt/setup-backend/setup_service.py 2>/dev/null || true
 
+# The Hub launcher entry (usr/share/applications/ci-os-hub.desktop) names the ci-os-logo icon this package ships
+# in hicolor. GTK trusts icon-theme.cache over the directory, so refresh it, or the entry shows a missing icon
+# until something else rebuilds the cache.
+if command -v gtk-update-icon-cache >/dev/null 2>&1 && [ -d /usr/share/icons/hicolor ]; then
+    gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor 2>/dev/null || true
+fi
+
 # Enable nginx site
 if [ -f /etc/nginx/sites-available/setup-portal ]; then
     ln -sf /etc/nginx/sites-available/setup-portal /etc/nginx/sites-enabled/setup-portal

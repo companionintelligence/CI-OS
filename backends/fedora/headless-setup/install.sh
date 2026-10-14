@@ -79,6 +79,7 @@ REQUIRED_FILES=(
   "usr/local/bin/setup-device-prescan.py"
   "usr/share/setup-device/defaults/hostapd-setup.conf"
   "usr/share/setup-device/defaults/setup-portal.conf"
+  "usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
   "var/www/setup-portal/index.html"
 )
 
@@ -127,6 +128,13 @@ chmod 644 /usr/lib/ci-os/gpu-detect.sh
 cp -r "$PAYLOAD_DIR/usr/share/setup-device/defaults/." /usr/share/setup-device/defaults/
 if [[ -d "$PAYLOAD_DIR/usr/share/applications" ]]; then
   cp -r "$PAYLOAD_DIR/usr/share/applications/." /usr/share/applications/
+fi
+# The launcher entry above names the ci-os-logo icon: ship it, or the entry shows a missing-icon placeholder.
+# GTK trusts icon-theme.cache over the directory, so refresh the cache where the tool exists.
+mkdir -p /usr/share/icons/hicolor/scalable/apps
+cp -r "$PAYLOAD_DIR/usr/share/icons/hicolor/scalable/apps/." /usr/share/icons/hicolor/scalable/apps/
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor 2>/dev/null || true
 fi
 cp -r "$PAYLOAD_DIR/var/www/setup-portal/." /var/www/setup-portal/
 cp -r "$PAYLOAD_DIR/systemd/system/." /etc/systemd/system/

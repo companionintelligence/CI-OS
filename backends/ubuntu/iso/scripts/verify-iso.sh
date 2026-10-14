@@ -527,7 +527,25 @@ if [[ -f "$R/usr/share/icons/hicolor/icon-theme.cache" ]]; then
 else
     note "hicolor has no icon-theme.cache (GTK scans the directory)"
 fi
-check "Hub launcher entry uses the ci-os-logo icon" file_has "$R/usr/share/applications/ci-os-hub.desktop" '^Icon=ci-os-logo$'
+# The icon is the vendored canon mark itself (45-about-logo.sh installs mark.svg verbatim, and setup-device ships the
+# same bytes for its launcher entry), so compare it with the vendored file, not with a literal copied from the image.
+if [[ -s "$LOGO_ICON" && -f "$VERIFY_REPO/vendor/brand/logos/mark.svg" ]]; then
+    if cmp -s "$LOGO_ICON" "$VERIFY_REPO/vendor/brand/logos/mark.svg"; then
+        pass "icon ci-os-logo.svg is the vendored canon mark (vendor/brand/logos/mark.svg), byte for byte"
+    else
+        fail "icon ci-os-logo.svg differs from vendor/brand/logos/mark.svg"
+    fi
+else
+    note "icon ci-os-logo.svg not compared with the vendored mark: run this script from the repo checkout (vendor/brand/logos/mark.svg)"
+fi
+
+# The Hub launcher entry (setup-device's payload): the canon icon, and the canon product name as its label. The
+# Companion Launcher .deb ships its own plain "Companion Hub" entry, so this browser entry is "Companion Hub (browser)".
+HUB_DESKTOP="$R/usr/share/applications/ci-os-hub.desktop"
+check "Hub launcher entry uses the ci-os-logo icon" file_has "$HUB_DESKTOP" '^Icon=ci-os-logo$'
+check "Hub launcher entry is labelled Companion Hub (Name=)" file_has "$HUB_DESKTOP" '^Name=Companion Hub( \(browser\))?$'
+check "Hub launcher entry text has no 'CI OS' spelling (Name= and Comment=)" \
+    bash -c "grep -E '^(Name|Comment)(\[[^]]*\])?=' '$HUB_DESKTOP' | grep -q . && ! grep -E '^(Name|Comment)(\[[^]]*\])?=' '$HUB_DESKTOP' | grep -qiE 'CI[ -]?OS'"
 
 # The greeter reads logo= from the gdm dconf database; the file is the 256 px colour mark, not the 1.6 MB hologram.
 check "GDM login dconf points the greeter logo at companion-logo.png" file_has "$R/etc/dconf/db/gdm.d/01-ci-os-login" "^logo='/usr/share/pixmaps/companion-logo\\.png'\$"

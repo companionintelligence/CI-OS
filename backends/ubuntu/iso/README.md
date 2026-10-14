@@ -95,7 +95,8 @@ The compiled gresource is committed to source at:
      (Yaru `start-here-symbolic.svg`, from `core/render/inputs/LogoMark_Color_StartIcon-cropped.svg`,
      the vendored mark's path data), the Settings > About logo (`/usr/share/pixmaps/ubuntu-logo-text.png`
      and `-dark.png`: the one-colour mark in the canon primary of each mode), the `ci-os-logo` icon that
-     `LOGO=` in os-release names, and the greeter logo (`/usr/share/pixmaps/companion-logo.png`: the
+     `LOGO=` in os-release names (setup-device's payload ships the same file for its Hub launcher entry,
+     "Companion Hub (browser)", on every backend), and the greeter logo (`/usr/share/pixmaps/companion-logo.png`: the
      colour mark at 256 px). The package-owned stock files are `dpkg-divert`ed to `*.ubuntu-stock`, so an
      `apt upgrade` cannot restore Ubuntu's. `customize-chroot.sh` runs these and the Plymouth step from
      `backends/ubuntu/desktop-theme/` inside the chroot with `run_theme_step` (Steps 5, 5b, 5c): the same

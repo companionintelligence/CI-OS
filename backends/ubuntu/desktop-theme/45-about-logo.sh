@@ -72,11 +72,14 @@ if [[ $HAVE_PNGS -eq 1 ]]; then
   ci_install_file "$PNG_DIR/$DARK_PNG_NAME" /usr/share/pixmaps/ubuntu-logo-text-dark.png
 fi
 
-# os-release says LOGO=ci-os-logo: give that name an icon the theme lookup can resolve.
-ci_install_file "$MARK_SVG" "$ICON_DEST"
+# os-release says LOGO=ci-os-logo: give that name an icon the theme lookup can resolve. Plain install, not
+# ci_install_file: no Ubuntu package ships this name, and setup-device ships the same bytes (its Hub launcher
+# entry names the icon; core/lib/check-brand-mirrors.sh keeps them equal to the vendored mark), so there is no
+# stock file to divert.
+install -D -m 644 "$MARK_SVG" "$ICON_DEST"
 
-# The Hub launcher entry (shipped by setup-device, whose payload now says Icon=ci-os-logo) on a system
-# that installed it before this icon existed.
+# The Hub launcher entry (shipped by setup-device, whose payload says Icon=ci-os-logo and ships the icon) on a
+# system that installed it before that.
 if [[ -f "$HUB_DESKTOP" ]] && grep -q '^Icon=application-x-executable$' "$HUB_DESKTOP"; then
   sed -i 's/^Icon=application-x-executable$/Icon=ci-os-logo/' "$HUB_DESKTOP"
 fi
