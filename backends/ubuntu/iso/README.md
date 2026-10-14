@@ -252,7 +252,16 @@ it the canon look and nothing else. A Companion Stick has its own menu (`ci-stic
 GRUB takes colour *names* from a fixed table of 16, never hex, so the pair is derived, not hand-picked:
 `ci_grub_nearest_color` in `core/lib/grub-merge.sh` returns the nearest name by RGB distance, and
 `verify-iso.sh` recomputes it from `vendor/brand/tokens/tokens.sh`. A token change that moves the nearest
-name changes the menu on the next build.
+name changes the menu on the next build (`core/lib/tests/grub-nearest-color.sh` pins the function).
+
+**Known cosmetic limit: the background is a fixed 1920x1080 image, and GRUB stretches `background_image` to the
+screen.** On a 16:9 screen the mark is round, on 16:10 slightly tall, and on a 4:3 mode, such as the 800x600 that QEMU
+and many first-run VMs give the menu, it is drawn as a vertical oval (measured: 1.34 times as tall as wide at 800x600). Only the picture is
+affected: the entries, the colours and booting work, and Secure Boot is unaffected. It is accepted rather than fixed
+because the options trade worse things: `background_image -m normal` centres the image without scaling and leaves
+black borders on any screen larger than 1920x1080, and forcing a `gfxmode` changes how GRUB probes video on real
+hardware. A fix would be a few backgrounds at different aspect ratios (or a smaller mark on a plain navy field,
+where the stretch is invisible) chosen by `if`, which has not been done.
 
 The change is one block that `build-iso.sh` inserts after the existing `loadfont unicode` line, guarded by
 `if loadfont unicode` so a GRUB without the font keeps the text menu:
