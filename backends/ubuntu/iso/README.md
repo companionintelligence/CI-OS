@@ -51,7 +51,7 @@ downloads the Ollama release tarball (github.com) and the Companion Launcher `.d
 pre-installing the tools. Every third-party key fingerprint and download hash is pinned in
 `core/manifest/tier-b-pins.env` and the build fails closed on a mismatch.
 
-The stock desktop image has no image renderer, so the logo PNGs are rendered on the build host from the vendored SVG marks (`core/render/render-mark-png.sh`): `librsvg2-bin` (`rsvg-convert`) renders the greeter logo, the Settings > About logo and the GRUB background, and `imagemagick` scales the Plymouth logo and composes the GRUB background. `build-iso.sh` stops at the start if either is missing, and `verify-iso.sh` fails an image built without them. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio`.
+The stock desktop image has no image renderer, so the logo PNGs are rendered on the build host from the vendored SVG marks (`core/render/render-mark-png.sh`): `librsvg2-bin` (`rsvg-convert`) renders the greeter logo, the Settings > About logo and the GRUB background, and `imagemagick` scales the Plymouth logo and composes the GRUB background. `build-iso.sh` stops at the start if either is missing, and `verify-iso.sh` fails an image built without them. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio python3`.
 
 > **Building on a Mac or any non-Ubuntu host:** run the whole build in a privileged
 > `ubuntu:24.04` container (`docker run --privileged --platform linux/amd64 ...`) with the repo and
@@ -312,7 +312,7 @@ backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-1.0-amd64.iso
 Needs no root and does not boot the ISO. It extracts the root squashfs, the initrd and a few files and
 asserts that every CI-Hub and wireless-setup tool is pre-installed, that the hotspot units are guarded
 against live sessions, that Docker is unguarded and the docker group is set up, that the optional tools
-are installed from their pinned sources, that the Settings > About logo, the dock start icon, the `LOGO=` icon and the greeter logo are the canon mark and diverted from the packages that own the stock files, that the placeholder casper layers keep the rootfs directory modes
+are installed from their pinned sources, that the Settings > About logo, the dock start icon, the `LOGO=` icon and the greeter logo are the canon mark and diverted from the packages that own the stock files (it reads their pixels and paths and compares them with `vendor/brand`: the About PNGs hold only the mode's primary token colour, the greeter only the three tones of the colour mark, `ci-os-logo.svg` is the vendored `mark.svg` byte for byte, the start icon carries every path of the mark and no artwork colour, and, with `rsvg-convert` or ImageMagick on the verifying machine, the PNG shapes match a fresh render of the mark; run it from the repo checkout, and see `tests/verify-logo-surfaces.sh`), that the placeholder casper layers keep the rootfs directory modes
 (`/tmp` is `1777`; `tests/placeholder-layer-modes.sh` checks the build step in a privileged container), that NetworkManager still manages wired devices (no
 `/etc/netplan` file sets a global renderer other than NetworkManager; the setup-mode profile sets
 `renderer: networkd` on `eth0` only), and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,

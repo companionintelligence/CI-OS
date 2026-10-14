@@ -18,7 +18,10 @@
 #      identity files are exactly what the shared writer (backends/ubuntu/lib/os-release.sh)
 #      produces for the ISO's own Ubuntu base;
 #   2b. the Settings > About logo, the dock start icon, the LOGO= icon and the greeter logo
-#      are the canon mark, and the stock files are dpkg-diverted so an upgrade cannot restore them;
+#      are the canon mark: their pixels and paths are checked against the vendored mark and the
+#      brand tokens (the About PNGs hold only the mode's primary colour, the greeter only the mark's
+#      three tones, the start icon every path of the mark and no brand hex, ci-os-logo.svg is the
+#      vendored file), and the stock files are dpkg-diverted so an upgrade cannot restore them;
 #   2c. the live GRUB menu is themed: an 8-bit PNG background, menu colours derived from the brand
 #      tokens, and only the modules the signed GRUB has built in (all_video, gfxterm, png); and,
 #      given VERIFY_BASE_ISO, the Secure Boot EFI binaries are byte-identical to the stock ISO's;
@@ -41,8 +44,11 @@
 #                          /EFI/boot/{bootx64,grubx64,mmx64}.efi are byte-identical to it
 #                          (the Secure Boot chain is intact); without it that check is skipped
 #
-# Needs: xorriso squashfs-tools zstd cpio (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio);
-#        gpg is optional (without it the keyring fingerprints are reported as skipped).
+# Needs: xorriso squashfs-tools zstd cpio python3 (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio python3);
+#        gpg is optional (without it the keyring fingerprints are reported as skipped), and so is a logo
+#        renderer (rsvg-convert or ImageMagick): with one, the logo shapes are also compared with a fresh
+#        render of the vendored mark. Run it from the repo checkout: the logo content is checked against its
+#        vendor/brand.
 #        Exit status is non-zero if any check fails.
 #
 # © Companion Intelligence — Lifescope Inc
@@ -56,9 +62,9 @@ VERIFY_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." 2>/dev/null && pw
 [[ -n "$ISO" && -f "$ISO" ]] || { echo "usage: $0 path/to/companion-os.iso" >&2; exit 2; }
 
 missing=()
-for t in xorriso unsquashfs zstd cpio; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
+for t in xorriso unsquashfs zstd cpio python3; do command -v "$t" >/dev/null 2>&1 || missing+=("$t"); done
 if [[ ${#missing[@]} -gt 0 ]]; then
-    echo "missing tools: ${missing[*]}  (apt-get install xorriso squashfs-tools zstd cpio)" >&2
+    echo "missing tools: ${missing[*]}  (apt-get install xorriso squashfs-tools zstd cpio python3)" >&2
     exit 2
 fi
 
@@ -468,12 +474,56 @@ check "MOTD header is Companion OS" bash -c "grep -q 'Companion OS' '$R'/etc/upd
 if in_listing '^-rw-r--r-- .* /etc/update-motd\.d/00-header$'; then pass "Ubuntu's own MOTD welcome (00-header) is disabled"; else fail "Ubuntu's own MOTD welcome (00-header) is still executable"; fi
 
 section "4b. About logo, dock start icon, LOGO icon, greeter logo"
+# The canon comes from the repo this script lives in (vendor/brand: the tokens and the vendored marks), never from a
+# value copied out of an image: the colours are the CI_* tokens, the artwork is vendor/brand/logos/mark.svg. A copy of
+# this script outside the repo cannot derive them, and skips the content checks with a note.
+CANON_TOKENS="$VERIFY_REPO/vendor/brand/tokens/tokens.sh"
+CANON_MARK="$VERIFY_REPO/vendor/brand/logos/mark.svg"
+PNGTOOL="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" 2>/dev/null && pwd)/png-colours.py"
+RENDER_MARK="$VERIFY_REPO/core/render/render-mark-png.sh"
+CANON_OK=0
+if [[ -f "$CANON_TOKENS" && -f "$CANON_MARK" && -f "$PNGTOOL" && -f "$RENDER_MARK" ]]; then
+    # shellcheck source=../../../../vendor/brand/tokens/tokens.sh
+    source "$CANON_TOKENS"
+    CANON_OK=1
+else
+    note "logo content not checked against the canon: run this script from the repo checkout (vendor/brand, core/render, backends/ubuntu/lib/png-colours.py)"
+fi
+png_tool() { python3 -I "$PNGTOOL" "$@"; }
+can_render() { command -v rsvg-convert >/dev/null 2>&1 || command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; }
+logo_ramp() { # the three fill colours of the vendored colour mark, lower case, no '#', comma separated
+    grep -o 'fill:#[0-9a-fA-F]\{6\}' "$CANON_MARK" | sed 's/fill:#//' | tr 'A-F' 'a-f' | sort -u | paste -sd, -
+}
+# canon_png <label> <png> <solid|palette> <colours> <fill>
+# The opaque pixels must be exactly those colours and the mark must cover a sensible part of the image (png-colours.py:
+# a red square, an empty or a black render fails). Then, where a renderer exists on this machine, the shape is compared
+# with a fresh render of the vendored mark at the same width: IoU of the alpha masks, about 0.98 between rsvg-convert and
+# ImageMagick, far lower for any other artwork. fill is the token the one-colour mark is filled with, "" for the colour mark.
+canon_png() {
+    local label="$1" f="$2" mode="$3" colours="$4" fill="$5" msg w ref iou
+    if msg="$(png_tool "$mode" "$f" "$colours" 2>&1)"; then pass "$label: $msg"; else fail "$label: $msg"; fi
+    if can_render; then
+        w="$(png_width "$f")"; ref="$WORK/ref-$(basename "$f")"
+        if bash "$RENDER_MARK" "$ref" "$w" ${fill:+"$fill"} >/dev/null 2>&1 && iou="$(png_tool iou "$f" "$ref" 2>&1)"; then
+            if awk -v v="$iou" 'BEGIN { exit !(v >= 0.93) }'; then
+                pass "$label: shape matches a fresh render of the vendored mark (IoU $iou)"
+            else
+                fail "$label: shape differs from a fresh render of the vendored mark (IoU $iou, want >= 0.93)"
+            fi
+        else
+            fail "$label: could not compare it with a fresh render of the vendored mark (${iou:-render failed})"
+        fi
+    fi
+}
+if [[ $CANON_OK -eq 1 ]] && ! can_render; then note "no rsvg-convert or ImageMagick here: logo shapes are not compared with a fresh render of the mark"; fi
+
 # Settings > About (gnome-control-center) hard-codes two base-files pixmaps, light and dark, and ignores LOGO=.
 # These are the stock sha256 values of Ubuntu 24.04.5's pair (the orange wordmark, 260 and 256 px wide).
+# 45-about-logo.sh installs the one-colour mark in the canon primary of each mode.
 STOCK_ABOUT_LIGHT_SHA=26deac685457e38325d743c50ff3d7b83a820243afef26878c13ee262198528c
 STOCK_ABOUT_DARK_SHA=2d6f9e55acdc9583bb2d7533e5aff0947252eaddc0734cdceeb58e38713925f3
-for pair in "ubuntu-logo-text.png:$STOCK_ABOUT_LIGHT_SHA" "ubuntu-logo-text-dark.png:$STOCK_ABOUT_DARK_SHA"; do
-    name="${pair%%:*}"; stock="${pair##*:}"; f="$R/usr/share/pixmaps/$name"
+for pair in "ubuntu-logo-text.png:$STOCK_ABOUT_LIGHT_SHA:light" "ubuntu-logo-text-dark.png:$STOCK_ABOUT_DARK_SHA:dark"; do
+    name="${pair%%:*}"; rest="${pair#*:}"; stock="${rest%%:*}"; mode="${rest##*:}"; f="$R/usr/share/pixmaps/$name"
     if [[ ! -f "$f" ]]; then fail "Settings > About logo missing: /usr/share/pixmaps/$name"; continue; fi
     if [[ "$(head -c8 "$f" | od -An -tx1 | tr -d ' \n')" == "89504e470d0a1a0a" ]]; then
         w="$(png_width "$f")"
@@ -487,6 +537,10 @@ for pair in "ubuntu-logo-text.png:$STOCK_ABOUT_LIGHT_SHA" "ubuntu-logo-text-dark
     else
         fail "$name is not dpkg-diverted to $name.ubuntu-stock (a base-files upgrade would restore Ubuntu's wordmark)"
     fi
+    if [[ $CANON_OK -eq 1 ]] && png_is "$f"; then
+        if [[ "$mode" == light ]]; then fill="$CI_LIGHT_PRIMARY"; else fill="$CI_DARK_PRIMARY"; fi
+        canon_png "$name ($mode mode)" "$f" solid "${fill#\#}" "$fill"
+    fi
 done
 
 # An image build keeps no backup directories of the stock files (10-plymouth.sh and 40-start-icon.sh skip them
@@ -499,13 +553,32 @@ else
 fi
 
 # The dock's bottom button is view-app-grid-ubuntu-symbolic.svg, a symlink to Yaru's start-here-symbolic.svg.
+# 40-start-icon.sh generates it from the vendored one-colour mark: the mark's own path data, currentColor, no brand hex.
 YARU_START="$R/usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg"
 if [[ ! -f "$YARU_START" ]]; then
     fail "Yaru start-here-symbolic.svg missing"
-elif file_has "$YARU_START" 'M51\.451,125\.652' && ! file_has "$YARU_START" 'viewBox="0 0 16 16"'; then
-    pass "Yaru start-here-symbolic.svg is the Companion mark, not Ubuntu's (dock Show Applications button)"
-else
-    fail "Yaru start-here-symbolic.svg is still Ubuntu's (viewBox 0 0 16 16, no Companion mark path)"
+elif file_has "$YARU_START" 'viewBox="0 0 16 16"'; then
+    fail "Yaru start-here-symbolic.svg is still Ubuntu's (viewBox 0 0 16 16)"
+elif [[ $CANON_OK -eq 1 ]]; then
+    n_paths=0; n_missing=0
+    while IFS= read -r dattr; do
+        n_paths=$((n_paths + 1))
+        grep -qF -- "$dattr" "$YARU_START" || n_missing=$((n_missing + 1))
+    done < <(grep -o ' d="[^"]*"' "$CANON_MARK")
+    if [[ $n_paths -ge 1 && $n_missing -eq 0 ]]; then
+        pass "Yaru start-here-symbolic.svg carries all $n_paths paths of the vendored mark (dock Show Applications button)"
+    else
+        fail "Yaru start-here-symbolic.svg lacks $n_missing of the $n_paths paths of the vendored mark (vendor/brand/logos/mark.svg)"
+    fi
+    ramp_found=""
+    while IFS= read -r hex; do
+        if grep -qi -- "$hex" "$YARU_START"; then ramp_found="$ramp_found $hex"; fi
+    done < <(grep -o 'fill:#[0-9a-fA-F]\{6\}' "$CANON_MARK" | sed 's/fill://')
+    if [[ -z "$ramp_found" ]]; then
+        pass "Yaru start-here-symbolic.svg ships none of the logo artwork's colours (GTK repaints a symbolic icon; brand hexes belong in the artwork only)"
+    else
+        fail "Yaru start-here-symbolic.svg ships logo artwork colours:$ramp_found (40-start-icon.sh builds it from mark-mono.svg, currentColor)"
+    fi
 fi
 if divert_ok /usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg; then
     pass "Yaru start-here-symbolic.svg is dpkg-diverted (yaru-theme-icon cannot restore Ubuntu's)"
@@ -529,14 +602,12 @@ else
 fi
 # The icon is the vendored canon mark itself (45-about-logo.sh installs mark.svg verbatim, and setup-device ships the
 # same bytes for its launcher entry), so compare it with the vendored file, not with a literal copied from the image.
-if [[ -s "$LOGO_ICON" && -f "$VERIFY_REPO/vendor/brand/logos/mark.svg" ]]; then
-    if cmp -s "$LOGO_ICON" "$VERIFY_REPO/vendor/brand/logos/mark.svg"; then
+if [[ -s "$LOGO_ICON" && $CANON_OK -eq 1 ]]; then
+    if cmp -s "$LOGO_ICON" "$CANON_MARK"; then
         pass "icon ci-os-logo.svg is the vendored canon mark (vendor/brand/logos/mark.svg), byte for byte"
     else
         fail "icon ci-os-logo.svg differs from vendor/brand/logos/mark.svg"
     fi
-else
-    note "icon ci-os-logo.svg not compared with the vendored mark: run this script from the repo checkout (vendor/brand/logos/mark.svg)"
 fi
 
 # The Hub launcher entry (setup-device's payload): the canon icon, and the canon product name as its label. The
@@ -553,9 +624,15 @@ GREETER_LOGO="$R/usr/share/pixmaps/companion-logo.png"
 if [[ -f "$GREETER_LOGO" ]]; then
     w="$(png_width "$GREETER_LOGO")"; sz="$(wc -c < "$GREETER_LOGO")"
     if [[ "$w" == 256 && "$sz" -lt 200000 ]]; then
-        pass "greeter logo companion-logo.png is the 256px canon mark (${sz} bytes)"
+        pass "greeter logo companion-logo.png is 256px wide, ${sz} bytes"
     else
         fail "greeter logo companion-logo.png is ${w:-unknown}px wide and ${sz} bytes (want 256px, the old ci-holo-depth.png is 1597257 bytes)"
+    fi
+    # The colour mark: the opaque pixels are exactly the three tones of the vendored mark.svg.
+    if [[ $CANON_OK -eq 1 ]] && png_is "$GREETER_LOGO"; then
+        canon_png "greeter logo companion-logo.png" "$GREETER_LOGO" palette "$(logo_ramp)" ""
+    elif ! png_is "$GREETER_LOGO"; then
+        fail "greeter logo companion-logo.png is not a PNG"
     fi
 else
     fail "greeter logo /usr/share/pixmaps/companion-logo.png missing"

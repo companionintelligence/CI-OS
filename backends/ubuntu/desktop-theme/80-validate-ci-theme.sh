@@ -262,39 +262,90 @@ fi
 # Check 9b: Settings > About logo, dock start icon, LOGO icon, greeter logo
 log_info "Checking About logo, start icon, LOGO icon and greeter logo..."
 
-# The first path of the vendored mark's SVG: Ubuntu's own start-here-symbolic.svg does not contain it.
-if grep -q 'M51\.451,125\.652' /usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg 2>/dev/null; then
-    check_pass "Yaru start-here-symbolic.svg is the Companion mark (dock Show Applications button)"
-elif [[ -f "/usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg" ]]; then
-    check_warn "Yaru start-here-symbolic.svg is still Ubuntu's (run: apply-ci-os-desktop.sh --only start-icon)"
+# What "the canon mark" means is derived from the vendored files (vendor/brand), not from literals: the tokens
+# for the colours, mark.svg for the artwork. The PNG pixels are read with backends/ubuntu/lib/png-colours.py
+# (python3, standard library); without it the content checks are skipped with a warning.
+CANON_MARK="$REPO_ROOT/vendor/brand/logos/mark.svg"
+PNGTOOL="$REPO_ROOT/backends/ubuntu/lib/png-colours.py"
+CAN_READ_PNG=0
+if [[ -f "$CANON_MARK" && -f "$PNGTOOL" ]] && command -v python3 >/dev/null 2>&1; then CAN_READ_PNG=1; fi
+
+# canon_png_check <label> <png> <solid|palette> <colours>: the opaque pixels are exactly those colours.
+canon_png_check() {
+    local msg
+    if [[ $CAN_READ_PNG -eq 0 ]]; then
+        check_warn "$1: content not checked (needs python3 and the repo's vendor/brand)"
+    elif msg="$(python3 -I "$PNGTOOL" "$3" "$2" "$4" 2>&1)"; then
+        check_pass "$1: $msg"
+    else
+        check_fail "$1: $msg"
+    fi
+}
+
+# 40-start-icon.sh builds the icon from the vendored one-colour mark: every path of mark.svg, currentColor, and none
+# of the logo artwork's colours (GTK repaints a -symbolic icon, brand hexes belong in the artwork only).
+YARU_START="/usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg"
+if [[ -f "$YARU_START" ]]; then
+    if grep -q 'viewBox="0 0 16 16"' "$YARU_START" 2>/dev/null || [[ ! -f "$CANON_MARK" ]]; then
+        check_warn "Yaru start-here-symbolic.svg is still Ubuntu's, or cannot be compared (run: apply-ci-os-desktop.sh --only start-icon)"
+    else
+        start_paths=0; start_missing=0
+        while IFS= read -r dattr; do
+            start_paths=$((start_paths + 1))
+            grep -qF -- "$dattr" "$YARU_START" || start_missing=$((start_missing + 1))
+        done < <(grep -o ' d="[^"]*"' "$CANON_MARK")
+        start_ramp=""
+        while IFS= read -r hex; do
+            if grep -qi -- "$hex" "$YARU_START"; then start_ramp="$start_ramp $hex"; fi
+        done < <(grep -o 'fill:#[0-9a-fA-F]\{6\}' "$CANON_MARK" | sed 's/fill://')
+        if [[ $start_paths -ge 1 && $start_missing -eq 0 && -z "$start_ramp" ]]; then
+            check_pass "Yaru start-here-symbolic.svg is the vendored Companion mark, all $start_paths paths, no artwork colours (dock Show Applications button)"
+        elif [[ -n "$start_ramp" ]]; then
+            check_fail "Yaru start-here-symbolic.svg ships logo artwork colours:$start_ramp (run: apply-ci-os-desktop.sh --only start-icon)"
+        else
+            check_warn "Yaru start-here-symbolic.svg lacks $start_missing of the $start_paths paths of the vendored mark (run: apply-ci-os-desktop.sh --only start-icon)"
+        fi
+    fi
 fi
 
-for about_logo in ubuntu-logo-text.png ubuntu-logo-text-dark.png; do
+# Settings > About: the one-colour mark in the canon primary of each mode.
+for about_pair in "ubuntu-logo-text.png:light:$CI_LIGHT_PRIMARY" "ubuntu-logo-text-dark.png:dark:$CI_DARK_PRIMARY"; do
+    about_logo="${about_pair%%:*}"; about_rest="${about_pair#*:}"; about_mode="${about_rest%%:*}"; about_fill="${about_rest##*:}"
     if [[ ! -f "/usr/share/pixmaps/$about_logo" ]]; then
         check_warn "Settings > About logo not found: /usr/share/pixmaps/$about_logo"
     elif command -v dpkg-divert >/dev/null 2>&1 && [[ -n "$(dpkg-divert --list "/usr/share/pixmaps/$about_logo" 2>/dev/null)" ]]; then
         check_pass "Settings > About logo replaced, stock file diverted: $about_logo"
+        canon_png_check "Settings > About logo $about_logo ($about_mode mode)" "/usr/share/pixmaps/$about_logo" solid "${about_fill#\#}"
     else
         check_warn "Settings > About logo is still Ubuntu's: $about_logo (needs rsvg-convert or ImageMagick: apt-get install librsvg2-bin, then apply-ci-os-desktop.sh --only about-logo)"
     fi
 done
 
 if [[ -f "/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg" ]]; then
-    check_pass "ci-os-logo icon installed (os-release LOGO=ci-os-logo resolves)"
+    if [[ ! -f "$CANON_MARK" ]]; then
+        check_pass "ci-os-logo icon installed (os-release LOGO=ci-os-logo resolves)"
+    elif cmp -s "/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg" "$CANON_MARK"; then
+        check_pass "ci-os-logo icon installed and equal to the vendored mark (os-release LOGO=ci-os-logo resolves)"
+    else
+        check_fail "ci-os-logo icon differs from vendor/brand/logos/mark.svg (run: apply-ci-os-desktop.sh --only about-logo)"
+    fi
 else
     check_warn "ci-os-logo icon not found at /usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
 fi
 
 # The greeter logo exists on images built by customize-chroot.sh (its gdm dconf logo= key names the file),
-# not on a desktop re-skinned by apply-ci-os-desktop.sh. It is the 256 px mark (about 10 KB); the pre-canon
-# hologram it replaced was 1.6 MB.
+# not on a desktop re-skinned by apply-ci-os-desktop.sh. It is the 256 px colour mark (about 12 KB); the pre-canon
+# hologram it replaced was 1.6 MB. Its opaque pixels are exactly the three tones of the vendored mark.svg.
 if grep -qs "^logo='/usr/share/pixmaps/companion-logo.png'" /etc/dconf/db/gdm.d/01-ci-os-login; then
     if [[ ! -f "/usr/share/pixmaps/companion-logo.png" ]]; then
         check_warn "Greeter logo not found at /usr/share/pixmaps/companion-logo.png"
-    elif [[ "$(wc -c < /usr/share/pixmaps/companion-logo.png)" -lt 200000 ]]; then
-        check_pass "Greeter logo installed (canon mark)"
-    else
+    elif [[ "$(wc -c < /usr/share/pixmaps/companion-logo.png)" -ge 200000 ]]; then
         check_warn "Greeter logo at /usr/share/pixmaps/companion-logo.png looks like the old hologram image"
+    elif [[ -f "$CANON_MARK" ]]; then
+        greeter_ramp="$(grep -o 'fill:#[0-9a-fA-F]\{6\}' "$CANON_MARK" | sed 's/fill:#//' | tr 'A-F' 'a-f' | sort -u | paste -sd, - || true)"
+        canon_png_check "Greeter logo companion-logo.png" /usr/share/pixmaps/companion-logo.png palette "$greeter_ramp"
+    else
+        check_pass "Greeter logo installed"
     fi
 fi
 
