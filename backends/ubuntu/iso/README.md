@@ -39,6 +39,7 @@ sudo apt-get install \
   gpg \
   cpio \
   zstd \
+  initramfs-tools-core \
   imagemagick \
   librsvg2-bin \
   curl
@@ -51,7 +52,7 @@ downloads the Ollama release tarball (github.com) and the Companion Launcher `.d
 pre-installing the tools. Every third-party key fingerprint and download hash is pinned in
 `core/manifest/tier-b-pins.env` and the build fails closed on a mismatch.
 
-The stock desktop image has no image renderer, so the logo PNGs are rendered on the build host from the vendored SVG marks (`core/render/render-mark-png.sh`): `librsvg2-bin` (`rsvg-convert`) renders the greeter logo, the Settings > About logo and the GRUB background, and `imagemagick` scales the Plymouth logo and composes the GRUB background. `build-iso.sh` stops at the start if either is missing, and `verify-iso.sh` fails an image built without them. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio python3`.
+The stock desktop image has no image renderer, so the logo PNGs are rendered on the build host from the vendored SVG marks (`core/render/render-mark-png.sh`): `librsvg2-bin` (`rsvg-convert`) renders the greeter logo, the Settings > About logo and the GRUB background, and `imagemagick` scales the Plymouth logo and composes the GRUB background. `build-iso.sh` stops at the start if either is missing, and `verify-iso.sh` fails an image built without them. `unmkinitramfs` (`initramfs-tools-core`, preinstalled on Ubuntu) unpacks the stock casper initrd to take the live Plymouth theme files from it. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio python3`.
 
 > **Building on a Mac or any non-Ubuntu host:** run the whole build in a privileged
 > `ubuntu:24.04` container (`docker run --privileged --platform linux/amd64 ...`) with the repo and
@@ -113,10 +114,24 @@ The compiled gresource is committed to source at:
    - MOTD and CI-OS utilities
 4. Repacks squashfs, regenerates casper manifests (the two placeholder casper layers mirror the rootfs
    directory modes, so `/tmp` stays `1777` in the overlay)
-5. Themes the live GRUB menu (`brand_live_grub`: background image and token-derived colours in
+5. Brands the live boot media (`brand_boot_media`). The live session's splash is drawn from Plymouth files
+   inside `casper/initrd`, which the rootfs theming never reaches, so a small zstd cpio overlay is appended to
+   the stock initrd (padded to 4 bytes; the kernel unpacks concatenated archives in order and later files win,
+   and the stock archives stay byte for byte as they were). It carries `casper.conf`, the watermark and
+   `ubuntu-logo.png`, the firmware-logo fallback `bgrt-fallback.png` (the colour mark at 128 px; the bgrt theme shows it
+   where the firmware has no boot logo, in place of Ubuntu's), and the initrd's own `bgrt.plymouth`,
+   `spinner.plymouth` and `ubuntu-text.plymouth` repainted from the brand tokens (navy ground, sage progress bar,
+   the text splash titled `Companion OS <version>`) with `ci_plymouth_recolor` / `ci_plymouth_text_theme` from
+   `core/lib/theme-lib.sh`, the helpers the rootfs step uses. The `Font=` lines stay Ubuntu's, the only fonts that
+   initrd carries. Plymouth's default `bgrt` theme paints solid black behind the firmware logo or the fallback logo
+   (its two-step plugin ignores `BackgroundStartColor` there), so the navy ground is only seen in the `spinner`
+   theme; the fallback logo, the progress bars and the text splash show the rebrand in the default boot. The
+   kernel's acceptance of the overlay was seen in a QEMU direct-kernel boot of the v4 ISO's kernel with the new
+   initrd; a boot of a full build is still the proof.
+6. Themes the live GRUB menu (`brand_live_grub`: background image and token-derived colours in
    `boot/grub/grub.cfg`, see [Live GRUB menu](#live-grub-menu)), then generates the bootable ISO with
    xorriso (inheriting EFI/BIOS boot from base ISO)
-6. Produces SHA256/MD5 checksums
+7. Produces SHA256/MD5 checksums
 
 ---
 
@@ -328,11 +343,16 @@ untouched. The product name is the same everywhere a user reads it: the installe
 the Hub launcher entry, and no retired spelling of the name (the list is `OLD_NAMES` in the script) in the
 identity, GRUB, MOTD and installer files. It also checks the live GRUB menu: the background is an 8-bit PNG, `grub.cfg` loads it with
 `gfxterm` and `insmod`s only `all_video`, `gfxterm` and `png`, the menu colours equal what the brand tokens
-give, and the installed system's GRUB background is 8-bit too. Exit status is non-zero if any check fails.
+give, and the installed system's GRUB background is 8-bit too. For the live boot it unpacks the appended initrd overlay
+(`tests/boot-media-plymouth.sh` runs the build step against a stock-shaped initrd) and asserts that it holds exactly the branded
+files and that the bgrt and spinner themes carry the canon ground and progress-bar colours with their stock fonts, the text splash is titled
+Companion OS, and `bgrt-fallback.png` is the same non-Ubuntu 128 px canon mark in the overlay and the rootfs, where it is `dpkg-divert`ed.
+Exit status is non-zero if any check fails.
 
 To also prove the Secure Boot chain is intact, name the stock ISO the image was built from; the check then
-asserts that `/EFI/boot/bootx64.efi`, `grubx64.efi` and `mmx64.efi` are byte-identical to it (without it the
-check is skipped and reported):
+asserts that `/EFI/boot/bootx64.efi`, `grubx64.efi` and `mmx64.efi` are byte-identical to it and that `casper/initrd`
+starts with the stock initrd's exact bytes, then its 4-byte padding, then the overlay (without it those checks are
+skipped and reported):
 
 ```bash
 VERIFY_BASE_ISO=ubuntu-24.04.5-desktop-amd64.iso backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-1.0-amd64.iso

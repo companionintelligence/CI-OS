@@ -31,6 +31,9 @@
 #      menu, the Settings sidebar entry and the three shell extensions; while the identifiers behind them
 #      (session file names, Exec=, DesktopNames=, OnlyShowIn=, extension uuids) are untouched and the stock files
 #      are dpkg-diverted;
+#   2e. the live boot's Plymouth (section 7): the initrd overlay carries the canon-painted bgrt, spinner and text-splash
+#      themes and the firmware-logo fallback, only those files, appended after a stock initrd that is byte-identical
+#      to the base ISO's (given VERIFY_BASE_ISO); the installed system's fallback logo is the same file, dpkg-diverted;
 #   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
 #   3f. NetworkManager still manages wired devices (no netplan file overrides the
 #      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged).
@@ -48,7 +51,8 @@
 #                          CI_OS_BAKE_OLLAMA=0 CI_OS_BAKE_LAUNCHER=0)
 #   VERIFY_BASE_ISO=ISO .. the stock Ubuntu ISO this one was built from: also assert that
 #                          /EFI/boot/{bootx64,grubx64,mmx64}.efi are byte-identical to it
-#                          (the Secure Boot chain is intact); without it that check is skipped
+#                          (the Secure Boot chain is intact) and that casper/initrd starts with the
+#                          stock initrd, byte for byte; without it those checks are skipped
 #
 # Needs: xorriso squashfs-tools zstd cpio python3 (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio python3);
 #        gpg is optional (without it the keyring fingerprints are reported as skipped), and so is a logo
@@ -133,7 +137,8 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/apt/sources.list.d usr/share/keyrings etc/xdg/autostart usr/libexec/ci-os \
     usr/bin/ollama usr/lib/systemd/system/tailscaled.service var/lib/tailscale usr/share/ollama \
     usr/share/applications/ci-os-hub.desktop \
-    usr/share/plymouth/themes/spinner/watermark.png usr/share/plymouth/themes/bgrt usr/share/plymouth/themes/ubuntu-text \
+    usr/share/plymouth/themes/spinner/watermark.png usr/share/plymouth/themes/spinner/bgrt-fallback.png \
+    usr/share/plymouth/themes/spinner/spinner.plymouth usr/share/plymouth/themes/bgrt usr/share/plymouth/themes/ubuntu-text \
     usr/share/icons/Yaru/scalable/places usr/share/icons/hicolor/scalable/apps usr/share/icons/hicolor/icon-theme.cache \
     usr/share/pixmaps var/lib/dpkg/diversions etc/dconf/db/gdm.d \
     usr/share/xsessions usr/share/wayland-sessions usr/share/applications/gnome-ubuntu-panel.desktop \
@@ -149,6 +154,7 @@ pkg_ok() { # package installed ("install ok installed" in dpkg status)
 file_has() { grep -q -E -- "$2" "$1" 2>/dev/null; }
 png_width() { od -An -tu1 -j16 -N4 "$1" 2>/dev/null | awk '{print $1*16777216 + $2*65536 + $3*256 + $4}'; }
 png_is() { [[ "$(head -c8 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" == "89504e470d0a1a0a" ]]; }
+png_height() { od -An -tu1 -j20 -N4 "$1" 2>/dev/null | awk '{print $1*16777216 + $2*65536 + $3*256 + $4}'; }
 png_depth() { od -An -tu1 -j24 -N1 "$1" 2>/dev/null | tr -d ' \n'; } # IHDR bit depth: byte 24 (8-byte signature, 4 length, "IHDR", width, height)
 divert_ok() { # <path> is dpkg-diverted (local) to <path>.ubuntu-stock; /var/lib/dpkg/diversions has 3 lines per entry
     awk -v p="$1" 'NR%3==1{o=$0} NR%3==2{d=$0} NR%3==0{if (o==p && d==p".ubuntu-stock") f=1} END{exit !f}' "$R/var/lib/dpkg/diversions" 2>/dev/null
@@ -843,13 +849,13 @@ section "7. Branding: live boot splash and live identity (initrd)"
 # archives in order and later files win). unmkinitramfs stops after the first compressed segment, so it cannot
 # see the overlay; find and unpack it the way the kernel will: the last zstd frame that decodes to a cpio.
 OVL="$WORK/overlay.cpio"; OVLX="$WORK/overlay"; mkdir -p "$OVLX"
-found_overlay=""
+found_overlay=""; OVL_OFF=""
 while read -r off; do
     [[ -n "$off" ]] || continue
     if tail -c +$((off + 1)) "$ISOX/initrd" | zstd -dc > "$OVL" 2>/dev/null \
        && [[ "$(head -c6 "$OVL")" == "070701" ]] \
        && cpio -t < "$OVL" 2>/dev/null | grep -q '^etc/casper\.conf$'; then
-        found_overlay=1; break
+        found_overlay=1; OVL_OFF="$off"; break
     fi
 done < <(LC_ALL=C grep -obUaP '\x28\xb5\x2f\xfd' "$ISOX/initrd" 2>/dev/null | cut -d: -f1 | sort -rn | head -40)
 if [[ -n "$found_overlay" ]]; then
@@ -874,6 +880,119 @@ if [[ -f "$WM_ROOT" ]]; then
     # Ubuntu's own watermark is 248 px wide; the design is the banner at 50% (512 px). A 1024 px logo means
     # the scaling step was skipped (no ImageMagick on the build host).
     if [[ -n "$w" && "$w" -le 600 ]]; then pass "Plymouth logo is splash-sized (${w}px wide)"; else fail "Plymouth logo is ${w:-unknown}px wide (full-size banner; install imagemagick on the build host)"; fi
+fi
+# The live session's splash is drawn from the Plymouth files INSIDE the initrd, which never reads the rootfs copies, so the
+# overlay carries its own: bgrt.plymouth and spinner.plymouth (the ground and the progress bar), ubuntu-text.plymouth (the
+# safe-graphics splash) and bgrt-fallback.png (what the bgrt theme shows where the firmware has no boot logo). They are the
+# initrd's own files repainted (build-iso.sh brand_initrd_plymouth), so the Font= lines are still Ubuntu's, the only fonts
+# that initrd carries. The colours are the canon's, derived from the repo's tokens like the logo checks above. (The bgrt
+# theme draws black behind its logo, so the ground colour is only seen in the spinner theme: the files are checked, not
+# a screen. A boot of the ISO shows the fallback logo.)
+PLY_T="usr/share/plymouth/themes"
+if [[ -n "$found_overlay" ]]; then
+    ovl_files="$(cd "$OVLX" && find . -type f | sed 's#^\./##' | LC_ALL=C sort | paste -sd' ' -)"
+    ovl_want="etc/casper.conf $PLY_T/bgrt/bgrt.plymouth $PLY_T/spinner/bgrt-fallback.png $PLY_T/spinner/spinner.plymouth $PLY_T/spinner/watermark.png $PLY_T/ubuntu-text/ubuntu-text.plymouth usr/share/plymouth/ubuntu-logo.png"
+    ovl_want="$(printf '%s\n' $ovl_want | LC_ALL=C sort | paste -sd' ' -)"
+    if [[ "$ovl_files" == "$ovl_want" ]]; then
+        pass "initrd overlay carries exactly the branded files: casper.conf, the bgrt, spinner and text-splash themes, the watermark, ubuntu-logo.png and bgrt-fallback.png"
+    else
+        fail "initrd overlay files are not the expected set (have: ${ovl_files:-none}; want: $ovl_want)"
+    fi
+fi
+if [[ $CANON_OK -eq 1 ]]; then
+    ply_ground="$(ci_hex0x "$CI_DARK_BACKGROUND")"; ply_fill="$(ci_hex0x "$CI_DARK_PRIMARY")"
+    ply_track="$(ci_hex0x "$CI_DARK_SECONDARY")"
+    for where in "initrd overlay:$OVLX" "rootfs:$R"; do
+        for theme in bgrt spinner; do
+            conf="${where#*:}/$PLY_T/$theme/$theme.plymouth"; label="$theme.plymouth (${where%%:*})"
+            if [[ ! -f "$conf" ]]; then fail "$label missing"; continue; fi
+            if grep -q -x "BackgroundStartColor=$ply_ground" "$conf" && grep -q -x "BackgroundEndColor=$ply_ground" "$conf"; then
+                pass "$label: ground is the canon dark background ($ply_ground)"
+            else
+                fail "$label: ground is not the canon dark background $ply_ground ($(grep -h '^BackgroundStartColor=' "$conf" | head -1))"
+            fi
+            if grep -q -x "ProgressBarForegroundColor=$ply_fill" "$conf" && grep -q -x "ProgressBarBackgroundColor=$ply_track" "$conf"; then
+                pass "$label: progress bar is the canon primary on the canon secondary ($ply_fill on $ply_track)"
+            else
+                fail "$label: progress bar is not the canon primary $ply_fill on $ply_track ($(grep -h '^ProgressBarForegroundColor=' "$conf" | head -1))"
+            fi
+        done
+    done
+    check "bgrt.plymouth (initrd overlay) keeps the stock font, the only one the initrd carries" \
+        file_has "$OVLX/$PLY_T/bgrt/bgrt.plymouth" '^Font=Ubuntu 12$'
+else
+    note "Plymouth colours not checked against the canon: run this script from the repo checkout (vendor/brand/tokens)"
+fi
+OVL_TEXT="$OVLX/$PLY_T/ubuntu-text/ubuntu-text.plymouth"
+if [[ -f "$OVL_TEXT" ]]; then
+    check "text splash (initrd overlay) is titled Companion OS, not Ubuntu 24.04" file_has "$OVL_TEXT" '^title=Companion OS( [0-9][^ ]*)?$'
+    check "text splash (initrd overlay) is no longer aubergine (0x2c001e)" bash -c "! grep -q -i '0x2c001e' '$OVL_TEXT'"
+    ovl_title="$(grep -h '^title=' "$OVL_TEXT" 2>/dev/null | head -1)"
+    root_title="$(grep -h '^title=' "$TEXT_PLYMOUTH" 2>/dev/null | head -1)"
+    if [[ -n "$ovl_title" && "$ovl_title" == "$root_title" ]]; then
+        pass "text splash title is the same in the initrd overlay and the installed system ($ovl_title)"
+    else
+        fail "text splash title differs: initrd overlay '${ovl_title:-none}', installed system '${root_title:-none}'"
+    fi
+else
+    fail "no ubuntu-text.plymouth in the initrd overlay (the safe-graphics splash is still 'Ubuntu 24.04' on aubergine)"
+fi
+# bgrt-fallback.png: Ubuntu's own file is the 128 px logo in a circle of friends (this is its sha256).
+STOCK_BGRT_FALLBACK_SHA=0d4f041619618c5202a2c30509e2552fb96c283a86d27cb17bc356fe54a13215
+FB_INITRD="$OVLX/$PLY_T/spinner/bgrt-fallback.png"
+FB_ROOT="$R/$PLY_T/spinner/bgrt-fallback.png"
+if [[ -f "$FB_INITRD" && -f "$FB_ROOT" ]]; then
+    if [[ "$(sha256sum "$FB_INITRD" | cut -d' ' -f1)" == "$(sha256sum "$FB_ROOT" | cut -d' ' -f1)" ]]; then
+        pass "firmware-logo fallback (initrd overlay) is the same file as the installed system's"
+    else
+        fail "firmware-logo fallback in the initrd overlay differs from the rootfs one"
+    fi
+    for where in "initrd overlay:$FB_INITRD" "rootfs:$FB_ROOT"; do
+        f="${where#*:}"; label="bgrt-fallback.png (${where%%:*})"
+        if ! png_is "$f"; then fail "$label is not a PNG"; continue; fi
+        if [[ "$(png_width "$f")" == 128 && "$(png_height "$f")" == 128 ]]; then pass "$label is 128x128, the size of Ubuntu's"; else fail "$label is $(png_width "$f")x$(png_height "$f") (Ubuntu's is 128x128)"; fi
+        if [[ "$(sha256sum "$f" | cut -d' ' -f1)" != "$STOCK_BGRT_FALLBACK_SHA" ]]; then pass "$label is not Ubuntu's stock logo"; else fail "$label is still Ubuntu's stock logo"; fi
+    done
+    if [[ $CANON_OK -eq 1 ]]; then canon_png "bgrt-fallback.png (firmware-logo fallback)" "$FB_ROOT" palette "$(logo_ramp)" ""; fi
+else
+    fail "bgrt-fallback.png missing (initrd overlay: $([[ -f "$FB_INITRD" ]] && echo present || echo missing), rootfs: $([[ -f "$FB_ROOT" ]] && echo present || echo missing))"
+fi
+# bgrt-fallback.png belongs to a Plymouth theme package: diverted, so an upgrade cannot bring the Ubuntu logo back.
+if divert_ok "/$PLY_T/spinner/bgrt-fallback.png" && in_listing " /usr/share/plymouth/themes/spinner/bgrt-fallback\\.png\\.ubuntu-stock\$"; then
+    pass "bgrt-fallback.png is dpkg-diverted (a plymouth theme package upgrade cannot restore Ubuntu's)"
+else
+    fail "bgrt-fallback.png is not dpkg-diverted to bgrt-fallback.png.ubuntu-stock (a package upgrade would restore Ubuntu's logo)"
+fi
+
+# The overlay is appended to the initrd and nothing else is touched: the stock archives before it are the base ISO's bytes,
+# then NUL padding to a 4-byte boundary (the kernel skips it between archives), then the overlay's zstd frame to the end of
+# the file. Without the base ISO the layout is still checked: the overlay sits 4-byte aligned after the stock part.
+if [[ -n "$OVL_OFF" ]]; then
+    if [[ "$OVL_OFF" -gt 0 && $((OVL_OFF % 4)) -eq 0 ]]; then
+        pass "initrd layout: the overlay is appended 4-byte aligned, at byte $OVL_OFF"
+    else
+        fail "initrd layout: the overlay is not appended 4-byte aligned after the stock part (byte ${OVL_OFF})"
+    fi
+    if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
+        if xorriso -osirrox on -indev "$VERIFY_BASE_ISO" -extract /casper/initrd "$ISOX/base-initrd" >/dev/null 2>&1 && [[ -s "$ISOX/base-initrd" ]]; then
+            base_size="$(wc -c < "$ISOX/base-initrd")"; base_pad=$(( (4 - base_size % 4) % 4 ))
+            if cmp -s -n "$base_size" "$ISOX/initrd" "$ISOX/base-initrd"; then
+                pass "the stock part of the initrd is byte-identical to the base ISO's ($base_size bytes)"
+            else
+                fail "the first $base_size bytes of casper/initrd differ from the base ISO's initrd: the stock archives were modified, not appended to"
+            fi
+            if [[ "$OVL_OFF" -eq $((base_size + base_pad)) ]] \
+               && [[ -z "$(tail -c +$((base_size + 1)) "$ISOX/initrd" | head -c "$base_pad" | tr -d '\0')" ]]; then
+                pass "the overlay starts right after the stock initrd and its ${base_pad} NUL padding bytes"
+            else
+                fail "the overlay is not at byte $((base_size + base_pad)) (stock size $base_size + padding $base_pad); it is at ${OVL_OFF}"
+            fi
+        else
+            fail "could not extract /casper/initrd from VERIFY_BASE_ISO ($VERIFY_BASE_ISO)"
+        fi
+    else
+        note "stock initrd not compared with the base ISO's (skipped: set VERIFY_BASE_ISO=<stock Ubuntu ISO>)"
+    fi
 fi
 # The no-tool fallback in render-grub-background.sh leaves a ~17 byte placeholder, so check the size too.
 grub_bg_size="$(awk '$NF == "/usr/share/pixmaps/ci-os-grub-bg.png" {print $3; exit}' "$LISTING")"

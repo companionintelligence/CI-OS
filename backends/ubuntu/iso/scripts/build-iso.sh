@@ -41,7 +41,7 @@
 #   - Network access to download.docker.com, pkgs.tailscale.com, pkg.cloudflare.com, cli.github.com,
 #     github.com (Ollama release asset) and dl.ci.computer while building
 #   - Packages: squashfs-tools xorriso glib2.0-bin libglib2.0-bin
-#               yaru-theme-gnome-shell debootstrap rsync gpg cpio zstd curl
+#               yaru-theme-gnome-shell debootstrap rsync gpg cpio zstd curl initramfs-tools-core
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
@@ -92,8 +92,9 @@ check_dependencies() {
     log_info "Checking dependencies..."
     local missing=()
     
+    # unmkinitramfs (initramfs-tools-core) unpacks the stock casper initrd, to take the live Plymouth theme files from it.
     for cmd in debootstrap mksquashfs unsquashfs xorriso rsync gpg glib-compile-resources gresource cpio zstd \
-               curl sha256sum tar dpkg-deb; do
+               unmkinitramfs curl sha256sum tar dpkg-deb; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
         fi
@@ -111,7 +112,7 @@ check_dependencies() {
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing required commands: ${missing[*]}"
-        log_info "Install with: apt-get install debootstrap squashfs-tools xorriso rsync gpg libglib2.0-bin libglib2.0-dev-bin cpio zstd curl dpkg coreutils tar librsvg2-bin imagemagick"
+        log_info "Install with: apt-get install debootstrap squashfs-tools xorriso rsync gpg libglib2.0-bin libglib2.0-dev-bin cpio zstd initramfs-tools-core curl dpkg coreutils tar librsvg2-bin imagemagick"
         exit 1
     fi
     
@@ -553,13 +554,66 @@ ISYAML
     log_info "Squashfs repacked successfully"
 }
 
-# Generate ISO
+# Repaint the Plymouth theme files the live session's splash is drawn from, into the initrd overlay directory <ov>.
+#
+# The initrd never reads the rootfs copies 10-plymouth.sh branded: it has its own bgrt.plymouth and spinner.plymouth (black
+# ground, white progress bar) and ubuntu-text.plymouth (aubergine, titled "Ubuntu 24.04", shown for the safe-graphics entry).
+# Each is taken from the STOCK initrd and repainted with the same helpers the rootfs uses (core/lib/theme-lib.sh), so the
+# canon colours are the same everywhere and nothing else of the stock file changes. In particular the Font= lines stay
+# Ubuntu's: the initrd carries no other font, and a theme that names one it lacks draws no text. The default theme, bgrt,
+# paints black behind the firmware logo or bgrt-fallback.png whatever BackgroundStartColor says (see ci_plymouth_recolor),
+# so what a booted live session shows of the repaint is the fallback logo, the progress bars and the text splash.
+#
+# unmkinitramfs unpacks the early microcode archives into early*/ and the compressed root into main/ (a plain single
+# archive goes straight into the target). Fails the build, rather than ship a half-branded splash, if the initrd has no
+# such theme file or a repaint did not take (a base ISO whose files changed shape).
+brand_initrd_plymouth() {
+    local initrd="$1" ov="$2"
+    local themes="usr/share/plymouth/themes" x="$WORK_DIR/initrd-stock-x" out tree conf ground fill title
+    # shellcheck source=../../../../core/lib/theme-lib.sh
+    source "$REPO_ROOT/core/lib/theme-lib.sh"
+
+    rm -rf "$x"; mkdir -p "$x"
+    if ! out="$(unmkinitramfs "$initrd" "$x" 2>&1)"; then
+        log_error "unmkinitramfs could not unpack $initrd: $(printf '%s' "$out" | tail -n 3)"; rm -rf "$x"; return 1
+    fi
+    tree="$x/main"; [[ -d "$tree" ]] || tree="$x"
+    for conf in bgrt/bgrt.plymouth spinner/spinner.plymouth ubuntu-text/ubuntu-text.plymouth; do
+        if [[ ! -f "$tree/$themes/$conf" ]]; then
+            log_error "the stock initrd has no $themes/$conf: the base ISO changed shape, review before branding it"
+            rm -rf "$x"; return 1
+        fi
+        install -D -m 644 "$tree/$themes/$conf" "$ov/$themes/$conf"
+    done
+    rm -rf "$x"
+
+    ci_plymouth_recolor "$ov/$themes/bgrt/bgrt.plymouth"
+    ci_plymouth_recolor "$ov/$themes/spinner/spinner.plymouth"
+    title="Companion OS ${CI_OS_VERSION}"
+    ci_plymouth_text_theme "$ov/$themes/ubuntu-text/ubuntu-text.plymouth" "$title"
+
+    ground="$(ci_hex0x "$CI_DARK_BACKGROUND")"; fill="$(ci_hex0x "$CI_DARK_PRIMARY")"
+    for conf in bgrt/bgrt.plymouth spinner/spinner.plymouth; do
+        if ! grep -q -x "BackgroundStartColor=$ground" "$ov/$themes/$conf" \
+           || ! grep -q -x "ProgressBarForegroundColor=$fill" "$ov/$themes/$conf"; then
+            log_error "the stock initrd's $conf has no BackgroundStartColor / ProgressBarForegroundColor line to repaint: review before branding it"
+            return 1
+        fi
+    done
+    if ! grep -q -x "title=$title" "$ov/$themes/ubuntu-text/ubuntu-text.plymouth"; then
+        log_error "the initrd text splash theme was not written with its title '$title'"
+        return 1
+    fi
+    log_info "initrd Plymouth themes repainted from the canon (bgrt, spinner, text splash '$title')"
+}
+
 # Rebrand the parts of the live boot that are NOT in the root filesystem.
 #
-#  1. casper/initrd is copied verbatim from the base ISO, and the live session's Plymouth splash (the Ubuntu
-#     logo) and casper.conf (live user and host name "ubuntu") live inside it. Appending a small compressed
-#     cpio overlay replaces exactly those files without unpacking and repacking the whole initrd: the
-#     kernel unpacks concatenated archives in order and later files win.
+#  1. casper/initrd is copied verbatim from the base ISO, and the live session's Plymouth splash (theme files, the
+#     Ubuntu logo, the firmware-logo fallback) and casper.conf (live user and host name "ubuntu") live inside it.
+#     Appending a small compressed cpio overlay replaces exactly those files without unpacking and repacking the
+#     whole initrd: the kernel unpacks concatenated archives in order and later files win. The stock part of the
+#     initrd stays byte for byte as it was (verify-iso.sh compares it with the base ISO).
 #  2. /.disk/info decides the launcher label ("Install ...") and, unless casper.conf sets FLAVOUR, the live
 #     user and host name. Keep its field layout: casper reads field 1 (flavour), fields 1-3 (launcher label),
 #     subiquity reads field 2 (release) and pollinate wants the trailing "(serial)".
@@ -569,14 +623,16 @@ brand_boot_media() {
     log_info "Rebranding live boot media (initrd splash + live identity, .disk/info)..."
     local custom="$WORK_DIR/custom-iso"
     local initrd="$custom/casper/initrd"
-    local watermark="$WORK_DIR/chroot/usr/share/plymouth/themes/spinner/watermark.png"
+    local spinner_dir="$WORK_DIR/chroot/usr/share/plymouth/themes/spinner"
+    local watermark="$spinner_dir/watermark.png"
+    local fallback="$spinner_dir/bgrt-fallback.png"
     local casper_conf="$WORK_DIR/chroot/etc/casper.conf"
 
     if [[ ! -f "$initrd" ]]; then
         log_error "casper/initrd not found at $initrd"; return 1
     fi
-    if [[ ! -f "$watermark" || ! -f "$casper_conf" ]]; then
-        log_error "branded watermark or casper.conf missing from the chroot (Step 5 / Step 1 did not run?)"; return 1
+    if [[ ! -f "$watermark" || ! -f "$fallback" || ! -f "$casper_conf" ]]; then
+        log_error "branded watermark, firmware-logo fallback or casper.conf missing from the chroot (Step 5 / Step 1 did not run?)"; return 1
     fi
 
     local ov="$WORK_DIR/initrd-overlay"
@@ -584,7 +640,12 @@ brand_boot_media() {
     mkdir -p "$ov/usr/share/plymouth/themes/spinner" "$ov/etc"
     install -m 644 "$watermark" "$ov/usr/share/plymouth/themes/spinner/watermark.png"
     install -m 644 "$watermark" "$ov/usr/share/plymouth/ubuntu-logo.png"
+    install -m 644 "$fallback" "$ov/usr/share/plymouth/themes/spinner/bgrt-fallback.png"
     install -m 644 "$casper_conf" "$ov/etc/casper.conf"
+    brand_initrd_plymouth "$initrd" "$ov" || return 1
+    # The kernel applies the mode of a directory in a later archive to the directory the earlier one made, so a
+    # build host with a strict umask must not leave /etc or /usr of the live initrd with anything but 755.
+    find "$ov" -type d -exec chmod 755 {} +
 
     ( cd "$ov" && find . -mindepth 1 | LC_ALL=C sort | cpio --quiet -o -H newc -R 0:0 ) \
         | zstd -q -19 -T0 > "$WORK_DIR/initrd-overlay.cpio.zst"
@@ -686,6 +747,7 @@ GRUB_GFX_BLOCK
     log_info "GRUB menu: background $(basename "$bg") ($(stat -c%s "$bg") bytes), colours $normal and $highlight"
 }
 
+# Generate ISO
 generate_iso() {
     log_info "Generating CI-OS ISO..."
     
@@ -853,7 +915,7 @@ main() {
 }
 
 # Run main unless this file is being sourced (tests/placeholder-layer-modes.sh sources it for
-# make_placeholder_layer).
+# make_placeholder_layer, tests/boot-media-plymouth.sh for brand_boot_media).
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     main "$@"
 fi

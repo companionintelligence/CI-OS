@@ -335,7 +335,7 @@ must match the target. You also need **~30 GB free** and **root**.
 ```bash
 sudo apt-get install \
   squashfs-tools xorriso libglib2.0-bin libglib2.0-dev-bin \
-  yaru-theme-gnome-shell debootstrap rsync gpg cpio zstd imagemagick librsvg2-bin
+  yaru-theme-gnome-shell debootstrap rsync gpg cpio zstd initramfs-tools-core imagemagick librsvg2-bin
 ```
 
 The build also needs network access (it installs the CI-Hub and wireless setup tools into the image).
