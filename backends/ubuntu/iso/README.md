@@ -272,8 +272,9 @@ Needs no root and does not boot the ISO. It extracts the root squashfs, the init
 asserts that every CI-Hub and wireless-setup tool is pre-installed, that the hotspot units are guarded
 against live sessions, that Docker is unguarded and the docker group is set up, that the optional tools
 are installed from their pinned sources, that the Settings > About logo, the dock start icon, the `LOGO=` icon and the greeter logo are the canon mark and diverted from the packages that own the stock files, that the placeholder casper layers keep the rootfs directory modes
-(`/tmp` is `1777`; `tests/placeholder-layer-modes.sh` checks the build step in a privileged container),
-and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
+(`/tmp` is `1777`; `tests/placeholder-layer-modes.sh` checks the build step in a privileged container), that NetworkManager still manages wired devices (no
+`/etc/netplan` file sets a global renderer other than NetworkManager; the setup-mode profile sets
+`renderer: networkd` on `eth0` only), and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
 `BUILD_SYSTEM` and the ISO volume id (which apt, casper, the installer and Secure Boot depend on) are
 untouched. Exit status is non-zero if any check fails.
 

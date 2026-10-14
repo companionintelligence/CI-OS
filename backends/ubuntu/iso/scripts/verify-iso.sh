@@ -17,7 +17,9 @@
 #      apt, casper, the installer and Secure Boot depend on are untouched;
 #   2b. the Settings > About logo, the dock start icon, the LOGO= icon and the greeter logo
 #      are the canon mark, and the stock files are dpkg-diverted so an upgrade cannot restore them;
-#   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777).
+#   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
+#   3f. NetworkManager still manages wired devices (no netplan file overrides the
+#      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged).
 #
 # What is deliberately NOT asserted, because it cannot be changed by remastering:
 # the installer window's own text (a Canonical snap with a fixed flavour list)
@@ -91,7 +93,7 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/dconf/profile/user etc/dconf/db/local.d \
     usr/share/glib-2.0/schemas \
     usr/share/gnome-background-properties \
-    etc/update-motd.d etc/systemd/system etc/sudoers.d \
+    etc/update-motd.d etc/systemd/system etc/sudoers.d etc/netplan \
     usr/lib/ci-os usr/local/bin/ci-os-info \
     etc/group etc/gshadow etc/passwd var/cache/debconf/config.dat etc/ci-os \
     usr/lib/systemd/system/docker.service usr/lib/systemd/system/docker.socket \
@@ -364,6 +366,16 @@ for layer in minimal.standard minimal.standard.live; do
     tmp_layer="$(dir_mode "$LAYERLIST" /tmp)"
     if [[ "$tmp_layer" == drwxrwxrwt ]]; then pass "layer $layer: /tmp is drwxrwxrwt"; else fail "layer $layer: /tmp is ${tmp_layer:-missing}, must be drwxrwxrwt"; fi
 done
+
+section "3f. NetworkManager still manages wired devices"
+# netplan writes NetworkManager's 10-globally-managed-devices.conf only while the effective GLOBAL renderer is
+# NetworkManager. A top-level "renderer: networkd" in any etc/netplan file (the setup-mode profile used to have
+# one) overrides Ubuntu's 01-network-manager-all.yaml and leaves every Ethernet NIC unmanaged: no wired icon in
+# the top bar, no connection. Global keys sit at two-space indent; a per-device renderer is deeper and is fine.
+check "no etc/netplan file sets a global renderer other than NetworkManager" \
+    bash -c "! grep -hE '^  renderer:' '$R'/etc/netplan/*.yaml | grep -qvE 'NetworkManager'"
+check "01-network-manager-all.yaml still has renderer: NetworkManager" \
+    file_has "$R/etc/netplan/01-network-manager-all.yaml" '^  renderer:[[:space:]]*NetworkManager[[:space:]]*$'
 
 # ── 4. branding ─────────────────────────────────────────────────────────────
 section "4. Branding: user-visible identity is Companion OS"

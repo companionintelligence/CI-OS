@@ -1,12 +1,19 @@
 # Netplan configuration for setup mode
 # Wired Ethernet only - WiFi interface is managed by hotspot script and NetworkManager
 # We avoid configuring WiFi here to prevent conflicts with hostapd/NM
+#
+# The renderer is set per device, never at the top level. A global
+# "renderer: networkd" here overrides the stock 01-network-manager-all.yaml
+# ("renderer: NetworkManager"); netplan then stops writing
+# 10-globally-managed-devices.conf and NetworkManager leaves every Ethernet NIC
+# unmanaged (no wired icon in the top bar, no connection). With the renderer on
+# eth0 only, NetworkManager keeps managing every other device.
 
 network:
   version: 2
-  renderer: networkd
 
   ethernets:
     eth0:
+      renderer: networkd
       dhcp4: true
       optional: true
