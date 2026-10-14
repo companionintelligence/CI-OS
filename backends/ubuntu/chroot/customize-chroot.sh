@@ -549,8 +549,9 @@ echo "[+] Plymouth configured from the canon tokens (installed-system boots)"
 echo "[*] Step 5b: Replacing the dock start icon..."
 
 # 40-start-icon.sh: the dock's bottom button is view-app-grid-ubuntu-symbolic.svg, a symlink to Yaru's
-# start-here-symbolic.svg. The source is core/render/inputs/LogoMark_Color_StartIcon-cropped.svg (the vendored
-# mark.svg's path data, cropped); GNOME recolours a -symbolic icon to one tone, so it shows as a silhouette.
+# start-here-symbolic.svg. The step generates the icon from the vendored one-colour mark (vendor/brand/logos/
+# mark-mono.svg: its path data, currentColor, viewBox cropped); GNOME recolours a -symbolic icon to one tone,
+# so it shows as a silhouette.
 # yaru-theme-icon owns the file; the step diverts it so an upgrade cannot restore Ubuntu's.
 run_theme_step 40-start-icon.sh
 

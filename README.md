@@ -500,7 +500,7 @@ Session-only tweaks for the current user (no sudo, no system changes):
 **[assets/branding/brand-guidelines.md](assets/branding/brand-guidelines.md)**, the
 canonical token table (the old dark-green `#00a9a7`/`#066c80`/`#72ddd4` "logo ramp"
 palette this line used to list was replaced org-wide by CI-Common canon 1.0).
-**Assets:** `LogoMark_Color_StartIcon-cropped.svg` (start icon),
+**Assets:** `vendor/brand/logos/mark-mono.svg` (the start icon is generated from it),
 `background.png` → `/usr/share/backgrounds/ci-os-wallpaper.*`,
 `Logo_Banner_Color.png` (Plymouth). The icon/wallpaper steps back up the Ubuntu
 originals under `/usr/share/icons/ubuntu-backup-*` and `/usr/share/backgrounds/ubuntu-backup-*`.

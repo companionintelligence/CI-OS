@@ -14,7 +14,7 @@ if [[ -z "${REPO_ROOT:-}" ]]; then
 fi
 
 # Raw PNG/SVG inputs the render scripts and theming steps consume (Plymouth
-# watermark, wallpaper, start-icon source) — distro-agnostic, brand-specific.
+# watermark, wallpaper) — distro-agnostic, brand-specific.
 export ASSET_INPUTS_DIR="${REPO_ROOT}/core/render/inputs"
 
 # The Companion Intelligence canon, vendored from the brand bundle (core/lib/vendor-brand.sh).

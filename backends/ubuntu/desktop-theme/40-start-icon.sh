@@ -1,21 +1,38 @@
 #!/usr/bin/env bash
-# Replace Yaru start-here / Show Apps icon with CI mark.
+# Replace Yaru start-here / Show Apps icon with the canon mark.
 #
-# The dock's bottom "Show Applications" button is view-app-grid-ubuntu-symbolic.svg, a symlink to
-# Yaru's places/start-here-symbolic.svg, so replacing that one file brands the button. yaru-theme-icon
+# The dock's bottom "Show Applications" button is view-app-grid-ubuntu-symbolic.svg, a symlink to Yaru's
+# places/start-here-symbolic.svg, so replacing that one file brands the button. yaru-theme-icon
 # owns it: ci_install_file diverts the stock file first, so an upgrade of the package cannot restore it.
+#
+# The icon is generated from the vendored one-colour mark (vendor/brand/logos/mark-mono.svg) every time,
+# not kept as a second copy of the artwork: the path data is the mark's own, `currentColor` is the only
+# fill (GTK repaints a -symbolic icon in the foreground colour anyway, so no brand colour ships in it), and
+# only the viewBox is cropped to the mark plus a margin so it fills the dock button like Yaru's own glyph.
+# A re-vendored mark therefore reaches the dock with the rest of the logo surfaces.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/theme-lib.sh"
 require_root
 
-CUSTOM_ICON_PATH="$ASSET_INPUTS_DIR/LogoMark_Color_StartIcon-cropped.svg"
-if [[ ! -f "$CUSTOM_ICON_PATH" ]]; then
-  log_error "Icon file not found: $CUSTOM_ICON_PATH"
+MARK_SVG="$REPO_ROOT/vendor/brand/logos/mark-mono.svg"
+# x y width height, in the mark's own 247.182-unit coordinate system (its full viewBox is "0 0 247.182 247.182").
+START_ICON_VIEWBOX="34.60548 36.582936 178.465404 175.004856"
+
+if [[ ! -f "$MARK_SVG" ]]; then
+  log_error "Logo mark not found: $MARK_SVG (expected from the vendored brand bundle)"
   exit 1
 fi
 
-ICON_EXT="${CUSTOM_ICON_PATH##*.}"
-ICON_NAME="ci-os-activities-icon"
+read -r _ _ VB_W VB_H <<<"$START_ICON_VIEWBOX"
+GEN_DIR="$(mktemp -d)"
+trap 'rm -rf "$GEN_DIR"' EXIT
+CUSTOM_ICON_PATH="$GEN_DIR/start-here-symbolic.svg"
+sed "s/viewBox=\"[^\"]*\"/viewBox=\"$START_ICON_VIEWBOX\" width=\"$VB_W\" height=\"$VB_H\"/" "$MARK_SVG" > "$CUSTOM_ICON_PATH"
+if ! grep -q "viewBox=\"$START_ICON_VIEWBOX\"" "$CUSTOM_ICON_PATH"; then
+  log_error "Could not set the start icon viewBox: no viewBox attribute in $MARK_SVG"
+  exit 1
+fi
+
 # An image build starts from the stock ISO every time; only a live system keeps a backup.
 BACKUP_DIR=""
 if ! ci_image_build; then
@@ -39,20 +56,7 @@ for THEME_DIR in /usr/share/icons/Yaru*/scalable/places; do
     cp "$ACTIVITIES_ICON" "$BACKUP_DIR/$THEME_NAME/scalable/places/start-here-symbolic.svg.bak"
   fi
 
-  if [[ "$ICON_EXT" =~ ^(svg|SVG)$ ]]; then
-    ci_install_file "$CUSTOM_ICON_PATH" "$ACTIVITIES_ICON"
-  else
-    PIXMAP_DEST="/usr/share/pixmaps/${ICON_NAME}.png"
-    mkdir -p /usr/share/pixmaps
-    cp "$CUSTOM_ICON_PATH" "$PIXMAP_DEST"
-    ci_divert_file "$ACTIVITIES_ICON"
-    cat > "$ACTIVITIES_ICON" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="24" height="24" viewBox="0 0 24 24">
-  <image xlink:href="file://$PIXMAP_DEST" width="24" height="24"/>
-</svg>
-EOF
-  fi
+  ci_install_file "$CUSTOM_ICON_PATH" "$ACTIVITIES_ICON"
   chmod 644 "$ACTIVITIES_ICON"
   REPLACED=$((REPLACED + 1))
 done

@@ -83,7 +83,7 @@ cd "$REPO_ROOT"
 
 # Pre-flight: ensure critical assets exist (fail early with clear message)
 if [[ $DO_REBRAND -eq 1 ]]; then
-    for f in "core/render/inputs/Logo_Banner_Color.png" "core/render/inputs/background.png" "core/render/inputs/LogoMark_Color_StartIcon-cropped.svg"; do
+    for f in "core/render/inputs/Logo_Banner_Color.png" "core/render/inputs/background.png" "vendor/brand/logos/mark-mono.svg"; do
         if [[ ! -f "$REPO_ROOT/$f" ]]; then
             log_error "Missing asset: $f"
             log_info "Ensure the repo is complete (e.g. full git clone, not partial download)"
