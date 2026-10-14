@@ -90,6 +90,7 @@ jobs:
             curl \
             cpio \
             zstd \
+            initramfs-tools-core \
             imagemagick \
             librsvg2-bin \
             libglib2.0-bin \
