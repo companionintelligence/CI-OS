@@ -37,7 +37,11 @@
 #      Plymouth file the build rewrites (the watermark, the bgrt and spinner themes, the text theme's template) is dpkg-diverted;
 #   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
 #   3f. NetworkManager still manages wired devices (no netplan file overrides the
-#      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged).
+#      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged);
+#   8. the medium's /md5sum.txt, which "Check disc for defects" (casper-md5check) verifies, is correct: every entry matches the
+#      file in the image (each file is hashed by streaming it out of the ISO, nothing is extracted), no entry names a file that is
+#      gone, and every regular file the stock convention lists (all but /md5sum.txt, /EFI and the subdirectories of /boot/grub)
+#      is listed. It is rewritten by build-iso.sh (md5sum-txt.sh); the stock file is wrong for every file the remaster changes.
 #
 # What is deliberately NOT asserted, because it cannot be changed by remastering:
 # the installer window's own text (a Canonical snap with a fixed flavour list)
@@ -55,9 +59,11 @@
 #   VERIFY_BASE_ISO=ISO .. the stock Ubuntu ISO this one was built from: also assert that
 #                          /EFI/boot/{bootx64,grubx64,mmx64}.efi are byte-identical to it
 #                          (the Secure Boot chain is intact) and that casper/initrd starts with the
-#                          stock initrd, byte for byte; without it those checks are skipped
+#                          stock initrd, byte for byte, and that the md5sum.txt exclusions are the stock ISO's own;
+#                          without it those checks are skipped
 #
-# Needs: xorriso squashfs-tools zstd cpio python3 (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio python3);
+# Needs: xorriso squashfs-tools zstd cpio python3 (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio python3), and
+#        md5sum-txt.sh next to this script, which needs awk, dd and md5sum (section 8 is skipped without it);
 #        gpg is optional (without it the keyring fingerprints are reported as skipped), and so is a logo
 #        renderer (rsvg-convert or ImageMagick): with one, the logo shapes are also compared with a fresh
 #        render of the vendored mark. Run it from the repo checkout: the logo content is checked against its
@@ -1092,6 +1098,49 @@ else
     fail "no etc/casper.conf in the initrd overlay"
 fi
 note "the kernel's acceptance of the appended archive is only proven by booting the ISO (see the QEMU boot check)"
+
+# ── 8. md5sum.txt ───────────────────────────────────────────────────────────
+section "8. Disc integrity: md5sum.txt matches the files in the image (Check disc for defects)"
+# casper-md5check reads /md5sum.txt ("<md5>  ./<path>" per line) and prints "mismatch" for every file whose hash differs and
+# an error for every file it cannot open. The stock file lists the stock layers, the stock initrd, grub.cfg and .disk/info, so it
+# is wrong for every file the remaster changed or deleted (v6 had 14 mismatches, 55 missing files and an unlisted background).
+# md5sum-txt.sh verify streams each listed file out of the ISO (xorriso report_lba for the extents, then dd | md5sum), so a
+# 7.7 GB image needs no scratch space and takes about a minute.
+MD5TXT_TOOL="$(dirname "${BASH_SOURCE[0]}")/md5sum-txt.sh"
+if [[ -f "$MD5TXT_TOOL" ]]; then
+    md5_field() { printf '%s\n' "$md5_summary" | tr ' ' '\n' | sed -n "s/^$1=//p"; }
+    bash "$MD5TXT_TOOL" verify "$ISO" > "$WORK/md5-verify.out" 2> "$WORK/md5-verify.err" || true
+    md5_summary="$(grep '^SUMMARY ' "$WORK/md5-verify.out" 2>/dev/null | tail -n 1)"
+    if [[ -z "$md5_summary" ]]; then
+        fail "md5sum.txt could not be checked: $(tail -n 2 "$WORK/md5-verify.err" 2>/dev/null | tr '\n' ' ')"
+    else
+        md5_n="$(md5_field entries)"
+        if [[ "${md5_n:-0}" -gt 0 ]]; then pass "md5sum.txt lists $md5_n files"; else fail "md5sum.txt is empty or missing"; fi
+        md5_show() { grep "^$1 " "$WORK/md5-verify.out" | head -n 5 | while IFS= read -r l; do note "  $l"; done; }
+        if [[ "$(md5_field mismatched)" == 0 ]]; then
+            pass "every file listed in md5sum.txt hashes to its entry ($(md5_field matched) files, streamed out of the image)"
+        else
+            fail "$(md5_field mismatched) file(s) do not match their md5sum.txt entry (Check disc for defects reports them as a mismatch)"; md5_show MISMATCH
+        fi
+        if [[ "$(md5_field missing)" == 0 ]]; then pass "no md5sum.txt entry names a file that is not in the image"
+        else fail "$(md5_field missing) md5sum.txt entr(ies) name a file that is not in the image (the check fails on each)"; md5_show MISSING; fi
+        if [[ "$(md5_field unlisted)" == 0 ]]; then pass "every regular file the stock convention lists is in md5sum.txt (all but /md5sum.txt, /EFI and boot/grub subdirectories)"
+        else fail "$(md5_field unlisted) regular file(s) of the image are not in md5sum.txt"; md5_show UNLISTED; fi
+        if [[ "$(md5_field duplicate)" == 0 && "$(md5_field malformed)" == 0 ]]; then pass "md5sum.txt has no duplicate and no malformed line"
+        else fail "md5sum.txt has $(md5_field duplicate) duplicate and $(md5_field malformed) malformed line(s)"; md5_show DUPLICATE; md5_show BADLINE; fi
+    fi
+    if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
+        if md5_stock="$(bash "$MD5TXT_TOOL" check-stock --base-iso "$VERIFY_BASE_ISO" 2>&1)"; then
+            pass "the exclusions checked above are the stock ISO's own ($md5_stock)"
+        else
+            fail "the stock ISO's md5sum.txt does not follow the exclusions checked above: $(printf '%s' "$md5_stock" | head -n 3 | tr '\n' ' ')"
+        fi
+    else
+        note "md5sum.txt exclusions not compared with the stock ISO's (skipped: set VERIFY_BASE_ISO=<stock Ubuntu ISO>)"
+    fi
+else
+    skip "md5sum.txt check (md5sum-txt.sh is not next to this script)"
+fi
 
 # ── known, unfixable by remastering ─────────────────────────────────────────
 section "Known residual Ubuntu strings (cannot be changed by remastering; not counted as failures)"

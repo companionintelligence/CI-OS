@@ -133,7 +133,9 @@ The compiled gresource is committed to source at:
    initrd; a boot of a full build is still the proof.
 6. Themes the live GRUB menu (`brand_live_grub`: background image and token-derived colours in
    `boot/grub/grub.cfg`, see [Live GRUB menu](#live-grub-menu)), then generates the bootable ISO with
-   xorriso (inheriting EFI/BIOS boot from base ISO)
+   xorriso (inheriting EFI/BIOS boot from base ISO). The image's own `/md5sum.txt` is rewritten in the same
+   xorriso run (`write_md5sum_txt`, [below](#check-disc-for-defects-md5sumtxt-inside-the-image)) and the finished
+   image is read back against it before the build succeeds
 7. Produces SHA256/MD5 checksums
 
 ---
@@ -161,6 +163,8 @@ backends/ubuntu/iso/
     ├── build-iso.sh                       ← Main entry point (run this)
     ├── build-packages.sh                  ← Builds all .deb packages
     ├── build-gdm-branding-gresource.sh    ← Builds branded Yaru gresource
+    ├── md5sum-txt.sh                      ← Writes and verifies the image's /md5sum.txt (see Testing)
+    ├── verify-iso.sh                      ← Inspects a built ISO without booting it (see Testing)
     ├── stage-live-build-branding-package.sh  ← Stages .deb into config/packages.chroot
     └── setup-repository.sh                ← reprepro repository setup helper
 
@@ -336,6 +340,38 @@ cd output/
 sha256sum -c SHA256SUMS
 ```
 
+### Check disc for defects (`md5sum.txt` inside the image)
+
+The live medium carries `/md5sum.txt`, and the boot menu's "Check disc for defects" runs casper's
+`casper-md5check` over it: one `<md5>  ./<path>` line per file, a `mismatch` for every file whose hash differs and an
+error for every file it cannot open. This build replaces the casper layers and manifests, the initrd, `grub.cfg`,
+`loopback.cfg` and `.disk/info`, deletes the stock language layers and adds the GRUB background, so Ubuntu's own
+`md5sum.txt` is wrong for all of them (the v6 image: 14 mismatches, 55 listed files that are gone, 1 unlisted file) and
+the check failed on every Companion OS image. `build-iso.sh` now rewrites it with
+[`md5sum-txt.sh`](scripts/md5sum-txt.sh):
+
+- the stock hash is kept for every file the build does not touch, at its stock position; the files the xorriso
+  operations replace are hashed from their sources; entries of deleted files are dropped; new files are appended in
+  sorted order;
+- the stock exclusions stay out: `/md5sum.txt` itself, everything under `/EFI/`, and everything in a subdirectory of
+  `/boot/grub/` (`fonts/`, `i386-pc/`, `x86_64-efi/`; `grub.cfg` and `loopback.cfg` are listed). The script proves the base
+  ISO still follows exactly that (`check-stock`, run before any build work), and a base ISO of another shape stops the build;
+- the list of files is computed from the very `-rm_r` / `-map` operations that xorriso is given, so the two cannot drift,
+  and the file is mapped in by the same run. Any problem fails the build; there is no fallback to the stock file;
+- after xorriso, the finished image is read back (`md5sum-txt.sh verify`): every listed file is hashed by streaming it out of
+  the ISO (`xorriso -find ... report_lba` for the extents, then `dd | md5sum`, so nothing is extracted and a 7.7 GB image takes
+  about half a minute), and the build fails if anything differs. `verify-iso.sh` section 8 runs the same check on any ISO.
+
+```bash
+backends/ubuntu/iso/scripts/md5sum-txt.sh verify output/companion-os-1.0-amd64.iso   # prints MISMATCH / MISSING / UNLISTED lines and a SUMMARY
+backends/ubuntu/iso/tests/md5sum-txt.sh                                              # the logic on a synthetic tree and a mini ISO
+```
+
+`tests/md5sum-txt.sh` needs only awk and a hash tool for its first part (a stock macOS with bash 3.2 is enough); with
+`xorriso` it also remasters a mini ISO exactly as `build-iso.sh` does and shows that `verify` fails on the stale stock file.
+The streaming read was checked on a real image against `casper/SHA256SUMS` (a 5.6 GB file in two extents) and
+against Canonical's own `md5sum.txt` on the stock ISO (448 of 448 entries match).
+
 ### Verify the image contents (pre-installed tools and branding)
 
 ```bash
@@ -359,12 +395,15 @@ give (`core/lib/tests/grub-nearest-color.sh` pins the function that derives them
 (`tests/boot-media-plymouth.sh` runs the build step against a stock-shaped initrd) and asserts that it holds exactly the branded
 files and that the bgrt and spinner themes carry the canon ground and progress-bar colours with their stock fonts, the text splash is titled
 Companion OS, and `bgrt-fallback.png` is the same non-Ubuntu 128 px canon mark in the overlay and the rootfs. In the rootfs every package-owned Plymouth file the build rewrites (the watermark, `bgrt-fallback.png`, `bgrt.plymouth`, `spinner.plymouth`, and the text theme's template `ubuntu-text.plymouth.in`, from which the package regenerates the text theme) is `dpkg-divert`ed, so a package upgrade or an `/etc/lsb-release` trigger cannot bring Ubuntu's logo or colours back (`desktop-theme/tests/plymouth-theme.sh` shows this against the real packages).
+Section 8 checks the image's `md5sum.txt` (see [Check disc for defects](#check-disc-for-defects-md5sumtxt-inside-the-image)):
+every entry matches the file in the ISO, no entry names a file that is gone, and every regular file the stock convention
+lists is listed.
 Exit status is non-zero if any check fails.
 
 To also prove the Secure Boot chain is intact, name the stock ISO the image was built from; the check then
 asserts that `/EFI/boot/bootx64.efi`, `grubx64.efi` and `mmx64.efi` are byte-identical to it and that `casper/initrd`
-starts with the stock initrd's exact bytes, then its 4-byte padding, then the overlay (without it those checks are
-skipped and reported):
+starts with the stock initrd's exact bytes, then its 4-byte padding, then the overlay, and that the `md5sum.txt` exclusions are
+the stock ISO's own (without it those checks are skipped and reported):
 
 ```bash
 VERIFY_BASE_ISO=ubuntu-24.04.5-desktop-amd64.iso backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-1.0-amd64.iso
