@@ -940,6 +940,11 @@ OVL_TEXT="$OVLX/$PLY_T/ubuntu-text/ubuntu-text.plymouth"
 if [[ -f "$OVL_TEXT" ]]; then
     check "text splash (initrd overlay) is titled Companion OS, not Ubuntu 24.04" file_has "$OVL_TEXT" '^title=Companion OS( [0-9][^ ]*)?$'
     check "text splash (initrd overlay) is no longer aubergine (0x2c001e)" bash -c "! grep -q -i '0x2c001e' '$OVL_TEXT'"
+    if [[ $CANON_OK -eq 1 ]]; then
+        # black= is the ground the text console is cleared to: the canon's dark background, like the graphical themes.
+        check "text splash (initrd overlay) ground is the canon dark background ($ply_ground)" file_has "$OVL_TEXT" "^black=$ply_ground\$"
+        check "text splash (installed system) ground is the canon dark background ($ply_ground)" file_has "$TEXT_PLYMOUTH" "^black=$ply_ground\$"
+    fi
     ovl_title="$(grep -h '^title=' "$OVL_TEXT" 2>/dev/null | head -1)"
     root_title="$(grep -h '^title=' "$TEXT_PLYMOUTH" 2>/dev/null | head -1)"
     if [[ -n "$ovl_title" && "$ovl_title" == "$root_title" ]]; then

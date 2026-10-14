@@ -129,10 +129,13 @@ ci_plymouth_recolor() {
 # ci_plymouth_text_theme <conf> <title>
 # Write the ubuntu-text theme file (the text-mode splash: safe-graphics boot, and the fallback when no graphics
 # come up) in the canon colours, titled <title>. The file is written whole, so it does not matter what the stock
-# one said: white is the dark foreground, brown the dark primary, blue the light primary, black stays black.
+# one said: white is the dark foreground, brown the dark primary, blue the light primary, and black, the ground the
+# text console is cleared to, the dark background (navy), like the ground of the graphical themes
+# (ci_plymouth_recolor). It used to be a literal 0x000000, which is neither Ubuntu's aubergine nor the canon.
 # The ModuleName stays ubuntu-text: that is the Plymouth plugin the theme loads, not a name anybody reads.
 ci_plymouth_text_theme() {
-  local conf="$1" title="$2" white brown blue
+  local conf="$1" title="$2" black white brown blue
+  black="$(ci_hex0x "$CI_DARK_BACKGROUND")"
   white="$(ci_hex0x "$CI_DARK_FOREGROUND")"
   brown="$(ci_hex0x "$CI_DARK_PRIMARY")"
   blue="$(ci_hex0x "$CI_LIGHT_PRIMARY")"
@@ -144,7 +147,7 @@ ModuleName=ubuntu-text
 
 [ubuntu-text]
 title=$title
-black=0x000000
+black=$black
 white=$white
 brown=$brown
 blue=$blue

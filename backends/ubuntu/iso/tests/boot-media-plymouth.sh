@@ -220,6 +220,8 @@ check_case() {
     expect "[$label] the initrd's bgrt keeps its Ubuntu font" grep -q -x 'Font=Ubuntu 12' "$ov/$t/bgrt/bgrt.plymouth"
     expect "[$label] text splash: Companion OS $CI_OS_VERSION on the ubuntu-text module, no aubergine" \
         bash -c "grep -q -x 'title=Companion OS $CI_OS_VERSION' '$ov/$t/ubuntu-text/ubuntu-text.plymouth' && grep -q -x 'ModuleName=ubuntu-text' '$ov/$t/ubuntu-text/ubuntu-text.plymouth' && ! grep -qi '0x2c001e' '$ov/$t/ubuntu-text/ubuntu-text.plymouth'"
+    expect "[$label] text splash: ground is the canon dark background $ground" \
+        grep -q -x "black=$ground" "$ov/$t/ubuntu-text/ubuntu-text.plymouth"
     expect "[$label] fallback logo is the chroot's branded file" cmp -s "$ov/$t/spinner/bgrt-fallback.png" "$w/chroot/$t/spinner/bgrt-fallback.png"
     expect "[$label] watermark and ubuntu-logo.png are the chroot's branded watermark" \
         bash -c "cmp -s '$ov/$t/spinner/watermark.png' '$w/chroot/$t/spinner/watermark.png' && cmp -s '$ov/usr/share/plymouth/ubuntu-logo.png' '$w/chroot/$t/spinner/watermark.png'"

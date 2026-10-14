@@ -151,8 +151,8 @@ TEXT="$THEMES/ubuntu-text/ubuntu-text.plymouth"
 expect "text splash is titled Companion OS <CI_OS_VERSION>" grep -q -x 'title=Companion OS 7.3' "$TEXT"
 expect "text splash is the Companion OS Text theme on the ubuntu-text module" \
     bash -c "grep -q -x 'Name=Companion OS Text' '$TEXT' && grep -q -x 'ModuleName=ubuntu-text' '$TEXT'"
-expect "text splash colours come from the canon (white=$(ci_hex0x "$CI_DARK_FOREGROUND") brown=$want_fill blue=$(ci_hex0x "$CI_LIGHT_PRIMARY"), black stays black)" \
-    bash -c "grep -q -x 'white=$(ci_hex0x "$CI_DARK_FOREGROUND")' '$TEXT' && grep -q -x 'brown=$want_fill' '$TEXT' && grep -q -x 'blue=$(ci_hex0x "$CI_LIGHT_PRIMARY")' '$TEXT' && grep -q -x 'black=0x000000' '$TEXT'"
+expect "text splash colours come from the canon (black=$want_ground the ground, white=$(ci_hex0x "$CI_DARK_FOREGROUND") brown=$want_fill blue=$(ci_hex0x "$CI_LIGHT_PRIMARY"))" \
+    bash -c "grep -q -x 'white=$(ci_hex0x "$CI_DARK_FOREGROUND")' '$TEXT' && grep -q -x 'brown=$want_fill' '$TEXT' && grep -q -x 'blue=$(ci_hex0x "$CI_LIGHT_PRIMARY")' '$TEXT' && grep -q -x 'black=$want_ground' '$TEXT'"
 expect "text splash has no aubergine left" bash -c "! grep -qi '0x2c001e' '$TEXT'"
 
 expect "bgrt-fallback.png is the staged colour mark (same bytes)" cmp -s "$FALLBACK" "$WORK/repo/core/render/output/ci-os-bgrt-fallback.png"
@@ -216,6 +216,7 @@ run_step "$WORK/tok" CI_BRAND_IMAGE_BUILD=1 CI_OS_VERSION=7.3
 expect "step with a different CI_DARK_BACKGROUND exits 0" test "$RC" -eq 0
 expect "bgrt.plymouth and spinner.plymouth follow the token (ground 0x123456)" \
     bash -c "grep -q -x 'BackgroundStartColor=0x123456' '$THEMES/bgrt/bgrt.plymouth' && grep -q -x 'BackgroundStartColor=0x123456' '$THEMES/spinner/spinner.plymouth'"
+expect "...and so does the text splash ground (black=0x123456)" grep -q -x 'black=0x123456' "$TEXT"
 
 # ── a live system (no CI_BRAND_IMAGE_BUILD): renders the fallback itself, keeps a backup ────────────────────
 run_step "$REPO" CI_OS_VERSION=7.3
