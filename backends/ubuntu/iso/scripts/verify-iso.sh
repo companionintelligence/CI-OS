@@ -489,6 +489,15 @@ for pair in "ubuntu-logo-text.png:$STOCK_ABOUT_LIGHT_SHA" "ubuntu-logo-text-dark
     fi
 done
 
+# An image build keeps no backup directories of the stock files (10-plymouth.sh and 40-start-icon.sh skip them
+# under CI_BRAND_IMAGE_BUILD=1): they would ship Ubuntu's watermark, Plymouth configs and icons inside the image,
+# and their timestamped names make the squashfs differ from build to build.
+if in_listing ' /usr/share/(plymouth/ci-branding-backup-|icons/ubuntu-backup-|backgrounds/ubuntu-backup-)'; then
+    fail "the image ships a backup directory of stock Ubuntu files (plymouth/ci-branding-backup-*, icons/ubuntu-backup-*): an image build keeps none"
+else
+    pass "the image ships no backup directories of stock Ubuntu files"
+fi
+
 # The dock's bottom button is view-app-grid-ubuntu-symbolic.svg, a symlink to Yaru's start-here-symbolic.svg.
 YARU_START="$R/usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg"
 if [[ ! -f "$YARU_START" ]]; then

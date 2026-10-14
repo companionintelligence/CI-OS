@@ -31,12 +31,24 @@ if [[ ! -d "$PLYMOUTH_SPINNER_DIR" ]]; then
   exit 1
 fi
 
-BACKUP_DIR="/usr/share/plymouth/ci-branding-backup-$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$BACKUP_DIR"
+# An image build starts from the stock ISO every time and keeps no backups: a backup directory would ship
+# Ubuntu's watermark and Plymouth configs inside the image, and its timestamped name makes the squashfs differ
+# from build to build. Only a live system keeps one. A rebuild without --clean also reuses the chroot of the
+# previous run, so an image build removes the backup directories an older version of this step left in it.
+BACKUP_DIR=""
+if ci_image_build; then
+  rm -rf -- /usr/share/plymouth/ci-branding-backup-*
+else
+  BACKUP_DIR="/usr/share/plymouth/ci-branding-backup-$(date +%Y%m%d-%H%M%S)"
+  mkdir -p "$BACKUP_DIR"
+fi
+backup_file() { # backup_file <file> <backup name>; nothing in an image build
+  if [[ -n "$BACKUP_DIR" ]]; then cp "$1" "$BACKUP_DIR/$2"; fi
+}
 
 log_info "Replacing Plymouth watermark with CI branding..."
 if [[ -f "$WATERMARK_DEST" ]]; then
-  cp "$WATERMARK_DEST" "$BACKUP_DIR/watermark.png.bak"
+  backup_file "$WATERMARK_DEST" watermark.png.bak
 fi
 
 if [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]] && command -v convert >/dev/null 2>&1; then
@@ -52,7 +64,7 @@ fi
 chmod 644 "$WATERMARK_DEST"
 
 if [[ -f "$PLYMOUTH_SPINNER_CONF" ]]; then
-  cp "$PLYMOUTH_SPINNER_CONF" "$BACKUP_DIR/spinner.plymouth.bak"
+  backup_file "$PLYMOUTH_SPINNER_CONF" spinner.plymouth.bak
   sed -i "s/BackgroundStartColor=0x[0-9a-fA-F]*/BackgroundStartColor=$BG_DARK_GREEN/" "$PLYMOUTH_SPINNER_CONF"
   sed -i "s/BackgroundEndColor=0x[0-9a-fA-F]*/BackgroundEndColor=$BG_DARK_GREEN/" "$PLYMOUTH_SPINNER_CONF"
   sed -i "s/ProgressBarBackgroundColor=0x[0-9a-fA-F]*/ProgressBarBackgroundColor=$PROGRESS_BG/" "$PLYMOUTH_SPINNER_CONF"
@@ -60,7 +72,7 @@ if [[ -f "$PLYMOUTH_SPINNER_CONF" ]]; then
 fi
 
 if [[ -f "$PLYMOUTH_BGRT_CONF" ]]; then
-  cp "$PLYMOUTH_BGRT_CONF" "$BACKUP_DIR/bgrt.plymouth.bak"
+  backup_file "$PLYMOUTH_BGRT_CONF" bgrt.plymouth.bak
   sed -i "s/Font=Ubuntu 12/Font=Cantarell 12/" "$PLYMOUTH_BGRT_CONF"
   sed -i "s/TitleFont=Ubuntu Light 30/TitleFont=Cantarell Light 30/" "$PLYMOUTH_BGRT_CONF"
   sed -i "s/BackgroundStartColor=0x[0-9a-fA-F]*/BackgroundStartColor=$BG_DARK_GREEN/" "$PLYMOUTH_BGRT_CONF"
@@ -70,7 +82,7 @@ if [[ -f "$PLYMOUTH_BGRT_CONF" ]]; then
 fi
 
 if [[ -f "$UBUNTU_TEXT_PLYMOUTH" ]]; then
-  cp "$UBUNTU_TEXT_PLYMOUTH" "$BACKUP_DIR/ubuntu-text.plymouth.bak"
+  backup_file "$UBUNTU_TEXT_PLYMOUTH" ubuntu-text.plymouth.bak
   TEXT_WHITE="$(ci_hex0x "$CI_DARK_FOREGROUND")"
   TEXT_BROWN="$(ci_hex0x "$CI_DARK_PRIMARY")"
   TEXT_BLUE="$(ci_hex0x "$CI_LIGHT_PRIMARY")"
@@ -104,4 +116,8 @@ if command -v update-initramfs >/dev/null 2>&1; then
   update-initramfs -u -k all 2>/dev/null || log_warn "update-initramfs reported warnings"
 fi
 
-log_success "Plymouth CI branding applied (backup under $BACKUP_DIR)"
+if [[ -n "$BACKUP_DIR" ]]; then
+  log_success "Plymouth CI branding applied (backup under $BACKUP_DIR)"
+else
+  log_success "Plymouth CI branding applied (image build: no backup)"
+fi
