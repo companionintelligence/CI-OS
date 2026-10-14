@@ -54,18 +54,19 @@ copy_to_chroot() {
 # run_theme_step <script> [overlay_dir]
 # Run one backends/ubuntu/desktop-theme step INSIDE the chroot, so it is the same token-driven code the
 # post-install re-skin (apply-ci-os-desktop.sh) runs. The step is staged with the shared theme library, the
-# vendored canon (tokens, logos) and the render inputs/outputs, keeping the repo's relative layout so the
-# script's own REPO_ROOT / theme-lib.sh sourcing resolves without chroot-specific changes. It runs with
-# CI_BRAND_IMAGE_BUILD=1: no backup directories, stock files diverted (ci_install_file). overlay_dir, a host
-# directory laid out like the repo, is copied over the stage: it carries what has to be prepared on the
-# build host, because the stock desktop image has neither ImageMagick nor rsvg-convert. The stage is
-# removed afterwards.
+# os-release writer (backends/ubuntu/lib/os-release.sh), the vendored canon (tokens, logos) and the render
+# inputs/outputs, keeping the repo's relative layout so the script's own REPO_ROOT / theme-lib.sh sourcing
+# resolves without chroot-specific changes. It runs with CI_BRAND_IMAGE_BUILD=1 and the build's CI_OS_VERSION:
+# no backup directories, stock files diverted (ci_install_file). overlay_dir, a host directory laid out like
+# the repo, is copied over the stage: it carries what has to be prepared on the build host, because the
+# stock desktop image has neither ImageMagick nor rsvg-convert. The stage is removed afterwards.
 run_theme_step() {
     local script="$1" overlay="${2:-}"
     local stage="$CHROOT_PATH/tmp/ci-brand"
     rm -rf "$stage"
-    mkdir -p "$stage/backends/ubuntu/desktop-theme" "$stage/core/lib" "$stage/core/render" "$stage/vendor/brand"
+    mkdir -p "$stage/backends/ubuntu/desktop-theme" "$stage/backends/ubuntu/lib" "$stage/core/lib" "$stage/core/render" "$stage/vendor/brand"
     cp "$REPO_ROOT"/backends/ubuntu/desktop-theme/*.sh "$stage/backends/ubuntu/desktop-theme/"
+    cp "$REPO_ROOT/backends/ubuntu/lib/os-release.sh" "$stage/backends/ubuntu/lib/"
     cp "$REPO_ROOT/core/lib/theme-lib.sh" "$stage/core/lib/"
     cp -R "$REPO_ROOT/vendor/brand/tokens" "$REPO_ROOT/vendor/brand/logos" "$stage/vendor/brand/"
     cp -R "$REPO_ROOT/core/render/inputs" "$stage/core/render/"
@@ -108,33 +109,11 @@ if [[ -f "$CHROOT_PATH/etc/os-release" ]]; then
 fi
 echo "[*] Base Ubuntu identity: ${BASE_VERSION_ID} (${BASE_CODENAME})"
 
-cat > "$CHROOT_PATH/etc/os-release" << EOF
-NAME="Companion OS"
-VERSION="${BASE_VERSION_ID} LTS (Companion Intelligence ${CI_OS_VERSION})"
-ID=ubuntu
-ID_LIKE=debian
-PRETTY_NAME="Companion OS ${CI_OS_VERSION}"
-VERSION_ID="${BASE_VERSION_ID}"
-HOME_URL="https://ci.computer"
-SUPPORT_URL="https://ci.computer/support"
-BUG_REPORT_URL="https://ci.computer/bugs"
-PRIVACY_POLICY_URL="https://ci.computer/privacy"
-UBUNTU_CODENAME=${BASE_CODENAME}
-VERSION_CODENAME=${BASE_CODENAME}
-CI_OS_ID=ci-os
-CI_OS_VERSION="${CI_OS_VERSION}"
-CI_OS_BUILD="$(date -u +%Y%m%d)"
-LOGO=ci-os-logo
-EOF
-
-# lsb-release: keep DISTRIB_ID=Ubuntu and the base release so that
-# lsb_release -si / -sr return values the installer and apt tooling expect.
-cat > "$CHROOT_PATH/etc/lsb-release" << EOF
-DISTRIB_ID=Ubuntu
-DISTRIB_RELEASE=${BASE_VERSION_ID}
-DISTRIB_CODENAME=${BASE_CODENAME}
-DISTRIB_DESCRIPTION="Companion OS $CI_OS_VERSION"
-EOF
+# os-release and lsb-release (DISTRIB_ID=Ubuntu, so lsb_release -si / -sr return what the installer and apt
+# expect) come from the one writer, backends/ubuntu/lib/os-release.sh, which 50-os-release.sh calls: the same
+# code first-boot-rebrand.sh and the post-install re-skin run. It reads the base identity saved above from
+# /etc/os-release.ubuntu-base and the version from the CI_OS_VERSION that run_theme_step exports.
+run_theme_step 50-os-release.sh
 
 # ---------------------------------------------------------------------------
 # First-boot rebrand service
@@ -148,9 +127,9 @@ cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-rebrand.sh" << 'REBRAND'
 # CI-OS first-boot branding refresh — keeps Ubuntu-compatible machine identity.
 set -euo pipefail
 
-if [[ -f /usr/lib/ci-os/os-release.sh ]]; then
+if [[ -f /usr/lib/ci-os/bootstrap/backends/ubuntu/lib/os-release.sh ]]; then
   # shellcheck source=/dev/null
-  source /usr/lib/ci-os/os-release.sh
+  source /usr/lib/ci-os/bootstrap/backends/ubuntu/lib/os-release.sh
   ci_os_write_branded_os_release /etc/os-release
   ci_os_write_branded_lsb_release /etc/lsb-release
 else

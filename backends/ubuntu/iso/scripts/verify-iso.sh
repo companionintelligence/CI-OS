@@ -14,7 +14,9 @@
 #   1c. the optional tools (tailscale, cloudflared, gh, Ollama, Companion Launcher)
 #      are pre-installed from the pinned vendor sources (core/manifest/tier-b-pins.env);
 #   2. the user-visible branding is Companion OS, while the identifiers that
-#      apt, casper, the installer and Secure Boot depend on are untouched;
+#      apt, casper, the installer and Secure Boot depend on are untouched, and the
+#      identity files are exactly what the shared writer (backends/ubuntu/lib/os-release.sh)
+#      produces for the ISO's own Ubuntu base;
 #   2b. the Settings > About logo, the dock start icon, the LOGO= icon and the greeter logo
 #      are the canon mark, and the stock files are dpkg-diverted so an upgrade cannot restore them;
 #   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
@@ -88,7 +90,7 @@ R="$WORK/root"; mkdir -p "$R"
 # Extract the small files we read. Missing ones are fine here; the checks report them.
 # -no-xattrs: an unprivileged run cannot write trusted.overlay.* and unsquashfs aborts on the first failure.
 unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
-    etc/os-release usr/lib/os-release etc/lsb-release etc/issue etc/issue.net etc/hostname \
+    etc/os-release usr/lib/os-release etc/os-release.ubuntu-base etc/lsb-release etc/issue etc/issue.net etc/hostname \
     etc/casper.conf etc/default/grub var/lib/dpkg/status \
     etc/dconf/profile/user etc/dconf/db/local.d \
     usr/share/glib-2.0/schemas \
@@ -385,6 +387,58 @@ check "os-release keeps ID=ubuntu (apt and the installer rely on it)" file_has "
 check "os-release keeps VERSION_CODENAME (apt sources)" file_has "$R/usr/lib/os-release" '^VERSION_CODENAME=[a-z]+$'
 check "lsb-release description is Companion OS" file_has "$R/etc/lsb-release" '^DISTRIB_DESCRIPTION="Companion OS'
 check "lsb-release keeps DISTRIB_ID=Ubuntu (tools key off it)" file_has "$R/etc/lsb-release" '^DISTRIB_ID=Ubuntu$'
+
+# Identity: apt, curtin/subiquity and unattended-upgrades key off these, so they stay Ubuntu's. The stock file is
+# saved on the image as /etc/os-release.ubuntu-base (customize-chroot.sh), and the branded one must agree with it.
+check "os-release keeps ID_LIKE=debian" file_has "$R/usr/lib/os-release" '^ID_LIKE=debian$'
+check "os-release keeps VERSION_ID (apt sources, installer)" file_has "$R/usr/lib/os-release" '^VERSION_ID="[0-9]+\.[0-9]+"$'
+check "os-release keeps UBUNTU_CODENAME (apt sources)" file_has "$R/usr/lib/os-release" '^UBUNTU_CODENAME=[a-z]+$'
+check "os-release has CI_OS_ID=ci-os, CI_OS_VERSION and a CI_OS_BUILD day" bash -c "grep -q '^CI_OS_ID=ci-os\$' '$R/usr/lib/os-release' && grep -q -E '^CI_OS_VERSION=\".+\"\$' '$R/usr/lib/os-release' && grep -q -E '^CI_OS_BUILD=\"[0-9]{8}\"\$' '$R/usr/lib/os-release'"
+if in_listing ' /etc/os-release -> \.\./usr/lib/os-release$'; then pass "/etc/os-release is still the symlink to ../usr/lib/os-release (the writer writes through it)"; else fail "/etc/os-release is not a symlink to ../usr/lib/os-release"; fi
+BASE_OSREL="$R/etc/os-release.ubuntu-base"
+if file_has "$BASE_OSREL" '^ID=ubuntu$'; then
+    pass "the stock Ubuntu identity is saved at /etc/os-release.ubuntu-base (apt, ROCm and the first-boot rebrand read it)"
+    for key in VERSION_ID VERSION_CODENAME UBUNTU_CODENAME; do
+        base_val="$(grep -E "^${key}=" "$BASE_OSREL" | head -1 | cut -d= -f2- | tr -d '"')"
+        iso_val="$(grep -E "^${key}=" "$R/usr/lib/os-release" | head -1 | cut -d= -f2- | tr -d '"')"
+        if [[ -n "$base_val" && "$base_val" == "$iso_val" ]]; then pass "os-release $key=$iso_val matches the stock Ubuntu base"; else fail "os-release $key=${iso_val:-<missing>} differs from the stock Ubuntu base (${base_val:-<missing>})"; fi
+    done
+else
+    fail "/etc/os-release.ubuntu-base is missing or not Ubuntu's (the stock identity was not saved before branding)"
+fi
+
+# Golden: regenerate both files with the one shared writer, from this ISO's own base and CI_OS_VERSION, and require an
+# exact match apart from the CI_OS_BUILD day. tests/os-release-golden.sh pins that writer to the text the image build
+# wrote before the writer was shared, so the two together catch any drift in the file a built ISO ships.
+OSREL_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../lib" 2>/dev/null && pwd)/os-release.sh"
+ISO_CI_VERSION="$(sed -n 's/^CI_OS_VERSION="\(.*\)"$/\1/p' "$R/usr/lib/os-release" 2>/dev/null | head -1)"
+if [[ ! -f "$OSREL_LIB" ]]; then
+    fail "cannot compare os-release with the shared writer: backends/ubuntu/lib/os-release.sh not found next to this script"
+elif [[ ! -s "$BASE_OSREL" || -z "$ISO_CI_VERSION" ]]; then
+    fail "cannot compare os-release with the shared writer: the ISO has no /etc/os-release.ubuntu-base or no CI_OS_VERSION"
+else
+    (
+        # shellcheck source=../../lib/os-release.sh
+        source "$OSREL_LIB"
+        CI_OS_UBUNTU_BASE_OS_RELEASE="$BASE_OSREL"
+        export CI_OS_VERSION="$ISO_CI_VERSION"
+        ci_os_write_branded_os_release "$WORK/os-release.golden"
+        ci_os_write_branded_lsb_release "$WORK/lsb-release.golden"
+    ) >/dev/null 2>&1
+    stamp_masked() { sed 's/^CI_OS_BUILD=.*/CI_OS_BUILD=<day>/' "$1"; }
+    stamp_masked "$WORK/os-release.golden" > "$WORK/os-release.golden.masked" 2>/dev/null
+    stamp_masked "$R/usr/lib/os-release" > "$WORK/os-release.iso.masked" 2>/dev/null
+    if [[ -s "$WORK/os-release.golden.masked" ]] && diff -u "$WORK/os-release.golden.masked" "$WORK/os-release.iso.masked" > "$WORK/os-release.diff" 2>&1; then
+        pass "os-release equals the shared writer's output for this base (apart from the CI_OS_BUILD day)"
+    else
+        fail "os-release differs from the shared writer's output for this base:"; sed 's/^/      /' "$WORK/os-release.diff" 2>/dev/null | head -30
+    fi
+    if [[ -s "$WORK/lsb-release.golden" ]] && diff -u "$WORK/lsb-release.golden" "$R/etc/lsb-release" > "$WORK/lsb-release.diff" 2>&1; then
+        pass "lsb-release equals the shared writer's output for this base"
+    else
+        fail "lsb-release differs from the shared writer's output for this base:"; sed 's/^/      /' "$WORK/lsb-release.diff" 2>/dev/null | head -30
+    fi
+fi
 check "/etc/issue is Companion OS" file_has "$R/etc/issue" 'Companion OS'
 check "installed-system hostname is companion-os" file_has "$R/etc/hostname" '^companion-os$'
 check "GRUB_DISTRIBUTOR is Companion OS" file_has "$R/etc/default/grub" '^GRUB_DISTRIBUTOR="Companion OS"'

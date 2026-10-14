@@ -135,7 +135,12 @@ ci_os_ubuntu_version_id() {
   echo "24.04"
 }
 
+# An exported CI_OS_VERSION wins: while an image is built /etc/os-release is still Ubuntu's own and carries none.
 ci_os_marketing_version() {
+  if [[ -n "${CI_OS_VERSION:-}" ]]; then
+    echo "${CI_OS_VERSION}"
+    return 0
+  fi
   if [[ -f /etc/os-release ]]; then
     # shellcheck disable=SC1091
     source /etc/os-release
@@ -175,13 +180,27 @@ ci_os_with_ubuntu_toolchain_id() {
   return "$rc"
 }
 
-# Write CI OS branding with Ubuntu-compatible machine identity (safe for apt/AMD/Docker).
+# CI_OS_BUILD: the UTC day the image was built. A rewrite keeps the stamp already in the target file, so
+# first-boot-rebrand.sh does not re-date the image to the day it first booted; a file without one gets today's.
+ci_os_build_stamp() {
+  local os_path="${1:-/etc/os-release}" stamp=""
+  if [[ -r "$os_path" ]]; then
+    stamp="$(sed -n 's/^CI_OS_BUILD="\{0,1\}\([0-9]\{8\}\)"\{0,1\}$/\1/p' "$os_path" | head -1 || true)"
+  fi
+  echo "${stamp:-$(date -u +%Y%m%d)}"
+}
+
+# Write Companion OS branding with Ubuntu-compatible machine identity (safe for apt/AMD/Docker). This is the
+# only writer of the file: the image build (customize-chroot.sh, via 50-os-release.sh), the first-boot rebrand
+# and the post-install re-skin all call it. Its output is pinned byte-for-byte (modulo the CI_OS_BUILD value)
+# by tests/os-release-golden.sh, and a built ISO is checked against it by verify-iso.sh.
 ci_os_write_branded_os_release() {
   local os_path="${1:-/etc/os-release}"
-  local ci_version ubuntu_ver ubuntu_codename
+  local ci_version ubuntu_ver ubuntu_codename build
   ci_version="$(ci_os_marketing_version)"
   ubuntu_ver="$(ci_os_ubuntu_version_id)"
   ubuntu_codename="$(ci_os_ubuntu_codename)"
+  build="$(ci_os_build_stamp "$os_path")"
 
   cat >"$os_path" <<EOF
 NAME="Companion OS"
@@ -190,18 +209,16 @@ ID=ubuntu
 ID_LIKE=debian
 PRETTY_NAME="Companion OS ${ci_version}"
 VERSION_ID="${ubuntu_ver}"
-VERSION_CODENAME=${ubuntu_codename}
-UBUNTU_CODENAME=${ubuntu_codename}
-CI_OS_ID=ci-os
-CI_OS_VERSION="${ci_version}"
 HOME_URL="https://ci.computer"
 SUPPORT_URL="https://ci.computer/support"
 BUG_REPORT_URL="https://ci.computer/bugs"
 PRIVACY_POLICY_URL="https://ci.computer/privacy"
+UBUNTU_CODENAME=${ubuntu_codename}
+VERSION_CODENAME=${ubuntu_codename}
+CI_OS_ID=ci-os
+CI_OS_VERSION="${ci_version}"
+CI_OS_BUILD="${build}"
 LOGO=ci-os-logo
-
-# Companion OS — Companion Intelligence
-# Machine identity stays Ubuntu-compatible for apt, Docker, and AMDGPU/ROCm installers.
 EOF
   chmod 644 "$os_path"
 }
