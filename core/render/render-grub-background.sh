@@ -4,6 +4,12 @@
 # themes GRUB (Ubuntu/Mint today; Fedora/Arch later) calls this and installs
 # the resulting PNG via its own mechanism — this script only renders it.
 #
+# The output is always a plain 8-bit RGB PNG (no alpha), in every branch that renders one (the last
+# branch, with no image tool at all, only reports an error and exits). ImageMagick's
+# Q16 builds write 16-bit PNGs by default (twice the size); 8-bit RGB is what GRUB backgrounds
+# normally are. Both consumers load the same kind of file: the installed system
+# (GRUB_BACKGROUND, 15-grub-theme.sh / customize-chroot.sh) and the live ISO menu (build-iso.sh).
+#
 # Usage:
 #   core/render/render-grub-background.sh [output_path] [width] [height]
 #   Defaults: $REPO_ROOT/core/render/output/ci-os-grub-bg.png, 1920x1080
@@ -38,9 +44,9 @@ if command -v rsvg-convert >/dev/null 2>&1; then
   tmp_logo="$(mktemp --suffix=.png 2>/dev/null || mktemp -t cios-logo).png"
   rsvg-convert -w "$LOGO_PX" -h "$LOGO_PX" -o "$tmp_logo" "$LOGO_SVG"
   if command -v magick >/dev/null 2>&1; then
-    magick -size "${WIDTH}x${HEIGHT}" "xc:${BG_HEX}" "$tmp_logo" -gravity center -composite "$OUTPUT_PATH"
+    magick -size "${WIDTH}x${HEIGHT}" "xc:${BG_HEX}" "$tmp_logo" -gravity center -composite -depth 8 "PNG24:$OUTPUT_PATH"
   elif command -v convert >/dev/null 2>&1; then
-    convert -size "${WIDTH}x${HEIGHT}" "xc:${BG_HEX}" "$tmp_logo" -gravity center -composite "$OUTPUT_PATH"
+    convert -size "${WIDTH}x${HEIGHT}" "xc:${BG_HEX}" "$tmp_logo" -gravity center -composite -depth 8 "PNG24:$OUTPUT_PATH"
   else
     log_error "rsvg-convert produced the logo, but neither 'magick' nor 'convert' (ImageMagick) is available to compose the background."
     rm -f "$tmp_logo"
@@ -49,10 +55,10 @@ if command -v rsvg-convert >/dev/null 2>&1; then
   rm -f "$tmp_logo"
 elif command -v magick >/dev/null 2>&1; then
   log_info "Rendering GRUB background with ImageMagick (magick)..."
-  magick -background "$BG_HEX" -size "${LOGO_PX}x${LOGO_PX}" "$LOGO_SVG" -gravity center -extent "${WIDTH}x${HEIGHT}" "$OUTPUT_PATH"
+  magick -background "$BG_HEX" -size "${LOGO_PX}x${LOGO_PX}" "$LOGO_SVG" -gravity center -extent "${WIDTH}x${HEIGHT}" -depth 8 "PNG24:$OUTPUT_PATH"
 elif command -v convert >/dev/null 2>&1; then
   log_info "Rendering GRUB background with ImageMagick (convert)..."
-  convert -background "$BG_HEX" -size "${LOGO_PX}x${LOGO_PX}" "$LOGO_SVG" -gravity center -extent "${WIDTH}x${HEIGHT}" "$OUTPUT_PATH"
+  convert -background "$BG_HEX" -size "${LOGO_PX}x${LOGO_PX}" "$LOGO_SVG" -gravity center -extent "${WIDTH}x${HEIGHT}" -depth 8 "PNG24:$OUTPUT_PATH"
 else
   log_warn "Neither rsvg-convert nor ImageMagick found — writing a solid-color background with no logo."
   printf 'P6\n%d %d\n255\n' "$WIDTH" "$HEIGHT" > "$OUTPUT_PATH"

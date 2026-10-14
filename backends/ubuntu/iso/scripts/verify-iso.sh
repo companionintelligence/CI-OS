@@ -19,6 +19,9 @@
 #      produces for the ISO's own Ubuntu base;
 #   2b. the Settings > About logo, the dock start icon, the LOGO= icon and the greeter logo
 #      are the canon mark, and the stock files are dpkg-diverted so an upgrade cannot restore them;
+#   2c. the live GRUB menu is themed: an 8-bit PNG background, menu colours derived from the brand
+#      tokens, and only the modules the signed GRUB has built in (all_video, gfxterm, png); and,
+#      given VERIFY_BASE_ISO, the Secure Boot EFI binaries are byte-identical to the stock ISO's;
 #   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
 #   3f. NetworkManager still manages wired devices (no netplan file overrides the
 #      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged).
@@ -34,6 +37,9 @@
 #   VERIFY_WORK=DIR ...    use DIR for scratch space (needs ~8 GB free)
 #   VERIFY_TIERB=0 ...     skip section 3c (an ISO built with CI_OS_BAKE_THIRD_PARTY=0
 #                          CI_OS_BAKE_OLLAMA=0 CI_OS_BAKE_LAUNCHER=0)
+#   VERIFY_BASE_ISO=ISO .. the stock Ubuntu ISO this one was built from: also assert that
+#                          /EFI/boot/{bootx64,grubx64,mmx64}.efi are byte-identical to it
+#                          (the Secure Boot chain is intact); without it that check is skipped
 #
 # Needs: xorriso squashfs-tools zstd cpio (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio);
 #        gpg is optional (without it the keyring fingerprints are reported as skipped).
@@ -44,6 +50,9 @@
 set -uo pipefail
 
 ISO="${1:-}"
+# The repo this script lives in (backends/ubuntu/iso/scripts is four levels below it): the menu colours are
+# re-derived from its brand tokens. A copy of this script outside the repo skips that one check.
+VERIFY_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." 2>/dev/null && pwd)"
 [[ -n "$ISO" && -f "$ISO" ]] || { echo "usage: $0 path/to/companion-os.iso" >&2; exit 2; }
 
 missing=()
@@ -81,6 +90,14 @@ xorriso -osirrox on -indev "$ISO" \
     -extract /casper/minimal.standard.squashfs "$ISOX/minimal.standard.squashfs" \
     -extract /casper/minimal.standard.live.squashfs "$ISOX/minimal.standard.live.squashfs" >/dev/null 2>&1
 [[ -s "$ISOX/minimal.squashfs" ]] || { echo "could not extract /casper/minimal.squashfs from $ISO" >&2; exit 2; }
+# The boot-menu extras, each in its own run: an -extract of a path that is absent (an ISO built before the GRUB
+# theming has no ci-os-bg.png) is a FAILURE that aborts the rest of that xorriso command line, and must not hide
+# the files after it.
+xorriso -osirrox on -indev "$ISO" -extract /boot/grub/ci-os-bg.png "$ISOX/ci-os-bg.png" >/dev/null 2>&1
+xorriso -osirrox on -indev "$ISO" \
+    -extract /EFI/boot/bootx64.efi "$ISOX/bootx64.efi" \
+    -extract /EFI/boot/grubx64.efi "$ISOX/grubx64.efi" \
+    -extract /EFI/boot/mmx64.efi "$ISOX/mmx64.efi" >/dev/null 2>&1
 PVD_VOLID="$(xorriso -indev "$ISO" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -1)"
 
 SQ="$ISOX/minimal.squashfs"
@@ -115,6 +132,8 @@ pkg_ok() { # package installed ("install ok installed" in dpkg status)
 }
 file_has() { grep -q -E -- "$2" "$1" 2>/dev/null; }
 png_width() { od -An -tu1 -j16 -N4 "$1" 2>/dev/null | awk '{print $1*16777216 + $2*65536 + $3*256 + $4}'; }
+png_is() { [[ "$(head -c8 "$1" 2>/dev/null | od -An -tx1 | tr -d ' \n')" == "89504e470d0a1a0a" ]]; }
+png_depth() { od -An -tu1 -j24 -N1 "$1" 2>/dev/null | tr -d ' \n'; } # IHDR bit depth: byte 24 (8-byte signature, 4 length, "IHDR", width, height)
 divert_ok() { # <path> is dpkg-diverted (local) to <path>.ubuntu-stock; /var/lib/dpkg/diversions has 3 lines per entry
     awk -v p="$1" 'NR%3==1{o=$0} NR%3==2{d=$0} NR%3==0{if (o==p && d==p".ubuntu-stock") f=1} END{exit !f}' "$R/var/lib/dpkg/diversions" 2>/dev/null
 }
@@ -520,6 +539,68 @@ check "GRUB menu says Companion OS" file_has "$ISOX/grub.cfg" 'menuentry "Try or
 check "/.disk/info starts with Companion-OS (launcher label 'Install Companion OS ...')" bash -c "head -1 '$ISOX/disk-info' | grep -q -E '^Companion-OS [0-9.]+ LTS '"
 check "/.disk/info keeps the (serial) suffix pollinate parses" bash -c "head -1 '$ISOX/disk-info' | grep -q -E '\\([0-9.]+\\)\\s*\$'"
 check "no Ubuntu in any GRUB menu entry title" bash -c "! grep -E '^\s*menuentry' '$ISOX/grub.cfg' '$ISOX/loopback.cfg' | grep -q -i ubuntu"
+
+# The live menu is themed (build-iso.sh brand_live_grub): the navy background with the mark, colours derived from
+# the tokens, and only the modules the signed GRUB has built in (any other insmod is refused under Secure Boot).
+BG_ISO="$ISOX/ci-os-bg.png"
+if [[ -s "$BG_ISO" ]] && png_is "$BG_ISO"; then
+    d="$(png_depth "$BG_ISO")"; w="$(png_width "$BG_ISO")"
+    if [[ "$d" == 8 ]]; then pass "live GRUB background /boot/grub/ci-os-bg.png is a PNG with 8-bit depth"; else fail "live GRUB background has IHDR bit depth ${d:-unknown} (want 8)"; fi
+    if [[ -n "$w" && "$w" -ge 1280 ]]; then pass "live GRUB background is ${w}px wide"; else fail "live GRUB background is ${w:-unknown}px wide (want >= 1280)"; fi
+else
+    fail "live GRUB background /boot/grub/ci-os-bg.png is missing or not a PNG (the live menu is still stock text GRUB)"
+fi
+check "grub.cfg loads the background (background_image /boot/grub/ci-os-bg.png)" file_has "$ISOX/grub.cfg" '^[[:space:]]*background_image /boot/grub/ci-os-bg\.png$'
+check "grub.cfg draws the menu with gfxterm (terminal_output gfxterm)" file_has "$ISOX/grub.cfg" '^[[:space:]]*terminal_output gfxterm$'
+insmods="$(grep -E '^[[:space:]]*insmod[[:space:]]' "$ISOX/grub.cfg" | awk '{print $2}' | sort -u | tr '\n' ' ')"
+if [[ "$insmods" == "all_video gfxterm png " ]]; then
+    pass "grub.cfg insmods exactly all_video, gfxterm and png (built into the signed GRUB)"
+else
+    fail "grub.cfg insmod set is '${insmods:-none}' (want 'all_video gfxterm png': any other module is refused under Secure Boot)"
+fi
+if [[ -f "$VERIFY_REPO/core/lib/grub-merge.sh" && -f "$VERIFY_REPO/vendor/brand/tokens/tokens.sh" ]]; then
+    # shellcheck source=../../../../core/lib/grub-merge.sh
+    source "$VERIFY_REPO/core/lib/grub-merge.sh"
+    # shellcheck source=../../../../vendor/brand/tokens/tokens.sh
+    source "$VERIFY_REPO/vendor/brand/tokens/tokens.sh"
+    want_normal="$(ci_grub_nearest_color "$CI_DARK_FOREGROUND")/black"
+    want_highlight="black/$(ci_grub_nearest_color "$CI_ACCENT_AQUA")"
+    have_normal="$(sed -n 's/^set menu_color_normal=//p' "$ISOX/grub.cfg" | head -1)"
+    have_highlight="$(sed -n 's/^set menu_color_highlight=//p' "$ISOX/grub.cfg" | head -1)"
+    if [[ "$have_highlight" == "$want_highlight" ]]; then pass "menu_color_highlight is $have_highlight (nearest GRUB colour to the accent aqua)"; else fail "menu_color_highlight is '${have_highlight:-unset}', the tokens give $want_highlight"; fi
+    if [[ "$have_normal" == "$want_normal" ]]; then pass "menu_color_normal is $have_normal (nearest GRUB colour to the dark foreground)"; else fail "menu_color_normal is '${have_normal:-unset}', the tokens give $want_normal"; fi
+else
+    note "menu colours not re-derived from the tokens: run this script from the repo checkout (core/lib/grub-merge.sh, vendor/brand/tokens/tokens.sh)"
+fi
+
+# The installed system's GRUB background is rendered by the same script and must be the same kind of file.
+GRUB_BG_ROOT="$R/usr/share/pixmaps/ci-os-grub-bg.png"
+if [[ -f "$GRUB_BG_ROOT" ]] && png_is "$GRUB_BG_ROOT"; then
+    d="$(png_depth "$GRUB_BG_ROOT")"
+    if [[ "$d" == 8 ]]; then pass "installed-system GRUB background (/usr/share/pixmaps/ci-os-grub-bg.png) has 8-bit depth"; else fail "installed-system GRUB background has IHDR bit depth ${d:-unknown} (want 8)"; fi
+else
+    fail "installed-system GRUB background /usr/share/pixmaps/ci-os-grub-bg.png is missing or not a PNG"
+fi
+
+# Secure Boot: theming edits grub.cfg and adds one data file; the signed binaries must be the stock bytes.
+if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
+    BASEX="$WORK/base"; mkdir -p "$BASEX"
+    xorriso -osirrox on -indev "$VERIFY_BASE_ISO" \
+        -extract /EFI/boot/bootx64.efi "$BASEX/bootx64.efi" \
+        -extract /EFI/boot/grubx64.efi "$BASEX/grubx64.efi" \
+        -extract /EFI/boot/mmx64.efi "$BASEX/mmx64.efi" >/dev/null 2>&1
+    for f in bootx64.efi grubx64.efi mmx64.efi; do
+        if [[ -s "$ISOX/$f" && -s "$BASEX/$f" && "$(sha256sum < "$ISOX/$f")" == "$(sha256sum < "$BASEX/$f")" ]]; then
+            pass "Secure Boot chain: /EFI/boot/$f is byte-identical to the base ISO's"
+        else
+            fail "Secure Boot chain: /EFI/boot/$f differs from the base ISO's, or is missing from one of them"
+        fi
+    done
+elif [[ -n "${VERIFY_BASE_ISO:-}" ]]; then
+    fail "VERIFY_BASE_ISO is set but is not a file: $VERIFY_BASE_ISO"
+else
+    note "Secure Boot chain not compared with a stock ISO (skipped: set VERIFY_BASE_ISO=<stock Ubuntu ISO>)"
+fi
 
 section "6. Branding: desktop defaults (wallpaper / picker)"
 check "dconf user profile reads the system 'local' db (without it local.d is ignored)" file_has "$R/etc/dconf/profile/user" '^system-db:local$'

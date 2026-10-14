@@ -608,6 +608,84 @@ brand_boot_media() {
     fi
 }
 
+# Theme the live ISO's GRUB menu (boot/grub/grub.cfg): the canon navy background with the mark, and menu
+# colours derived from the brand tokens. Without this the live menu is stock text GRUB with only the
+# entry titles changed. Only display settings in grub.cfg change, plus one new file, boot/grub/ci-os-bg.png.
+# The signed EFI binaries, the ESP image, the volume id, the menuentry/linux/initrd lines and loopback.cfg
+# stay exactly as they are, so Secure Boot's chain and the kernel command lines are untouched.
+#
+#  - The block is Ubuntu's own gfxterm recipe from an installed system's 00_header, and it insmods only
+#    all_video, gfxterm and png: those are built into Canonical's signed GRUB, while any other insmod is a
+#    separate module file that Secure Boot refuses to load. `if loadfont unicode` keeps the text menu on a
+#    GRUB that has no font.
+#  - menu_color_* take colour NAMES, never hex, so ci_grub_nearest_color derives them from the tokens
+#    (white/black for entries, black/cyan for the highlight) instead of a hand-picked pair.
+#
+# Fails the build, rather than ship a half-themed menu, if the base ISO's grub.cfg is not the shape this expects.
+brand_live_grub() {
+    log_info "Theming the live GRUB menu (background + token-derived colours)..."
+    # shellcheck source=../../../../core/lib/grub-merge.sh
+    source "$REPO_ROOT/core/lib/grub-merge.sh"
+    # shellcheck source=../../../../vendor/brand/tokens/tokens.sh
+    source "$REPO_ROOT/vendor/brand/tokens/tokens.sh"
+
+    local grub_cfg="$WORK_DIR/custom-iso/boot/grub/grub.cfg"
+    local bg="$WORK_DIR/ci-os-bg.png"
+    local block="$WORK_DIR/grub-gfx-block.cfg"
+    local normal highlight kernel_lines_before
+    normal="$(ci_grub_nearest_color "$CI_DARK_FOREGROUND")/black"
+    highlight="black/$(ci_grub_nearest_color "$CI_ACCENT_AQUA")"
+
+    if [[ ! -f "$grub_cfg" ]]; then
+        log_error "boot/grub/grub.cfg not found at $grub_cfg"; return 1
+    fi
+    if ! grep -q '^loadfont unicode[[:space:]]*$' "$grub_cfg" \
+       || ! grep -q '^set menu_color_normal=' "$grub_cfg" \
+       || ! grep -q '^set menu_color_highlight=' "$grub_cfg"; then
+        log_error "grub.cfg has no 'loadfont unicode' / menu_color_* lines: the base ISO changed shape, review before theming it"
+        return 1
+    fi
+
+    bash "$REPO_ROOT/core/render/render-grub-background.sh" "$bg" 1920 1080 || {
+        log_error "could not render the GRUB background (needs rsvg-convert and ImageMagick)"; return 1
+    }
+    [[ -s "$bg" ]] || { log_error "GRUB background $bg is empty"; return 1; }
+    chmod 644 "$bg"
+
+    kernel_lines_before="$(grep -E '^[[:space:]]*(linux|linux16|initrd)[[:space:]]' "$grub_cfg" || true)"
+
+    cat > "$block" <<'GRUB_GFX_BLOCK'
+if loadfont unicode ; then
+  set gfxmode=auto
+  insmod all_video
+  insmod gfxterm
+  insmod png
+  terminal_output gfxterm
+  background_image /boot/grub/ci-os-bg.png
+fi
+GRUB_GFX_BLOCK
+    # Right after the font is loaded, once (a re-run on the same work dir must not insert it twice).
+    if ! grep -q '^[[:space:]]*background_image /boot/grub/ci-os-bg\.png$' "$grub_cfg"; then
+        sed -i "/^loadfont unicode[[:space:]]*\$/r $block" "$grub_cfg"
+    fi
+    sed -i \
+        -e "s|^set menu_color_normal=.*|set menu_color_normal=$normal|" \
+        -e "s|^set menu_color_highlight=.*|set menu_color_highlight=$highlight|" \
+        "$grub_cfg"
+
+    # The edit must have taken, once, and must not have touched what GRUB boots.
+    if [[ "$(grep -c '^[[:space:]]*background_image ' "$grub_cfg")" != 1 ]] \
+       || ! grep -q '^[[:space:]]*terminal_output gfxterm$' "$grub_cfg" \
+       || ! grep -q -x "set menu_color_normal=$normal" "$grub_cfg" \
+       || ! grep -q -x "set menu_color_highlight=$highlight" "$grub_cfg"; then
+        log_error "GRUB theming did not apply cleanly to $grub_cfg"; return 1
+    fi
+    if [[ "$(grep -E '^[[:space:]]*(linux|linux16|initrd)[[:space:]]' "$grub_cfg" || true)" != "$kernel_lines_before" ]]; then
+        log_error "GRUB theming changed a linux/initrd line in $grub_cfg"; return 1
+    fi
+    log_info "GRUB menu: background $(basename "$bg") ($(stat -c%s "$bg") bytes), colours $normal and $highlight"
+}
+
 generate_iso() {
     log_info "Generating CI-OS ISO..."
     
@@ -634,8 +712,9 @@ generate_iso() {
 
     # ─────────────────────────────────────────────────────────────────────────
     # Surgically edit GRUB menus — change ONLY display text (menuentry
-    # titles), NEVER the search label, UUID, kernel command-line parameters,
-    # or any boot-critical values.
+    # titles here; the background and colours in brand_live_grub below),
+    # NEVER the search label, UUID, kernel command-line parameters, or any
+    # boot-critical values.
     # ─────────────────────────────────────────────────────────────────────────
     local grub_cfg="$WORK_DIR/custom-iso/boot/grub/grub.cfg"
     if [[ -f "$grub_cfg" ]]; then
@@ -659,6 +738,10 @@ generate_iso() {
             "$loopback_cfg"
     fi
 
+    # Background image and token-derived colours for the live menu (see brand_live_grub). After the title
+    # edit above, before xorriso maps grub.cfg into the image.
+    brand_live_grub
+
     # ─────────────────────────────────────────────────────────────────────────
     # Build ISO inheriting all boot parameters (EFI + BIOS) from the original
     # Ubuntu 24.04 ISO, then swap in our custom casper directory.
@@ -671,6 +754,7 @@ generate_iso() {
     local -a xorriso_maps=(
         -map "$WORK_DIR/custom-iso/casper" /casper
         -map "$grub_cfg" /boot/grub/grub.cfg
+        -map "$WORK_DIR/ci-os-bg.png" /boot/grub/ci-os-bg.png
     )
     [[ -f "$loopback_cfg" ]] && xorriso_maps+=(-map "$loopback_cfg" /boot/grub/loopback.cfg)
     [[ -f "$WORK_DIR/custom-iso/.disk/info" ]] && xorriso_maps+=(-map "$WORK_DIR/custom-iso/.disk/info" /.disk/info)

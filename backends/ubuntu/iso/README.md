@@ -106,7 +106,9 @@ The compiled gresource is committed to source at:
    - MOTD and CI-OS utilities
 4. Repacks squashfs, regenerates casper manifests (the two placeholder casper layers mirror the rootfs
    directory modes, so `/tmp` stays `1777` in the overlay)
-5. Generates bootable ISO with xorriso (inheriting EFI/BIOS boot from base ISO)
+5. Themes the live GRUB menu (`brand_live_grub`: background image and token-derived colours in
+   `boot/grub/grub.cfg`, see [Live GRUB menu](#live-grub-menu)), then generates the bootable ISO with
+   xorriso (inheriting EFI/BIOS boot from base ISO)
 6. Produces SHA256/MD5 checksums
 
 ---
@@ -209,6 +211,44 @@ All SVG files in the Yaru theme whose filename contains `ubuntu` (case-insensiti
 plus `logo.svg` and `logo-text.svg`, are replaced with the CI logo banner:
 `assets/logos/2024_CI__Logo_Banner_Color_small.svg`
 
+### Live GRUB menu
+
+The menu you see when the ISO itself is booted (a disc, or the image written to a USB drive) is
+`boot/grub/grub.cfg` on the medium. The base ISO's is a text menu; `build-iso.sh` (`brand_live_grub`) gives
+it the canon look and nothing else. A Companion Stick has its own menu (`ci-stick/grub.cfg`, from
+`stick/crates/ci-stick/templates/grub.cfg.in`) and is not themed here:
+
+| Part | Value | Where it comes from |
+|---|---|---|
+| Background | `/boot/grub/ci-os-bg.png`: the mark on the dark canon background, 1920x1080, 8-bit RGB | `core/render/render-grub-background.sh` (the installed system's `/usr/share/pixmaps/ci-os-grub-bg.png` is the same file) |
+| Entries | `menu_color_normal=white/black` | nearest GRUB colour to `CI_DARK_FOREGROUND` |
+| Highlight | `menu_color_highlight=black/cyan` | nearest GRUB colour to `CI_ACCENT_AQUA` |
+
+GRUB takes colour *names* from a fixed table of 16, never hex, so the pair is derived, not hand-picked:
+`ci_grub_nearest_color` in `core/lib/grub-merge.sh` returns the nearest name by RGB distance, and
+`verify-iso.sh` recomputes it from `vendor/brand/tokens/tokens.sh`. A token change that moves the nearest
+name changes the menu on the next build.
+
+The change is one block that `build-iso.sh` inserts after the existing `loadfont unicode` line, guarded by
+`if loadfont unicode` so a GRUB without the font keeps the text menu:
+
+```
+if loadfont unicode ; then
+  set gfxmode=auto
+  insmod all_video
+  insmod gfxterm
+  insmod png
+  terminal_output gfxterm
+  background_image /boot/grub/ci-os-bg.png
+fi
+```
+
+Secure Boot's chain is untouched. The block `insmod`s only `all_video`, `gfxterm` and `png`, which are built into
+Canonical's signed GRUB (any other module is a separate file that Secure Boot refuses to load). The signed
+`bootx64.efi`, `grubx64.efi` and `mmx64.efi`, the ESP image and the volume id are the base ISO's, and the
+`menuentry`, `linux` and `initrd` lines and `loopback.cfg` are not touched. `verify-iso.sh` checks the
+`insmod` set, and with `VERIFY_BASE_ISO` the three signed binaries.
+
 ---
 
 ## Iterative Development
@@ -276,7 +316,17 @@ are installed from their pinned sources, that the Settings > About logo, the doc
 `/etc/netplan` file sets a global renderer other than NetworkManager; the setup-mode profile sets
 `renderer: networkd` on `eth0` only), and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
 `BUILD_SYSTEM` and the ISO volume id (which apt, casper, the installer and Secure Boot depend on) are
-untouched. Exit status is non-zero if any check fails.
+untouched. It also checks the live GRUB menu: the background is an 8-bit PNG, `grub.cfg` loads it with
+`gfxterm` and `insmod`s only `all_video`, `gfxterm` and `png`, the menu colours equal what the brand tokens
+give, and the installed system's GRUB background is 8-bit too. Exit status is non-zero if any check fails.
+
+To also prove the Secure Boot chain is intact, name the stock ISO the image was built from; the check then
+asserts that `/EFI/boot/bootx64.efi`, `grubx64.efi` and `mmx64.efi` are byte-identical to it (without it the
+check is skipped and reported):
+
+```bash
+VERIFY_BASE_ISO=ubuntu-24.04.5-desktop-amd64.iso backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-1.0-amd64.iso
+```
 
 ---
 
@@ -332,6 +382,11 @@ sudo umount -lf work/chroot/{dev/pts,sys,proc,run,dev}
 - Verify the base ISO SHA256 matches the release checksum
 - Try `--clean` to rebuild from scratch
 - Test in VM before writing to USB
+- Stuck at a `grub>` prompt, or the live menu is plain text without the background: look at what the
+  medium really carries. The unthemed original is
+  `work/custom-iso/boot/grub/grub.cfg.orig`; diff it against `grub.cfg` (only the titles, two
+  `menu_color_*` lines and the `if loadfont unicode` block should differ), and check that
+  `/boot/grub/ci-os-bg.png` is on the ISO. Test both UEFI and BIOS (SeaBIOS) boot in QEMU.
 
 ---
 
