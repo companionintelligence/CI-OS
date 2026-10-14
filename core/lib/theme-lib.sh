@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Shared context for the theming scripts under backends/ubuntu/desktop-theme/,
 # backends/_mixins/{gnome-dconf,kde-plasma}/, and core/render/*.sh (sourced,
-# not executed alone). Genuinely distro-portable: everything here is either a
-# logging helper or sourcing the canon tokens, no apt/dpkg assumptions.
+# not executed alone). Genuinely distro-portable: everything here is a logging
+# helper, the canon tokens, or ci_divert_file, which does nothing without dpkg.
 # shellcheck shell=bash
 
 # Callers at a known depth from the repo root may already export REPO_ROOT
@@ -38,4 +38,35 @@ dconf_update_safe() {
   if command -v dconf >/dev/null 2>&1; then
     dconf update 2>/dev/null || true
   fi
+}
+
+# True while backends/ubuntu/chroot/customize-chroot.sh drives a step to build an image
+# (run_theme_step exports CI_BRAND_IMAGE_BUILD=1). The image is rebuilt from the stock ISO
+# every time, so steps skip the timestamped backup directories they keep on a live system.
+ci_image_build() { [[ "${CI_BRAND_IMAGE_BUILD:-0}" == 1 ]]; }
+
+# ci_divert_file <path>
+# Move a package-owned stock file aside (dpkg-divert --local --rename, to <path>.ubuntu-stock) so a
+# later upgrade of the owning package unpacks the stock file to the diverted name instead of over
+# ours. A no-op where dpkg-divert is missing, where no package owns <path>, or where <path> is
+# already diverted, so a step can call it on every run. Needs root.
+# For base-files' pixmaps dpkg-divert prints "diverting ... from an Essential package with rename is
+# dangerous". It is about files an Essential package needs while it unpacks; these are plain data, and
+# reinstalling base-files was tested to leave our file in place and the stock one at <path>.ubuntu-stock.
+ci_divert_file() {
+  local path="$1"
+  command -v dpkg-divert >/dev/null 2>&1 || return 0
+  dpkg -S "$path" >/dev/null 2>&1 || return 0
+  [[ -z "$(dpkg-divert --list "$path" 2>/dev/null)" ]] || return 0
+  dpkg-divert --local --rename --divert "${path}.ubuntu-stock" --add "$path" >/dev/null
+  log_info "Diverted stock file: $path -> ${path}.ubuntu-stock"
+}
+
+# ci_install_file <src> <dest> [mode]
+# Install a branded file over <dest>, diverting the stock one first (ci_divert_file). Creates
+# missing parent directories; mode defaults to 644.
+ci_install_file() {
+  local src="$1" dest="$2" mode="${3:-644}"
+  ci_divert_file "$dest"
+  install -D -m "$mode" "$src" "$dest"
 }

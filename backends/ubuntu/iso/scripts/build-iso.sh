@@ -99,9 +99,19 @@ check_dependencies() {
         fi
     done
     
+    # The logo PNGs (greeter, Settings > About, GRUB background) are rendered on this host from the vendored SVG
+    # marks (core/render/render-mark-png.sh); the stock desktop image has no renderer, and ImageMagick also
+    # scales the Plymouth logo. Fail here, not after an hour of build.
+    if ! command -v rsvg-convert &> /dev/null; then
+        missing+=("rsvg-convert")
+    fi
+    if ! command -v convert &> /dev/null && ! command -v magick &> /dev/null; then
+        missing+=("convert (or magick)")
+    fi
+
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing required commands: ${missing[*]}"
-        log_info "Install with: apt-get install debootstrap squashfs-tools xorriso rsync gpg libglib2.0-bin libglib2.0-dev-bin cpio zstd curl dpkg coreutils tar"
+        log_info "Install with: apt-get install debootstrap squashfs-tools xorriso rsync gpg libglib2.0-bin libglib2.0-dev-bin cpio zstd curl dpkg coreutils tar librsvg2-bin imagemagick"
         exit 1
     fi
     

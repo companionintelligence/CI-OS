@@ -14,7 +14,9 @@
 #   1c. the optional tools (tailscale, cloudflared, gh, Ollama, Companion Launcher)
 #      are pre-installed from the pinned vendor sources (core/manifest/tier-b-pins.env);
 #   2. the user-visible branding is Companion OS, while the identifiers that
-#      apt, casper, the installer and Secure Boot depend on are untouched.
+#      apt, casper, the installer and Secure Boot depend on are untouched;
+#   2b. the Settings > About logo, the dock start icon, the LOGO= icon and the greeter logo
+#      are the canon mark, and the stock files are dpkg-diverted so an upgrade cannot restore them.
 #
 # What is deliberately NOT asserted, because it cannot be changed by remastering:
 # the installer window's own text (a Canonical snap with a fixed flavour list)
@@ -96,6 +98,8 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     usr/bin/ollama usr/lib/systemd/system/tailscaled.service var/lib/tailscale usr/share/ollama \
     usr/share/applications/ci-os-hub.desktop \
     usr/share/plymouth/themes/spinner/watermark.png usr/share/plymouth/themes/bgrt \
+    usr/share/icons/Yaru/scalable/places usr/share/icons/hicolor/scalable/apps usr/share/icons/hicolor/icon-theme.cache \
+    usr/share/pixmaps var/lib/dpkg/diversions etc/dconf/db/gdm.d \
     >/dev/null 2>&1 || true
 
 in_listing() { grep -q -E "$1" "$LISTING"; }
@@ -103,6 +107,10 @@ pkg_ok() { # package installed ("install ok installed" in dpkg status)
     awk -v p="$1" 'BEGIN{RS=""; FS="\n"} $1=="Package: " p {for(i=1;i<=NF;i++) if($i=="Status: install ok installed") {found=1}} END{exit !found}' "$R/var/lib/dpkg/status" 2>/dev/null
 }
 file_has() { grep -q -E -- "$2" "$1" 2>/dev/null; }
+png_width() { od -An -tu1 -j16 -N4 "$1" 2>/dev/null | awk '{print $1*16777216 + $2*65536 + $3*256 + $4}'; }
+divert_ok() { # <path> is dpkg-diverted (local) to <path>.ubuntu-stock; /var/lib/dpkg/diversions has 3 lines per entry
+    awk -v p="$1" 'NR%3==1{o=$0} NR%3==2{d=$0} NR%3==0{if (o==p && d==p".ubuntu-stock") f=1} END{exit !f}' "$R/var/lib/dpkg/diversions" 2>/dev/null
+}
 unit_enabled() { # a symlink to the unit exists under some *.wants directory
     in_listing "etc/systemd/system/[a-z.-]+\.wants/$1 -> "
 }
@@ -334,6 +342,73 @@ check "casper keeps BUILD_SYSTEM=Ubuntu (casper logic depends on it)" file_has "
 check "MOTD header is Companion OS" bash -c "grep -q 'Companion OS' '$R'/etc/update-motd.d/00-ci-os-header"
 if in_listing '^-rw-r--r-- .* /etc/update-motd\.d/00-header$'; then pass "Ubuntu's own MOTD welcome (00-header) is disabled"; else fail "Ubuntu's own MOTD welcome (00-header) is still executable"; fi
 
+section "4b. About logo, dock start icon, LOGO icon, greeter logo"
+# Settings > About (gnome-control-center) hard-codes two base-files pixmaps, light and dark, and ignores LOGO=.
+# These are the stock sha256 values of Ubuntu 24.04.5's pair (the orange wordmark, 260 and 256 px wide).
+STOCK_ABOUT_LIGHT_SHA=26deac685457e38325d743c50ff3d7b83a820243afef26878c13ee262198528c
+STOCK_ABOUT_DARK_SHA=2d6f9e55acdc9583bb2d7533e5aff0947252eaddc0734cdceeb58e38713925f3
+for pair in "ubuntu-logo-text.png:$STOCK_ABOUT_LIGHT_SHA" "ubuntu-logo-text-dark.png:$STOCK_ABOUT_DARK_SHA"; do
+    name="${pair%%:*}"; stock="${pair##*:}"; f="$R/usr/share/pixmaps/$name"
+    if [[ ! -f "$f" ]]; then fail "Settings > About logo missing: /usr/share/pixmaps/$name"; continue; fi
+    if [[ "$(head -c8 "$f" | od -An -tx1 | tr -d ' \n')" == "89504e470d0a1a0a" ]]; then
+        w="$(png_width "$f")"
+        if [[ -n "$w" && "$w" -ge 1 && "$w" -le 300 ]]; then pass "$name is a PNG, ${w}px wide"; else fail "$name is ${w:-unknown}px wide (expected 1-300)"; fi
+    else
+        fail "$name is not a PNG"
+    fi
+    if [[ "$(sha256sum "$f" | cut -d' ' -f1)" != "$stock" ]]; then pass "$name is not Ubuntu's stock file"; else fail "$name is still Ubuntu's stock wordmark"; fi
+    if divert_ok "/usr/share/pixmaps/$name" && in_listing " /usr/share/pixmaps/${name//./\\.}\\.ubuntu-stock\$"; then
+        pass "$name is dpkg-diverted (base-files cannot restore Ubuntu's)"
+    else
+        fail "$name is not dpkg-diverted to $name.ubuntu-stock (a base-files upgrade would restore Ubuntu's wordmark)"
+    fi
+done
+
+# The dock's bottom button is view-app-grid-ubuntu-symbolic.svg, a symlink to Yaru's start-here-symbolic.svg.
+YARU_START="$R/usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg"
+if [[ ! -f "$YARU_START" ]]; then
+    fail "Yaru start-here-symbolic.svg missing"
+elif file_has "$YARU_START" 'M51\.451,125\.652' && ! file_has "$YARU_START" 'viewBox="0 0 16 16"'; then
+    pass "Yaru start-here-symbolic.svg is the Companion mark, not Ubuntu's (dock Show Applications button)"
+else
+    fail "Yaru start-here-symbolic.svg is still Ubuntu's (viewBox 0 0 16 16, no Companion mark path)"
+fi
+if divert_ok /usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg; then
+    pass "Yaru start-here-symbolic.svg is dpkg-diverted (yaru-theme-icon cannot restore Ubuntu's)"
+else
+    fail "Yaru start-here-symbolic.svg is not dpkg-diverted (a yaru-theme-icon upgrade would restore Ubuntu's)"
+fi
+if in_listing ' /usr/share/icons/Yaru/scalable/actions/view-app-grid-ubuntu-symbolic\.svg -> \.\./places/start-here-symbolic\.svg$'; then
+    pass "the dock button icon (view-app-grid-ubuntu-symbolic.svg) still points at start-here-symbolic.svg"
+else
+    fail "view-app-grid-ubuntu-symbolic.svg no longer points at places/start-here-symbolic.svg (the dock button would not show the mark)"
+fi
+
+# os-release says LOGO=ci-os-logo, so that name must resolve to an icon, and the icon cache must know it.
+check "os-release has LOGO=ci-os-logo" file_has "$R/usr/lib/os-release" '^LOGO=ci-os-logo$'
+LOGO_ICON="$R/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
+if [[ -s "$LOGO_ICON" ]] && in_listing ' /usr/share/icons/hicolor/scalable/apps/ci-os-logo\.svg$'; then pass "icon ci-os-logo exists (hicolor scalable apps)"; else fail "icon ci-os-logo.svg missing: LOGO=ci-os-logo resolves to nothing"; fi
+if [[ -f "$R/usr/share/icons/hicolor/icon-theme.cache" ]]; then
+    if grep -q -a 'ci-os-logo' "$R/usr/share/icons/hicolor/icon-theme.cache"; then pass "hicolor icon-theme.cache lists ci-os-logo"; else fail "hicolor icon-theme.cache is stale: it does not list ci-os-logo (gtk-update-icon-cache did not run)"; fi
+else
+    note "hicolor has no icon-theme.cache (GTK scans the directory)"
+fi
+check "Hub launcher entry uses the ci-os-logo icon" file_has "$R/usr/share/applications/ci-os-hub.desktop" '^Icon=ci-os-logo$'
+
+# The greeter reads logo= from the gdm dconf database; the file is the 256 px colour mark, not the 1.6 MB hologram.
+check "GDM login dconf points the greeter logo at companion-logo.png" file_has "$R/etc/dconf/db/gdm.d/01-ci-os-login" "^logo='/usr/share/pixmaps/companion-logo\\.png'\$"
+GREETER_LOGO="$R/usr/share/pixmaps/companion-logo.png"
+if [[ -f "$GREETER_LOGO" ]]; then
+    w="$(png_width "$GREETER_LOGO")"; sz="$(wc -c < "$GREETER_LOGO")"
+    if [[ "$w" == 256 && "$sz" -lt 200000 ]]; then
+        pass "greeter logo companion-logo.png is the 256px canon mark (${sz} bytes)"
+    else
+        fail "greeter logo companion-logo.png is ${w:-unknown}px wide and ${sz} bytes (want 256px, the old ci-holo-depth.png is 1597257 bytes)"
+    fi
+else
+    fail "greeter logo /usr/share/pixmaps/companion-logo.png missing"
+fi
+
 section "5. Branding: boot menu"
 check "GRUB menu says Companion OS" file_has "$ISOX/grub.cfg" 'menuentry "Try or Install Companion OS"'
 check "/.disk/info starts with Companion-OS (launcher label 'Install Companion OS ...')" bash -c "head -1 '$ISOX/disk-info' | grep -q -E '^Companion-OS [0-9.]+ LTS '"
@@ -378,7 +453,6 @@ if [[ -f "$WM_INITRD" && -f "$WM_ROOT" ]]; then
 else
     fail "branded Plymouth watermark missing (initrd overlay: $([[ -f "$WM_INITRD" ]] && echo present || echo missing), rootfs: $([[ -f "$WM_ROOT" ]] && echo present || echo missing))"
 fi
-png_width() { od -An -tu1 -j16 -N4 "$1" 2>/dev/null | awk '{print $1*16777216 + $2*65536 + $3*256 + $4}'; }
 if [[ -f "$WM_ROOT" ]]; then
     w="$(png_width "$WM_ROOT")"
     # Ubuntu's own watermark is 248 px wide; the design is the banner at 50% (512 px). A 1024 px logo means

@@ -27,19 +27,20 @@ PASS_COUNT=0
 FAIL_COUNT=0
 WARN_COUNT=0
 
+# Not ((COUNT++)): that returns status 1 while COUNT is 0, and set -e then ended the script at its first check.
 check_pass() {
     log_success "$1"
-    ((PASS_COUNT++))
+    PASS_COUNT=$((PASS_COUNT + 1))
 }
 
 check_fail() {
     log_error "$1"
-    ((FAIL_COUNT++))
+    FAIL_COUNT=$((FAIL_COUNT + 1))
 }
 
 check_warn() {
     log_warn "$1"
-    ((WARN_COUNT++))
+    WARN_COUNT=$((WARN_COUNT + 1))
 }
 
 echo ""
@@ -256,6 +257,45 @@ if [[ $START_ICON_FOUND -eq 1 ]]; then
     check_pass "Start icons found in Yaru themes"
 else
     check_warn "Start icons not found (may be using default)"
+fi
+
+# Check 9b: Settings > About logo, dock start icon, LOGO icon, greeter logo
+log_info "Checking About logo, start icon, LOGO icon and greeter logo..."
+
+# The first path of the vendored mark's SVG: Ubuntu's own start-here-symbolic.svg does not contain it.
+if grep -q 'M51\.451,125\.652' /usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg 2>/dev/null; then
+    check_pass "Yaru start-here-symbolic.svg is the Companion mark (dock Show Applications button)"
+elif [[ -f "/usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg" ]]; then
+    check_warn "Yaru start-here-symbolic.svg is still Ubuntu's (run: apply-ci-os-desktop.sh --only start-icon)"
+fi
+
+for about_logo in ubuntu-logo-text.png ubuntu-logo-text-dark.png; do
+    if [[ ! -f "/usr/share/pixmaps/$about_logo" ]]; then
+        check_warn "Settings > About logo not found: /usr/share/pixmaps/$about_logo"
+    elif command -v dpkg-divert >/dev/null 2>&1 && [[ -n "$(dpkg-divert --list "/usr/share/pixmaps/$about_logo" 2>/dev/null)" ]]; then
+        check_pass "Settings > About logo replaced, stock file diverted: $about_logo"
+    else
+        check_warn "Settings > About logo is still Ubuntu's: $about_logo (run: apply-ci-os-desktop.sh --only about-logo)"
+    fi
+done
+
+if [[ -f "/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg" ]]; then
+    check_pass "ci-os-logo icon installed (os-release LOGO=ci-os-logo resolves)"
+else
+    check_warn "ci-os-logo icon not found at /usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
+fi
+
+# The greeter logo exists on images built by customize-chroot.sh (its gdm dconf logo= key names the file),
+# not on a desktop re-skinned by apply-ci-os-desktop.sh. It is the 256 px mark (about 10 KB); the pre-canon
+# hologram it replaced was 1.6 MB.
+if grep -qs "^logo='/usr/share/pixmaps/companion-logo.png'" /etc/dconf/db/gdm.d/01-ci-os-login; then
+    if [[ ! -f "/usr/share/pixmaps/companion-logo.png" ]]; then
+        check_warn "Greeter logo not found at /usr/share/pixmaps/companion-logo.png"
+    elif [[ "$(wc -c < /usr/share/pixmaps/companion-logo.png)" -lt 200000 ]]; then
+        check_pass "Greeter logo installed (canon mark)"
+    else
+        check_warn "Greeter logo at /usr/share/pixmaps/companion-logo.png looks like the old hologram image"
+    fi
 fi
 
 # Check 10: Brand Assets

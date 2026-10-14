@@ -51,7 +51,7 @@ downloads the Ollama release tarball (github.com) and the Companion Launcher `.d
 pre-installing the tools. Every third-party key fingerprint and download hash is pinned in
 `core/manifest/tier-b-pins.env` and the build fails closed on a mismatch.
 
-`imagemagick` scales the Plymouth logo and `librsvg2-bin` / `imagemagick` render the GRUB background; `verify-iso.sh` fails the image if either is missing. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio`.
+The stock desktop image has no image renderer, so the logo PNGs are rendered on the build host from the vendored SVG marks (`core/render/render-mark-png.sh`): `librsvg2-bin` (`rsvg-convert`) renders the greeter logo, the Settings > About logo and the GRUB background, and `imagemagick` scales the Plymouth logo and composes the GRUB background. `build-iso.sh` stops at the start if either is missing, and `verify-iso.sh` fails an image built without them. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio`.
 
 > **Building on a Mac or any non-Ubuntu host:** run the whole build in a privileged
 > `ubuntu:24.04` container (`docker run --privileged --platform linux/amd64 ...`) with the repo and
@@ -91,6 +91,15 @@ The compiled gresource is committed to source at:
    - **Branding**: copies the compiled gresource directly into the chroot at
      `/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource` and
      `/usr/share/gnome-shell/gnome-shell-theme.gresource`
+   - **Logos** (the brand mark, `vendor/brand/logos/`): the dock's bottom "Show Applications" button
+     (Yaru `start-here-symbolic.svg`, from `core/render/inputs/LogoMark_Color_StartIcon-cropped.svg`,
+     the vendored mark's path data), the Settings > About logo (`/usr/share/pixmaps/ubuntu-logo-text.png`
+     and `-dark.png`: the one-colour mark in the canon primary of each mode), the `ci-os-logo` icon that
+     `LOGO=` in os-release names, and the greeter logo (`/usr/share/pixmaps/companion-logo.png`: the
+     colour mark at 256 px). The package-owned stock files are `dpkg-divert`ed to `*.ubuntu-stock`, so an
+     `apt upgrade` cannot restore Ubuntu's. `customize-chroot.sh` runs these and the Plymouth step from
+     `backends/ubuntu/desktop-theme/` inside the chroot with `run_theme_step` (Steps 5, 5b, 5c): the same
+     code the post-install re-skin runs.
    - GRUB configuration
    - AMD GPU / ROCm helper tools
    - Installer whitelabel (whitelabel.yaml, slides)
@@ -144,7 +153,7 @@ packages/
 assets/
 ├── logos/
 │   ├── 2024_CI__Logo_Banner_Color_small.svg   ← CI logo used in GDM/GNOME Shell
-│   └── ci-holo-depth.png                      ← CI logo for pixmaps
+│   └── ci-holo-depth.png                      ← no longer installed (off canon); the greeter logo is rendered from vendor/brand/logos/mark.svg
 ├── package theme assets/
 │   ├── checkbox-focused-light.svg
 │   ├── checkbox-light.svg
@@ -261,7 +270,7 @@ backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-1.0-amd64.iso
 Needs no root and does not boot the ISO. It extracts the root squashfs, the initrd and a few files and
 asserts that every CI-Hub and wireless-setup tool is pre-installed, that the hotspot units are guarded
 against live sessions, that Docker is unguarded and the docker group is set up, that the optional tools
-are installed from their pinned sources, and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
+are installed from their pinned sources, that the Settings > About logo, the dock start icon, the `LOGO=` icon and the greeter logo are the canon mark and diverted from the packages that own the stock files, and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
 `BUILD_SYSTEM` and the ISO volume id (which apt, casper, the installer and Secure Boot depend on) are
 untouched. Exit status is non-zero if any check fails.
 

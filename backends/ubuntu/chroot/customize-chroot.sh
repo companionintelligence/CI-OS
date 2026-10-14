@@ -8,7 +8,7 @@
 # 2. Removes Ubuntu telemetry and bloatware
 # 3. Installs CI-OS packages and branding
 # 4. Configures AMD GPU support (ROCm, drivers)
-# 5. Sets up Plymouth, GRUB themes
+# 5. Sets up Plymouth, GRUB themes, the dock start icon and the Settings > About logo
 # 6. Pre-installs the wireless setup stack, Docker and the CI-Hub tooling (Step 10d)
 # 7. Pre-installs the optional tools: tailscale, cloudflared, gh, Ollama, Companion Launcher (Step 10e)
 #
@@ -49,6 +49,34 @@ copy_to_chroot() {
     local dest="$2"
     mkdir -p "$CHROOT_PATH/$(dirname "$dest")"
     cp -r "$src" "$CHROOT_PATH/$dest"
+}
+
+# run_theme_step <script> [overlay_dir]
+# Run one backends/ubuntu/desktop-theme step INSIDE the chroot, so it is the same token-driven code the
+# post-install re-skin (apply-ci-os-desktop.sh) runs. The step is staged with the shared theme library, the
+# vendored canon (tokens, logos) and the render inputs/outputs, keeping the repo's relative layout so the
+# script's own REPO_ROOT / theme-lib.sh sourcing resolves without chroot-specific changes. It runs with
+# CI_BRAND_IMAGE_BUILD=1: no backup directories, stock files diverted (ci_install_file). overlay_dir, a host
+# directory laid out like the repo, is copied over the stage: it carries what has to be prepared on the
+# build host, because the stock desktop image has neither ImageMagick nor rsvg-convert. The stage is
+# removed afterwards.
+run_theme_step() {
+    local script="$1" overlay="${2:-}"
+    local stage="$CHROOT_PATH/tmp/ci-brand"
+    rm -rf "$stage"
+    mkdir -p "$stage/backends/ubuntu/desktop-theme" "$stage/core/lib" "$stage/core/render" "$stage/vendor/brand"
+    cp "$REPO_ROOT"/backends/ubuntu/desktop-theme/*.sh "$stage/backends/ubuntu/desktop-theme/"
+    cp "$REPO_ROOT/core/lib/theme-lib.sh" "$stage/core/lib/"
+    cp -R "$REPO_ROOT/vendor/brand/tokens" "$REPO_ROOT/vendor/brand/logos" "$stage/vendor/brand/"
+    cp -R "$REPO_ROOT/core/render/inputs" "$stage/core/render/"
+    if [[ -d "$REPO_ROOT/core/render/output" ]]; then
+        cp -R "$REPO_ROOT/core/render/output" "$stage/core/render/"
+    fi
+    if [[ -n "$overlay" ]]; then
+        cp -R "$overlay/." "$stage/"
+    fi
+    chroot_exec "CI_BRAND_IMAGE_BUILD=1 CI_OS_VERSION=$(printf '%q' "$CI_OS_VERSION") bash /tmp/ci-brand/backends/ubuntu/desktop-theme/$script"
+    rm -rf "$stage"
 }
 
 #=============================================================================
@@ -305,10 +333,10 @@ fi
 #=============================================================================
 echo "[*] Step 3: Installing CI-OS branding..."
 
-# Copy logo
-if [[ -f "$REPO_ROOT/assets/logos/ci-holo-depth.png" ]]; then
-    copy_to_chroot "$REPO_ROOT/assets/logos/ci-holo-depth.png" "/usr/share/pixmaps/companion-logo.png"
-fi
+# Greeter logo (the gdm dconf logo= key below points here): the colour mark from the vendored canon at 256 px,
+# rendered on the build host. assets/logos/ci-holo-depth.png (a pastel hologram, no CI-Common counterpart) is
+# no longer used.
+bash "$REPO_ROOT/core/render/render-mark-png.sh" "$CHROOT_PATH/usr/share/pixmaps/companion-logo.png" 256
 
 # Copy wallpaper — try primary path first, then fallback, warn if neither exists
 if [[ -f "$REPO_ROOT/core/render/inputs/background.png" ]]; then
@@ -478,9 +506,7 @@ echo "[*] Step 5: Configuring Plymouth splash..."
 # token-driven Plymouth theming the post-install re-skin path uses — instead of
 # forking its sed/color logic into a second copy here (that duplication is
 # exactly what caused the terminal-theme token drift found elsewhere in this
-# repo). Staged into the chroot preserving the real repo's relative directory
-# layout, so 10-plymouth.sh's own REPO_ROOT/theme-lib.sh sourcing resolves
-# without any chroot-specific changes to the script itself.
+# repo). run_theme_step stages it into the chroot (see its comment).
 #
 # Note: this brands Plymouth for the INSTALLED system's own boots (curtin
 # regenerates the initramfs from this rootfs during install finalization).
@@ -488,18 +514,17 @@ echo "[*] Step 5: Configuring Plymouth splash..."
 # by casper/initrd copied verbatim from the stock Ubuntu ISO — rebuilding
 # that is a materially higher-risk change for a several-second one-time
 # screen, so it's an accepted residual gap, not something chased here.
-STAGE="$CHROOT_PATH/tmp/ci-brand"
-mkdir -p "$STAGE/backends/ubuntu/desktop-theme" "$STAGE/core/lib" \
-         "$STAGE/core/render/inputs" "$STAGE/vendor/brand/tokens"
-cp "$REPO_ROOT/backends/ubuntu/desktop-theme/10-plymouth.sh" "$STAGE/backends/ubuntu/desktop-theme/"
-cp "$REPO_ROOT/core/lib/theme-lib.sh" "$STAGE/core/lib/"
-cp "$REPO_ROOT/core/render/inputs/Logo_Banner_Color.png" "$STAGE/core/render/inputs/"
 
 # The stock desktop image has no ImageMagick, so 10-plymouth.sh cannot do its 50% watermark scaling inside the
 # chroot and would copy the full-size banner (1024 px wide, about four times Ubuntu's own splash logo).
-# Pre-scale on the build host instead. Skipped if the chroot does have ImageMagick, so it is never scaled twice.
+# Pre-scale on the build host instead, into an overlay laid over the staged inputs. Skipped if the chroot does
+# have ImageMagick, so it is never scaled twice.
+PLYMOUTH_OVERLAY=""
 if ! chroot "$CHROOT_PATH" /bin/sh -c 'command -v convert || command -v magick' >/dev/null 2>&1; then
-    _wm="$STAGE/core/render/inputs/Logo_Banner_Color.png"
+    PLYMOUTH_OVERLAY="$(mktemp -d)"
+    mkdir -p "$PLYMOUTH_OVERLAY/core/render/inputs"
+    _wm="$PLYMOUTH_OVERLAY/core/render/inputs/Logo_Banner_Color.png"
+    cp "$REPO_ROOT/core/render/inputs/Logo_Banner_Color.png" "$_wm"
     if command -v convert >/dev/null 2>&1; then
         convert "$_wm" -resize 50% "$_wm"
     elif command -v magick >/dev/null 2>&1; then
@@ -509,11 +534,42 @@ if ! chroot "$CHROOT_PATH" /bin/sh -c 'command -v convert || command -v magick' 
         echo "[WARN] (apt-get install imagemagick). verify-iso.sh flags this."
     fi
 fi
-cp "$REPO_ROOT/vendor/brand/tokens/tokens.sh" "$STAGE/vendor/brand/tokens/"
 
-chroot_exec "bash /tmp/ci-brand/backends/ubuntu/desktop-theme/10-plymouth.sh"
+run_theme_step 10-plymouth.sh "$PLYMOUTH_OVERLAY"
+if [[ -n "$PLYMOUTH_OVERLAY" ]]; then rm -rf "$PLYMOUTH_OVERLAY"; fi
 
 echo "[+] Plymouth configured from the canon tokens (installed-system boots)"
+
+#=============================================================================
+# 5b. Dock "Show Applications" button (Yaru start-here-symbolic)
+#=============================================================================
+echo "[*] Step 5b: Replacing the dock start icon..."
+
+# 40-start-icon.sh: the dock's bottom button is view-app-grid-ubuntu-symbolic.svg, a symlink to Yaru's
+# start-here-symbolic.svg. The source is core/render/inputs/LogoMark_Color_StartIcon-cropped.svg (the vendored
+# mark.svg's path data, cropped); GNOME recolours a -symbolic icon to one tone, so it shows as a silhouette.
+# yaru-theme-icon owns the file; the step diverts it so an upgrade cannot restore Ubuntu's.
+run_theme_step 40-start-icon.sh
+
+echo "[+] Dock start icon replaced"
+
+#=============================================================================
+# 5c. Settings > About logo and the os-release LOGO= icon
+#=============================================================================
+echo "[*] Step 5c: Replacing the Settings > About logo..."
+
+# 45-about-logo.sh installs two PNGs over base-files' /usr/share/pixmaps/ubuntu-logo-text{,-dark}.png (the paths
+# gnome-control-center hard-codes) and the mark as the ci-os-logo icon that os-release LOGO= names. The PNGs are
+# the one-colour mark filled with the canon primary of each mode, rendered here on the build host (the chroot has
+# no rsvg-convert) and handed to the step as an overlay.
+ABOUT_OVERLAY="$(mktemp -d)"
+mkdir -p "$ABOUT_OVERLAY/core/render/output"
+bash "$REPO_ROOT/core/render/render-mark-png.sh" "$ABOUT_OVERLAY/core/render/output/ci-os-about-logo.png" 192 "$CI_LIGHT_PRIMARY"
+bash "$REPO_ROOT/core/render/render-mark-png.sh" "$ABOUT_OVERLAY/core/render/output/ci-os-about-logo-dark.png" 192 "$CI_DARK_PRIMARY"
+run_theme_step 45-about-logo.sh "$ABOUT_OVERLAY"
+rm -rf "$ABOUT_OVERLAY"
+
+echo "[+] About logo replaced (light and dark)"
 
 #=============================================================================
 # 6. Install AMD GPU Support
