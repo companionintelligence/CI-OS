@@ -346,7 +346,7 @@ identity, GRUB, MOTD and installer files. It also checks the live GRUB menu: the
 give, and the installed system's GRUB background is 8-bit too. For the live boot it unpacks the appended initrd overlay
 (`tests/boot-media-plymouth.sh` runs the build step against a stock-shaped initrd) and asserts that it holds exactly the branded
 files and that the bgrt and spinner themes carry the canon ground and progress-bar colours with their stock fonts, the text splash is titled
-Companion OS, and `bgrt-fallback.png` is the same non-Ubuntu 128 px canon mark in the overlay and the rootfs, where it is `dpkg-divert`ed.
+Companion OS, and `bgrt-fallback.png` is the same non-Ubuntu 128 px canon mark in the overlay and the rootfs. In the rootfs every package-owned Plymouth file the build rewrites (the watermark, `bgrt-fallback.png`, `bgrt.plymouth`, `spinner.plymouth`, and the text theme's template `ubuntu-text.plymouth.in`, from which the package regenerates the text theme) is `dpkg-divert`ed, so a package upgrade or an `/etc/lsb-release` trigger cannot bring Ubuntu's logo or colours back (`desktop-theme/tests/plymouth-theme.sh` shows this against the real packages).
 Exit status is non-zero if any check fails.
 
 To also prove the Secure Boot chain is intact, name the stock ISO the image was built from; the check then

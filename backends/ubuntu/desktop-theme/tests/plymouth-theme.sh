@@ -16,6 +16,10 @@
 #   fallback    bgrt-fallback.png is the staged colour mark, 128x128, not Ubuntu's; the stock file is dpkg-diverted
 #               to .ubuntu-stock (when a package owns it) with its bytes intact; a second run (a rebuild without
 #               --clean) still succeeds; an image build with nothing staged fails instead of shipping Ubuntu's logo;
+#   diverted    the same for every other package-owned file the step rewrites: watermark.png, bgrt.plymouth,
+#               spinner.plymouth and the text theme's template ubuntu-text.plymouth.in, so the branding survives what
+#               an upgrade of the Plymouth packages does: the lsb-release trigger that regenerates the text theme
+#               from its template, and (best effort, needs the network) a reinstall of the three packages;
 #   backups     an image build leaves no ci-branding-backup-* directory;
 #   live        a live system renders the fallback itself and keeps a backup; with no renderer it warns, keeps
 #               Ubuntu's file and still exits 0, so the steps after it in apply-ci-os-desktop.sh run.
@@ -54,7 +58,7 @@ for t in dpkg dpkg-divert rsvg-convert convert od sha256sum; do
     command -v "$t" >/dev/null 2>&1 || { echo "missing tool: $t (apt-get install plymouth-theme-spinner plymouth-theme-ubuntu-text imagemagick librsvg2-bin)" >&2; exit 2; }
 done
 THEMES=/usr/share/plymouth/themes
-for f in spinner/spinner.plymouth spinner/watermark.png bgrt/bgrt.plymouth ubuntu-text/ubuntu-text.plymouth; do
+for f in spinner/spinner.plymouth spinner/watermark.png bgrt/bgrt.plymouth ubuntu-text/ubuntu-text.plymouth ubuntu-text/ubuntu-text.plymouth.in; do
     [[ -f "$THEMES/$f" ]] || { echo "missing $THEMES/$f (apt-get install plymouth-theme-spinner plymouth-theme-ubuntu-text)" >&2; exit 2; }
 done
 
@@ -105,6 +109,8 @@ STOCK="$WORK/stock"; mkdir -p "$STOCK"
 cp "$THEMES/bgrt/bgrt.plymouth" "$STOCK/bgrt.plymouth"
 cp "$THEMES/spinner/spinner.plymouth" "$STOCK/spinner.plymouth"
 cp "$THEMES/ubuntu-text/ubuntu-text.plymouth" "$STOCK/ubuntu-text.plymouth"
+cp "$THEMES/ubuntu-text/ubuntu-text.plymouth.in" "$STOCK/ubuntu-text.plymouth.in"
+cp "$THEMES/spinner/watermark.png" "$STOCK/watermark.png"
 if [[ -f "$FALLBACK" ]]; then
     cp "$FALLBACK" "$STOCK/bgrt-fallback.png"; STOCK_FB_SHA="$(sha "$FALLBACK")"
 else
@@ -154,13 +160,54 @@ expect "bgrt-fallback.png is 128x128, the size of Ubuntu's" test "$(png_dim "$FA
 expect "bgrt-fallback.png is no longer Ubuntu's" test "$(sha "$FALLBACK")" != "$STOCK_FB_SHA"
 expect "Ubuntu's file is dpkg-diverted to .ubuntu-stock" bash -c "[[ -n \"\$(dpkg-divert --list '$FALLBACK')\" ]]"
 expect "...and its bytes are intact there" test "$(sha "$FALLBACK.ubuntu-stock")" = "$STOCK_FB_SHA"
+# Everything the step rewrites that a package owns is diverted, so Ubuntu's version is kept (as .ubuntu-stock) and an
+# upgrade of the package unpacks to that name instead of over ours.
+DIVERTED="spinner/watermark.png:watermark.png bgrt/bgrt.plymouth:bgrt.plymouth spinner/spinner.plymouth:spinner.plymouth ubuntu-text/ubuntu-text.plymouth.in:ubuntu-text.plymouth.in"
+for pair in $DIVERTED; do
+    f="$THEMES/${pair%%:*}"; stock="$STOCK/${pair##*:}"
+    expect "${pair%%:*} is dpkg-diverted to .ubuntu-stock" bash -c "[[ -n \"\$(dpkg-divert --list '$f')\" ]]"
+    expect "...and Ubuntu's bytes are intact there" test "$(sha "$f.ubuntu-stock")" = "$(sha "$stock")"
+    expect "...and ours differs from Ubuntu's" test "$(sha "$f")" != "$(sha "$stock")"
+done
+expect "the text theme template is the Companion OS theme too (the package's postinst generates the text theme from it)" \
+    bash -c "grep -q -x 'title=Companion OS 7.3' '$TEXT.in' && grep -q -x 'Name=Companion OS Text' '$TEXT.in' && ! grep -qi '0x2c001e' '$TEXT.in'"
 expect "an image build leaves no backup directory" bash -c "! ls -d /usr/share/plymouth/ci-branding-backup-* >/dev/null 2>&1"
 expect "the other theme images are untouched (animation frames are Ubuntu's)" bash -c "ls '$THEMES'/spinner/animation-*.png >/dev/null 2>&1"
+
+# ── what an upgrade of the Plymouth packages does to the branding ───────────────────────────────────────────
+# plymouth-theme-ubuntu-text regenerates ubuntu-text.plymouth from its template on every configure and whenever
+# /etc/lsb-release changes (a base-files upgrade): the title must stay ours.
+branded_sums() { for pair in $DIVERTED; do sha "$THEMES/${pair%%:*}"; done; sha "$FALLBACK"; sha "$TEXT"; }
+BRANDED_BEFORE="$(branded_sums)"
+set +e
+dpkg-trigger --no-await /etc/lsb-release >/dev/null 2>&1
+dpkg --configure --pending >/dev/null 2>&1
+set -e
+expect "after the lsb-release trigger the text theme is still titled Companion OS 7.3 (regenerated from our template)" \
+    grep -q -x 'title=Companion OS 7.3' "$TEXT"
+expect "...and has no aubergine and no 'Ubuntu 24.04'" bash -c "! grep -qi '0x2c001e' '$TEXT' && ! grep -q 'title=Ubuntu' '$TEXT'"
+# A reinstall unpacks the same files an upgrade would. Best effort: it needs the network.
+set +e
+apt-get install --reinstall -y -qq plymouth plymouth-theme-spinner plymouth-theme-ubuntu-text >"$WORK/reinstall.log" 2>&1
+REINSTALL_RC=$?
+set -e
+if [[ "$REINSTALL_RC" -eq 0 ]]; then
+    expect "a reinstall of the Plymouth packages leaves every branded file as it was (watermark, themes, fallback, text theme)" \
+        test "$(branded_sums)" = "$BRANDED_BEFORE"
+    expect "...and puts Ubuntu's unpacked files at the .ubuntu-stock names" \
+        test "$(sha "$THEMES/spinner/watermark.png.ubuntu-stock")" = "$(sha "$STOCK/watermark.png")"
+else
+    printf 'info  reinstall skipped (apt-get install --reinstall failed, offline?): the upgrade check above is the lsb-release trigger only\n'
+fi
 
 run_step "$WORK/repo" CI_BRAND_IMAGE_BUILD=1 CI_OS_VERSION=7.3
 expect "second run (a rebuild without --clean) exits 0" test "$RC" -eq 0
 expect "...and the fallback is still the staged mark" cmp -s "$FALLBACK" "$WORK/repo/core/render/output/ci-os-bgrt-fallback.png"
 expect "...and the stock file is still the one at .ubuntu-stock" test "$(sha "$FALLBACK.ubuntu-stock")" = "$STOCK_FB_SHA"
+for pair in $DIVERTED; do
+    expect "...and Ubuntu's ${pair%%:*} is still the file at .ubuntu-stock" \
+        test "$(sha "$THEMES/${pair%%:*}.ubuntu-stock")" = "$(sha "$STOCK/${pair##*:}")"
+done
 
 # ── the colours follow the vendored tokens ──────────────────────────────────────────────────────────────────
 make_repo "$WORK/tok"; stage_png "$WORK/tok"

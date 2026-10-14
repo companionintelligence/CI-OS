@@ -6,6 +6,13 @@
 # its own copies of the same theme files; build-iso.sh (brand_boot_media) repaints those with the same
 # ci_plymouth_* helpers and takes the watermark and the fallback logo from this rootfs. Note that the bgrt theme,
 # the default, paints black behind the firmware logo (or the fallback below); see ci_plymouth_recolor.
+#
+# Every file below that a Plymouth package owns (watermark.png, bgrt-fallback.png, bgrt.plymouth, spinner.plymouth,
+# and the text theme's template ubuntu-text.plymouth.in) goes in through ci_install_file / ci_install_edited, which
+# dpkg-divert Ubuntu's file first: an upgrade of the package then unpacks Ubuntu's file to <file>.ubuntu-stock and
+# cannot bring its logo or colours back, and its postinst cannot rebuild the initramfs with them. The text theme
+# itself, ubuntu-text.plymouth, is no package's file but the package's postinst regenerates it from the template
+# (on configure and whenever /etc/lsb-release changes), so the template is branded too.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/theme-lib.sh"
 require_root
@@ -16,6 +23,7 @@ WATERMARK_SCALE_PERCENT=50
 WATERMARK_DEST="$PLYMOUTH_SPINNER_DIR/watermark.png"
 PLYMOUTH_UBUNTU_TEXT_DIR="/usr/share/plymouth/themes/ubuntu-text"
 UBUNTU_TEXT_PLYMOUTH="$PLYMOUTH_UBUNTU_TEXT_DIR/ubuntu-text.plymouth"
+UBUNTU_TEXT_TEMPLATE="$UBUNTU_TEXT_PLYMOUTH.in"
 PLYMOUTH_SPINNER_CONF="$PLYMOUTH_SPINNER_DIR/spinner.plymouth"
 PLYMOUTH_BGRT_CONF="/usr/share/plymouth/themes/bgrt/bgrt.plymouth"
 
@@ -78,22 +86,32 @@ backup_file() { # backup_file <file> <backup name>; nothing in an image build
   if [[ -n "$BACKUP_DIR" ]]; then cp "$1" "$BACKUP_DIR/$2"; fi
 }
 
+# Everything installed below is built in a private directory first and installed from there (ci_install_file moves
+# Ubuntu's file aside, then puts ours in its place).
+STEP_TMP="$(mktemp -d)"
+cleanup() {
+  rm -rf "$STEP_TMP"
+}
+trap cleanup EXIT
+
 log_info "Replacing Plymouth watermark with CI branding..."
 if [[ -f "$WATERMARK_DEST" ]]; then
   backup_file "$WATERMARK_DEST" watermark.png.bak
 fi
 
+WATERMARK_NEW="$STEP_TMP/watermark.png"
 if [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]] && command -v convert >/dev/null 2>&1; then
-  convert "$LOGO_SOURCE" -resize "${WATERMARK_SCALE_PERCENT}%" "$WATERMARK_DEST"
+  convert "$LOGO_SOURCE" -resize "${WATERMARK_SCALE_PERCENT}%" "$WATERMARK_NEW"
 elif [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]] && command -v magick >/dev/null 2>&1; then
-  magick "$LOGO_SOURCE" -resize "${WATERMARK_SCALE_PERCENT}%" "$WATERMARK_DEST"
+  magick "$LOGO_SOURCE" -resize "${WATERMARK_SCALE_PERCENT}%" "$WATERMARK_NEW"
 else
   if [[ "$WATERMARK_SCALE_PERCENT" -lt 100 ]]; then
     log_warn "ImageMagick not found; copying logo at full size."
   fi
-  cp "$LOGO_SOURCE" "$WATERMARK_DEST"
+  cp "$LOGO_SOURCE" "$WATERMARK_NEW"
 fi
-chmod 644 "$WATERMARK_DEST"
+# watermark.png belongs to the plymouth package.
+ci_install_file "$WATERMARK_NEW" "$WATERMARK_DEST"
 
 # --- the firmware-logo fallback: staged (image build) or rendered here (live system) -----------------------
 # The colour mark, transparent background, FALLBACK_PX square. The stock desktop image has no rsvg-convert or
@@ -101,11 +119,6 @@ chmod 644 "$WATERMARK_DEST"
 # core/render/output/; with nothing staged (a live system) this step renders it itself. A live system with no
 # renderer keeps Ubuntu's fallback logo, says so, and goes on; an image build never ships it, so it fails instead.
 FALLBACK_PNG="$FALLBACK_STAGED_DIR/$FALLBACK_PNG_NAME"
-RENDER_TMP=""
-cleanup() {
-  if [[ -n "$RENDER_TMP" ]]; then rm -rf "$RENDER_TMP"; fi
-}
-trap cleanup EXIT
 if [[ ! -f "$FALLBACK_PNG" ]]; then
   if ci_image_build; then
     log_error "No pre-rendered firmware-logo fallback in $FALLBACK_STAGED_DIR: customize-chroot.sh renders it on the build host and stages it"
@@ -117,10 +130,9 @@ if [[ ! -f "$FALLBACK_PNG" ]]; then
   elif ! command -v rsvg-convert >/dev/null 2>&1 && ! command -v magick >/dev/null 2>&1 && ! command -v convert >/dev/null 2>&1; then
     log_warn "Neither rsvg-convert nor ImageMagick is installed, so the firmware-logo fallback cannot be drawn (apt-get install librsvg2-bin)"
   else
-    RENDER_TMP="$(mktemp -d)"
     log_info "Rendering the firmware-logo fallback..."
-    if bash "$RENDER_MARK" "$RENDER_TMP/$FALLBACK_PNG_NAME" "$FALLBACK_PX"; then
-      FALLBACK_PNG="$RENDER_TMP/$FALLBACK_PNG_NAME"
+    if bash "$RENDER_MARK" "$STEP_TMP/$FALLBACK_PNG_NAME" "$FALLBACK_PX"; then
+      FALLBACK_PNG="$STEP_TMP/$FALLBACK_PNG_NAME"
     else
       log_warn "Rendering the firmware-logo fallback failed"
     fi
@@ -138,22 +150,34 @@ if [[ -n "$FALLBACK_PNG" ]]; then
   ci_install_file "$FALLBACK_PNG" "$FALLBACK_DEST"
 fi
 
+# The rootfs has Cantarell; the casper initrd's copy keeps Ubuntu's fonts, the only ones it carries.
+bgrt_rootfs_theme() { # bgrt_rootfs_theme <copy of bgrt.plymouth>
+  sed -i "s/Font=Ubuntu 12/Font=Cantarell 12/" "$1"
+  sed -i "s/TitleFont=Ubuntu Light 30/TitleFont=Cantarell Light 30/" "$1"
+  ci_plymouth_recolor "$1"
+}
+
+# spinner.plymouth and bgrt.plymouth belong to plymouth-theme-spinner.
 if [[ -f "$PLYMOUTH_SPINNER_CONF" ]]; then
   backup_file "$PLYMOUTH_SPINNER_CONF" spinner.plymouth.bak
-  ci_plymouth_recolor "$PLYMOUTH_SPINNER_CONF"
+  ci_install_edited "$PLYMOUTH_SPINNER_CONF" ci_plymouth_recolor
 fi
 
 if [[ -f "$PLYMOUTH_BGRT_CONF" ]]; then
   backup_file "$PLYMOUTH_BGRT_CONF" bgrt.plymouth.bak
-  # The rootfs has Cantarell; the casper initrd's copy keeps Ubuntu's fonts, the only ones it carries.
-  sed -i "s/Font=Ubuntu 12/Font=Cantarell 12/" "$PLYMOUTH_BGRT_CONF"
-  sed -i "s/TitleFont=Ubuntu Light 30/TitleFont=Cantarell Light 30/" "$PLYMOUTH_BGRT_CONF"
-  ci_plymouth_recolor "$PLYMOUTH_BGRT_CONF"
+  ci_install_edited "$PLYMOUTH_BGRT_CONF" bgrt_rootfs_theme
 fi
 
 if [[ -f "$UBUNTU_TEXT_PLYMOUTH" ]]; then
   backup_file "$UBUNTU_TEXT_PLYMOUTH" ubuntu-text.plymouth.bak
-  ci_plymouth_text_theme "$UBUNTU_TEXT_PLYMOUTH" "$(ci_text_splash_title)"
+  TEXT_TITLE="$(ci_text_splash_title)"
+  ci_plymouth_text_theme "$UBUNTU_TEXT_PLYMOUTH" "$TEXT_TITLE"
+  # plymouth-theme-ubuntu-text's postinst writes ubuntu-text.plymouth from its template ubuntu-text.plymouth.in, and its
+  # sed changes only a title that starts "Ubuntu ", so a template that is already ours comes out as it went in.
+  if [[ -f "$UBUNTU_TEXT_TEMPLATE" ]]; then
+    ci_plymouth_text_theme "$STEP_TMP/ubuntu-text.plymouth.in" "$TEXT_TITLE"
+    ci_install_file "$STEP_TMP/ubuntu-text.plymouth.in" "$UBUNTU_TEXT_TEMPLATE"
+  fi
 fi
 
 if command -v update-alternatives >/dev/null 2>&1; then

@@ -89,6 +89,21 @@ ci_install_file() {
   install -D -m "$mode" "$src" "$dest"
 }
 
+# ci_install_edited <dest> <edit-command> [args...]
+# Install an EDITED copy of the package-owned file <dest> over itself, through ci_install_file, so the stock
+# file is diverted instead of being edited in place (which the owning package would undo on its next upgrade or
+# trigger, and which would rebuild the initramfs with Ubuntu's file). <edit-command> is run with the path of a
+# private copy of <dest> as its LAST argument and changes that copy in place, the way sed -i does
+# (ci_plymouth_recolor is one). <dest> must exist; the copy is taken before the diversion moves the stock file.
+ci_install_edited() {
+  local dest="$1" tmp rc=0
+  shift
+  tmp="$(mktemp)" || return 1
+  cp -- "$dest" "$tmp" && "$@" "$tmp" && ci_install_file "$tmp" "$dest" || rc=$?
+  rm -f -- "$tmp"
+  return "$rc"
+}
+
 # ci_plymouth_recolor <conf>
 # Repaint a Plymouth theme file (bgrt.plymouth, spinner.plymouth) in the canon boot palette, in place: the
 # ground is the dark background (navy), the progress bar's track the dark secondary and its fill the dark

@@ -33,7 +33,8 @@
 #      are dpkg-diverted;
 #   2e. the live boot's Plymouth (section 7): the initrd overlay carries the canon-painted bgrt, spinner and text-splash
 #      themes and the firmware-logo fallback, only those files, appended after a stock initrd that is byte-identical
-#      to the base ISO's (given VERIFY_BASE_ISO); the installed system's fallback logo is the same file, dpkg-diverted;
+#      to the base ISO's (given VERIFY_BASE_ISO); the installed system's fallback logo is the same file, and every package-owned
+#      Plymouth file the build rewrites (the watermark, the bgrt and spinner themes, the text theme's template) is dpkg-diverted;
 #   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
 #   3f. NetworkManager still manages wired devices (no netplan file overrides the
 #      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged).
@@ -957,11 +958,31 @@ if [[ -f "$FB_INITRD" && -f "$FB_ROOT" ]]; then
 else
     fail "bgrt-fallback.png missing (initrd overlay: $([[ -f "$FB_INITRD" ]] && echo present || echo missing), rootfs: $([[ -f "$FB_ROOT" ]] && echo present || echo missing))"
 fi
-# bgrt-fallback.png belongs to a Plymouth theme package: diverted, so an upgrade cannot bring the Ubuntu logo back.
-if divert_ok "/$PLY_T/spinner/bgrt-fallback.png" && in_listing " /usr/share/plymouth/themes/spinner/bgrt-fallback\\.png\\.ubuntu-stock\$"; then
-    pass "bgrt-fallback.png is dpkg-diverted (a plymouth theme package upgrade cannot restore Ubuntu's)"
+# Every Plymouth file the build rewrites belongs to a Plymouth package: diverted, so an upgrade of the package unpacks
+# Ubuntu's file to <file>.ubuntu-stock and cannot bring Ubuntu's logo or colours back (or rebuild the initramfs with them).
+# The text theme itself, ubuntu-text.plymouth, is no package's file: plymouth-theme-ubuntu-text's postinst regenerates it
+# from the template ubuntu-text.plymouth.in on every configure and whenever /etc/lsb-release changes, so it is the
+# template that is diverted and branded.
+for f in spinner/bgrt-fallback.png spinner/watermark.png bgrt/bgrt.plymouth spinner/spinner.plymouth ubuntu-text/ubuntu-text.plymouth.in; do
+    p="/$PLY_T/$f"
+    if divert_ok "$p" && in_listing " ${p//./\\.}\\.ubuntu-stock\$"; then
+        pass "$f is dpkg-diverted (a plymouth package upgrade cannot restore Ubuntu's)"
+    else
+        fail "$f is not dpkg-diverted to $f.ubuntu-stock (a package upgrade would restore Ubuntu's file)"
+    fi
+done
+TEXT_TEMPLATE="$R/$PLY_T/ubuntu-text/ubuntu-text.plymouth.in"
+if [[ -f "$TEXT_TEMPLATE" ]]; then
+    root_template_title="$(grep -h '^title=' "$TEXT_TEMPLATE" 2>/dev/null | head -1)"
+    check "text splash template is titled Companion OS and not aubergine (the postinst regenerates the text theme from it)" \
+        bash -c "grep -q -E '^title=Companion OS( [0-9][^ ]*)?\$' '$TEXT_TEMPLATE' && ! grep -q -i '0x2c001e' '$TEXT_TEMPLATE'"
+    if [[ -n "$root_template_title" && "$root_template_title" == "$(grep -h '^title=' "$TEXT_PLYMOUTH" 2>/dev/null | head -1)" ]]; then
+        pass "text splash template has the same title as the installed text theme ($root_template_title)"
+    else
+        fail "text splash template title '${root_template_title:-none}' differs from the installed text theme's"
+    fi
 else
-    fail "bgrt-fallback.png is not dpkg-diverted to bgrt-fallback.png.ubuntu-stock (a package upgrade would restore Ubuntu's logo)"
+    fail "no ubuntu-text.plymouth.in in the rootfs (a trigger would regenerate the text theme without it)"
 fi
 
 # The overlay is appended to the initrd and nothing else is touched: the stock archives before it are the base ISO's bytes,
