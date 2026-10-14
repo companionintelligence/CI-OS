@@ -343,7 +343,7 @@ untouched. The product name is the same everywhere a user reads it: the installe
 the Hub launcher entry, and no retired spelling of the name (the list is `OLD_NAMES` in the script) in the
 identity, GRUB, MOTD and installer files. It also checks the live GRUB menu: the background is an 8-bit PNG, `grub.cfg` loads it with
 `gfxterm` and `insmod`s only `all_video`, `gfxterm` and `png`, the menu colours equal what the brand tokens
-give, and the installed system's GRUB background is 8-bit too. For the live boot it unpacks the appended initrd overlay
+give (`core/lib/tests/grub-nearest-color.sh` pins the function that derives them), and the installed system's GRUB background is 8-bit too. A copy of the script run outside the repo cannot derive the canon checks; it lists them under SKIPPED in the Summary, and `VERIFY_REQUIRE_CANON=1` makes that a failure. For the live boot it unpacks the appended initrd overlay
 (`tests/boot-media-plymouth.sh` runs the build step against a stock-shaped initrd) and asserts that it holds exactly the branded
 files and that the bgrt and spinner themes carry the canon ground and progress-bar colours with their stock fonts, the text splash is titled
 Companion OS, and `bgrt-fallback.png` is the same non-Ubuntu 128 px canon mark in the overlay and the rootfs. In the rootfs every package-owned Plymouth file the build rewrites (the watermark, `bgrt-fallback.png`, `bgrt.plymouth`, `spinner.plymouth`, and the text theme's template `ubuntu-text.plymouth.in`, from which the package regenerates the text theme) is `dpkg-divert`ed, so a package upgrade or an `/etc/lsb-release` trigger cannot bring Ubuntu's logo or colours back (`desktop-theme/tests/plymouth-theme.sh` shows this against the real packages).

@@ -50,6 +50,8 @@
 #   VERIFY_WORK=DIR ...    use DIR for scratch space (needs ~8 GB free)
 #   VERIFY_TIERB=0 ...     skip section 3c (an ISO built with CI_OS_BAKE_THIRD_PARTY=0
 #                          CI_OS_BAKE_OLLAMA=0 CI_OS_BAKE_LAUNCHER=0)
+#   VERIFY_REQUIRE_CANON=1 fail if the canon content checks (they need the repo checkout, see below) had to be
+#                          skipped; without it they are listed under SKIPPED in the Summary and the status is unchanged
 #   VERIFY_BASE_ISO=ISO .. the stock Ubuntu ISO this one was built from: also assert that
 #                          /EFI/boot/{bootx64,grubx64,mmx64}.efi are byte-identical to it
 #                          (the Secure Boot chain is intact) and that casper/initrd starts with the
@@ -88,6 +90,11 @@ PASS=0; FAIL=0
 pass() { PASS=$((PASS + 1)); printf 'PASS  %s\n' "$*"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL  %s\n' "$*"; }
 note() { printf 'info  %s\n' "$*"; }
+# skip: a group of checks that did not run. It is a note where it happens AND a SKIPPED block in the Summary, so a
+# copy of this script that is not in the repo cannot print "0 failed" with the canon content checks missing and nobody
+# the wiser. VERIFY_REQUIRE_CANON=1 turns such a run into a failure (use it where the checkout is expected to be there).
+SKIPPED=()
+skip() { SKIPPED+=("$*"); printf 'info  SKIPPED: %s\n' "$*"; }
 section() { printf '\n== %s\n' "$*"; }
 check() { # check "<label>" <command...>
     local label="$1"; shift
@@ -547,7 +554,7 @@ if [[ -f "$CANON_TOKENS" && -f "$CANON_MARK" && -f "$PNGTOOL" && -f "$RENDER_MAR
     source "$CANON_TOKENS"
     CANON_OK=1
 else
-    note "logo content not checked against the canon: run this script from the repo checkout (vendor/brand, core/render, backends/ubuntu/lib/png-colours.py)"
+    skip "the canon content checks (logo shapes and colours, Plymouth colours, text splash ground): run this script from the repo checkout (vendor/brand, core/render, backends/ubuntu/lib/png-colours.py)"
 fi
 png_tool() { python3 -I "$PNGTOOL" "$@"; }
 can_render() { command -v rsvg-convert >/dev/null 2>&1 || command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; }
@@ -812,6 +819,10 @@ if [[ -f "$VERIFY_REPO/core/lib/grub-merge.sh" && -f "$VERIFY_REPO/vendor/brand/
     source "$VERIFY_REPO/core/lib/grub-merge.sh"
     # shellcheck source=../../../../vendor/brand/tokens/tokens.sh
     source "$VERIFY_REPO/vendor/brand/tokens/tokens.sh"
+    # menu_color_normal is white/black, which the stock ISO's grub.cfg already had, so it passes on an unthemed menu and
+    # shows nothing by itself; the highlight, background_image, gfxterm and insmod checks above and below are what tell a
+    # themed menu from a stock one. And both sides use ci_grub_nearest_color, so core/lib/tests/grub-nearest-color.sh is
+    # what checks that function's table.
     want_normal="$(ci_grub_nearest_color "$CI_DARK_FOREGROUND")/black"
     want_highlight="black/$(ci_grub_nearest_color "$CI_ACCENT_AQUA")"
     have_normal="$(sed -n 's/^set menu_color_normal=//p' "$ISOX/grub.cfg" | head -1)"
@@ -819,7 +830,7 @@ if [[ -f "$VERIFY_REPO/core/lib/grub-merge.sh" && -f "$VERIFY_REPO/vendor/brand/
     if [[ "$have_highlight" == "$want_highlight" ]]; then pass "menu_color_highlight is $have_highlight (nearest GRUB colour to the accent aqua)"; else fail "menu_color_highlight is '${have_highlight:-unset}', the tokens give $want_highlight"; fi
     if [[ "$have_normal" == "$want_normal" ]]; then pass "menu_color_normal is $have_normal (nearest GRUB colour to the dark foreground)"; else fail "menu_color_normal is '${have_normal:-unset}', the tokens give $want_normal"; fi
 else
-    note "menu colours not re-derived from the tokens: run this script from the repo checkout (core/lib/grub-merge.sh, vendor/brand/tokens/tokens.sh)"
+    skip "the GRUB menu colour checks (re-derived from the tokens): run this script from the repo checkout (core/lib/grub-merge.sh, vendor/brand/tokens/tokens.sh)"
 fi
 
 # The installed system's GRUB background is rendered by the same script and must be the same kind of file.
@@ -1059,5 +1070,13 @@ note "ID=ubuntu / DISTRIB_ID=Ubuntu / UBUNTU_CODENAME: required by apt, curtin a
 note "session file names (ubuntu.desktop, ubuntu-xorg.desktop, ...), DesktopNames=ubuntu, extension uuids (*@ubuntu.com), OnlyShowIn=ubuntu: ids the session and the shell look things up by; only their display names are Companion OS"
 
 printf '\n== Summary: %d passed, %d failed\n' "$PASS" "$FAIL"
+if [[ ${#SKIPPED[@]} -gt 0 ]]; then
+    printf '\n== SKIPPED: %d group(s) of checks did NOT run, so "%d failed" does not cover them:\n' "${#SKIPPED[@]}" "$FAIL"
+    printf '   - %s\n' "${SKIPPED[@]}"
+    if [[ "${VERIFY_REQUIRE_CANON:-0}" == 1 ]]; then
+        echo "   VERIFY_REQUIRE_CANON=1: a run that skipped them fails."
+        FAIL=$((FAIL + 1))
+    fi
+fi
 [[ -n "${VERIFY_KEEP:-}" ]] && echo "scratch kept in $WORK"
 [[ "$FAIL" -eq 0 ]]
