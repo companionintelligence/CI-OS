@@ -637,6 +637,38 @@ elif [[ $CANON_OK -eq 1 ]]; then
     else
         fail "Yaru start-here-symbolic.svg lacks $n_missing of the $n_paths paths of the vendored mark (vendor/brand/logos/mark.svg)"
     fi
+    # The crop (40-start-icon.sh's START_ICON_VIEWBOX is a constant cut for the 1.0.0 mark) must lie inside the mark's own
+    # canvas and keep its ink. The path check above cannot see a clipped icon: all the paths are there, only part of
+    # them is inside the viewBox.
+    MONO_MARK="${CANON_MARK%/*}/mark-mono.svg"
+    icon_vb="$(sed -n 's/.*viewBox="\([^"]*\)".*/\1/p' "$YARU_START" | head -1 | tr -s ' ,' ' ')"
+    mark_vb="$(sed -n 's/.*viewBox="\([^"]*\)".*/\1/p' "$MONO_MARK" 2>/dev/null | head -1 | tr -s ' ,' ' ')"
+    if awk -v i="$icon_vb" -v m="$mark_vb" 'BEGIN { na = split(i, a, " "); nb = split(m, b, " ");
+           exit !(na == 4 && nb == 4 && a[3] > 0 && a[4] > 0 && a[1] >= b[1] && a[2] >= b[2] && a[1] + a[3] <= b[1] + b[3] + 0.001 && a[2] + a[4] <= b[2] + b[4] + 0.001) }'; then
+        pass "Yaru start-here-symbolic.svg crop ($icon_vb) lies inside the vendored mark's canvas ($mark_vb)"
+    else
+        fail "Yaru start-here-symbolic.svg viewBox '${icon_vb:-none}' is not inside the vendored mark's canvas '${mark_vb:-none}' (START_ICON_VIEWBOX in 40-start-icon.sh was cut for another mark)"
+    fi
+    if command -v rsvg-convert >/dev/null 2>&1 && [[ -f "$PNGTOOL" && -f "$MONO_MARK" ]] && [[ -n "$icon_vb" && -n "$mark_vb" ]]; then
+        ink_dir="$WORK/start-icon-ink"; mkdir -p "$ink_dir"
+        read -r _ _ mark_w _ <<<"$mark_vb"; read -r _ _ icon_w _ <<<"$icon_vb"
+        # the same pixels per unit for both renders, so the opaque pixel counts are comparable
+        icon_px="$(awk -v w="$icon_w" -v m="$mark_w" 'BEGIN { printf "%d", 1024 * w / m + 0.5 }')"
+        if rsvg-convert -w 1024 -f png -o "$ink_dir/mark.png" "$MONO_MARK" 2>/dev/null \
+           && rsvg-convert -w "$icon_px" -f png -o "$ink_dir/icon.png" "$YARU_START" 2>/dev/null; then
+            mark_ink="$(png_tool info "$ink_dir/mark.png" 2>/dev/null | awk '$1 == "opaque" { print $2 }')"
+            icon_ink="$(png_tool info "$ink_dir/icon.png" 2>/dev/null | awk '$1 == "opaque" { print $2 }')"
+            if [[ "${mark_ink:-0}" -gt 0 && "${icon_ink:-0}" -gt 0 ]] && (( icon_ink * 100 >= mark_ink * 99 )); then
+                pass "Yaru start-here-symbolic.svg keeps the whole mark inside its crop (${icon_ink} of ${mark_ink} opaque pixels at the same scale)"
+            else
+                fail "Yaru start-here-symbolic.svg clips the mark: ${icon_ink:-0} of ${mark_ink:-0} opaque pixels survive its crop (re-derive START_ICON_VIEWBOX in 40-start-icon.sh)"
+            fi
+        else
+            note "the start icon crop was not rendered (rsvg-convert could not draw the icon or the mark)"
+        fi
+    else
+        note "start icon crop not rendered: needs rsvg-convert and the repo checkout (the viewBox containment above is still checked)"
+    fi
     ramp_found=""
     while IFS= read -r hex; do
         if grep -qi -- "$hex" "$YARU_START"; then ramp_found="$ramp_found $hex"; fi

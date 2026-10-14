@@ -13,7 +13,10 @@
 #   - the stock Yaru file is diverted when a package owns it, and a second run (a rebuild without --clean)
 #     still succeeds;
 #   - the icon FOLLOWS the vendored mark: a repo copy whose mark-mono.svg has different path data gives an icon
-#     with that path data.
+#     with that path data;
+#   - the crop box is a constant cut for the 1.0.0 mark, so it is checked, not trusted: it lies inside the mark's
+#     canvas, and a vendored mark with another viewBox (the newer logo set has one) STOPS the step with a message
+#     instead of getting an icon cropped to a region of art it was not cut for.
 #
 # It changes /usr/share of the machine it runs on, so run it in a throw-away container, with the repo mounted
 # read-only:
@@ -85,7 +88,16 @@ expect "icon carries every path of the vendored mark" has_all_paths
 expect "icon fills with currentColor" grep -q 'fill:currentColor' "$ICON"
 expect "icon ships none of the artwork's logo-ramp colours" no_ramp_colours
 expect "icon is no longer Ubuntu's (viewBox 0 0 16 16)" bash -c "! grep -q 'viewBox=\"0 0 16 16\"' '$ICON'"
-expect "icon viewBox is cropped, not the whole mark" bash -c "grep -q 'viewBox=\"34.60548 ' '$ICON'"
+STEP="$REPO/backends/ubuntu/desktop-theme/40-start-icon.sh"
+CROP="$(sed -n 's/^START_ICON_VIEWBOX="\(.*\)"$/\1/p' "$STEP")"
+expect "icon viewBox is the step's crop, not the whole mark" grep -q -F "viewBox=\"$CROP\"" "$ICON"
+crop_inside_canvas() { # the step's crop lies inside mark-mono.svg's own viewBox
+    local mark
+    mark="$(sed -n 's/.*viewBox="\([^"]*\)".*/\1/p' "$REPO/vendor/brand/logos/mark-mono.svg" | head -1)"
+    awk -v i="$CROP" -v m="$mark" 'BEGIN { split(i, a, " "); split(m, b, " ")
+        exit !(a[3] > 0 && a[4] > 0 && a[1] >= b[1] && a[2] >= b[2] && a[1] + a[3] <= b[1] + b[3] && a[2] + a[4] <= b[2] + b[4]) }'
+}
+expect "...and the crop lies inside the mark's own canvas" crop_inside_canvas
 expect "stock file diverted to .ubuntu-stock" bash -c "[[ -n \"\$(dpkg-divert --list '$ICON')\" ]] && grep -q 'viewBox=\"0 0 16 16\"' '$ICON.ubuntu-stock'"
 expect "an image build leaves no backup directory" bash -c "! ls -d /usr/share/icons/ubuntu-backup-* >/dev/null 2>&1"
 
@@ -102,6 +114,18 @@ run_step "$WORK/repo"
 expect "step with a different vendored mark exits 0" test "$RC" -eq 0
 expect "icon follows the vendored mark (new path data is in it)" grep -q 'M1\.5,2\.5' "$ICON"
 expect "icon no longer has the old path data" bash -c "! grep -q 'M51\\.451,125\\.652' '$ICON'"
+
+# ── a mark with another canvas stops the step ────────────────────────────────
+before="$(sha256sum "$ICON" | cut -d' ' -f1)"
+mkdir -p "$WORK/repo2/backends/ubuntu" "$WORK/repo2/core"
+cp -a "$REPO/backends/ubuntu/desktop-theme" "$WORK/repo2/backends/ubuntu/"
+cp -a "$REPO/core/lib" "$WORK/repo2/core/"
+cp -a "$REPO/vendor" "$WORK/repo2/"
+sed -i 's/viewBox="[^"]*"/viewBox="-19.938 -19.938 119.295 119.625"/' "$WORK/repo2/vendor/brand/logos/mark-mono.svg"
+run_step "$WORK/repo2"
+expect "a vendored mark with another viewBox makes the step fail" test "$RC" -ne 0
+expect "...and says the crop has to be re-derived" bash -c "grep -q 'Re-derive START_ICON_VIEWBOX' <<<\"\$1\"" _ "$OUT"
+expect "...and leaves the installed icon as it was" test "$(sha256sum "$ICON" | cut -d' ' -f1)" = "$before"
 
 echo
 echo "$PASS passed, $FAIL failed"

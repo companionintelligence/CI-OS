@@ -8,7 +8,8 @@
 # exactly the mode's primary token and those of the greeter exactly the mark's three tones, the mark covers a
 # sensible part of the image and (where a renderer exists) has the shape of a fresh render of the vendored mark,
 # ci-os-logo.svg is the vendored mark.svg byte for byte, and the start icon carries every path of the vendored
-# mark and none of the artwork's colours.
+# mark and none of the artwork's colours, lies inside the mark's canvas and (with rsvg-convert) keeps its ink: the
+# crop in 40-start-icon.sh is a constant cut for the 1.0.0 mark, and a path check cannot see a clipped icon.
 #
 # This test builds a synthetic image root with the repo's own code (render-mark-png.sh for the PNGs, the
 # 40-start-icon.sh sed for the icon), runs the REAL section 4b out of verify-iso.sh against it, and expects
@@ -17,7 +18,8 @@
 #   every other variant    at least one failure (one defect each: a red square, an empty PNG, the wrong
 #                          colour, the other mode's file, a ring of the right colour but another shape, a
 #                          one-colour greeter, a black greeter, a gradient, an empty or another SVG, a start
-#                          icon that is Ubuntu's, keeps the artwork colours or lacks a path, the old label).
+#                          icon that is Ubuntu's, keeps the artwork colours, lacks a path, has a crop outside the
+#                          mark's canvas or one that clips half the mark, the old label).
 #
 # Needs python3, rsvg-convert or ImageMagick (to build the roots) and GNU coreutils; run it in a throw-away
 # container, with the repo mounted read-only, e.g.
@@ -66,8 +68,10 @@ build_root() { # build_root <dir>: what a correct build ships, in the places ver
     bash "$RM" "$r/usr/share/pixmaps/ubuntu-logo-text.png" 192 "$CI_LIGHT_PRIMARY" >/dev/null
     bash "$RM" "$r/usr/share/pixmaps/ubuntu-logo-text-dark.png" 192 "$CI_DARK_PRIMARY" >/dev/null
     bash "$RM" "$r/usr/share/pixmaps/companion-logo.png" 256 >/dev/null
-    # the same transformation 40-start-icon.sh applies to the vendored one-colour mark
-    vb="34.60548 36.582936 178.465404 175.004856"; read -r _ _ w h <<<"$vb"
+    # the same transformation 40-start-icon.sh applies to the vendored one-colour mark, with the crop it defines
+    vb="$(sed -n 's/^START_ICON_VIEWBOX="\(.*\)"$/\1/p' "$REPO/backends/ubuntu/desktop-theme/40-start-icon.sh")"
+    [[ -n "$vb" ]] || { echo "no START_ICON_VIEWBOX in 40-start-icon.sh" >&2; exit 2; }
+    read -r _ _ w h <<<"$vb"
     sed "s/viewBox=\"[^\"]*\"/viewBox=\"$vb\" width=\"$w\" height=\"$h\"/" "$REPO/vendor/brand/logos/mark-mono.svg" > "$r/usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg"
     cp "$REPO/vendor/brand/logos/mark.svg" "$r/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
     printf 'ci-os-logo\n' > "$r/usr/share/icons/hicolor/icon-theme.cache"
@@ -101,6 +105,10 @@ break_root() { # break_root <root> <variant>: one defect
         start-ubuntu)       printf '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><path d="M0 0h16v16H0z"/></svg>' > "$start" ;;
         start-artwork-colours) sed 's/currentColor/#066c80/g' "$start" > "$start.x" && mv "$start.x" "$start" ;;
         start-missing-path) sed 's/M51\.451,125\.652/M1,2/' "$start" > "$start.x" && mv "$start.x" "$start" ;;
+        # a crop for another mark: partly outside the canvas (caught by the containment check, no renderer needed) ...
+        start-outside)      sed 's/viewBox="[^"]*"/viewBox="-19.938 -19.938 119.295 119.625"/' "$start" > "$start.x" && mv "$start.x" "$start" ;;
+        # ... and one inside the canvas that cuts away about three quarters of the mark (needs rsvg-convert to be seen)
+        start-clipped)      sed 's/viewBox="[^"]*"/viewBox="34.6 36.5 90 90"/' "$start" > "$start.x" && mv "$start.x" "$start" ;;
         hub-old-label)      sed 's/^Name=.*/Name=CI OS Hub/' "$r/usr/share/applications/ci-os-hub.desktop" > "$r/x.desktop" && mv "$r/x.desktop" "$r/usr/share/applications/ci-os-hub.desktop" ;;
         *) echo "unknown variant $2" >&2; return 2 ;;
     esac
@@ -125,7 +133,10 @@ EOF
 BAD=0
 for variant in good about-red-square about-wrong-colour about-empty about-dark-swapped about-colour-mark about-other-shape \
                greeter-red-square greeter-one-colour greeter-black greeter-gradient icon-empty icon-other-mark \
-               start-ubuntu start-artwork-colours start-missing-path hub-old-label; do
+               start-ubuntu start-artwork-colours start-missing-path start-outside start-clipped hub-old-label; do
+    if [[ "$variant" == start-clipped ]] && ! command -v rsvg-convert >/dev/null 2>&1; then
+        echo "info  start-clipped: skipped (the ink check needs rsvg-convert)"; continue
+    fi
     root="$WORK/root-$variant"
     build_root "$root"
     break_root "$root" "$variant" || { echo "FAIL  $variant: could not build the variant"; BAD=$((BAD + 1)); continue; }

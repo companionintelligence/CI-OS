@@ -9,7 +9,12 @@
 # not kept as a second copy of the artwork: the path data is the mark's own, `currentColor` is the only
 # fill (GTK repaints a -symbolic icon in the foreground colour anyway, so no brand colour ships in it), and
 # only the viewBox is cropped to the mark plus a margin so it fills the dock button like Yaru's own glyph.
-# A re-vendored mark therefore reaches the dock with the rest of the logo surfaces.
+# A re-vendored mark therefore reaches the dock with the rest of the logo surfaces, as long as it keeps the geometry the
+# crop was cut for: the crop box is a constant, measured on the 1.0.0 mark (its ink spans about 51 to 196 units of the
+# 247.182-unit canvas, the box leaves a margin of 15 or more), not computed from it, because the stock desktop chroot
+# has no renderer to measure with. A mark with another viewBox stops this step, so the box is re-derived and not
+# applied to art it was not cut for; a mark that moves inside the same viewBox is caught by verify-iso.sh, which
+# renders the icon and the whole mark and requires the crop to keep the ink.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/theme-lib.sh"
 require_root
@@ -17,9 +22,16 @@ require_root
 MARK_SVG="$REPO_ROOT/vendor/brand/logos/mark-mono.svg"
 # x y width height, in the mark's own 247.182-unit coordinate system (its full viewBox is "0 0 247.182 247.182").
 START_ICON_VIEWBOX="34.60548 36.582936 178.465404 175.004856"
+START_ICON_SOURCE_VIEWBOX="0 0 247.182 247.182"
 
 if [[ ! -f "$MARK_SVG" ]]; then
   log_error "Logo mark not found: $MARK_SVG (expected from the vendored brand bundle)"
+  exit 1
+fi
+
+MARK_VIEWBOX="$(sed -n 's/.*viewBox="\([^"]*\)".*/\1/p' "$MARK_SVG" | head -1 | tr -s ' ,' ' ')"
+if [[ "$MARK_VIEWBOX" != "$START_ICON_SOURCE_VIEWBOX" ]]; then
+  log_error "$MARK_SVG has viewBox \"${MARK_VIEWBOX:-none}\", but START_ICON_VIEWBOX was cut for \"$START_ICON_SOURCE_VIEWBOX\": applying it would clip or offset the mark. Re-derive START_ICON_VIEWBOX (and START_ICON_SOURCE_VIEWBOX) for the new mark."
   exit 1
 fi
 
