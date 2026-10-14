@@ -55,7 +55,7 @@ trap 'rm -rf "$WORK"' EXIT
 {
     sed -n '/^PASS=0; FAIL=0$/,/^# ── extract what we need/p' "$VERIFY" | sed '$d'
     sed -n '/^in_listing() {/,/^# ── 1\. pre-installed packages/p' "$VERIFY" | sed '$d'
-    sed -n '/^section "4b\./,/^section "5\./p' "$VERIFY" | sed '$d' | sed 's#^PNGTOOL=.*#PNGTOOL="$VERIFY_REPO/backends/ubuntu/lib/png-colours.py"#'
+    sed -n '/^section "4b\./,/^section "4c\./p' "$VERIFY" | sed '$d' | sed 's#^PNGTOOL=.*#PNGTOOL="$VERIFY_REPO/backends/ubuntu/lib/png-colours.py"#'
 } > "$WORK/section.sh"
 [[ "$(grep -c 'canon_png' "$WORK/section.sh")" -ge 3 ]] || { echo "could not extract section 4b from $VERIFY" >&2; exit 2; }
 

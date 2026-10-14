@@ -460,7 +460,7 @@ in the script header.
 
 Branding only — no packages, no stack. Use this to re-skin a desktop you already
 have. All steps live under `backends/ubuntu/desktop-theme/*.sh` and run in a fixed order:
-**plymouth → dconf → terminal → wallpaper → session → start-icon → about-logo → os-release → motd** (+ optional **kde**).
+**plymouth → dconf → terminal → wallpaper → session → start-icon → about-logo → os-release → names → motd** (+ optional **kde**).
 Assets sit beside the script. Dock defaults: **left**, **autohide** (dismissable).
 Reboot once after applying for Plymouth to take effect.
 
@@ -468,6 +468,12 @@ The **about-logo** step (Settings > About) draws its two PNGs from the brand mar
 needs `librsvg2-bin` (or `imagemagick`) installed first. Without either it warns, leaves the Ubuntu
 wordmark in place and carries on with the other steps; install the package and run
 `--only about-logo` to finish it.
+
+The **names** step renames the Ubuntu display names that are still on screen: the sessions in
+GDM's gear menu, the Settings sidebar entry (`gnome-ubuntu-panel.desktop`) and the dock, AppIndicators and
+Tiling Assistant extension names. It edits only the `Name=`/`Comment=` (or JSON `"name"`) line, diverts the stock
+file so an upgrade cannot bring it back, and leaves every file name, id and `Exec=` alone. The session
+picker and the Settings entry change at the next login.
 
 ```bash
 # Full apply

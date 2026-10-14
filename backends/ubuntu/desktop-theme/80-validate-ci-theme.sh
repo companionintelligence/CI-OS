@@ -233,6 +233,26 @@ if [[ $UBUNTU_FOUND -eq 0 ]]; then
     check_pass "No obvious Ubuntu branding found"
 fi
 
+# Check 7b: the display names 60-visible-names.sh renames (GDM session picker, Settings sidebar entry, shell extensions)
+log_info "Checking session picker, Settings entry and extension names..."
+
+NAMES_SEEN=0
+NAMES_STOCK=0
+for names_file in /usr/share/xsessions/ubuntu.desktop /usr/share/xsessions/ubuntu-xorg.desktop \
+    /usr/share/wayland-sessions/ubuntu.desktop /usr/share/wayland-sessions/ubuntu-wayland.desktop \
+    /usr/share/applications/gnome-ubuntu-panel.desktop \
+    /usr/share/gnome-shell/extensions/{ubuntu-dock,ubuntu-appindicators,tiling-assistant}@ubuntu.com/metadata.json; do
+    [[ -f "$names_file" ]] || continue
+    NAMES_SEEN=$((NAMES_SEEN + 1))
+    if grep -q -E '^(Name|Comment)=.*Ubuntu|^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"Ubuntu ' "$names_file"; then
+        check_warn "$names_file still shows Ubuntu's name (run: apply-ci-os-desktop.sh --only names)"
+        NAMES_STOCK=1
+    fi
+done
+if [[ $NAMES_SEEN -gt 0 && $NAMES_STOCK -eq 0 ]]; then
+    check_pass "Session picker, Settings entry and extension names say Companion OS"
+fi
+
 # Check 8: Wallpaper
 log_info "Checking wallpaper..."
 

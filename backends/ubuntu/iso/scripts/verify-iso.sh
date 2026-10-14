@@ -27,6 +27,10 @@
 #   2c. the live GRUB menu is themed: an 8-bit PNG background, menu colours derived from the brand
 #      tokens, and only the modules the signed GRUB has built in (all_video, gfxterm, png); and,
 #      given VERIFY_BASE_ISO, the Secure Boot EFI binaries are byte-identical to the stock ISO's;
+#   2d. the Ubuntu display names that were still on screen read Companion OS: the four sessions in GDM's gear
+#      menu, the Settings sidebar entry and the three shell extensions; while the identifiers behind them
+#      (session file names, Exec=, DesktopNames=, OnlyShowIn=, extension uuids) are untouched and the stock files
+#      are dpkg-diverted;
 #   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
 #   3f. NetworkManager still manages wired devices (no netplan file overrides the
 #      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged).
@@ -132,6 +136,10 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     usr/share/plymouth/themes/spinner/watermark.png usr/share/plymouth/themes/bgrt usr/share/plymouth/themes/ubuntu-text \
     usr/share/icons/Yaru/scalable/places usr/share/icons/hicolor/scalable/apps usr/share/icons/hicolor/icon-theme.cache \
     usr/share/pixmaps var/lib/dpkg/diversions etc/dconf/db/gdm.d \
+    usr/share/xsessions usr/share/wayland-sessions usr/share/applications/gnome-ubuntu-panel.desktop \
+    usr/share/gnome-shell/extensions/ubuntu-dock@ubuntu.com/metadata.json \
+    usr/share/gnome-shell/extensions/ubuntu-appindicators@ubuntu.com/metadata.json \
+    usr/share/gnome-shell/extensions/tiling-assistant@ubuntu.com/metadata.json \
     >/dev/null 2>&1 || true
 
 in_listing() { grep -q -E "$1" "$LISTING"; }
@@ -670,6 +678,91 @@ else
     fail "greeter logo /usr/share/pixmaps/companion-logo.png missing"
 fi
 
+section "4c. Visible names (sessions, Settings panel, extensions)"
+# 60-visible-names.sh renames the display strings Ubuntu still showed after the logos: the sessions in GDM's gear menu,
+# the Settings sidebar entry (gnome-ubuntu-panel.desktop) and the names of three shell extensions. What the session and
+# the shell find them by must stay Ubuntu's, and is asserted as hard as the names: a session whose file name, Exec= or
+# DesktopNames= changed does not log in, a panel without OnlyShowIn=ubuntu; vanishes, and an extension whose uuid no
+# longer matches its directory is not loaded. The stock files are diverted so a package upgrade cannot restore them.
+listed() { awk -v p="$1" '$NF == p { f = 1 } END { exit !f }' "$LISTING"; } # a file at exactly this path in the image
+has_line() { grep -q -x -F -- "$2" "$1" 2>/dev/null; }                     # has_line <file> <whole line>
+json_field() { python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2" 2>/dev/null; }
+SESSION_ENTRIES=(
+    "/usr/share/xsessions/ubuntu.desktop|Companion OS"
+    "/usr/share/xsessions/ubuntu-xorg.desktop|Companion OS on Xorg"
+    "/usr/share/wayland-sessions/ubuntu.desktop|Companion OS"
+    "/usr/share/wayland-sessions/ubuntu-wayland.desktop|Companion OS on Wayland"
+)
+session_name_bad=""
+for entry in "${SESSION_ENTRIES[@]}"; do
+    f="${entry%%|*}"; want="${entry#*|}"
+    if ! listed "$f"; then fail "session file missing (its file name is the session id, so it must stay): $f"; continue; fi
+    grep -E '^Name=' "$R$f" 2>/dev/null | grep -q -v -E '^Name=Companion OS( |$)' && session_name_bad="$session_name_bad $f"
+    if has_line "$R$f" "Name=$want" && [[ "$(grep -c -E '^Name=' "$R$f")" == 1 ]] && has_line "$R$f" "Comment=This session logs you into Companion OS"; then
+        pass "$f is named '$want' (Name=, Comment=)"
+    else
+        fail "$f is not named '$want': $(grep -E '^(Name|Comment)=' "$R$f" 2>/dev/null | tr '\n' '|')"
+    fi
+    if has_line "$R$f" "Exec=env GNOME_SHELL_SESSION_MODE=ubuntu /usr/bin/gnome-session --session=ubuntu" \
+       && has_line "$R$f" "TryExec=/usr/bin/gnome-shell" && file_has "$R$f" '^DesktopNames=ubuntu;GNOME;?$'; then
+        pass "$f keeps its session identifiers (Exec= ubuntu session, TryExec=, DesktopNames=ubuntu;GNOME)"
+    else
+        fail "$f lost an identifier the session starts by: $(grep -E '^(Exec|TryExec|DesktopNames)=' "$R$f" 2>/dev/null | tr '\n' '|')"
+    fi
+    if divert_ok "$f" && listed "$f.ubuntu-stock"; then
+        pass "$f is dpkg-diverted (an ubuntu-session upgrade cannot restore Ubuntu's name)"
+    else
+        fail "$f is not dpkg-diverted to $f.ubuntu-stock (an ubuntu-session upgrade would restore Ubuntu's name)"
+    fi
+done
+if [[ -z "$session_name_bad" ]]; then
+    pass "every Name= in the four session files starts with 'Companion OS'"
+else
+    fail "a Name= in a session file does not start with 'Companion OS':$session_name_bad"
+fi
+
+PANEL="/usr/share/applications/gnome-ubuntu-panel.desktop"
+if ! listed "$PANEL"; then
+    fail "Settings sidebar entry file missing: $PANEL"
+else
+    if has_line "$R$PANEL" "Name=Companion OS Desktop" && has_line "$R$PANEL" "Comment=Companion OS Desktop Appearance Settings"; then
+        pass "Settings sidebar entry is 'Companion OS Desktop' (gnome-ubuntu-panel.desktop Name=, Comment=)"
+    else
+        fail "Settings sidebar entry is not 'Companion OS Desktop': $(grep -E '^(Name|Comment)=' "$R$PANEL" 2>/dev/null | tr '\n' '|')"
+    fi
+    if has_line "$R$PANEL" "Exec=gnome-control-center ubuntu" && has_line "$R$PANEL" "OnlyShowIn=ubuntu;"; then
+        pass "Settings panel keeps its id (Exec=gnome-control-center ubuntu, OnlyShowIn=ubuntu;)"
+    else
+        fail "Settings panel lost its id (Exec= or OnlyShowIn=): $(grep -E '^(Exec|OnlyShowIn)=' "$R$PANEL" 2>/dev/null | tr '\n' '|')"
+    fi
+    if divert_ok "$PANEL" && listed "$PANEL.ubuntu-stock"; then
+        pass "$PANEL is dpkg-diverted (a gnome-control-center upgrade cannot restore Ubuntu's name)"
+    else
+        fail "$PANEL is not dpkg-diverted to $PANEL.ubuntu-stock (a gnome-control-center upgrade would restore Ubuntu's name)"
+    fi
+fi
+
+for entry in "ubuntu-dock@ubuntu.com|Companion OS Dock" "ubuntu-appindicators@ubuntu.com|Companion OS AppIndicators" "tiling-assistant@ubuntu.com|Companion OS Tiling Assistant"; do
+    uuid="${entry%%|*}"; want="${entry#*|}"; f="/usr/share/gnome-shell/extensions/$uuid/metadata.json"
+    if ! listed "$f"; then fail "extension metadata missing: $f"; continue; fi
+    got_name="$(json_field "$R$f" name)"; got_uuid="$(json_field "$R$f" uuid)"
+    if [[ "$got_name" == "$want" ]]; then
+        pass "extension $uuid is named '$want' (metadata.json is valid JSON)"
+    else
+        fail "extension $uuid is named '${got_name:-<unreadable: not valid JSON or no name>}', want '$want'"
+    fi
+    if [[ "$got_uuid" == "$uuid" ]]; then
+        pass "extension $uuid keeps its uuid (it matches the directory name)"
+    else
+        fail "extension uuid in $f is '${got_uuid:-<unreadable>}', must equal its directory name '$uuid'"
+    fi
+    if divert_ok "$f" && listed "$f.ubuntu-stock"; then
+        pass "$f is dpkg-diverted (an extension package upgrade cannot restore Ubuntu's name)"
+    else
+        fail "$f is not dpkg-diverted to $f.ubuntu-stock (an extension package upgrade would restore Ubuntu's name)"
+    fi
+done
+
 section "5. Branding: boot menu"
 check "GRUB menu says Companion OS" file_has "$ISOX/grub.cfg" 'menuentry "Try or Install Companion OS"'
 check "/.disk/info starts with Companion-OS (launcher label 'Install Companion OS ...')" bash -c "head -1 '$ISOX/disk-info' | grep -q -E '^Companion-OS [0-9.]+ LTS '"
@@ -805,6 +898,7 @@ note "ISO volume id: '${PVD_VOLID:-unknown}' (casper/EFI rely on it)"
 note "/.disk/info is now: $(tr -d '\n' < "$ISOX/disk-info" 2>/dev/null) (field layout kept: casper, subiquity and pollinate parse it)"
 note "installer window text ('Welcome to Ubuntu'): Canonical snap ubuntu-desktop-bootstrap; flavour list is fixed (Ubuntu/Kubuntu/Lubuntu/Xubuntu/Edubuntu)"
 note "ID=ubuntu / DISTRIB_ID=Ubuntu / UBUNTU_CODENAME: required by apt, curtin and tooling"
+note "session file names (ubuntu.desktop, ubuntu-xorg.desktop, ...), DesktopNames=ubuntu, extension uuids (*@ubuntu.com), OnlyShowIn=ubuntu: ids the session and the shell look things up by; only their display names are Companion OS"
 
 printf '\n== Summary: %d passed, %d failed\n' "$PASS" "$FAIL"
 [[ -n "${VERIFY_KEEP:-}" ]] && echo "scratch kept in $WORK"

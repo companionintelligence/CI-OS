@@ -101,6 +101,12 @@ The compiled gresource is committed to source at:
      `apt upgrade` cannot restore Ubuntu's. `customize-chroot.sh` runs these and the Plymouth step from
      `backends/ubuntu/desktop-theme/` inside the chroot with `run_theme_step` (Steps 5, 5b, 5c): the same
      code the post-install re-skin runs.
+   - **Visible names** (`60-visible-names.sh`, Step 5d): the display names Ubuntu still showed. GDM's gear menu
+     lists the sessions as "Companion OS" and "Companion OS on Xorg" (`ubuntu*.desktop` `Name=`/`Comment=`),
+     the Settings sidebar entry reads "Companion OS Desktop" (`gnome-ubuntu-panel.desktop`), and the Extensions
+     app lists "Companion OS Dock", "Companion OS AppIndicators" and "Companion OS Tiling Assistant". Only
+     those lines change, on a copy and with the stock file diverted. File names, extension uuids, `Exec=`,
+     `DesktopNames=` and the other identifiers the session and shell find them by stay Ubuntu's.
    - GRUB configuration
    - AMD GPU / ROCm helper tools
    - Installer whitelabel (whitelabel.yaml, slides)

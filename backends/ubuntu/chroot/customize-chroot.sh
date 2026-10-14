@@ -573,6 +573,21 @@ rm -rf "$LOGO_RENDER_DIR"
 echo "[+] About logo replaced (light and dark)"
 
 #=============================================================================
+# 5d. Visible Ubuntu names: session picker, Settings sidebar entry, extension names
+#=============================================================================
+echo "[*] Step 5d: Renaming the visible Ubuntu display names..."
+
+# 60-visible-names.sh rewrites only the display strings the other steps leave on screen: the Name=/Comment= of the four
+# ubuntu*.desktop sessions in GDM's gear menu ("Companion OS", "Companion OS on Xorg"), of gnome-ubuntu-panel.desktop (the
+# Settings sidebar entry) and the "name" of the dock, AppIndicators and Tiling Assistant extensions. File names, uuids,
+# Exec=, DesktopNames= and the other required identifiers stay as shipped, and the step stops if an edit would change
+# any other line. The owning packages (ubuntu-session, gnome-control-center, the extension packages) are diverted first,
+# so an upgrade cannot bring the Ubuntu names back.
+run_theme_step 60-visible-names.sh
+
+echo "[+] Session picker, Settings entry and extension names read Companion OS"
+
+#=============================================================================
 # 6. Install AMD GPU Support
 #=============================================================================
 echo "[*] Step 6: Installing AMD GPU support..."
