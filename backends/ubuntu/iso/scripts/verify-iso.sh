@@ -389,6 +389,25 @@ if [[ -s "$ISOX/install-sources.yaml" ]]; then
 else
     fail "could not read /casper/install-sources.yaml"
 fi
+# Every layer install-sources.yaml names must exist on the ISO, or the installer crashes when it examines the
+# variations ("Failed to use fsimage ... doesn't exist or is invalid").
+CASPER_LS="$(xorriso -indev "$ISO" -ls /casper/ 2>/dev/null | tr -d "'" | tr ' ' '\n')"
+if [[ -s "$ISOX/install-sources.yaml" ]]; then
+    missing_layers=""
+    while read -r lp; do
+        grep -qxF "$lp" <<<"$CASPER_LS" || missing_layers="$missing_layers $lp"
+    done < <(sed -n 's/^ *path: *//p' "$ISOX/install-sources.yaml" | sort -u)
+    if [[ -z "$missing_layers" ]]; then
+        pass "every layer named in install-sources.yaml exists on the ISO"
+    else
+        fail "install-sources.yaml names layers that are not on the ISO (the installer will crash):$missing_layers"
+    fi
+    if grep -q 'enhanced-secureboot' "$ISOX/install-sources.yaml"; then
+        fail "install-sources.yaml still lists enhanced-secureboot variations (no such layers are shipped)"
+    else
+        pass "install-sources.yaml lists no enhanced-secureboot variations"
+    fi
+fi
 LANGLAYERS="$(xorriso -indev "$ISO" -ls /casper/ 2>/dev/null | tr -d "'" | tr ' ' '\n' | grep -E '^minimal(\.standard)?\.(de|en|es|fr|it|pt|ru|zh|no-languages)\.' || true)"
 if [[ -z "$LANGLAYERS" ]]; then pass "no stock language layers on the ISO"; else fail "stock language layers still on the ISO: $(echo $LANGLAYERS | tr '\n' ' ')"; fi
 

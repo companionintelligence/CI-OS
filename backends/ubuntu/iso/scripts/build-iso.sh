@@ -490,12 +490,13 @@ repack_squashfs() {
     local standard_squashfs_size
     standard_squashfs_size="$(stat -c%s "$casper_dir/minimal.standard.squashfs")"
 
-    # Calculate an approximate "enhanced-secureboot" size from original files
-    # (these layers are untouched from the base ISO)
-    local esb_size="${installed_size}"
-    if [[ -f "$casper_dir/minimal.enhanced-secureboot.squashfs" ]]; then
-        esb_size="$(stat -c%s "$casper_dir/minimal.enhanced-secureboot.squashfs")"
-    fi
+    # NO "enhanced-secureboot" variations. The stock file lists them (TPM-backed full-disk encryption needs
+    # a snapd system seed with its own layers), but this ISO ships no minimal*.enhanced-secureboot.squashfs.
+    # With the variations listed, ubuntu-desktop-bootstrap examines every variation when the user leaves the
+    # "Optimise your computer" page, hits `Failed to use fsimage: '///cdrom/casper/minimal.enhanced-secureboot
+    # .squashfs' doesn't exist or is invalid` in filesystem.py _examine_systems, and the installer dies with
+    # "Something went wrong" for EVERY user (seen in a QEMU install of the v7 ISO, 2026-10-15). Every path
+    # in this file must exist on the ISO: verify-iso.sh checks that.
 
     cat > "$casper_dir/install-sources.yaml" << ISYAML
 - default: true
@@ -514,10 +515,6 @@ repack_squashfs() {
     minimal:
       path: minimal.squashfs
       size: ${squashfs_size}
-    minimal-enhanced-secureboot:
-      path: minimal.enhanced-secureboot.squashfs
-      size: ${esb_size}
-      snapd_system_label: enhanced-secureboot-desktop
 - default: false
   description:
     en: Companion OS
@@ -531,15 +528,11 @@ repack_squashfs() {
   type: fsimage-layered
   variant: desktop
   variations:
-    enhanced-secureboot:
-      path: minimal.standard.enhanced-secureboot.squashfs
-      size: ${esb_size}
-      snapd_system_label: enhanced-secureboot-desktop
     standard:
       path: minimal.standard.squashfs
       size: ${squashfs_size}
 ISYAML
-    log_info "install-sources.yaml regenerated with both entries (minimal + standard)"
+    log_info "install-sources.yaml regenerated with both entries (minimal + standard), no enhanced-secureboot variations"
 
     # ── Regenerate SHA256SUMS for ALL squashfs files ────────────────────────
     # Must cover every .squashfs in casper/ or integrity checks fail.
