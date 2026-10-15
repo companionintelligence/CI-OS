@@ -2,10 +2,11 @@
 #=============================================================================
 # md5sum.txt of a remastered Ubuntu live ISO: write it, check the base ISO's convention, verify an image.
 #
-# Why this exists. The live medium carries /md5sum.txt, and "Check disc for defects" runs
-# `/usr/lib/casper/casper-md5check /cdrom /cdrom/md5sum.txt` (casper): for every line "<md5>  ./<path>" it opens the
-# path under the medium's root, hashes it and prints "<path>: OK" or "<path>: mismatch", then reports "errors found
-# in N files". build-iso.sh replaces the casper layers, the initrd, grub.cfg, loopback.cfg and .disk/info and adds a GRUB
+# Why this exists. The live medium carries /md5sum.txt, and the live system checks it on EVERY boot: casper's
+# casper-md5check.service, enabled in the live rootfs, runs `/usr/lib/casper/casper-md5check /cdrom /cdrom/md5sum.txt`
+# (fsck.mode=skip on the kernel command line skips it; 24.04's GRUB has no menu entry for it). For every line
+# "<md5>  ./<path>" it opens the path under the medium's root, hashes it and prints "<path>: OK" or "<path>: mismatch", then
+# reports "errors found in N files" or "no errors found". build-iso.sh replaces the casper layers, the initrd, grub.cfg, loopback.cfg and .disk/info and adds a GRUB
 # background, so the stock md5sum.txt, copied through unchanged, is wrong for every one of them: the check failed on every
 # Companion OS image, and it would name files that the remaster deleted. This script rewrites it from the stock one.
 #
@@ -28,9 +29,11 @@
 #       any problem: there is no fallback to the stale file. --stock-files is a list of /path lines (the regular files).
 #   md5sum-txt.sh verify ISO
 #       Read the image's /md5sum.txt and hash every listed file by STREAMING it out of the image (xorriso -find ... report_lba
-#       for the extents, then dd | md5sum; nothing is extracted to disk, so a 7.7 GB ISO needs no scratch space and a minute or
-#       two). Prints one line per problem (MISMATCH / MISSING / UNLISTED / DUPLICATE / BADLINE) and a final SUMMARY line;
-#       exit 1 if there was any problem. Needs xorriso, dd (GNU), md5sum.
+#       for the extents, then dd | md5sum; nothing is extracted to disk, so a 7.7 GB ISO needs no scratch space and takes under
+#       a minute). Prints one line per problem (MISMATCH / MISSING / UNLISTED / DUPLICATE / BADLINE) and a final SUMMARY line;
+#       exit 1 if there was any problem. It models casper-md5check, it is not casper's binary; UNLISTED (a regular file that the
+#       stock convention lists and md5sum.txt does not) is this script's own policy, casper ignores unlisted files.
+#       Needs xorriso, dd (GNU), md5sum.
 #
 # Needs: bash 3.2+, awk, find, sort, md5sum (or md5 on macOS: regenerate only); xorriso for --base-iso and verify.
 #

@@ -2,8 +2,8 @@
 #=============================================================================
 # Test: md5sum-txt.sh writes a correct md5sum.txt for a remastered image, and verify catches a stale one
 #
-# build-iso.sh used to copy the stock md5sum.txt into the image unchanged. casper-md5check ("Check disc for defects")
-# then reported a mismatch for every file the remaster changed and an error for every file it deleted. The
+# build-iso.sh used to copy the stock md5sum.txt into the image unchanged. casper-md5check (run by casper-md5check.service
+# on every live boot) then reported a mismatch for every file the remaster changed and an error for every file it deleted. The
 # regeneration is checked on a synthetic mini tree that has one of each kind of file:
 #
 #   changed    a mapped file whose content differs from the stock one (and one whose content is the same)

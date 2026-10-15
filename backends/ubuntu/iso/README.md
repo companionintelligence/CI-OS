@@ -136,7 +136,7 @@ The compiled gresource is committed to source at:
 6. Themes the live GRUB menu (`brand_live_grub`: background image and token-derived colours in
    `boot/grub/grub.cfg`, see [Live GRUB menu](#live-grub-menu)), then generates the bootable ISO with
    xorriso (inheriting EFI/BIOS boot from base ISO). The image's own `/md5sum.txt` is rewritten in the same
-   xorriso run (`write_md5sum_txt`, [below](#check-disc-for-defects-md5sumtxt-inside-the-image)) and the finished
+   xorriso run (`write_md5sum_txt`, [below](#disc-integrity-md5sumtxt-inside-the-image)) and the finished
    image is read back against it before the build succeeds
 7. Produces SHA256/MD5 checksums
 
@@ -398,27 +398,38 @@ cd output/
 sha256sum -c SHA256SUMS
 ```
 
-### Check disc for defects (`md5sum.txt` inside the image)
+### Disc integrity (`md5sum.txt` inside the image)
 
-The live medium carries `/md5sum.txt`, and the boot menu's "Check disc for defects" runs casper's
-`casper-md5check` over it: one `<md5>  ./<path>` line per file, a `mismatch` for every file whose hash differs and an
-error for every file it cannot open. This build replaces the casper layers and manifests, the initrd, `grub.cfg`,
-`loopback.cfg` and `.disk/info`, deletes the stock language layers and adds the GRUB background, so Ubuntu's own
-`md5sum.txt` is wrong for all of them (the v6 image: 14 mismatches, 55 listed files that are gone, 1 unlisted file) and
-the check failed on every Companion OS image. `build-iso.sh` now rewrites it with
-[`md5sum-txt.sh`](scripts/md5sum-txt.sh):
+The live medium carries `/md5sum.txt`, and the live system checks it on **every boot**: casper's
+`casper-md5check.service`, enabled in the live root filesystem, runs `/usr/lib/casper/casper-md5check /cdrom /cdrom/md5sum.txt`
+over it. For each `<md5>  ./<path>` line it prints `<path>: OK` or `<path>: mismatch` and it ends with "errors found in N
+files" or "no errors found"; a file that is listed but cannot be opened is one error. The result is in
+`journalctl -u casper-md5check` and `/run/casper-md5check.json`, and `fsck.mode=skip` on the kernel command line skips the
+check. Ubuntu 24.04's GRUB has **no menu entry** for it (the menu is "Try or Install", "safe graphics", "Boot from next
+volume", "UEFI Firmware Settings" and "Test memory"), so a stale file was not an opt-in defect: it was hit on every live boot.
+
+This build replaces the casper layers and manifests, the initrd, `grub.cfg`, `loopback.cfg` and `.disk/info`, deletes the
+stock language layers and adds the GRUB background, so Ubuntu's own `md5sum.txt` is wrong for all of them (the image built from
+`584a867`: 14 mismatches, 55 listed files that are gone, 1 unlisted file) and the check failed on every Companion OS image.
+`build-iso.sh` now rewrites it with [`md5sum-txt.sh`](scripts/md5sum-txt.sh):
 
 - the stock hash is kept for every file the build does not touch, at its stock position; the files the xorriso
   operations replace are hashed from their sources; entries of deleted files are dropped; new files are appended in
   sorted order;
 - the stock exclusions stay out: `/md5sum.txt` itself, everything under `/EFI/`, and everything in a subdirectory of
   `/boot/grub/` (`fonts/`, `i386-pc/`, `x86_64-efi/`; `grub.cfg` and `loopback.cfg` are listed). The script proves the base
-  ISO still follows exactly that (`check-stock`, run before any build work), and a base ISO of another shape stops the build;
+  ISO still follows exactly that (`check-stock`) and that its own hashes are right (`verify` on the base ISO, because the stock
+  hash of every untouched file is copied into the new file); both run before any build work, and a base ISO of another shape or
+  with a damaged file stops the build;
 - the list of files is computed from the very `-rm_r` / `-map` operations that xorriso is given, so the two cannot drift,
-  and the file is mapped in by the same run. Any problem fails the build; there is no fallback to the stock file;
+  and the file is mapped in by the same run, as its last map. Any problem fails the build, including a hash or a file listing
+  that fails half way (no blank hash, no dropped file); there is no fallback to the stock file;
 - after xorriso, the finished image is read back (`md5sum-txt.sh verify`): every listed file is hashed by streaming it out of
-  the ISO (`xorriso -find ... report_lba` for the extents, then `dd | md5sum`, so nothing is extracted and a 7.7 GB image takes
-  about half a minute), and the build fails if anything differs. `verify-iso.sh` section 8 runs the same check on any ISO.
+  the ISO (`xorriso -find ... report_lba` for the extents, then `dd | md5sum`, so nothing is extracted), which takes under a
+  minute (measured: 34 to 37 s for the 7.7 GB `584a867` image, 22 s for the stock ISO; it is I/O-bound), and the build fails if
+  anything differs. An image that fails this, or that xorriso could not write, is renamed to `NAME.rejected` and no checksums are
+  written; the earlier run's image, `.rejected` file and checksums are deleted before xorriso starts, so the output directory never
+  holds an image next to the checksums of another build. `verify-iso.sh` section 8 runs the same check on any ISO.
 
 ```bash
 backends/ubuntu/iso/scripts/md5sum-txt.sh verify output/companion-os-1.0-amd64.iso   # prints MISMATCH / MISSING / UNLISTED lines and a SUMMARY
@@ -426,9 +437,28 @@ backends/ubuntu/iso/tests/md5sum-txt.sh                                         
 ```
 
 `tests/md5sum-txt.sh` needs only awk and a hash tool for its first part (a stock macOS with bash 3.2 is enough); with
-`xorriso` it also remasters a mini ISO exactly as `build-iso.sh` does and shows that `verify` fails on the stale stock file.
-The streaming read was checked on a real image against `casper/SHA256SUMS` (a 5.6 GB file in two extents) and
-against Canonical's own `md5sum.txt` on the stock ISO (448 of 448 entries match).
+`xorriso` and GNU `dd` it also remasters a mini ISO exactly as `build-iso.sh` does (with an El Torito image and
+`-boot_image any replay`), runs `generate_iso` on it and shows that `verify` fails on the stale stock file. `core/lib/check-repo.sh`
+runs it. A file over 4 GiB is too big to build there: the two-extent path that the 5.6 GB `casper/minimal.squashfs` takes is tested
+with a report written by hand in xorriso's format and a fake image. On a real image the same code can be checked by hand against
+`casper/SHA256SUMS` (take the extents from `xorriso -indev ISO -find /casper/minimal.squashfs -exec report_lba --`, one `lba`
+and `blocks` pair per `xt` row):
+
+```bash
+( source backends/ubuntu/iso/scripts/md5sum-txt.sh
+  iso_stream_hash ISO.iso <size in bytes> '<lba>:<blocks>,<lba>:<blocks>' sha256sum )   # equals the minimal.squashfs line of casper/SHA256SUMS
+```
+
+**Not proven until a boot.** `md5sum-txt.sh verify` is a reimplementation of the check (awk, `dd` and `md5sum`), not casper's
+binary. It was compared with the real `casper-md5check` (casper 1.498) on a synthetic tree only: the two agreed on OK, a
+mismatch, a path with a space and an empty file. For a file that is listed but missing casper prints "No such file or
+directory" and then "mismatch" and counts one error, which `verify` reports as MISSING. `verify` also reports UNLISTED (a regular
+file of the image that the stock convention lists and `md5sum.txt` does not); casper ignores unlisted files, so that is this
+script's policy and not a casper failure. Two other comparisons show that `verify` reads files correctly (the extent reading
+against `casper/SHA256SUMS`, and 448 of 448 stock entries against Canonical's own `md5sum.txt`); neither is a run of
+casper-md5check. What has **not** been done is the in-guest run on an image built
+from `d6255cc` or later: `journalctl -u casper-md5check` (or `/run/casper-md5check.json`) saying "no errors found" in a booted
+guest. Until that is recorded here, a clean `verify` means the file is right by this script's model, not by casper's.
 
 ### Verify the image contents (pre-installed tools and branding)
 
@@ -456,9 +486,9 @@ either asks for the firmware background (which would make the plugin paint black
 that the overlay's and the rootfs' copies agree key by key apart from the fonts, and (with `unmkinitramfs`) that the initrd's default theme is the
 bgrt one the overlay repaints, the text splash is titled
 Companion OS, and `bgrt-fallback.png` is the same non-Ubuntu 128 px canon mark in the overlay and the rootfs. In the rootfs every package-owned Plymouth file the build rewrites (the watermark, `bgrt-fallback.png`, `bgrt.plymouth`, `spinner.plymouth`, and the text theme's template `ubuntu-text.plymouth.in`, from which the package regenerates the text theme) is `dpkg-divert`ed, so a package upgrade or an `/etc/lsb-release` trigger cannot bring Ubuntu's logo or colours back (`desktop-theme/tests/plymouth-theme.sh` shows this against the real packages).
-Section 8 checks the image's `md5sum.txt` (see [Check disc for defects](#check-disc-for-defects-md5sumtxt-inside-the-image)):
+Section 8 checks the image's `md5sum.txt` (see [Disc integrity](#disc-integrity-md5sumtxt-inside-the-image)):
 every entry matches the file in the ISO, no entry names a file that is gone, and every regular file the stock convention
-lists is listed.
+lists is listed. It is `verify`'s model of casper-md5check, not a boot of the image, and says so in its output.
 Exit status is non-zero if any check fails.
 
 To also prove the Secure Boot chain is intact, name the stock ISO the image was built from; the check then

@@ -287,9 +287,10 @@ Generated files:
 - `MD5SUMS.gpg` - GPG signature (if `--sign` used)
 - `SBOM.txt` - Software Bill of Materials (CI builds only; local builds must generate separately)
 
-These checksum the ISO file as a whole. The image also carries its own `/md5sum.txt`, which the boot menu's
-"Check disc for defects" verifies file by file; `build-iso.sh` rewrites it for the remastered contents and reads the
-finished image back against it (`backends/ubuntu/iso/scripts/md5sum-txt.sh`, see the ISO README).
+These checksum the ISO file as a whole. The image also carries its own `/md5sum.txt`, which the live system's
+`casper-md5check.service` verifies file by file on every boot (`fsck.mode=skip` skips it); `build-iso.sh` rewrites it for the
+remastered contents and reads the finished image back against it (`backends/ubuntu/iso/scripts/md5sum-txt.sh`, see the ISO
+README).
 
 ---
 

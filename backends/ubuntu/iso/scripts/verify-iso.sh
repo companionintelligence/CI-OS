@@ -41,7 +41,7 @@
 #   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
 #   3f. NetworkManager still manages wired devices (no netplan file overrides the
 #      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged);
-#   8. the medium's /md5sum.txt, which "Check disc for defects" (casper-md5check) verifies, is correct: every entry matches the
+#   8. the medium's /md5sum.txt, which the live system's casper-md5check.service verifies on every boot, is correct: every entry matches the
 #      file in the image (each file is hashed by streaming it out of the ISO, nothing is extracted), no entry names a file that is
 #      gone, and every regular file the stock convention lists (all but /md5sum.txt, /EFI and the subdirectories of /boot/grub)
 #      is listed. It is rewritten by build-iso.sh (md5sum-txt.sh); the stock file is wrong for every file the remaster changes.
@@ -1208,12 +1208,15 @@ fi
 note "the kernel's acceptance of the appended archive is only proven by booting the ISO (see the QEMU boot check)"
 
 # ── 8. md5sum.txt ───────────────────────────────────────────────────────────
-section "8. Disc integrity: md5sum.txt matches the files in the image (Check disc for defects)"
-# casper-md5check reads /md5sum.txt ("<md5>  ./<path>" per line) and prints "mismatch" for every file whose hash differs and
-# an error for every file it cannot open. The stock file lists the stock layers, the stock initrd, grub.cfg and .disk/info, so it
-# is wrong for every file the remaster changed or deleted (v6 had 14 mismatches, 55 missing files and an unlisted background).
-# md5sum-txt.sh verify streams each listed file out of the ISO (xorriso report_lba for the extents, then dd | md5sum), so a
-# 7.7 GB image needs no scratch space and takes about a minute.
+section "8. Disc integrity: md5sum.txt matches the files in the image (casper-md5check)"
+# casper-md5check.service, enabled in the live rootfs, runs casper-md5check over /md5sum.txt ("<md5>  ./<path>" per line) on every
+# live boot (24.04's GRUB has no menu entry for it; fsck.mode=skip skips it). It prints "mismatch" for every file whose hash differs
+# and counts an error for every file it cannot open. The stock file lists the stock layers, the stock initrd, grub.cfg and
+# .disk/info, so it is wrong for every file the remaster changed or deleted (the image built from 584a867 had 14 mismatches,
+# 55 missing files and an unlisted background). md5sum-txt.sh verify streams each listed file out of the ISO (xorriso report_lba
+# for the extents, then dd | md5sum), so a 7.7 GB image needs no scratch space and takes under a minute (34 to 37 s measured).
+# verify MODELS casper-md5check; it is not casper's binary, and UNLISTED below is this script's own policy (casper ignores
+# a file that md5sum.txt does not list).
 MD5TXT_TOOL="$(dirname "${BASH_SOURCE[0]}")/md5sum-txt.sh"
 if [[ -f "$MD5TXT_TOOL" ]]; then
     md5_field() { printf '%s\n' "$md5_summary" | tr ' ' '\n' | sed -n "s/^$1=//p"; }
@@ -1228,7 +1231,7 @@ if [[ -f "$MD5TXT_TOOL" ]]; then
         if [[ "$(md5_field mismatched)" == 0 ]]; then
             pass "every file listed in md5sum.txt hashes to its entry ($(md5_field matched) files, streamed out of the image)"
         else
-            fail "$(md5_field mismatched) file(s) do not match their md5sum.txt entry (Check disc for defects reports them as a mismatch)"; md5_show MISMATCH
+            fail "$(md5_field mismatched) file(s) do not match their md5sum.txt entry (casper-md5check reports them as a mismatch)"; md5_show MISMATCH
         fi
         if [[ "$(md5_field missing)" == 0 ]]; then pass "no md5sum.txt entry names a file that is not in the image"
         else fail "$(md5_field missing) md5sum.txt entr(ies) name a file that is not in the image (the check fails on each)"; md5_show MISSING; fi
@@ -1246,6 +1249,7 @@ if [[ -f "$MD5TXT_TOOL" ]]; then
     else
         note "md5sum.txt exclusions not compared with the stock ISO's (skipped: set VERIFY_BASE_ISO=<stock Ubuntu ISO>)"
     fi
+    note "casper-md5check itself is not run here: verify models it (compared with the real binary on a synthetic tree only), so the result on a booted image (journalctl -u casper-md5check, or /run/casper-md5check.json) is still the proof"
 else
     skip "md5sum.txt check (md5sum-txt.sh is not next to this script)"
 fi

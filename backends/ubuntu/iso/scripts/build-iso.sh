@@ -8,7 +8,7 @@
 # 2. Extract base Ubuntu ISO
 # 3. Customize the squashfs rootfs
 # 4. Apply branding and identity changes
-# 5. Repack the ISO, with a regenerated /md5sum.txt (md5sum-txt.sh) that "Check disc for defects" can verify
+# 5. Repack the ISO, with a regenerated /md5sum.txt (md5sum-txt.sh) that the live system's casper-md5check verifies on every boot
 # 6. Generate checksums and signatures
 #
 # Usage:
@@ -786,7 +786,7 @@ quarantine_iso() {
 
 # Write the md5sum.txt of the image that the xorriso edit operations in "$@" make out of the base ISO.
 #
-# The medium's /md5sum.txt is what "Check disc for defects" (casper-md5check) verifies. This build replaces the casper layers
+# The medium's /md5sum.txt is what casper-md5check.service verifies on every live boot. This build replaces the casper layers
 # and manifests, the initrd, grub.cfg, loopback.cfg and .disk/info and adds the GRUB background, so the stock file, mapped
 # through unchanged, mismatches every one of them and lists the language layers this build deletes. md5sum-txt.sh keeps the
 # stock hash of every file nothing touches, hashes the mapped sources, drops the deleted files and appends the new ones.
@@ -924,8 +924,8 @@ generate_iso() {
     log_info "ISO generated: $iso_path"
 
     # Read every file back out of the finished image and compare it with md5sum.txt, streaming (nothing is extracted).
-    # A mismatch means the list of files the script modelled is not what xorriso wrote, and "Check disc for defects"
-    # would fail on this image: stop before checksums are written for it.
+    # A mismatch means the list of files the script modelled is not what xorriso wrote, and casper-md5check would report
+    # errors on every boot of this image: stop before checksums are written for it.
     log_info "Checking md5sum.txt against the finished image (under a minute)..."
     if ! "$SCRIPT_DIR/md5sum-txt.sh" verify "$iso_path"; then
         log_error "the finished image does not match its own md5sum.txt; it is NOT usable (no checksums were written for it)"
