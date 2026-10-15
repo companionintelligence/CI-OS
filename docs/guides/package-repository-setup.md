@@ -21,7 +21,10 @@ Guide for setting up and maintaining the CI-OS package repository.
 
 ## Overview
 
-The CI-OS package repository (`packages.ci.computer`) hosts:
+The CI-OS package repository (`packages.ci.computer`) is planned to host the packages below.
+None of them is built from this repo yet (their placeholder sources were removed); the only
+package `build-packages.sh` builds today is `ci-os-branding`. Treat the examples in this guide
+as the design for when they exist:
 
 - `companion-os-base` - Base system package
 - `companion-os-keyring` - Repository GPG keyring
@@ -341,7 +344,7 @@ name: Publish Packages
 on:
   push:
     paths:
-      - 'packages/**'
+      - 'backends/ubuntu/packages/**'
   workflow_dispatch:
 
 jobs:
@@ -358,15 +361,18 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.REPO_SSH_KEY }}
           REPO_HOST: ${{ secrets.REPO_HOST }}
+          # The server's public host key line(s), as printed by `ssh-keyscan <host>` on a
+          # trusted network. Pinning it avoids disabling host-key checking.
+          REPO_HOST_KEY: ${{ secrets.REPO_HOST_KEY }}
         run: |
           # Setup SSH
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/id_rsa
           chmod 600 ~/.ssh/id_rsa
+          echo "$REPO_HOST_KEY" >> ~/.ssh/known_hosts
           
           # Upload packages
-          scp -o StrictHostKeyChecking=no \
-            ./output/packages/*.deb \
+          scp ./output/packages/*.deb \
             ci-os@$REPO_HOST:/srv/packages.ci.computer/incoming/
           
           # Process on server
@@ -408,7 +414,7 @@ EOF
 
 ```bash
 # Manual installation
-wget https://packages.ci.computer/pool/main/companion-os-keyring_1.0.0_all.deb
+wget https://packages.ci.computer/pool/main/c/companion-os-keyring/companion-os-keyring_1.0.0_all.deb
 sudo dpkg -i companion-os-keyring_1.0.0_all.deb
 
 # Update package lists
@@ -424,7 +430,7 @@ Add to `backends/ubuntu/chroot/customize-chroot.sh`:
 
 ```bash
 # Copy keyring package into chroot
-copy_to_chroot "$REPO_ROOT/output/backends/ubuntu/packages/companion-os-keyring_1.0.0_all.deb" \
+copy_to_chroot "$REPO_ROOT/output/packages/companion-os-keyring_1.0.0_all.deb" \
   "/tmp/companion-os-keyring.deb"
 
 # Install keyring
