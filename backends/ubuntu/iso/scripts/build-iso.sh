@@ -673,6 +673,46 @@ brand_boot_media() {
     fi
 }
 
+# Add "Install Companion OS (automatic)" to the live menu: a copy of the first ("Try or Install") entry whose kernel
+# line also carries ci.autoinstall=1. Booting it starts the same live session; the autostart hook
+# (/usr/libexec/ci-os/ci-os-auto-install --live-setup) sees the word in /proc/cmdline and opens the one-click installer's
+# confirmation straight away. It does NOT install anything by itself: the confirmation that names the disk is the
+# consent, so a stick left in a machine and booted by accident erases nothing. The existing entries and every kernel
+# line in them are untouched, this only inserts one entry after the first; the kernel ignores a dotted parameter whose
+# prefix is not a module. Fails the build if the stock entry is not the shape expected.
+add_auto_install_menuentry() {
+    local grub_cfg="$1" out
+    out="$(mktemp)"
+    awk '
+        /^menuentry "Try or Install Companion OS"[ \t]*\{[ \t]*$/ && !done { inblock = 1; n = 0; print; next }
+        inblock {
+            print; buf[n++] = $0
+            if ($0 ~ /^\}[ \t]*$/) {
+                inblock = 0; done = 1
+                print "menuentry \"Install Companion OS (automatic)\" {"
+                for (i = 0; i < n - 1; i++) {
+                    l = buf[i]
+                    if (l ~ /^[ \t]*linux[ \t]/) sub(/[ \t]---/, " ci.autoinstall=1  ---", l)
+                    print l
+                }
+                print "}"
+            }
+            next
+        }
+        { print }
+    ' "$grub_cfg" > "$out"
+    if [[ "$(grep -c 'ci\.autoinstall=1' "$out")" != 1 ]] \
+       || [[ "$(grep -c '^menuentry "Install Companion OS (automatic)"' "$out")" != 1 ]] \
+       || [[ "$(grep -cE '^[[:space:]]*linux[[:space:]]' "$out")" != "$(( $(grep -cE '^[[:space:]]*linux[[:space:]]' "$grub_cfg") + 1 ))" ]]; then
+        rm -f "$out"
+        log_error "could not add the automatic-install entry: $grub_cfg has no 'Try or Install Companion OS' entry with a '---' kernel line"
+        return 1
+    fi
+    cat "$out" > "$grub_cfg"
+    rm -f "$out"
+    log_info "GRUB: added the 'Install Companion OS (automatic)' entry"
+}
+
 # Theme the live ISO's GRUB menu (boot/grub/grub.cfg): the canon navy background with the mark, and menu
 # colours derived from the brand tokens. Without this the live menu is stock text GRUB with only the
 # entry titles changed. Only display settings in grub.cfg change, plus one new file, boot/grub/ci-os-bg.png.
@@ -870,6 +910,9 @@ generate_iso() {
             -e 's/\(menuentry[[:space:]]*"\)Ubuntu\b/\1Companion OS/' \
             "$loopback_cfg"
     fi
+
+    # The automatic-install entry copies the title-edited first entry, so it comes after the edit above.
+    [[ -f "$grub_cfg" ]] && { add_auto_install_menuentry "$grub_cfg" || return 1; }
 
     # Background image and token-derived colours for the live menu (see brand_live_grub). After the title
     # edit above, before xorriso maps grub.cfg into the image.

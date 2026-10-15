@@ -273,6 +273,38 @@ else pass "no UID 1000-59999 account in the image (casper creates the live user)
 check "casper.conf does not pretend to set USERGROUPS (casper ignores it)" bash -c "! grep -q USERGROUPS '$R/etc/casper.conf'"
 check "docker.io is not installed (conflicts with docker-ce)" bash -c "! awk 'BEGIN{RS=\"\"} \$1==\"Package: docker.io\"' '$R/var/lib/dpkg/status' | grep -q 'install ok installed'"
 
+# 1d. One-click automatic install (customize-chroot.sh Step 10f; docs/architecture/one-click-install.md).
+section "One-click automatic install"
+AI="$R/usr/libexec/ci-os/ci-os-auto-install"
+[[ -x "$AI" ]] && pass "ci-os-auto-install is present and executable" || fail "ci-os-auto-install is missing or not executable"
+head -n 1 "$AI" 2>/dev/null | grep -qx '#!/usr/bin/env python3' && pass "ci-os-auto-install runs under python3" || fail "ci-os-auto-install has no python3 shebang"
+file_has "$R/usr/share/ci-os/live/ci-os-auto-install.desktop" '^Exec=/usr/libexec/ci-os/ci-os-auto-install$' \
+    && pass "launcher .desktop runs the helper" || fail "launcher .desktop missing or runs something else"
+file_has "$R/usr/share/ci-os/live/ci-os-auto-install.desktop" '^Name=Install Companion OS \(automatic\)$' \
+    && pass "launcher is named \"Install Companion OS (automatic)\"" || fail "launcher has the wrong name"
+file_has "$R/etc/xdg/autostart/ci-os-live-setup.desktop" '^Exec=/usr/libexec/ci-os/ci-os-auto-install --live-setup$' \
+    && pass "autostart hook places the launcher in live sessions" || fail "autostart hook missing"
+for f in zenity curl openssl lsblk findmnt; do
+    in_listing "(usr/)?s?bin/$f( |\$)" && pass "image ships $f (the helper needs it)" || fail "image lacks $f"
+done
+in_listing 'usr/lib/python3/dist-packages/yaml/__init__\.py' && pass "image ships python3-yaml" || fail "image lacks python3-yaml"
+# The safety rules are properties of the script text; the behaviour is the unit tests, run against THIS copy.
+check "helper never shells out with shell=True" bash -c "! grep -q 'shell=True' '$AI'"
+check "helper never partitions or formats a disk itself" bash -c "! grep -qE '\b(mkfs|wipefs|sgdisk|parted)\b|\bdd +if=' '$AI'"
+if [[ -f "$VERIFY_REPO/backends/ubuntu/chroot/tests/test_auto_install.py" ]] && python3 -c 'import yaml' 2>/dev/null; then
+    if CI_OS_AI_HELPER="$AI" python3 "$VERIFY_REPO/backends/ubuntu/chroot/tests/test_auto_install.py" >"$WORK/auto-install-tests.log" 2>&1; then
+        pass "disk-selection unit tests pass against the image's helper ($(grep -E '^Ran ' "$WORK/auto-install-tests.log"))"
+    else
+        fail "disk-selection unit tests FAIL against the image's helper (see $WORK/auto-install-tests.log)"; tail -n 15 "$WORK/auto-install-tests.log"
+    fi
+else
+    skip "disk-selection unit tests (need the repo checkout and python3-yaml)"
+fi
+# The boot menu's extra entry: one, a copy of the first entry, carrying ci.autoinstall=1, nothing else changed.
+check "GRUB menu has exactly one 'Install Companion OS (automatic)' entry" bash -c "[[ \$(grep -c '^menuentry \"Install Companion OS (automatic)\"' '$ISOX/grub.cfg') == 1 ]]"
+check "only that entry's kernel line carries ci.autoinstall=1" bash -c "[[ \$(grep -c 'ci\\.autoinstall=1' '$ISOX/grub.cfg') == 1 ]] && awk '/^menuentry \"Install Companion OS \(automatic\)\"/{f=1} f&&/ci\\.autoinstall=1/{ok=1} /^}/{f=0} END{exit !ok}' '$ISOX/grub.cfg'"
+check "no entry boots the installer unattended (no 'autoinstall' word without the ci. prefix)" bash -c "! grep -E '^[[:space:]]*linux' '$ISOX/grub.cfg' | grep -qE '(^|[[:space:]])autoinstall([[:space:]]|=|\$)'"
+
 section "3c. Optional tools (Tier B): tailscale, cloudflared, gh, Ollama, Companion Launcher"
 if [[ "${VERIFY_TIERB:-1}" == 0 ]]; then
     note "skipped (VERIFY_TIERB=0)"

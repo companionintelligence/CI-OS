@@ -977,6 +977,29 @@ echo "[+] Wireless setup stack, Docker and CI-Hub tooling pre-installed"
 
 
 #=============================================================================
+# 10f. One-click automatic install (live session)
+#
+# "Install Companion OS (automatic)": a desktop icon, an app-grid entry and (optionally) a boot-menu entry that pick the
+# internal disk, ask ONE question that names it and drive the stock installer through its autoinstall path. The helper
+# never touches the boot medium and fails closed when it cannot identify it (see its header and
+# backends/ubuntu/chroot/tests/test_auto_install.py). It needs only what the desktop image already ships: python3,
+# python3-yaml, zenity, curl, openssl. The XDG autostart hook does nothing on an installed system (is_live() is false).
+#=============================================================================
+echo "[*] Step 10f: Installing the one-click automatic installer..."
+LIVE_PAYLOAD="$REPO_ROOT/backends/ubuntu/chroot/payload/live-start"
+install -d -m 0755 "$CHROOT_PATH/usr/libexec/ci-os" "$CHROOT_PATH/usr/share/ci-os/live" "$CHROOT_PATH/etc/xdg/autostart"
+install -m 0755 "$LIVE_PAYLOAD/usr/libexec/ci-os/ci-os-auto-install"                    "$CHROOT_PATH/usr/libexec/ci-os/ci-os-auto-install"
+install -m 0644 "$LIVE_PAYLOAD/usr/share/ci-os/live/ci-os-auto-install.desktop"         "$CHROOT_PATH/usr/share/ci-os/live/ci-os-auto-install.desktop"
+install -m 0644 "$LIVE_PAYLOAD/etc/xdg/autostart/ci-os-live-setup.desktop"              "$CHROOT_PATH/etc/xdg/autostart/ci-os-live-setup.desktop"
+for _tool in zenity curl openssl lsblk findmnt; do
+    chroot_exec "command -v $_tool >/dev/null" || { echo "[ERROR] Step 10f: $_tool is missing from the image; the automatic installer needs it" >&2; exit 1; }
+done
+chroot_exec "python3 -c 'import yaml'" || { echo "[ERROR] Step 10f: python3-yaml is missing from the image" >&2; exit 1; }
+chroot_exec "python3 -m py_compile /usr/libexec/ci-os/ci-os-auto-install && rm -rf /usr/libexec/ci-os/__pycache__"
+echo "[+] One-click automatic installer installed"
+
+
+#=============================================================================
 # 10e. Pre-install the optional ("Tier B") tools: tailscale, cloudflared, gh, Ollama, Companion Launcher
 #
 # Runs after Step 10d (Docker, wireless stack; /usr/lib/ci-os/baked-hub-tools.txt exists).

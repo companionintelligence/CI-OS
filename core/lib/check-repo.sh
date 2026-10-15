@@ -98,6 +98,17 @@ if art="$(git ls-files | grep -E '\.(deb|rpm|iso|squashfs|dsc|changes|buildinfo)
   echo "✖ build artifacts are tracked — build them in CI, don't commit them:"; echo "$art"; rc=1
 fi
 
+echo "── one-click installer unit tests (backends/ubuntu/chroot/tests/test_auto_install.py)"
+# Disk selection and the autoinstall file of ci-os-auto-install, on fixtures: no root, no disk, no VM. It is the rule that the
+# boot medium is never offered as a target, so it runs on every push. python3-yaml is already needed by yamllint.
+ai_out="$(mktemp)"
+if PYTHONDONTWRITEBYTECODE=1 python3 backends/ubuntu/chroot/tests/test_auto_install.py > "$ai_out" 2>&1; then
+  grep -E '^(Ran|OK)' "$ai_out" | tr '\n' ' '; echo
+else
+  tail -n 25 "$ai_out"; rc=1
+fi
+rm -f "$ai_out"
+
 echo "── ISO md5sum.txt tests (backends/ubuntu/iso/tests/md5sum-txt.sh)"
 # The one ISO test that needs no container: it checks how the image's md5sum.txt is written and verified on a synthetic tree
 # (awk, find, a hash tool; bash 3.2 is enough). With xorriso and GNU dd on the machine it also remasters a mini ISO and runs
