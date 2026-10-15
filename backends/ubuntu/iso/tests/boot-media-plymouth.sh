@@ -240,7 +240,10 @@ check_case() {
             expect "[$label] bgrt.plymouth differs from the stock file in the four colour lines and UseFirmwareBackground only (fonts stay)" \
                 test "$(changed_keys "$xs/$t/$theme/$theme.plymouth" "$conf")" = \
                      "BackgroundEndColor BackgroundStartColor ProgressBarBackgroundColor ProgressBarForegroundColor UseFirmwareBackground"
-            expect "[$label] stock bgrt asks for the firmware background in boot-up, shutdown and reboot (the precondition of the fix)" \
+            # In the early and plain cases the "stock" file is this test's own write_stock_themes text, so this only keeps the
+            # fixture honest (the change below would otherwise prove nothing). That Ubuntu's own file asks for it is shown by the
+            # [real] case (CI_TEST_STOCK_INITRD), desktop-theme/tests/plymouth-theme.sh and tests/plymouth-ground-render.sh.
+            expect "[$label] stock bgrt asks for the firmware background in boot-up, shutdown and reboot (fixture-only unless [real]; the precondition of the fix)" \
                 test "$(firmware_modes "$xs/$t/$theme/$theme.plymouth")" = "true true true"
             expect "[$label] bgrt.plymouth switches it off in boot-up, shutdown and reboot, so the plugin draws the ground, not black" \
                 test "$(firmware_modes "$conf")" = "false false false"

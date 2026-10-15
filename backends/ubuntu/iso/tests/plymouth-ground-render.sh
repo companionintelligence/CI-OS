@@ -10,7 +10,7 @@
 # DRM, no framebuffer, no VM), shows the splash for each theme file below and reads the ground off a screenshot:
 #
 #   stock bgrt                           black     (the starting point: the stock theme)
-#   navy keys, firmware background on    black     (what v6 shipped: the four colour lines repainted, nothing else,
+#   navy keys, firmware background on    black     (what images built before 4382caa shipped: the four colour lines repainted, nothing else,
 #                                                   i.e. the bug; proves the harness can tell black from navy)
 #   navy keys, ONE section still true    black     (all or nothing: the plugin loads the firmware images when any mode
 #                                                   asks for them and paints black in every mode that does not)
@@ -114,40 +114,41 @@ STOCK_SPINNER="$WORK/stock-spinner.plymouth"; cp "$THEMES/spinner/spinner.plymou
 expect "precondition: Ubuntu's bgrt asks for the firmware background in boot-up, shutdown and reboot" \
     test "$(grep -c '^UseFirmwareBackground=true' "$STOCK_BGRT")" -eq 3
 
-# The variants. "v6" is the previous ci_plymouth_recolor, which repainted the colour lines and left the firmware background on.
-cp "$STOCK_BGRT" "$WORK/v6-bgrt.plymouth"
+# The variants. "colours-only" is ci_plymouth_recolor as it was before commit 4382caa: it repainted the colour lines and left the
+# firmware background on.
+cp "$STOCK_BGRT" "$WORK/colours-only-bgrt.plymouth"
 sed -i -e "s/BackgroundStartColor=0x[0-9a-fA-F]*/BackgroundStartColor=$(ci_hex0x "$CI_DARK_BACKGROUND")/" \
-       -e "s/BackgroundEndColor=0x[0-9a-fA-F]*/BackgroundEndColor=$(ci_hex0x "$CI_DARK_BACKGROUND")/" "$WORK/v6-bgrt.plymouth"
+       -e "s/BackgroundEndColor=0x[0-9a-fA-F]*/BackgroundEndColor=$(ci_hex0x "$CI_DARK_BACKGROUND")/" "$WORK/colours-only-bgrt.plymouth"
 # ...and the same with only the [boot-up] section switched off (the other two modes still ask for the firmware background)
 awk '/^\[/ { sec = $0 } sec == "[boot-up]" && /^UseFirmwareBackground=true/ { print "UseFirmwareBackground=false"; next } { print }' \
-    "$WORK/v6-bgrt.plymouth" > "$WORK/partial-bgrt.plymouth"
-cp "$STOCK_BGRT" "$WORK/v7-bgrt.plymouth";       ci_plymouth_recolor "$WORK/v7-bgrt.plymouth"
-cp "$STOCK_SPINNER" "$WORK/v7-spinner.plymouth"; ci_plymouth_recolor "$WORK/v7-spinner.plymouth"
+    "$WORK/colours-only-bgrt.plymouth" > "$WORK/partial-bgrt.plymouth"
+cp "$STOCK_BGRT" "$WORK/recolor-bgrt.plymouth";       ci_plymouth_recolor "$WORK/recolor-bgrt.plymouth"
+cp "$STOCK_SPINNER" "$WORK/recolor-spinner.plymouth"; ci_plymouth_recolor "$WORK/recolor-spinner.plymouth"
 
 SHOTS="$WORK/shots"; mkdir -p "$SHOTS"
 render_theme bgrt    "$STOCK_BGRT"                    "$SHOTS/stock-bgrt.png"
-render_theme bgrt    "$WORK/v6-bgrt.plymouth"         "$SHOTS/v6-bgrt.png"
+render_theme bgrt    "$WORK/colours-only-bgrt.plymouth"         "$SHOTS/colours-only-bgrt.png"
 render_theme bgrt    "$WORK/partial-bgrt.plymouth"    "$SHOTS/partial-bgrt.png"
-render_theme bgrt    "$WORK/v7-bgrt.plymouth"         "$SHOTS/v7-bgrt.png"
-render_theme spinner "$WORK/v7-spinner.plymouth"      "$SHOTS/v7-spinner.png"
+render_theme bgrt    "$WORK/recolor-bgrt.plymouth"         "$SHOTS/recolor-bgrt.png"
+render_theme spinner "$WORK/recolor-spinner.plymouth"      "$SHOTS/recolor-spinner.png"
 cp -f "$STOCK_BGRT" "$THEMES/bgrt/bgrt.plymouth"; cp -f "$STOCK_SPINNER" "$THEMES/spinner/spinner.plymouth"
 
-for f in stock-bgrt v6-bgrt partial-bgrt v7-bgrt v7-spinner; do
+for f in stock-bgrt colours-only-bgrt partial-bgrt recolor-bgrt recolor-spinner; do
     expect "screenshot $f.png exists and is ${W}x${H} (the splash was shown)" \
         test "$(identify -format '%wx%h' "$SHOTS/$f.png" 2>/dev/null || convert "$SHOTS/$f.png" -format '%wx%h' info: 2>/dev/null)" = "${W}x${H}"
 done
 # A black ground only means something if the splash is really on the screen (an empty X root is black too): every shot
 # has the spinner and the watermark on it, so it holds many more colours than a flat fill.
-for f in stock-bgrt v6-bgrt partial-bgrt v7-bgrt v7-spinner; do
+for f in stock-bgrt colours-only-bgrt partial-bgrt recolor-bgrt recolor-spinner; do
     expect "$f.png is a drawn splash, not an empty screen ($(colours_of "$SHOTS/$f.png") colours)" test "$(colours_of "$SHOTS/$f.png")" -gt 8
 done
 expect "stock bgrt: the ground is black ($BLACK)" test "$(ground_of "$SHOTS/stock-bgrt.png")" = "$BLACK"
-expect "navy colour lines with the firmware background on (what v6 shipped): the ground is STILL black, the bug this fixes" \
-    test "$(ground_of "$SHOTS/v6-bgrt.png")" = "$BLACK"
+expect "navy colour lines with the firmware background on (what images before 4382caa shipped): the ground is STILL black, the bug this fixes" \
+    test "$(ground_of "$SHOTS/colours-only-bgrt.png")" = "$BLACK"
 expect "navy colour lines with only [boot-up] switched off: still black (the other modes make the plugin paint black everywhere)" \
     test "$(ground_of "$SHOTS/partial-bgrt.png")" = "$BLACK"
-expect "bgrt after ci_plymouth_recolor: the ground is the canon dark background ($NAVY)" test "$(ground_of "$SHOTS/v7-bgrt.png")" = "$NAVY"
-expect "spinner after ci_plymouth_recolor: the ground is the canon dark background ($NAVY)" test "$(ground_of "$SHOTS/v7-spinner.png")" = "$NAVY"
+expect "bgrt after ci_plymouth_recolor: the ground is the canon dark background ($NAVY)" test "$(ground_of "$SHOTS/recolor-bgrt.png")" = "$NAVY"
+expect "spinner after ci_plymouth_recolor: the ground is the canon dark background ($NAVY)" test "$(ground_of "$SHOTS/recolor-spinner.png")" = "$NAVY"
 
 if [[ -n "${CI_TEST_KEEP_SHOTS:-}" ]]; then
     mkdir -p "$CI_TEST_KEEP_SHOTS" && cp "$SHOTS"/*.png "$CI_TEST_KEEP_SHOTS"/ && echo "screenshots kept in $CI_TEST_KEEP_SHOTS"

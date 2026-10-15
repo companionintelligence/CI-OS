@@ -951,7 +951,8 @@ if [[ -f "$WM_ROOT" ]]; then
 fi
 # The live session's splash is drawn from the Plymouth files INSIDE the initrd, which never reads the rootfs copies, so the
 # overlay carries its own: bgrt.plymouth and spinner.plymouth (the ground and the progress bar), ubuntu-text.plymouth (the
-# safe-graphics splash) and bgrt-fallback.png (what the bgrt theme shows where the firmware has no boot logo). They are the
+# safe-graphics splash) and bgrt-fallback.png (installed and diverted; the plugin only draws it if a theme asks for the firmware
+# background again, which ci_plymouth_recolor switches off, see below). They are the
 # initrd's own files repainted (build-iso.sh brand_initrd_plymouth), so the Font= lines are still Ubuntu's, the only fonts
 # that initrd carries. The colours are the canon's, derived from the repo's tokens like the logo checks above. The files
 # are checked, not a screen: that the plugin then DRAWS the ground is shown by tests/plymouth-ground-render.sh (the real
@@ -993,7 +994,8 @@ else
 fi
 # What the plugin DRAWS. BackgroundStartColor is only the ground if no section of the theme asks for the firmware
 # background: the two-step plugin then paints a hard-coded black behind the firmware's boot logo (or bgrt-fallback.png), so
-# v6, with the navy colour lines above and UseFirmwareBackground=true in [boot-up], [shutdown] and [reboot], showed black.
+# an image with the navy colour lines above and UseFirmwareBackground=true in [boot-up], [shutdown] and [reboot] (what was built
+# before 4382caa) showed black.
 # ci_plymouth_recolor switches the key off in every section, for the overlay's copy and the rootfs copy alike.
 # Plymouth's parser accepts blanks around the "=" and the values 1, y, yes and true (any case) as "on".
 ply_asks_firmware() { grep -q -i -E '^[[:space:]]*UseFirmwareBackground[[:space:]]*=[[:space:]]*(1|y|yes|true)[[:space:]]*$' "$1"; }
