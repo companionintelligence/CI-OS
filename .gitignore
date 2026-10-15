@@ -1,5 +1,6 @@
 # CI-OS Build Artifacts and Development Files
 *.iso
+*.iso.rejected
 *.iso.CHECKSUM
 *.iso.MANIFEST
 

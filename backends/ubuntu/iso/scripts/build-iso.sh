@@ -759,13 +759,28 @@ GRUB_GFX_BLOCK
 }
 
 # The base ISO's md5sum.txt has to follow the convention md5sum-txt.sh was written against (it lists every regular file but
-# /md5sum.txt, /EFI and the subdirectories of /boot/grub). Checked up front, so that a base ISO of another shape fails the
-# build now and not after the hour the rootfs takes.
+# /md5sum.txt, /EFI and the subdirectories of /boot/grub), and has to be right about the base ISO's own files. The first is
+# the file NAMES (check-stock); the second is the file CONTENT (verify): the new md5sum.txt keeps the stock hash of every file
+# the build does not touch, so a damaged or altered base ISO would carry its wrong hashes into the image and fail only at the
+# final read-back, after the hour the rootfs takes. Checked up front, so that either fails the build now.
 check_base_md5sum() {
-    log_info "Checking the base ISO's md5sum.txt..."
+    log_info "Checking the base ISO's md5sum.txt (the listing convention, then every file's hash; under a minute)..."
     if ! "$SCRIPT_DIR/md5sum-txt.sh" check-stock --base-iso "$BASE_ISO"; then
         log_error "the base ISO's md5sum.txt is not what md5sum-txt.sh expects: the image's md5sum.txt cannot be regenerated, so no image is built"
         exit 1
+    fi
+    if ! "$SCRIPT_DIR/md5sum-txt.sh" verify "$BASE_ISO"; then
+        log_error "the base ISO does not match its own md5sum.txt (a damaged download, or not the stock image); its hashes would be copied into the new image, so no image is built"
+        exit 1
+    fi
+}
+
+# Take an image that must not be used out from under its real name (kept for the post-mortem as NAME.rejected), so that a
+# script or a person that picks up output/companion-os-*.iso cannot get a half-written or failed image.
+quarantine_iso() {
+    local iso_path="$1"
+    if [[ -e "$iso_path" ]] && mv -f "$iso_path" "$iso_path.rejected"; then
+        log_error "the image was renamed to $iso_path.rejected"
     fi
 }
 
@@ -874,7 +889,9 @@ generate_iso() {
     # and casper can find the boot medium.
     # ─────────────────────────────────────────────────────────────────────────
     log_info "Building ISO with xorriso (inheriting boot from base ISO)..."
-    rm -f "$iso_path"
+    # An earlier run's image, rejected image and checksums go together: a failure below must not leave an image next to the
+    # checksums of a different build.
+    rm -f "$iso_path" "$iso_path.rejected" "$OUTPUT_DIR"/{SHA256SUMS,MD5SUMS}{,.gpg}
 
     local -a xorriso_edits=(
         -rm_r /casper --
@@ -891,23 +908,28 @@ generate_iso() {
     write_md5sum_txt "$md5_new" "${xorriso_edits[@]}" || return 1
     xorriso_edits+=(-map "$md5_new" /md5sum.txt)
 
-    xorriso \
+    if ! xorriso \
         -indev "$BASE_ISO" \
         -outdev "$iso_path" \
         -volid "$orig_volid" \
         -boot_image any replay \
         -pathspecs on \
         "${xorriso_edits[@]}" \
-        -commit_eject all
+        -commit_eject all; then
+        log_error "xorriso failed to write $iso_path (no checksums were written for it)"
+        quarantine_iso "$iso_path"
+        return 1
+    fi
     
     log_info "ISO generated: $iso_path"
 
     # Read every file back out of the finished image and compare it with md5sum.txt, streaming (nothing is extracted).
     # A mismatch means the list of files the script modelled is not what xorriso wrote, and "Check disc for defects"
     # would fail on this image: stop before checksums are written for it.
-    log_info "Checking md5sum.txt against the finished image (a minute or two)..."
+    log_info "Checking md5sum.txt against the finished image (under a minute)..."
     if ! "$SCRIPT_DIR/md5sum-txt.sh" verify "$iso_path"; then
-        log_error "the finished image does not match its own md5sum.txt; $iso_path is NOT usable (no checksums were written for it)"
+        log_error "the finished image does not match its own md5sum.txt; it is NOT usable (no checksums were written for it)"
+        quarantine_iso "$iso_path"
         return 1
     fi
     

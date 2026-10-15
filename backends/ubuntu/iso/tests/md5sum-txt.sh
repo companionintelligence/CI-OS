@@ -236,9 +236,13 @@ if [[ -z "${SKIP_B:-}" ]] && command -v md5sum >/dev/null 2>&1; then
         mkdir -p "$B/tree$(dirname "$p")"; STOCK_CONTENT "$p" > "$B/tree$p"
     done
     : > "$B/tree/.disk/base_installable"   # an empty file, like the real one
+    # A BIOS El Torito image where Ubuntu has it (under a /boot/grub subdirectory, so md5sum.txt leaves it out), so that the
+    # remaster below runs with a boot image to carry over, as it does for the real image with `-boot_image any replay`.
+    head -c 4096 /dev/zero | tr '\0' 'E' > "$B/tree/boot/grub/i386-pc/eltorito.img"
     { cat "$A/stock.md5"; printf '%s  ./.disk/base_installable\n' "$(hash_of '')"; } > "$B/tree/md5sum.txt"
     # check-stock needs the listed set to equal the file set: base_installable is now both in the tree and in md5sum.txt.
-    xorriso -as mkisofs -r -iso-level 3 -V MINI -o "$B/stock.iso" "$B/tree" >/dev/null 2>&1 \
+    xorriso -as mkisofs -r -iso-level 3 -V MINI -b boot/grub/i386-pc/eltorito.img -no-emul-boot -boot-load-size 4 \
+        -o "$B/stock.iso" "$B/tree" >/dev/null 2>&1 \
         || { t_fail "could not build the mini stock ISO"; }
     if [[ -s "$B/stock.iso" ]]; then
         if bash "$H" check-stock --base-iso "$B/stock.iso" > "$B/cs.out" 2> "$B/cs.err"; then t_pass "check-stock --base-iso: the mini ISO follows the convention"
@@ -250,7 +254,7 @@ if [[ -z "${SKIP_B:-}" ]] && command -v md5sum >/dev/null 2>&1; then
         remaster() { # remaster <out iso> [extra xorriso args]
             local out="$1"; shift
             rm -f "$out"
-            xorriso -indev "$B/stock.iso" -outdev "$out" -volid MINI -boot_image any keep -pathspecs on \
+            xorriso -indev "$B/stock.iso" -outdev "$out" -volid MINI -boot_image any replay -pathspecs on \
                 -rm_r /casper -- \
                 -map "$N/casper" /casper -map "$N/grub.cfg" /boot/grub/grub.cfg -map "$N/ci-os-bg.png" /boot/grub/ci-os-bg.png \
                 -map "$N/info" /.disk/info "$@" -commit_eject all >/dev/null 2>&1
@@ -262,6 +266,12 @@ if [[ -z "${SKIP_B:-}" ]] && command -v md5sum >/dev/null 2>&1; then
         if remaster "$B/new.iso" -map "$B/new.md5" /md5sum.txt && bash "$H" verify "$B/new.iso" > "$B/vn.out" 2>&1; then
             t_pass "verify: the remastered image's md5sum.txt matches every file in it ($(grep SUMMARY "$B/vn.out"))"
         else t_fail "verify rejected the remastered image: $(head -c 600 "$B/vn.out" 2>/dev/null)"; fi
+
+        # The boot image survives the remaster: the same `-boot_image any replay` as build-iso.sh, on an image that has one.
+        el_torito() { xorriso -indev "$1" -report_el_torito plain 2>/dev/null | grep -F 'El Torito img path' | grep -c -F '/boot/grub/i386-pc/eltorito.img' || true; }
+        if [[ "$(el_torito "$B/stock.iso")" == 1 && "$(el_torito "$B/new.iso")" == 1 ]]; then
+            t_pass "the remastered image keeps the El Torito boot image of the stock one (-boot_image any replay)"
+        else t_fail "the El Torito boot image is not in both the stock mini ISO and the remastered one (stock $(el_torito "$B/stock.iso"), new $(el_torito "$B/new.iso"))"; fi
 
         # The old behaviour: the stock md5sum.txt stays in the image.
         if remaster "$B/stale.iso"; then
@@ -311,6 +321,71 @@ if [[ -z "${SKIP_B:-}" ]] && command -v md5sum >/dev/null 2>&1; then
                 t_pass "check_base_md5sum stops a base ISO with a file its md5sum.txt does not list (names it, exit $rc)"
             else t_fail "check_base_md5sum let a base ISO with an unlisted file through (exit $rc): $(tail -n 3 "$B/odd.out")"; fi
         else t_fail "could not build the odd mini ISO"; fi
+
+        # A base ISO whose md5sum.txt follows the convention but is WRONG about a file the build never touches: check-stock reads
+        # names only and passes it; the stock hash would be copied into the new image, so check_base_md5sum has to read the content.
+        mkdir -p "$B/tree3"; cp -R "$B/tree/." "$B/tree3/"
+        sed "s/^[0-9a-f]\{32\}  \.\/pool\/main\/a\/a\.deb\$/$(hash_of wrong)  .\/pool\/main\/a\/a.deb/" "$B/tree/md5sum.txt" > "$B/tree3/md5sum.txt"
+        if xorriso -as mkisofs -r -iso-level 3 -V MINI -o "$B/badhash.iso" "$B/tree3" >/dev/null 2>&1; then
+            if bash "$H" check-stock --base-iso "$B/badhash.iso" >/dev/null 2>&1; then t_pass "control: check-stock alone passes a base ISO with a wrong hash for an untouched file (it reads names)"
+            else t_fail "control: check-stock rejected the wrong-hash base ISO, the test cannot show what check_base_md5sum adds"; fi
+            rc=0; ( source "$HERE/../scripts/build-iso.sh"; BASE_ISO="$B/badhash.iso"; check_base_md5sum ) > "$B/bh.out" 2>&1 || rc=$?
+            if [[ "$rc" -ne 0 ]] && grep -q -F -- 'MISMATCH /pool/main/a/a.deb' "$B/bh.out"; then
+                t_pass "check_base_md5sum stops a base ISO whose md5sum.txt has a wrong hash (names the file, exit $rc)"
+            else t_fail "check_base_md5sum let a base ISO with a wrong hash through (exit $rc): $(tail -n 3 "$B/bh.out")"; fi
+        else t_fail "could not build the wrong-hash mini ISO"; fi
+
+        # generate_iso, the real function, end to end on the mini image. xorriso is wrapped by a recorder that runs the real
+        # one, and md5sum-txt.sh by a shim that records the sub-commands and can be told to fail `verify`. Sourcing build-iso.sh
+        # only defines functions. This is what tells that the new md5sum.txt is the LAST map of the xorriso run (a later map of
+        # the same path would win), that the image is read back, and that a rejected image does not stay under its real name.
+        G="$B/gen"; mkdir -p "$G/work/custom-iso/boot/grub" "$G/work/custom-iso/.disk" "$G/out" "$G/shim"
+        cp -R "$N/casper" "$G/work/custom-iso/casper"; cp "$N/grub.cfg" "$G/work/custom-iso/boot/grub/grub.cfg"
+        cp "$N/info" "$G/work/custom-iso/.disk/info"; cp "$N/ci-os-bg.png" "$G/work/ci-os-bg.png"
+        cat > "$G/shim/md5sum-txt.sh" <<'SHIMEOF'
+#!/usr/bin/env bash
+# Records "<sub-command> <last argument>", then runs the real script; CI_TEST_VERIFY_FAIL=1 makes `verify` fail.
+printf '%s %s\n' "$1" "${*: -1}" >> "${CI_TEST_SHIM_LOG:?}"
+if [[ "$1" == verify && "${CI_TEST_VERIFY_FAIL:-}" == 1 ]]; then echo "verify: simulated mismatch" >&2; exit 1; fi
+exec bash "${CI_TEST_REAL_MD5SUM_TXT:?}" "$@"
+SHIMEOF
+        chmod +x "$G/shim/md5sum-txt.sh"
+        run_generate() { # run_generate: build-iso.sh's generate_iso over $G (brand_live_grub is not under test: it needs the renderers)
+            ( source "$HERE/../scripts/build-iso.sh"
+              BASE_ISO="$B/stock.iso"; WORK_DIR="$G/work"; OUTPUT_DIR="$G/out"; CI_OS_VERSION=0.0-test; SCRIPT_DIR="$G/shim"
+              export CI_TEST_SHIM_LOG="$G/shim.log" CI_TEST_REAL_MD5SUM_TXT="$H"
+              brand_live_grub() { :; }
+              xorriso() { printf '%s\n' "$*" >> "$G/xorriso.log"; command xorriso "$@"; }
+              generate_iso )
+        }
+        GISO="$G/out/companion-os-0.0-test-amd64.iso"
+        if run_generate > "$G/gen1.out" 2>&1; then
+            [[ -s "$GISO" && -s "$G/out/SHA256SUMS" && -s "$G/out/MD5SUMS" ]] && t_pass "generate_iso: writes the image and its checksums" \
+                || t_fail "generate_iso succeeded but the image or a checksum file is missing: $(ls "$G/out")"
+            build_line="$(grep -F -- '-outdev' "$G/xorriso.log" | tail -n 1)"
+            case "$build_line" in
+                *'-boot_image any replay'*) t_pass "generate_iso: remasters with -boot_image any replay (boot setup inherited from the base ISO)" ;;
+                *) t_fail "generate_iso: the xorriso run does not use -boot_image any replay: $build_line" ;;
+            esac
+            case "$build_line" in
+                *'/md5sum.txt.new /md5sum.txt -commit_eject all') t_pass "generate_iso: the new md5sum.txt is mapped in, as the last map of the xorriso run" ;;
+                *) t_fail "generate_iso: /md5sum.txt is not the last map of the xorriso run: $build_line" ;;
+            esac
+            if grep -q '^regenerate ' "$G/shim.log"; then t_pass "generate_iso: the md5sum.txt is regenerated for the image"
+            else t_fail "generate_iso did not call md5sum-txt.sh regenerate"; fi
+            if grep -q -x -F -- "verify $GISO" "$G/shim.log"; then t_pass "generate_iso: the finished image is read back with md5sum-txt.sh verify"
+            else t_fail "generate_iso did not run md5sum-txt.sh verify on the finished image (log: $(tr '\n' '|' < "$G/shim.log"))"; fi
+            if bash "$H" verify "$GISO" > "$G/gen1.verify" 2>&1; then t_pass "generate_iso: the image's md5sum.txt matches every file in it ($(grep SUMMARY "$G/gen1.verify"))"
+            else t_fail "generate_iso wrote an image that fails verify: $(head -c 400 "$G/gen1.verify")"; fi
+            # The checksums of this run are in out/ now. A second run whose verify fails must neither keep the image under its
+            # name nor leave these checksums beside a different image.
+            rc=0; CI_TEST_VERIFY_FAIL=1 run_generate > "$G/gen2.out" 2>&1 || rc=$?
+            if [[ "$rc" -ne 0 ]]; then t_pass "generate_iso: fails when the finished image does not verify (exit $rc)"; else t_fail "generate_iso succeeded although verify failed"; fi
+            [[ ! -e "$GISO" && -s "$GISO.rejected" ]] && t_pass "generate_iso: a rejected image is renamed to .rejected, not left under its real name" \
+                || t_fail "generate_iso: the rejected image is not quarantined (files: $(ls "$G/out" | tr '\n' ' '))"
+            [[ ! -e "$G/out/SHA256SUMS" && ! -e "$G/out/MD5SUMS" ]] && t_pass "generate_iso: the checksums of the earlier run are removed, none are written for the rejected image" \
+                || t_fail "generate_iso left checksums beside a rejected image (files: $(ls "$G/out" | tr '\n' ' '))"
+        else t_fail "generate_iso failed on the mini image: $(tail -n 5 "$G/gen1.out")"; fi
     fi
 fi
 
