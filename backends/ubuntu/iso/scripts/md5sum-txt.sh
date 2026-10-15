@@ -61,12 +61,17 @@ function parse_md5_line(line,    h, sep, p) {
     return 1
 }'
 
-md5_of() { # md5_of FILE: the hash alone
-    local out
-    if command -v md5sum >/dev/null 2>&1; then out="$(md5sum < "$1")"
-    elif command -v md5 >/dev/null 2>&1; then out="$(md5 -q "$1")"
-    else die "neither md5sum nor md5 is installed"; fi
-    printf '%s\n' "${out%% *}"
+# md5_of FILE: the hash alone. Fails, printing nothing, if FILE cannot be hashed or the tool did not answer with 32 hex digits.
+# It runs inside $(...) where bash clears errexit, so every failure is returned explicitly and the caller has to test it:
+#   h="$(md5_of "$f")" || die "cannot hash $f"
+md5_of() {
+    local out h re='^[0-9a-f]{32}$'
+    if command -v md5sum >/dev/null 2>&1; then out="$(md5sum < "$1")" || return 1
+    elif command -v md5 >/dev/null 2>&1; then out="$(md5 -q "$1")" || return 1
+    else err "neither md5sum nor md5 is installed"; return 1; fi
+    h="${out%% *}"
+    [[ $h =~ $re ]] || return 1
+    printf '%s\n' "$h"
 }
 
 need_xorriso() { command -v xorriso >/dev/null 2>&1 || die "xorriso is not installed (needed for --base-iso and verify)"; }
@@ -221,7 +226,7 @@ cmd_check_stock() {
 }
 
 cmd_regenerate() {
-    local rm_list="$T/rm.list" changed="$T/changed.tsv" src dest f rel
+    local rm_list="$T/rm.list" changed="$T/changed.tsv" src dest f rel h odd
     : > "$rm_list"; : > "$changed"
     [[ -n "$OUT" ]] || die "regenerate needs --out FILE"
     load_stock
@@ -236,17 +241,21 @@ cmd_regenerate() {
                 src="${2%/}"; dest="${3%/}"
                 if [[ -L "$src" ]]; then die "--map $src: a symlink is mapped as a link, not as the file it points to (unsupported)"; fi
                 if [[ -d "$src" ]]; then
-                    if [[ -n "$(find "$src" ! -type f ! -type d -print -quit)" ]]; then
-                        die "--map $src: it holds something that is neither a regular file nor a directory ($(find "$src" ! -type f ! -type d -print -quit))"
-                    fi
+                    odd="$(find "$src" ! -type f ! -type d -print -quit)" || die "--map $src: could not read the tree"
+                    [[ -z "$odd" ]] || die "--map $src: it holds something that is neither a regular file nor a directory ($odd)"
+                    # The list goes to a file first: a find that fails half way inside <(...) or $(...) would end the loop quietly
+                    # and drop the files it did not reach from the md5sum.txt.
+                    find "$src" -type f -print0 > "$T/files.nul" || die "--map $src: could not list the files under it"
                     while IFS= read -r -d '' f; do
                         rel="${f#"$src"/}"
                         case "$rel" in *$'\t'*|*\\*|*$'\n'*) die "--map $src: unsupported file name: $rel" ;; esac
-                        printf '%s\t%s\n' "$(md5_of "$f")" "$dest/$rel" >> "$changed"
-                    done < <(find "$src" -type f -print0)
+                        h="$(md5_of "$f")" || die "--map $src: cannot hash $f"
+                        printf '%s\t%s\n' "$h" "$dest/$rel" >> "$changed"
+                    done < "$T/files.nul"
                 elif [[ -f "$src" ]]; then
                     [[ -n "$dest" ]] || die "--map $src /: the destination has to be a path"
-                    printf '%s\t%s\n' "$(md5_of "$src")" "$dest" >> "$changed"
+                    h="$(md5_of "$src")" || die "--map $src: cannot hash it"
+                    printf '%s\t%s\n' "$h" "$dest" >> "$changed"
                 else
                     die "--map source not found: $src"
                 fi
@@ -260,6 +269,10 @@ cmd_regenerate() {
         || die "could not write the md5sum.txt (nothing was written to $OUT)"
     { cat "$T/out.retained"; LC_ALL=C sort -k 2 "$T/new.lines"; } > "$T/out.final"
     [[ -s "$T/out.final" ]] || die "the regenerated md5sum.txt is empty (nothing was written to $OUT)"
+    # Every line, kept or computed, has to be what casper-md5check reads; a blank hash must not get through to the image.
+    awk -v prog="$PROG" "$AWK_COMMON"'
+    !parse_md5_line($0) { bad++; if (bad <= 5) printf "%s: ERROR: line %d of the new md5sum.txt is not \"<md5>  ./<path>\": %s\n", prog, NR, $0 > "/dev/stderr" }
+    END { exit (bad > 0) }' "$T/out.final" || die "the regenerated md5sum.txt has a malformed line (nothing was written to $OUT)"
     chmod 644 "$T/out.final"
     cp "$T/out.final" "$OUT"
 }

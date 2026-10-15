@@ -165,6 +165,49 @@ expect_fail "a symlink in a mapped tree" "neither a regular file" R --map "$N/ca
 rm -f "$N/casper/link"
 expect_fail "no --out" "needs --out" bash "$H" regenerate --stock-md5 "$A/stock.md5" --stock-files "$A/stock.files"
 
+# Fail closed: a hash or a file listing that fails inside $(...) must stop regenerate. Bash clears errexit there, so the old code
+# wrote a line with a BLANK hash for a file md5sum could not read, and silently dropped the files a failing find did not reach.
+# md5sum and find are replaced by stubs that fail the way a read error does (a real chmod 000 only fails for a non-root user).
+STUB_HASH="$WORK/stub-md5sum"; STUB_FIND="$WORK/stub-find"; mkdir -p "$STUB_HASH" "$STUB_FIND"
+REAL_HASH="$(command -v md5sum 2>/dev/null || true)"; [[ -n "$REAL_HASH" ]] || REAL_HASH="$(command -v md5) -q"
+REAL_FIND="$(command -v find)"
+cat > "$STUB_HASH/md5sum" <<'STUBEOF'
+#!/bin/sh
+# md5sum for a test: input starting BOOM fails like a read error, input starting BLANK prints nothing and "succeeds".
+d="$(cat)"
+case "$d" in BOOM*) echo "md5sum: simulated read error" >&2; exit 1 ;; BLANK*) exit 0 ;; esac
+printf '%s' "$d" | ${CI_TEST_REAL_HASH:?}
+STUBEOF
+cat > "$STUB_FIND/find" <<'STUBEOF'
+#!/bin/sh
+# find for a test: a listing (-print0) prints what it can and then fails, like find on an unreadable subdirectory.
+for a in "$@"; do
+    if [ "$a" = -print0 ]; then "${CI_TEST_REAL_FIND:?}" "$@"; echo "find: simulated: Permission denied" >&2; exit 1; fi
+done
+exec "${CI_TEST_REAL_FIND:?}" "$@"
+STUBEOF
+chmod +x "$STUB_HASH/md5sum" "$STUB_FIND/find"
+FC="$WORK/failclosed"; mkdir -p "$FC/boom" "$FC/blank" "$FC/ok"
+printf 'BOOM-read-error' > "$FC/boom/unreadable.bin"; printf 'fine' > "$FC/boom/fine.bin"
+printf 'BLANK-hash' > "$FC/blank/empty-answer.bin"
+printf 'fine' > "$FC/ok/changed.bin"
+RSTUB() { local stub="$1"; shift  # RSTUB <stub dir> <regenerate args>: regenerate with that stub first in PATH
+          env CI_TEST_REAL_HASH="$REAL_HASH" CI_TEST_REAL_FIND="$REAL_FIND" PATH="$stub:$PATH" \
+              bash "$H" regenerate --stock-md5 "$A/stock.md5" --stock-files "$A/stock.files" --out "$A/fail.md5" "$@"; }
+expect_fail "a mapped file md5sum cannot read (was: a line with a blank hash, exit 0)" "cannot hash" RSTUB "$STUB_HASH" --map "$FC/boom" /casper
+expect_fail "a single mapped file md5sum cannot read" "cannot hash" RSTUB "$STUB_HASH" --map "$FC/boom/unreadable.bin" /x
+expect_fail "a hash tool that exits 0 without a hash" "cannot hash" RSTUB "$STUB_HASH" --map "$FC/blank" /casper
+expect_fail "a file listing that fails half way (was: the files it did not reach were dropped, exit 0)" "could not list" \
+    RSTUB "$STUB_FIND" --rm /casper --map "$FC/ok" /casper
+expect_fail "an image path no md5sum.txt line can carry (the output is checked line by line)" "malformed line" R --map "$N/info" $'/bad\nname'
+if [[ "$(id -u)" != 0 ]]; then
+    mkdir -p "$FC/perm"; printf 'secret' > "$FC/perm/locked.bin"; chmod 000 "$FC/perm/locked.bin"
+    if [[ ! -r "$FC/perm/locked.bin" ]]; then
+        expect_fail "a mapped file with mode 000 (a real read error)" "cannot hash" R --map "$FC/perm" /casper
+    fi
+    chmod 644 "$FC/perm/locked.bin"
+fi
+
 # A base ISO that does not follow the convention is refused (an unlisted file, a ghost entry, an excluded path that is listed,
 # a malformed line, a duplicate).
 try_stock() { # try_stock "<label>" "<error substring>" <md5 file content> <files extra lines>
