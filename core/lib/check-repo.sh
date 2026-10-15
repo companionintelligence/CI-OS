@@ -98,5 +98,21 @@ if art="$(git ls-files | grep -E '\.(deb|rpm|iso|squashfs|dsc|changes|buildinfo)
   echo "✖ build artifacts are tracked — build them in CI, don't commit them:"; echo "$art"; rc=1
 fi
 
+echo "── ISO md5sum.txt tests (backends/ubuntu/iso/tests/md5sum-txt.sh)"
+# The one ISO test that needs no container: it checks how the image's md5sum.txt is written and verified on a synthetic tree
+# (awk, find, a hash tool; bash 3.2 is enough). With xorriso and GNU dd on the machine it also remasters a mini ISO and runs
+# build-iso.sh's generate_iso on it, so a change that breaks the md5sum.txt wiring fails here and not after a one-hour build.
+# The other ISO tests need a container or Plymouth; they are manual, see the "Tests" section of backends/ubuntu/iso/README.md.
+md5_out="$(mktemp)"; md5_rc=0
+bash backends/ubuntu/iso/tests/md5sum-txt.sh > "$md5_out" 2>&1 || md5_rc=$?
+if [ "$md5_rc" -eq 0 ]; then
+  grep -E '^(info|== Summary)' "$md5_out" || true
+elif [ "$md5_rc" -eq 2 ]; then
+  echo "! cannot run here: $(head -n 1 "$md5_out")"
+else
+  grep -E '^(FAIL|info|== Summary)' "$md5_out" || tail -n 10 "$md5_out"; rc=1
+fi
+rm -f "$md5_out"
+
 [ $rc -eq 0 ] && echo "✔ all checks passed"
 exit $rc

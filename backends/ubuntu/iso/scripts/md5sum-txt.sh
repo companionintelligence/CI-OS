@@ -76,16 +76,12 @@ md5_of() {
 
 need_xorriso() { command -v xorriso >/dev/null 2>&1 || die "xorriso is not installed (needed for --base-iso and verify)"; }
 
-# iso_table ISO OUT: one line per regular file of the image, "<path> TAB <size> TAB <lba:blocks[,lba:blocks...]>",
-# from `xorriso -find / -type f -exec report_lba`. A file over 4 GiB has several extents (xt 0, 1, ...), one line each,
-# all carrying the whole file size; an empty file has none. ISO 9660 blocks are 2048 bytes.
-iso_table() {
-    local iso="$1" out="$2" raw
-    raw="$out.raw"
-    need_xorriso
-    if ! xorriso -indev "$iso" -find / -type f -exec report_lba -- > "$raw" 2> "$raw.err"; then
-        die "xorriso could not read $iso: $(tail -n 3 "$raw.err" | tr '\n' ' ')"
-    fi
+# report_to_table RAW OUT: turn the output of `xorriso -find / -type f -exec report_lba` (RAW) into the table, one line per
+# regular file, "<path> TAB <size> TAB <lba:blocks[,lba:blocks...]>". The report has one "File data lba:" row per extent,
+# "<xt> , <Startlba> , <Blocks> , <Filesize> , '<path>'"; a file over 4 GiB has several (xt 0, 1, ...), all carrying the whole
+# file size, and they are merged into one table line. An empty file has no extent. ISO 9660 blocks are 2048 bytes.
+# Split out of iso_table so that a test can feed it a report it wrote by hand (a file over 4 GiB is too big to build).
+report_to_table() {
     awk '
     /^File data lba:/ {
         n = split($0, f, / , /)
@@ -102,8 +98,18 @@ iso_table() {
         if (prev != "") printf "%s\t%s\t%s\n", prev, psize, cur
         prev = path; psize = size; cur = ext
     }
-    END { if (prev != "") printf "%s\t%s\t%s\n", prev, psize, cur; if (bad) exit 1 }' "$raw" > "$out" \
-        || die "could not read the file table of $iso"
+    END { if (prev != "") printf "%s\t%s\t%s\n", prev, psize, cur; if (bad) exit 1 }' "$1" > "$2"
+}
+
+# iso_table ISO OUT: the table (see report_to_table) of the regular files of an image, read with xorriso.
+iso_table() {
+    local iso="$1" out="$2" raw
+    raw="$out.raw"
+    need_xorriso
+    if ! xorriso -indev "$iso" -find / -type f -exec report_lba -- > "$raw" 2> "$raw.err"; then
+        die "xorriso could not read $iso: $(tail -n 3 "$raw.err" | tr '\n' ' ')"
+    fi
+    report_to_table "$raw" "$out" || die "could not read the file table of $iso"
     [[ -s "$out" ]] || die "$iso holds no regular file (is it an ISO image?)"
 }
 
@@ -349,7 +355,7 @@ main() {
     esac
 }
 
-# Run unless this file is being sourced (a test sources it for iso_stream_hash).
+# Run unless this file is being sourced (tests/md5sum-txt.sh sources it for iso_stream_hash and report_to_table).
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     main "$@"
 fi

@@ -12,11 +12,16 @@
 #   excluded   /md5sum.txt, /EFI, the subdirectories of /boot/grub: never listed, also when a map adds one
 #   unchanged  a stock file no map touches: its stock hash is kept, at its stock position
 #
-# Part A drives the awk logic with hand-written lists (no xorriso; runs on a stock macOS under bash 3.2). Part B builds a
-# real mini ISO, remasters it with the same xorriso arguments as build-iso.sh and runs `verify` on the result, then
-# repeats the remaster with the OLD behaviour (the stock md5sum.txt, untouched) and shows that verify fails on it; that
-# control is what proves the check can see the bug. A file over 4 GiB (several extents) is not made here; verify's
-# extent reading was checked on a real image (see the commit message).
+# Part A drives the awk logic with hand-written lists (no xorriso; runs on a stock macOS under bash 3.2), including the
+# cases where a hash or a file listing FAILS (a read error must stop `regenerate`, never write a blank hash or drop a file).
+# Part A2 covers the extents of a file over 4 GiB, which is too big to build here: report_to_table reads a report written by
+# hand in xorriso's format (the "xt 0" / "xt 1" rows of one file) and iso_stream_hash reads a fake image by those extents
+# (needs GNU dd). Part B builds a real mini ISO with an El Torito boot image, remasters it with the same xorriso arguments
+# as build-iso.sh (`-boot_image any replay`) and runs `verify` on the result, then repeats the remaster with the OLD
+# behaviour (the stock md5sum.txt, untouched) and shows that verify fails on it; that control is what proves the check can
+# see the bug. It also runs build-iso.sh's own check_base_md5sum and generate_iso on the mini image, with xorriso recorded and
+# md5sum-txt.sh shimmed, to show the new md5sum.txt is the last map of the xorriso run, that the finished image is read
+# back, and that a rejected image is quarantined. core/lib/check-repo.sh runs this file.
 #
 #   backends/ubuntu/iso/tests/md5sum-txt.sh
 #   docker run --rm -v "$PWD:/repo:ro" <image with xorriso> bash /repo/backends/ubuntu/iso/tests/md5sum-txt.sh
@@ -223,6 +228,55 @@ try_stock "a malformed stock line" "line 14" "$(hash_of g) ./one-space.bin"$'\n'
 try_stock "a stock path listed twice" "twice" "$(hash_of d)  ./pool/main/a/a.deb"$'\n' ""
 { cat "$A/stock.files"; echo /extra.bin; } > "$A/extra.files"
 expect_fail "check-stock on the same problem" "/extra.bin" bash "$H" check-stock --stock-md5 "$A/stock.md5" --stock-files "$A/extra.files"
+
+#=== Part A2: the extent logic, on a report written by hand ====================================================================
+# The biggest md5sum.txt entry of the real image is casper/minimal.squashfs, 5.6 GB, which ISO level 3 stores in two extents
+# ("xt 0" and "xt 1" rows of `report_lba`, each carrying the whole size). Building such a file is too big for a test, so
+# the report is written by hand in xorriso's format and the real functions read it.
+RAW="$WORK/report.raw"
+cat > "$RAW" <<'RAWEOF'
+Report layout: xt , Startlba ,   Blocks , Filesize , ISO image path
+File data lba:  0 ,       34 ,        2 ,     4096 , '/boot/grub/a b.img'
+File data lba:  0 ,      100 ,  2097152 , 5640392704 , '/casper/minimal.squashfs'
+File data lba:  1 ,  2097252 ,   656946 , 5640392704 , '/casper/minimal.squashfs'
+File data lba:  0 ,      200 ,        0 ,          0 , '/.disk/base_installable'
+File data lba:  0 ,      201 ,        1 ,          3 , '/x , y'
+RAWEOF
+{
+    printf '/boot/grub/a b.img\t4096\t34:2\n'
+    printf '/casper/minimal.squashfs\t5640392704\t100:2097152,2097252:656946\n'   # one line, both extents, in order
+    printf '/.disk/base_installable\t0\t\n'                                       # empty file: no extent
+    printf '/x , y\t3\t201:1\n'                                                    # a path that holds the field separator
+} > "$WORK/report.expected"
+if ( source "$H"; report_to_table "$RAW" "$WORK/report.tsv" ) 2> "$WORK/report.err" && cmp -s "$WORK/report.expected" "$WORK/report.tsv"; then
+    t_pass "report_to_table: a two-extent file is one table line with both extents, an empty file has none, a path with ' , ' survives"
+else t_fail "report_to_table did not give the expected table: $(diff "$WORK/report.expected" "$WORK/report.tsv" 2>&1 | head -c 400)"; fi
+printf "File data lba:  0 ,  300 ,  1 ,  3 , '/it's.bin'\n" > "$WORK/report.quote"
+if ( source "$H"; report_to_table "$WORK/report.quote" "$WORK/report.q.tsv" ) > /dev/null 2>&1; then t_fail "report_to_table accepted a file name with a quote"
+else t_pass "report_to_table refuses a file name with a quote (md5sum.txt could not carry it)"; fi
+
+# iso_stream_hash reads the extents in order and stops at the file size. It needs GNU dd (iflag=skip_bytes,count_bytes).
+if dd if=/dev/null of=/dev/null iflag=skip_bytes,count_bytes count=0 status=none 2>/dev/null; then
+    FAKE="$WORK/fake.img"; : > "$FAKE"
+    for i in 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19; do   # 20 blocks, block N filled with the letter 'A'+N
+        letter="$(printf "\\$(printf '%03o' $((65 + i)))")"; head -c 2048 /dev/zero | tr '\0' "$letter" >> "$FAKE"
+    done
+    block_bytes() { head -c $((($1 + 1) * 2048)) "$FAKE" | tail -c 2048; }     # block_bytes N: block N
+    # The file: blocks 3 and 4, then the first 904 bytes of block 12 (5000 bytes). Hashed from the pieces, not by the code under test.
+    want="$({ block_bytes 3; block_bytes 4; block_bytes 12 | head -c 904; } | if command -v md5sum >/dev/null 2>&1; then md5sum; else md5 -q; fi | cut -d' ' -f1)"
+    got="$( source "$H"; iso_stream_hash "$FAKE" 5000 3:2,12:1 )" || got="(failed)"
+    if [[ "$got" == "$want" ]]; then t_pass "iso_stream_hash: two extents are read in order and the last one stops at the file size"
+    else t_fail "iso_stream_hash over two extents: got $got, want $want"; fi
+    # Through the table: the hand-written report of that same file gives the extents iso_stream_hash is handed in verify.
+    printf "File data lba:  0 ,  3 ,  2 ,  5000 , '/big.bin'\nFile data lba:  1 ,  12 ,  1 ,  5000 , '/big.bin'\n" > "$WORK/big.raw"
+    row="$( source "$H"; report_to_table "$WORK/big.raw" "$WORK/big.tsv"; cat "$WORK/big.tsv" )"
+    IFS=$'\t' read -r _ bsize bext <<< "$row"
+    got="$( source "$H"; iso_stream_hash "$FAKE" "$bsize" "$bext" )" || got="(failed)"
+    if [[ "$bext" == "3:2,12:1" && "$got" == "$want" ]]; then t_pass "report -> table -> iso_stream_hash: the extents of a split file hash to the file's md5"
+    else t_fail "a two-extent report did not hash to the file's md5 (extents '$bext', got $got, want $want)"; fi
+    if ( source "$H"; iso_stream_hash "$FAKE" 5000 3:2 ) > /dev/null 2>&1; then t_fail "iso_stream_hash accepted extents shorter than the file"
+    else t_pass "iso_stream_hash fails when the extents do not add up to the file size"; fi
+else printf 'info  GNU dd is not installed: the iso_stream_hash extent tests are skipped\n'; fi
 
 #=== Part B: a real mini ISO ====================================================================================================
 for t in xorriso dd; do
