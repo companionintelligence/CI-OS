@@ -133,6 +133,10 @@ jobs:
             --clean
 
       - name: Verify the image (pre-installed tools and branding)
+        env:
+          # The stock ISO the image was built from: with it verify-iso.sh also checks that the Secure Boot binaries and the
+          # initrd's stock bytes are untouched and that the md5sum.txt exclusions are the stock ISO's own.
+          VERIFY_BASE_ISO: /tmp/ubuntu-base.iso
         run: |
           # Fails the build if any CI-Hub / wireless setup tool is missing or the branding regressed.
           ./backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-*.iso

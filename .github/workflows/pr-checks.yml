@@ -25,8 +25,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install linters
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck yamllint
+      - name: Install linters (and xorriso, so the md5sum.txt mini-ISO tests run instead of skipping)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck yamllint xorriso
       - run: ./core/lib/check-repo.sh
 
   # Companion Stick CLI (stick/). Rust is first-class inside stick/ only.

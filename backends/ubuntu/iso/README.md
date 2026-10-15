@@ -381,6 +381,26 @@ sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
 
 ## Testing
 
+### Script tests: what runs where
+
+Only one of the ISO tests runs automatically. **The others are manual: run the ones that cover a file before you push a change
+to it**, because `core/lib/check-repo.sh` and the PR checks do not, and a regression in them otherwise shows up only after a
+one-hour build (or in `verify-iso.sh`, which the manual `build-companion-os-iso.yml` workflow runs).
+
+| Test | Covers | Where it runs |
+|---|---|---|
+| `tests/md5sum-txt.sh` | `md5sum-txt.sh`, the md5sum.txt wiring in `build-iso.sh` (`write_md5sum_txt`, `check_base_md5sum`, `generate_iso`) | **the fast gate**: `core/lib/check-repo.sh` runs it (awk, find, a hash tool; with `xorriso` and GNU `dd`, as in PR checks, also the mini-ISO part) |
+| `tests/boot-media-plymouth.sh` | `brand_boot_media`, the initrd overlay | manual, throw-away container (`unmkinitramfs`, `cpio`, `zstd`); `CI_TEST_STOCK_INITRD=<stock casper/initrd>` adds the real stock initrd |
+| `tests/plymouth-ground-render.sh` | what the real Plymouth plugin draws, `ci_plymouth_recolor` | manual, throw-away container (`plymouth`, `xvfb`; command in its header) |
+| `desktop-theme/tests/plymouth-theme.sh` | the rootfs Plymouth step, its diversions | manual, throw-away container (command in its header) |
+| `tests/placeholder-layer-modes.sh` | the placeholder casper layers' directory modes | manual, privileged container (`squashfs-tools`, overlayfs) |
+| `tests/verify-logo-surfaces.sh` | the logo checks of `verify-iso.sh` | manual, container with `python3` and a renderer |
+| `core/lib/tests/*.sh` | `ci_grub_nearest_color`, `ci_divert_file` | manual |
+
+Touching `core/lib/theme-lib.sh` (`ci_plymouth_recolor`), `build-iso.sh`'s `brand_boot_media`, or `md5sum-txt.sh` means running
+the tests in that table that cover it. For the whole image, `verify-iso.sh` with `VERIFY_BASE_ISO` set (the CI workflow does)
+also compares the Secure Boot binaries and the initrd's stock bytes with the stock ISO.
+
 ### Quick VM Test
 
 ```bash

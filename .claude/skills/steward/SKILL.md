@@ -17,6 +17,14 @@ It is exactly what the `PR checks` workflow runs (bash -n, `shellcheck -S error`
 other workflows (`build-companion-os-iso.yml`, `style-canon-lint.yml`) are manual-only
 (`ci-local:gated` markers) — don't restore their triggers in a PR; that's a maintainer call.
 
+Touching `backends/ubuntu/iso/scripts/md5sum-txt.sh` or the md5sum.txt part of `build-iso.sh` → the
+`check-repo.sh` run above already includes `backends/ubuntu/iso/tests/md5sum-txt.sh` (with `xorriso` and GNU `dd` installed it
+also builds a mini ISO; PR checks install `xorriso`). The other ISO tests (`boot-media-plymouth.sh`,
+`plymouth-ground-render.sh`, `desktop-theme/tests/plymouth-theme.sh`, `placeholder-layer-modes.sh`,
+`verify-logo-surfaces.sh`) need a container and are **manual**: no workflow runs them, so before you push a change to
+`core/lib/theme-lib.sh` (`ci_plymouth_recolor`), `brand_boot_media` or the logo steps, run the ones that cover it (the
+commands are in each file's header; the table is in `backends/ubuntu/iso/README.md`, "Script tests").
+
 Touching brand assets or the setup portal's logo/font → also run
 `core/lib/check-brand-mirrors.sh` and `core/lib/vendor-brand.sh --check`.
 
