@@ -4,8 +4,10 @@
 # This step brands the ROOTFS copy of the themes, which is what an installed system boots with (curtin
 # regenerates its initramfs from it). The live session's own splash is drawn from the casper initrd, which carries
 # its own copies of the same theme files; build-iso.sh (brand_boot_media) repaints those with the same
-# ci_plymouth_* helpers and takes the watermark and the fallback logo from this rootfs. Note that the bgrt theme,
-# the default, paints black behind the firmware logo (or the fallback below); see ci_plymouth_recolor.
+# ci_plymouth_* helpers and takes the watermark and the fallback logo from this rootfs. So the live boot and the
+# installed system share the palette AND the ground: the bgrt theme, the default, paints black behind the firmware
+# logo (or the fallback below) unless its firmware background is switched off, which ci_plymouth_recolor does
+# (see there for why, and for what it costs).
 #
 # Every file below that a Plymouth package owns (watermark.png, bgrt-fallback.png, bgrt.plymouth, spinner.plymouth,
 # and the text theme's template ubuntu-text.plymouth.in) goes in through ci_install_file / ci_install_edited, which
@@ -27,9 +29,11 @@ UBUNTU_TEXT_TEMPLATE="$UBUNTU_TEXT_PLYMOUTH.in"
 PLYMOUTH_SPINNER_CONF="$PLYMOUTH_SPINNER_DIR/spinner.plymouth"
 PLYMOUTH_BGRT_CONF="/usr/share/plymouth/themes/bgrt/bgrt.plymouth"
 
-# The firmware-logo fallback: the bgrt theme draws the firmware's own boot logo (the ACPI BGRT table) and, where
-# there is none (legacy BIOS, most VMs, some firmware), bgrt-fallback.png from the theme directory, which is
-# Ubuntu's logo in a circle of friends. Same size as Ubuntu's file, so the layout does not move.
+# The firmware-logo fallback: with its firmware background on, the bgrt theme draws the firmware's own boot logo (the
+# ACPI BGRT table) and, where there is none (legacy BIOS, most VMs, some firmware), bgrt-fallback.png from the theme
+# directory, which is Ubuntu's logo in a circle of friends. ci_plymouth_recolor now switches that background off, so
+# neither is drawn; the file is still replaced (and diverted), so that Ubuntu's logo cannot come back if a theme file
+# ever asks for the firmware background again. Same size as Ubuntu's file, so the layout does not move.
 FALLBACK_DEST="$PLYMOUTH_SPINNER_DIR/bgrt-fallback.png"
 FALLBACK_PX=128
 FALLBACK_PNG_NAME="ci-os-bgrt-fallback.png"

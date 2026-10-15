@@ -561,9 +561,14 @@ ISYAML
 # ground, white progress bar) and ubuntu-text.plymouth (aubergine, titled "Ubuntu 24.04", shown for the safe-graphics entry).
 # Each is taken from the STOCK initrd and repainted with the same helpers the rootfs uses (core/lib/theme-lib.sh), so the
 # canon colours are the same everywhere and nothing else of the stock file changes. In particular the Font= lines stay
-# Ubuntu's: the initrd carries no other font, and a theme that names one it lacks draws no text. The default theme, bgrt,
-# paints black behind the firmware logo or bgrt-fallback.png whatever BackgroundStartColor says (see ci_plymouth_recolor),
-# so what a booted live session shows of the repaint is the fallback logo, the progress bars and the text splash.
+# Ubuntu's: the initrd carries no other font, and a theme that names one it lacks draws no text.
+#
+# The live boot draws the default theme, bgrt (the initrd's default.plymouth points at it). Stock, bgrt asks for the
+# firmware background in every mode, and the two-step plugin then paints the screen black whatever BackgroundStartColor
+# says, with the firmware's boot logo (or bgrt-fallback.png) on it. ci_plymouth_recolor therefore also switches that
+# off, so the live splash is the canon navy ground with the spinner and the watermark, exactly as the rootfs copy (the
+# installed system, and the live session's own shutdown splash) is. That gives up the repaint of the firmware logo that
+# makes the hand-over from the firmware seamless: on a live medium the navy GRUB menu sits between the two anyway.
 #
 # unmkinitramfs unpacks the early microcode archives into early*/ and the compressed root into main/ (a plain single
 # archive goes straight into the target). Fails the build, rather than ship a half-branded splash, if the initrd has no
@@ -600,12 +605,17 @@ brand_initrd_plymouth() {
             log_error "the stock initrd's $conf has no BackgroundStartColor / ProgressBarForegroundColor line to repaint: review before branding it"
             return 1
         fi
+        # One section still asking for the firmware background is enough for the plugin to paint black (see ci_plymouth_recolor).
+        if grep -q -i -E '^[[:space:]]*UseFirmwareBackground[[:space:]]*=[[:space:]]*(1|y|yes|true)[[:space:]]*$' "$ov/$themes/$conf"; then
+            log_error "the initrd's $conf still asks for the firmware background (UseFirmwareBackground=true) after the repaint: the live splash would stay black behind it"
+            return 1
+        fi
     done
     if ! grep -q -x -F -- "title=$title" "$ov/$themes/ubuntu-text/ubuntu-text.plymouth"; then
         log_error "the initrd text splash theme was not written with its title '$title'"
         return 1
     fi
-    log_info "initrd Plymouth themes repainted from the canon (bgrt, spinner, text splash '$title')"
+    log_info "initrd Plymouth themes repainted from the canon (bgrt, spinner, text splash '$title'; navy ground, firmware background off)"
 }
 
 # Rebrand the parts of the live boot that are NOT in the root filesystem.

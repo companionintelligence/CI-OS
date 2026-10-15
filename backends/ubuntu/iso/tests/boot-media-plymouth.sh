@@ -17,8 +17,14 @@
 #   overlay     the archive holds exactly the branded files, every directory entry in it is mode 755 (also when the
 #               build runs under umask 077: the kernel applies directory modes from later archives);
 #   themes      bgrt.plymouth and spinner.plymouth carry the canon ground and progress colours and differ from the
-#               stock files in no other line (the initrd's fonts stay), ubuntu-text.plymouth is the Companion OS
-#               theme titled with CI_OS_VERSION, and the fallback and watermark are the chroot's files;
+#               stock files in no other line (the initrd's fonts stay) but UseFirmwareBackground: the stock bgrt asks for
+#               the firmware background in every mode, which makes the two-step plugin paint black whatever the ground
+#               says (see ci_plymouth_recolor), so all three sections say false and no `true` is left; ubuntu-text.plymouth
+#               is the Companion OS theme titled with CI_OS_VERSION, and the fallback and watermark are the chroot's files;
+#   merge       the way the kernel unpacks it (the stock archives, then the overlay over them: later files win) the tree
+#               differs from the stock tree in exactly the overlay's files and nowhere else;
+#   spelling    Plymouth's parser takes blanks around "=" and 1/y/yes/true in any case: a bgrt that spells the key that way
+#               is switched off too (a build that left one on would ship a black splash);
 #   failure     an initrd that cannot be unpacked, has no bgrt.plymouth, has a theme without colour lines to repaint,
 #               or a chroot without the branded fallback all fail the function and leave the initrd untouched.
 #
@@ -86,6 +92,14 @@ DialogClearsFirmwareBackground=false
 MessageBelowAnimation=true
 
 [boot-up]
+UseEndAnimation=false
+UseFirmwareBackground=true
+
+[shutdown]
+UseEndAnimation=false
+UseFirmwareBackground=true
+
+[reboot]
 UseEndAnimation=false
 UseFirmwareBackground=true
 
@@ -182,6 +196,15 @@ changed_keys() { # changed_keys <old> <new>: the keys of the lines that differ, 
     diff <(sort "$1") <(sort "$2") | sed -n 's/^[<>] \([A-Za-z]*\)=.*/\1/p' | sort -u | paste -sd' ' -
 }
 nul_only() { [[ -z "$(tail -c +$(($2 + 1)) "$1" | head -c "$3" | tr -d '\0')" ]]; } # nul_only <file> <from> <len>
+tree_sums() { # tree_sums <dir>: "<path><TAB><sha256 of the content, or the link target>" per file and link, sorted
+    ( cd "$1" && find . \( -type f -o -type l \) | while IFS= read -r f; do
+        if [[ -L "$f" ]]; then printf '%s\tlink:%s\n' "$f" "$(readlink "$f")"; else printf '%s\t%s\n' "$f" "$(sha256sum < "$f" | cut -d' ' -f1)"; fi
+    done ) | LC_ALL=C sort
+}
+firmware_modes() { # firmware_modes <theme>: UseFirmwareBackground of the boot-up, shutdown and reboot sections
+    awk '/^\[/ { sec = substr($0, 2, length($0) - 2); next } /^UseFirmwareBackground=/ { v[sec] = substr($0, index($0, "=") + 1) }
+         END { printf "%s %s %s\n", v["boot-up"], v["shutdown"], v["reboot"] }' "$1"
+}
 
 # check_case <label> <stock initrd>: run the function on a copy of the initrd and check everything about the result
 check_case() {
@@ -213,9 +236,20 @@ check_case() {
         conf="$ov/$t/$theme/$theme.plymouth"
         expect "[$label] $theme.plymouth: canon ground $ground, progress $fill on $track" \
             bash -c "grep -q -x 'BackgroundStartColor=$ground' '$conf' && grep -q -x 'BackgroundEndColor=$ground' '$conf' && grep -q -x 'ProgressBarForegroundColor=$fill' '$conf' && grep -q -x 'ProgressBarBackgroundColor=$track' '$conf'"
-        expect "[$label] $theme.plymouth differs from the stock file in the four colour lines only (fonts stay)" \
-            test "$(changed_keys "$xs/$t/$theme/$theme.plymouth" "$conf")" = \
-                 "BackgroundEndColor BackgroundStartColor ProgressBarBackgroundColor ProgressBarForegroundColor"
+        if [[ "$theme" == bgrt ]]; then
+            expect "[$label] bgrt.plymouth differs from the stock file in the four colour lines and UseFirmwareBackground only (fonts stay)" \
+                test "$(changed_keys "$xs/$t/$theme/$theme.plymouth" "$conf")" = \
+                     "BackgroundEndColor BackgroundStartColor ProgressBarBackgroundColor ProgressBarForegroundColor UseFirmwareBackground"
+            expect "[$label] stock bgrt asks for the firmware background in boot-up, shutdown and reboot (the precondition of the fix)" \
+                test "$(firmware_modes "$xs/$t/$theme/$theme.plymouth")" = "true true true"
+            expect "[$label] bgrt.plymouth switches it off in boot-up, shutdown and reboot, so the plugin draws the ground, not black" \
+                test "$(firmware_modes "$conf")" = "false false false"
+        else
+            expect "[$label] spinner.plymouth differs from the stock file in the four colour lines only (fonts stay)" \
+                test "$(changed_keys "$xs/$t/$theme/$theme.plymouth" "$conf")" = \
+                     "BackgroundEndColor BackgroundStartColor ProgressBarBackgroundColor ProgressBarForegroundColor"
+        fi
+        expect "[$label] $theme.plymouth has no UseFirmwareBackground=true left" bash -c "! grep -q -E '^UseFirmwareBackground=true' '$conf'"
     done
     expect "[$label] the initrd's bgrt keeps its Ubuntu font" grep -q -x 'Font=Ubuntu 12' "$ov/$t/bgrt/bgrt.plymouth"
     expect "[$label] text splash: Companion OS $CI_OS_VERSION on the ubuntu-text module, no aubergine" \
@@ -226,6 +260,16 @@ check_case() {
     expect "[$label] watermark and ubuntu-logo.png are the chroot's branded watermark" \
         bash -c "cmp -s '$ov/$t/spinner/watermark.png' '$w/chroot/$t/spinner/watermark.png' && cmp -s '$ov/usr/share/plymouth/ubuntu-logo.png' '$w/chroot/$t/spinner/watermark.png'"
     expect "[$label] casper.conf is the chroot's" cmp -s "$ov/etc/casper.conf" "$w/chroot/etc/casper.conf"
+    # What the kernel ends up with: the stock archives unpacked, then the overlay over them (cpio -u: later files win). The
+    # tree must differ from the stock tree in the overlay's files and in nothing else.
+    local merged="$TMP/merged-$label" changed want
+    rm -rf "$merged"; mkdir -p "$merged"; cp -a "$xs/." "$merged/"
+    ( cd "$merged" && cpio -idu --quiet < "$ov.cpio" )
+    changed="$(LC_ALL=C comm -3 <(tree_sums "$xs") <(tree_sums "$merged") | sed -e 's/^\t//' | cut -f1 | LC_ALL=C sort -u | paste -sd' ' -)"
+    want="$(cd "$ov" && find . \( -type f -o -type l \) | LC_ALL=C sort | paste -sd' ' -)"
+    expect "[$label] merged the way the kernel does, the tree differs from the stock tree in the overlay's files only" test "$changed" = "$want"
+    expect "[$label] ...and every overlay file is what ends up in the merged tree" \
+        bash -c "cd '$ov' && find . -type f | while IFS= read -r f; do cmp -s \"\$f\" '$merged'/\"\$f\" || exit 1; done"
 }
 
 ROOT="$TMP/root"; mkdir -p "$ROOT"; write_stock_themes "$ROOT"
@@ -233,6 +277,16 @@ make_initrd "$TMP/initrd-early" early "$ROOT"
 make_initrd "$TMP/initrd-plain" plain "$ROOT"
 check_case early "$TMP/initrd-early"
 check_case plain "$TMP/initrd-plain"
+SPACED="$TMP/root-spaced"; mkdir -p "$SPACED"; write_stock_themes "$SPACED"
+sed -i -e '0,/^UseFirmwareBackground=true/s//UseFirmwareBackground = True/' -e '0,/^UseFirmwareBackground=true/s//  UseFirmwareBackground=yes/' \
+    "$SPACED/usr/share/plymouth/themes/bgrt/bgrt.plymouth"
+make_initrd "$TMP/initrd-spaced" early "$SPACED"
+new_work spelling "$TMP/initrd-spaced"; run_brand
+expect "[spelling] brand_boot_media succeeds on a bgrt that spells UseFirmwareBackground with blanks, 'True' and 'yes'" test "$RC" -eq 0
+sp_size="$(size_of "$TMP/initrd-spaced")"
+overlay_of "$WORK_DIR/custom-iso/casper/initrd" "$sp_size" "$TMP/ov-spelling" || true
+expect "[spelling] all three sections end up as UseFirmwareBackground=false" \
+    test "$(firmware_modes "$TMP/ov-spelling/usr/share/plymouth/themes/bgrt/bgrt.plymouth")" = "false false false"
 if [[ -n "${CI_TEST_STOCK_INITRD:-}" ]]; then
     if [[ -f "$CI_TEST_STOCK_INITRD" ]]; then check_case real "$CI_TEST_STOCK_INITRD"; else t_fail "CI_TEST_STOCK_INITRD is not a file: $CI_TEST_STOCK_INITRD"; fi
 fi

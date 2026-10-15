@@ -33,7 +33,10 @@
 #      are dpkg-diverted;
 #   2e. the live boot's Plymouth (section 7): the initrd overlay carries the canon-painted bgrt, spinner and text-splash
 #      themes and the firmware-logo fallback, only those files, appended after a stock initrd that is byte-identical
-#      to the base ISO's (given VERIFY_BASE_ISO); the installed system's fallback logo is the same file, and every package-owned
+#      to the base ISO's (given VERIFY_BASE_ISO); the splash GROUND is canon navy: no section of the bgrt or spinner theme
+#      asks for the firmware background (which makes the plugin paint black), in the overlay and in the rootfs, and the two
+#      copies agree key by key apart from the fonts; the initrd's default theme is the bgrt one the overlay repaints
+#      (needs unmkinitramfs); the installed system's fallback logo is the same file, and every package-owned
 #      Plymouth file the build rewrites (the watermark, the bgrt and spinner themes, the text theme's template) is dpkg-diverted;
 #   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
 #   3f. NetworkManager still manages wired devices (no netplan file overrides the
@@ -63,6 +66,7 @@
 #                          without it those checks are skipped
 #
 # Needs: xorriso squashfs-tools zstd cpio python3 (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio python3), and
+#        unmkinitramfs (initramfs-tools-core) for the initrd's default-theme check (listed under SKIPPED without it), and
 #        md5sum-txt.sh next to this script, which needs awk, dd and md5sum (section 8 is skipped without it);
 #        gpg is optional (without it the keyring fingerprints are reported as skipped), and so is a logo
 #        renderer (rsvg-convert or ImageMagick): with one, the logo shapes are also compared with a fresh
@@ -153,6 +157,7 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     usr/share/applications/ci-os-hub.desktop \
     usr/share/plymouth/themes/spinner/watermark.png usr/share/plymouth/themes/spinner/bgrt-fallback.png \
     usr/share/plymouth/themes/spinner/spinner.plymouth usr/share/plymouth/themes/bgrt usr/share/plymouth/themes/ubuntu-text \
+    etc/alternatives/default.plymouth etc/plymouth \
     usr/share/icons/Yaru/scalable/places usr/share/icons/hicolor/scalable/apps usr/share/icons/hicolor/icon-theme.cache \
     usr/share/pixmaps var/lib/dpkg/diversions etc/dconf/db/gdm.d \
     usr/share/xsessions usr/share/wayland-sessions usr/share/applications/gnome-ubuntu-panel.desktop \
@@ -948,9 +953,9 @@ fi
 # overlay carries its own: bgrt.plymouth and spinner.plymouth (the ground and the progress bar), ubuntu-text.plymouth (the
 # safe-graphics splash) and bgrt-fallback.png (what the bgrt theme shows where the firmware has no boot logo). They are the
 # initrd's own files repainted (build-iso.sh brand_initrd_plymouth), so the Font= lines are still Ubuntu's, the only fonts
-# that initrd carries. The colours are the canon's, derived from the repo's tokens like the logo checks above. (The bgrt
-# theme draws black behind its logo, so the ground colour is only seen in the spinner theme: the files are checked, not
-# a screen. A boot of the ISO shows the fallback logo.)
+# that initrd carries. The colours are the canon's, derived from the repo's tokens like the logo checks above. The files
+# are checked, not a screen: that the plugin then DRAWS the ground is shown by tests/plymouth-ground-render.sh (the real
+# plugin rendering in an X server) and, on the live framebuffer, only by a boot of the ISO.
 PLY_T="usr/share/plymouth/themes"
 if [[ -n "$found_overlay" ]]; then
     ovl_files="$(cd "$OVLX" && find . -type f | sed 's#^\./##' | LC_ALL=C sort | paste -sd' ' -)"
@@ -985,6 +990,62 @@ if [[ $CANON_OK -eq 1 ]]; then
         file_has "$OVLX/$PLY_T/bgrt/bgrt.plymouth" '^Font=Ubuntu 12$'
 else
     note "Plymouth colours not checked against the canon: run this script from the repo checkout (vendor/brand/tokens)"
+fi
+# What the plugin DRAWS. BackgroundStartColor is only the ground if no section of the theme asks for the firmware
+# background: the two-step plugin then paints a hard-coded black behind the firmware's boot logo (or bgrt-fallback.png), so
+# v6, with the navy colour lines above and UseFirmwareBackground=true in [boot-up], [shutdown] and [reboot], showed black.
+# ci_plymouth_recolor switches the key off in every section, for the overlay's copy and the rootfs copy alike.
+# Plymouth's parser accepts blanks around the "=" and the values 1, y, yes and true (any case) as "on".
+ply_asks_firmware() { grep -q -i -E '^[[:space:]]*UseFirmwareBackground[[:space:]]*=[[:space:]]*(1|y|yes|true)[[:space:]]*$' "$1"; }
+ply_fw_modes() { # ply_fw_modes <theme file>: the value of UseFirmwareBackground in the three sections stock bgrt sets it in
+    awk '
+        { line = $0; gsub(/[ \t]/, "", line) }
+        line ~ /^\[/ { sec = substr(line, 2, length(line) - 2); next }
+        line ~ /^UseFirmwareBackground=/ { v[sec] = tolower(substr(line, index(line, "=") + 1)) }
+        END { printf "boot-up=%s shutdown=%s reboot=%s\n", ("boot-up" in v ? v["boot-up"] : "unset"), ("shutdown" in v ? v["shutdown"] : "unset"), ("reboot" in v ? v["reboot"] : "unset") }' "$1"
+}
+ply_drawn_ground() { # ply_drawn_ground <theme file>: what the screen is filled with in the boot-up mode
+    if ply_asks_firmware "$1"; then echo "black behind the firmware logo"; else awk '/^BackgroundStartColor=/ { bg = substr($0, index($0, "=") + 1) } END { print bg }' "$1"; fi
+}
+for where in "initrd overlay:$OVLX" "rootfs:$R"; do
+    for theme in bgrt spinner; do
+        conf="${where#*:}/$PLY_T/$theme/$theme.plymouth"; label="$theme.plymouth (${where%%:*})"
+        [[ -f "$conf" ]] || continue
+        if ! ply_asks_firmware "$conf"; then
+            pass "$label: no section asks for the firmware background (UseFirmwareBackground: $(ply_fw_modes "$conf")), so the plugin fills the screen with BackgroundStartColor"
+        else
+            fail "$label: a section asks for the firmware background ($(ply_fw_modes "$conf")): the plugin paints black behind the firmware logo whatever BackgroundStartColor says"
+        fi
+        if [[ $CANON_OK -eq 1 ]]; then
+            if [[ "$(ply_drawn_ground "$conf")" == "$ply_ground" ]]; then
+                pass "$label: the ground drawn at boot is the canon dark background ($ply_ground)"
+            else
+                fail "$label: the ground drawn at boot is '$(ply_drawn_ground "$conf")', not the canon dark background $ply_ground"
+            fi
+        fi
+    done
+done
+if [[ -f "$OVLX/$PLY_T/bgrt/bgrt.plymouth" ]]; then
+    check "bgrt.plymouth (initrd overlay) sets UseFirmwareBackground=false in boot-up, shutdown and reboot (the key is there and off, not just missing)" \
+        test "$(ply_fw_modes "$OVLX/$PLY_T/bgrt/bgrt.plymouth")" = "boot-up=false shutdown=false reboot=false"
+fi
+# The live boot and the installed system must look the same: the two copies of each theme are the same keys and values,
+# only the fonts differ (the initrd has no Cantarell).
+for theme in bgrt spinner; do
+    a="$OVLX/$PLY_T/$theme/$theme.plymouth"; b="$R/$PLY_T/$theme/$theme.plymouth"
+    [[ -f "$a" && -f "$b" ]] || continue
+    ply_diff="$(diff <(grep -v -E '^(Font|TitleFont)=' "$a") <(grep -v -E '^(Font|TitleFont)=' "$b") 2>&1 | head -n 4 | tr '\n' ' ')"
+    if [[ -z "$ply_diff" ]]; then
+        pass "$theme.plymouth: the live (initrd overlay) and installed (rootfs) copies have the same keys and values apart from the fonts"
+    else
+        fail "$theme.plymouth: the live and installed copies differ apart from the fonts: $ply_diff"
+    fi
+done
+ply_default="$(readlink "$R/etc/alternatives/default.plymouth" 2>/dev/null || true)"
+if [[ "$ply_default" == "/$PLY_T/bgrt/bgrt.plymouth" ]]; then
+    pass "installed system: the default Plymouth theme is bgrt, the one that is branded"
+else
+    fail "installed system: the default Plymouth theme is '${ply_default:-not set}', not the branded bgrt"
 fi
 OVL_TEXT="$OVLX/$PLY_T/ubuntu-text/ubuntu-text.plymouth"
 if [[ -f "$OVL_TEXT" ]]; then
@@ -1096,6 +1157,53 @@ if [[ -f "$CC_INITRD" ]]; then
     check "FLAVOUR is set so casper does not re-derive user/host from /.disk/info (initrd casper.conf)" file_has "$CC_INITRD" '^export FLAVOUR="[^"]+"'
 else
     fail "no etc/casper.conf in the initrd overlay"
+fi
+# The overlay's bgrt.plymouth only matters if the live boot loads that theme. plymouthd takes it from default.plymouth in the
+# initrd (no plymouthd.conf there: the overlay adds none), so unpack the STOCK part of the initrd the way the kernel will see
+# it: the base ISO's initrd when given, else the first OVL_OFF bytes without the NUL padding the build added (0 to 3 bytes: the
+# last bytes that are NUL are only candidates, and the one cut unmkinitramfs accepts is the stock initrd).
+if [[ -n "$OVL_OFF" ]]; then
+    if command -v unmkinitramfs >/dev/null 2>&1; then
+        SIN="$WORK/stock-initrd"; SX="$WORK/stock-initrd-x"; stock_ok=""
+        if [[ -s "$ISOX/base-initrd" ]]; then
+            rm -rf "$SX"; mkdir -p "$SX"
+            if unmkinitramfs "$ISOX/base-initrd" "$SX" >/dev/null 2>&1; then stock_ok=1; fi
+        else
+            ply_nul=0
+            for b in $(head -c "$OVL_OFF" "$ISOX/initrd" | tail -c 3 | od -An -v -tu1 | awk '{ for (i = NF; i >= 1; i--) print $i }'); do
+                if [[ "$b" == 0 ]]; then ply_nul=$((ply_nul + 1)); else break; fi
+            done
+            for ((pad = ply_nul; pad >= 0; pad--)); do
+                head -c $((OVL_OFF - pad)) "$ISOX/initrd" > "$SIN"
+                rm -rf "$SX"; mkdir -p "$SX"
+                if unmkinitramfs "$SIN" "$SX" >/dev/null 2>&1; then stock_ok=1; break; fi
+            done
+        fi
+        if [[ -n "$stock_ok" ]]; then
+            ST="$SX"; [[ -d "$SX/main" ]] && ST="$SX/main"
+            if [[ "$(readlink "$ST/$PLY_T/default.plymouth" 2>/dev/null)" == "/$PLY_T/bgrt/bgrt.plymouth" ]]; then
+                pass "the initrd's default Plymouth theme is bgrt: the theme the overlay repaints is the one the live boot loads"
+            else
+                fail "the initrd's default.plymouth is '$(readlink "$ST/$PLY_T/default.plymouth" 2>/dev/null || echo missing)', not the bgrt theme the overlay repaints"
+            fi
+            if [[ ! -f "$ST/etc/plymouth/plymouthd.conf" ]] || grep -q -x 'Theme=bgrt' "$ST/etc/plymouth/plymouthd.conf"; then
+                pass "nothing in the initrd selects another Plymouth theme than bgrt (no plymouthd.conf, or Theme=bgrt)"
+            else
+                fail "the initrd's plymouthd.conf selects a theme other than bgrt: $(grep -h '^Theme=' "$ST/etc/plymouth/plymouthd.conf")"
+            fi
+            ply_plugin="$(find "$ST" -name two-step.so 2>/dev/null | head -n 1)"
+            if [[ -n "$ply_plugin" ]] && grep -a -q 'UseFirmwareBackground' "$ply_plugin"; then
+                pass "the initrd's two-step plugin reads UseFirmwareBackground (the key the ground depends on)"
+            else
+                fail "the initrd's two-step plugin was not found or no longer reads UseFirmwareBackground: the key this build switches off may mean something else now"
+            fi
+        else
+            fail "could not unpack the stock part of the initrd with unmkinitramfs (the default theme could not be checked)"
+        fi
+        rm -rf "$SX" "$SIN"
+    else
+        skip "initrd default Plymouth theme (needs unmkinitramfs: apt-get install initramfs-tools-core)"
+    fi
 fi
 note "the kernel's acceptance of the appended archive is only proven by booting the ISO (see the QEMU boot check)"
 

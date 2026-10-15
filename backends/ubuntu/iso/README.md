@@ -126,11 +126,13 @@ The compiled gresource is committed to source at:
    `spinner.plymouth` and `ubuntu-text.plymouth` repainted from the brand tokens (navy ground, sage progress bar,
    the text splash titled `Companion OS <version>`) with `ci_plymouth_recolor` / `ci_plymouth_text_theme` from
    `core/lib/theme-lib.sh`, the helpers the rootfs step uses. The `Font=` lines stay Ubuntu's, the only fonts that
-   initrd carries. Plymouth's default `bgrt` theme paints solid black behind the firmware logo or the fallback logo
-   (its two-step plugin ignores `BackgroundStartColor` there), so the navy ground is only seen in the `spinner`
-   theme; the fallback logo, the progress bars and the text splash show the rebrand in the default boot. The
-   kernel's acceptance of the overlay was seen in a QEMU direct-kernel boot of the v4 ISO's kernel with the new
-   initrd; a boot of a full build is still the proof.
+   initrd carries. Stock `bgrt`, the default theme, asks for the firmware background in every mode, which makes
+   Plymouth's two-step plugin paint black whatever `BackgroundStartColor` says (v6 showed a black splash with navy
+   colour lines), so `ci_plymouth_recolor` also switches `UseFirmwareBackground` off, in the overlay's copy and in
+   the rootfs copy alike: the live splash is the navy ground with the spinner and the Companion lockup, and the
+   installed system's is the same. What that costs on real hardware, and what a boot still has to prove, is in
+   [Live boot splash](#live-boot-splash-plymouth). The kernel's acceptance of the overlay was seen in a QEMU
+   boot of the v6 ISO (the lockup watermark in the overlay was on screen); a boot of a full build is still the proof.
 6. Themes the live GRUB menu (`brand_live_grub`: background image and token-derived colours in
    `boot/grub/grub.cfg`, see [Live GRUB menu](#live-grub-menu)), then generates the bootable ISO with
    xorriso (inheriting EFI/BIOS boot from base ISO). The image's own `/md5sum.txt` is rewritten in the same
@@ -287,6 +289,62 @@ Canonical's signed GRUB (any other module is a separate file that Secure Boot re
 `menuentry`, `linux` and `initrd` lines and `loopback.cfg` are not touched. `verify-iso.sh` checks the
 `insmod` set, and with `VERIFY_BASE_ISO` the three signed binaries.
 
+### Live boot splash (Plymouth)
+
+The live session's splash is drawn by the copy of Plymouth inside `casper/initrd`, from the initrd's own theme files (the
+rootfs copies are not read until the session's own shutdown). Its default theme is `bgrt` (`default.plymouth` in the initrd
+points at it; there is no `plymouthd.conf`), so the files that matter are `bgrt.plymouth` and its images in the `spinner`
+directory. `brand_boot_media` appends them, repainted, in the initrd overlay (see step 5 above).
+
+**What decides the ground colour.** Plymouth's two-step plugin (24.004.60, `plugins/splash/two-step/plugin.c`) fills the
+screen with `BackgroundStartColor` / `BackgroundEndColor` only if no firmware background is in use. Stock `bgrt` has
+`UseFirmwareBackground=true` in `[boot-up]`, `[shutdown]` and `[reboot]`; the plugin then loads the ACPI BGRT image (the
+firmware's own boot logo) or, where the machine has none, `bgrt-fallback.png`, fills the screen with a hard-coded
+`0x000000` and draws that image on it. The colour lines are never read. It is all or nothing: the plugin loads the firmware
+images if any mode asks for them and then paints black in every mode that does not. The `spinner` theme has no such key, so
+there the ground is whatever `BackgroundStartColor` says.
+
+| Theme file | Ground the plugin draws |
+|---|---|
+| stock `bgrt` | black, with the firmware logo or `bgrt-fallback.png` on it |
+| navy colour lines, `UseFirmwareBackground=true` (v6) | black, the same |
+| navy colour lines, `false` in `[boot-up]` only | black: `[shutdown]` and `[reboot]` still ask |
+| navy colour lines, `false` in all three (v7) | `#041620`, the canon dark background |
+| `spinner`, navy colour lines | `#041620` |
+
+**What v7 does.** `ci_plymouth_recolor` sets `UseFirmwareBackground=false` wherever the key is set, and it is the one
+helper both the initrd overlay (`build-iso.sh`) and the installed system (`10-plymouth.sh`) use, so the live boot, the live
+session's own shutdown splash and the installed system show the same navy ground: the two copies of each theme have the same
+keys and values apart from the fonts (the initrd has no Cantarell), and `verify-iso.sh` compares them. The build fails
+if a repainted theme still asks for the firmware background. The Companion lockup watermark is unchanged. What is on the
+screen is the navy ground, the spinner and the lockup; `bgrt-fallback.png` (the colour mark) is still installed and diverted,
+but the plugin no longer loads it, so it is only drawn if a theme ever asks for the firmware background again.
+
+**The real-hardware trade-off, and the choice made.** The firmware background exists to make the hand-over from the
+vendor's boot logo seamless: Plymouth repaints the same logo, at the offset the firmware drew it, on black, so a machine with
+a BGRT table goes from the vendor logo to the splash without a visible change. Forcing navy gives that up for brand
+consistency: the vendor logo is no longer repainted, and the first Plymouth frame is a flat navy screen. This was chosen
+because the ground is the brand's, and because on the live medium the seamless hand-over was never there: the boot menu
+(navy, 30 second timeout) sits between the firmware logo and the kernel, so the path is firmware logo, navy GRUB menu,
+splash, and a black splash after the navy menu was the one visible cut. It is now navy to navy. On an **installed** system
+with GRUB's menu hidden (the Ubuntu default for a single OS) the firmware logo goes straight to the splash, so there the
+cut from the vendor's black to navy is the price. Anyone who wants the vendor hand-over back for installed systems removes
+the `UseFirmwareBackground` line from `ci_plymouth_recolor` (and the matching checks in `build-iso.sh`,
+`verify-iso.sh` and the two tests); a ground that is navy AND a repainted vendor logo is not possible with this plugin,
+because the black fill is hard-coded.
+
+**What is proven where.** `tests/plymouth-ground-render.sh` starts the real `plymouthd` of the Ubuntu packages on its X11
+renderer in a virtual X server and reads the ground off screenshots: black for the stock theme, for the v6-style theme and
+for a theme switched off in `[boot-up]` only, `#041620` for the repainted `bgrt` and `spinner`.
+`tests/boot-media-plymouth.sh` builds the overlay against a stock-shaped initrd and against the real stock initrd and
+checks the files, the padding, the byte-identical stock part and that the kernel-style merge (stock archives, then the
+overlay) differs from the stock tree in the overlay's files only. `verify-iso.sh` section 7 checks the shipped ISO. **Not
+shown until a v7 boot:** the colour on the live framebuffer of a real or QEMU guest (the ground logic is in the plugin,
+above the renderer, but the DRM, simpledrm and efifb renderers are not exercised by the X11 test); that the kernel accepts
+and applies the appended overlay and that Plymouth then reads the new `bgrt.plymouth` (v6 showed it applies the overlay's
+watermark, not that this file is read); the `nomodeset` entry, which uses the frame-buffer renderer; whether a black frame
+still shows between the GRUB menu and the first Plymouth frame; and any real BGRT firmware.
+
 ---
 
 ## Iterative Development
@@ -393,7 +451,10 @@ identity, GRUB, MOTD and installer files. It also checks the live GRUB menu: the
 `gfxterm` and `insmod`s only `all_video`, `gfxterm` and `png`, the menu colours equal what the brand tokens
 give (`core/lib/tests/grub-nearest-color.sh` pins the function that derives them), and the installed system's GRUB background is 8-bit too. A copy of the script run outside the repo cannot derive the canon checks; it lists them under SKIPPED in the Summary, and `VERIFY_REQUIRE_CANON=1` makes that a failure. For the live boot it unpacks the appended initrd overlay
 (`tests/boot-media-plymouth.sh` runs the build step against a stock-shaped initrd) and asserts that it holds exactly the branded
-files and that the bgrt and spinner themes carry the canon ground and progress-bar colours with their stock fonts, the text splash is titled
+files and that the bgrt and spinner themes carry the canon ground and progress-bar colours with their stock fonts, that no section of
+either asks for the firmware background (which would make the plugin paint black, see [Live boot splash](#live-boot-splash-plymouth)),
+that the overlay's and the rootfs' copies agree key by key apart from the fonts, and (with `unmkinitramfs`) that the initrd's default theme is the
+bgrt one the overlay repaints, the text splash is titled
 Companion OS, and `bgrt-fallback.png` is the same non-Ubuntu 128 px canon mark in the overlay and the rootfs. In the rootfs every package-owned Plymouth file the build rewrites (the watermark, `bgrt-fallback.png`, `bgrt.plymouth`, `spinner.plymouth`, and the text theme's template `ubuntu-text.plymouth.in`, from which the package regenerates the text theme) is `dpkg-divert`ed, so a package upgrade or an `/etc/lsb-release` trigger cannot bring Ubuntu's logo or colours back (`desktop-theme/tests/plymouth-theme.sh` shows this against the real packages).
 Section 8 checks the image's `md5sum.txt` (see [Check disc for defects](#check-disc-for-defects-md5sumtxt-inside-the-image)):
 every entry matches the file in the ISO, no entry names a file that is gone, and every regular file the stock convention

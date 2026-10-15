@@ -107,12 +107,25 @@ ci_install_edited() {
 # ci_plymouth_recolor <conf>
 # Repaint a Plymouth theme file (bgrt.plymouth, spinner.plymouth) in the canon boot palette, in place: the
 # ground is the dark background (navy), the progress bar's track the dark secondary and its fill the dark
-# primary (sage). Only those four colour lines change. Fonts, image directory and alignment stay as the file
+# primary (sage), and the firmware background is switched off (UseFirmwareBackground=false in every section that
+# sets it) so that the ground is what the screen shows. Fonts, image directory and alignment stay as the file
 # has them, so the one call serves the rootfs copy (10-plymouth.sh) and the copy inside the casper initrd
-# (build-iso.sh), which has to keep the Ubuntu fonts because they are the only fonts that initrd carries.
-# The ground shows in the spinner theme. The bgrt theme (Ubuntu's default) does not use it while it draws the firmware
-# logo or bgrt-fallback.png: the two-step plugin paints solid black behind either, so there only the progress bar
-# colours are seen. Needs no root and no dpkg.
+# (build-iso.sh), which has to keep the Ubuntu fonts because they are the only fonts that initrd carries. Both
+# copies come out with the same keys and values, so the live boot and the installed system look the same.
+#
+# Why the last part matters. Ubuntu's default theme, bgrt, sets UseFirmwareBackground=true in its [boot-up],
+# [shutdown] and [reboot] sections. The two-step plugin (plymouth 24.004.60, src/plugins/splash/two-step/plugin.c)
+# then loads the ACPI BGRT image, the firmware's own boot logo, or where the machine has none bgrt-fallback.png, and
+# fills the whole screen with a hard-coded 0x000000 before drawing that image on it (view_set_bgrt_background and
+# view_set_bgrt_fallback_background). BackgroundStartColor / BackgroundEndColor are only read when no firmware
+# background is in use, so with the stock key a navy ground was configured and never drawn. It is all or nothing:
+# the plugin loads the firmware images if ANY mode asks for them and then draws black in every mode that does not,
+# so a single section left at true brings the black back. With all of them false nothing is loaded and
+# draw_background fills with BackgroundStartColor. The price is the firmware logo: it is no longer repainted at the
+# place the firmware drew it (the seamless hand-over from the vendor logo) and bgrt-fallback.png is no longer
+# drawn. The spinner theme has no such key, so there the call changes nothing beyond the four colours. Plymouth's own
+# parser accepts blanks around the "=" and the values 1, y, yes and true, so the key is rewritten whatever its
+# spelling. Needs no root and no dpkg.
 ci_plymouth_recolor() {
   local conf="$1" ground track fill
   ground="$(ci_hex0x "$CI_DARK_BACKGROUND")"
@@ -123,6 +136,7 @@ ci_plymouth_recolor() {
     -e "s/BackgroundEndColor=0x[0-9a-fA-F]*/BackgroundEndColor=$ground/" \
     -e "s/ProgressBarBackgroundColor=0x[0-9a-fA-F]*/ProgressBarBackgroundColor=$track/" \
     -e "s/ProgressBarForegroundColor=0x[0-9a-fA-F]*/ProgressBarForegroundColor=$fill/" \
+    -e "s/^[[:space:]]*UseFirmwareBackground[[:space:]]*=.*/UseFirmwareBackground=false/" \
     "$conf"
 }
 

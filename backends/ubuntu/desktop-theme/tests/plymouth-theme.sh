@@ -11,7 +11,9 @@
 #
 #   colours     bgrt.plymouth and spinner.plymouth carry the canon dark background, progress track and fill
 #               (derived from vendor/brand/tokens, never typed here), and only those four lines differ from the
-#               stock files; the rootfs bgrt keeps the Cantarell font swap; and the colours FOLLOW the tokens;
+#               stock files, plus bgrt's UseFirmwareBackground, which stock sets true in boot-up, shutdown and reboot
+#               and which makes the two-step plugin paint black instead of the ground (ci_plymouth_recolor says why);
+#               the rootfs bgrt keeps the Cantarell font swap; and the colours FOLLOW the tokens;
 #   text        ubuntu-text.plymouth is the Companion OS theme, titled with the build's CI_OS_VERSION;
 #   fallback    bgrt-fallback.png is the staged colour mark, 128x128, not Ubuntu's; the stock file is dpkg-diverted
 #               to .ubuntu-stock (when a package owns it) with its bytes intact; a second run (a rebuild without
@@ -141,10 +143,16 @@ for theme in bgrt spinner; do
     expect "$theme.plymouth: progress bar is the canon primary ($want_fill) on the canon secondary ($want_track)" \
         bash -c "grep -q -x 'ProgressBarForegroundColor=$want_fill' '$conf' && grep -q -x 'ProgressBarBackgroundColor=$want_track' '$conf'"
     colour_keys="BackgroundEndColor BackgroundStartColor ProgressBarBackgroundColor ProgressBarForegroundColor"
-    if [[ "$theme" == bgrt ]]; then allowed="BackgroundEndColor BackgroundStartColor Font ProgressBarBackgroundColor ProgressBarForegroundColor TitleFont"; else allowed="$colour_keys"; fi
-    expect "$theme.plymouth: only the colour lines differ from Ubuntu's file (and the rootfs font swap for bgrt)" \
+    if [[ "$theme" == bgrt ]]; then allowed="BackgroundEndColor BackgroundStartColor Font ProgressBarBackgroundColor ProgressBarForegroundColor TitleFont UseFirmwareBackground"; else allowed="$colour_keys"; fi
+    expect "$theme.plymouth: only the colour lines differ from Ubuntu's file (and the rootfs font swap and the firmware background for bgrt)" \
         test "$(changed_keys "$STOCK/$theme.plymouth" "$conf")" = "$allowed"
+    expect "$theme.plymouth: no section asks for the firmware background any more (the plugin would paint black behind it)" \
+        bash -c "! grep -q -E '^[[:space:]]*UseFirmwareBackground[[:space:]]*=[[:space:]]*(1|y|yes|true)' '$conf'"
 done
+expect "precondition: Ubuntu's bgrt asks for the firmware background in boot-up, shutdown and reboot" \
+    test "$(grep -c '^UseFirmwareBackground=true' "$STOCK/bgrt.plymouth")" -eq 3
+expect "bgrt.plymouth switches it off in boot-up, shutdown and reboot (three lines, all false)" \
+    test "$(grep -c '^UseFirmwareBackground=false' "$THEMES/bgrt/bgrt.plymouth")" -eq 3
 expect "bgrt.plymouth on the rootfs asks for Cantarell (the initrd copy keeps Ubuntu's font)" \
     bash -c "grep -q -x 'Font=Cantarell 12' '$THEMES/bgrt/bgrt.plymouth' && grep -q -x 'TitleFont=Cantarell Light 30' '$THEMES/bgrt/bgrt.plymouth'"
 TEXT="$THEMES/ubuntu-text/ubuntu-text.plymouth"
