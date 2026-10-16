@@ -1,13 +1,13 @@
 # Companion OS, CachyOS edition (`backends/cachyos/`)
 
 > Status: the build system, the brand and identity overlay, the installer overlay, the first-boot provisioning and the ISO
-> verifier are written and unit-tested on fixtures. **A Companion OS ISO from this overlay has been built** (sha256
-> `19f0583e3760a8cf911467aaa6fb71e6a7ca1af78650927d9215010d71a442bf`) and `verify-iso.sh` passes all its checks but one (a real
-> defect, fixed in the tree and visible only in a rebuild). **That ISO boots to the Plasma desktop under QEMU software
-> emulation** (direct-kernel mode, no VM flags beyond the overlay's own `companion-vm-timeouts`: plasmashell and kwin running at
-> 149 s, a drawn desktop at 266 s on a loaded Apple-silicon host). The first boot showed two brand gaps, both fixed in the tree and
-> visible only in a rebuild: KDE's stock "Next" wallpaper instead of ours (`apply-wallpaper`) and the CachyOS Hello menu entry (the
-> hook above). **No installation of it has been run.**
+> verifier are written and unit-tested on fixtures. **Two Companion OS ISOs have been built from this overlay.** The second
+> (`companion-os-plasma-2026.10.16-x86_64.iso`, 3,217,129,472 bytes, built from the clean commit `16271e6`, sha256
+> `9f0afab64be9cac10f199bffa9aa4851c33880623bf473838b4b137be60506d9`) passes **all 187 checks of `verify-iso.sh`** and **boots to the
+> Plasma desktop under QEMU software emulation** (direct-kernel mode, no VM flags beyond the overlay's own `companion-vm-timeouts`:
+> plasmashell and kwin running at 245 s, a drawn desktop with the Companion OS wallpaper at 421 s on a heavily loaded Apple-silicon
+> host). The first ISO had two brand gaps that this one fixes: KDE's stock wallpaper (`apply-wallpaper`) and the CachyOS Hello menu
+> entry (the hook's `sed` quoting). **No installation of it has been run**, and its BIOS and UEFI boot menus were not booted.
 > The research demo ISO built earlier from the same pinned upstream (a trivial overlay) was booted under QEMU software
 > emulation: its desktop comes up in direct-kernel mode once the VM is given more time than the stock systemd settings allow,
 > which the overlay now does for every VM (`companion-vm-timeouts`); the BIOS and UEFI paths reached a serial login prompt, with
