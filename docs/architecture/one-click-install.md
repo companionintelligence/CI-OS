@@ -20,14 +20,18 @@ the default boot entry and still one click away from the same dialog ("Use the n
 
 The dialog:
 
-* names the disk: model, size, device node, and every partition that will be erased (`Windows (NTFS)`, `Linux (ext4)` ...),
-* lists the other internal disks that will be left alone,
+* names the disk: model, size, device node, and **everything found on it**: every partition (`Windows (NTFS)`, `Linux (ext4)`,
+  `contents not recognised` ...), a filesystem or RAID/LUKS signature on the whole disk, and any non-partition children,
+* lists the other disks that will be left alone,
 * shows a one-time password for the user `companion` (random, 16 characters from an alphabet without look-alikes),
-* has **Erase the disk and install**, **Cancel** and **Use the normal installer**. When the disk already holds data the
-  dialog defaults to Cancel.
+* has **Erase the disk and install**, **Cancel** and **Use the normal installer**. **Enter never confirms: the default is Cancel**,
+  also for a disk with nothing on it.
 
-After the click a progress window shows the installer's state; when it is done the user is told to remove the USB stick and
-the computer restarts. The first sign-in forces a new password (`chage -d 0`).
+With more than one internal disk the user first picks one from a list (the NVMe/SSD is preselected). Nothing is guessed.
+
+After the click a progress window shows the installer's state, with the sign-in details in every status line. When the
+installation is finished the computer **turns off** (`shutdown: poweroff`, so a stick left in the machine does not boot the
+live session again): remove the USB stick, then turn it on. The first sign-in forces a new password (`chage -d 0`).
 
 What is answered automatically: English (`en_US.UTF-8`), US keyboard, time zone from geoip (UTC if offline), the Default
 application selection, "Erase disk and install" on the chosen disk (`layout: direct`, match by device path), no proprietary
@@ -35,39 +39,56 @@ drivers or codecs, security updates only, hostname `companion-os`, no installer 
 
 ## Safety rules
 
-These are the rules the tests pin. Each is a property of `ci-os-auto-install`, not of the user paying attention.
+These are the rules the tests pin. Each is a property of `ci-os-auto-install`, not of the user paying attention. The first
+version of this tool was reviewed independently on 2026-10-15; the review's findings are what most of rules 1-3, 6 and 8-9 are.
 
 1. **Never the boot medium.** A disk is excluded when `/cdrom` is mounted from it (traced through partitions and `dm`
-   parents), when any partition under it is mounted below `/cdrom` or `/run/ci-os`, or when it carries a Companion Stick label
-   (`CI-EFI`, `CI-SHARED`, `CI-BOOT-A/B`, `CI-CACHE`, `CI-PERSIST`, `writable`, `casper-rw`) even if this session did not boot
-   from it.
-2. **Fail closed.** If `/cdrom`'s source cannot be traced to a disk (Ventoy loop mounts, netboot, an unexpected layout) the
-   tool offers *no* disk and sends the user to the normal installer. It never guesses.
-3. **Internal disks only.** Not removable, not hotplug, not USB, not read-only, not a loop/zram/ram/dm device, at least 25 GB.
-   The default is the first NVMe, then other solid-state, then the largest.
-4. **One consent, naming the target.** Nothing is written before the click. A boot-menu entry only opens the dialog, so a
-   Stick booted by accident in the automatic entry erases nothing.
-5. **The target is pinned inside the install.** The autoinstall file carries an `early-commands` check that runs before any
-   disk is touched: the disk's size must still equal the size that was shown, and the disk must not carry `/cdrom`. If the
-   disk list changed between the dialog and the write, the helper re-classifies and aborts first.
-6. **The password never leaves the box.** Only its SHA-512 hash goes into the autoinstall file, which lives on tmpfs
-   (`/run/ci-os-auto-install/`, mode 0600, `/autoinstall.yaml` is a symlink to it) and is removed on success and on failure.
-   The helper never prints the password (a test parses the script for it).
-7. **No disk tools of its own.** The helper has no `mkfs`, `wipefs`, `sgdisk`, `parted` or `dd`, and no `shell=True`
-   (tested on the script text, and re-checked on the copy inside the ISO by `verify-iso.sh`).
+   parents), when `/cdrom` is a **loop device** and the disk holds its backing file (`losetup -nO BACK-FILE`, then
+   `findmnt -T`; GRUB loopback, iso-scan, Ventoy), when any partition under it is mounted at or below `/cdrom`, `/isodevice`,
+   `/rofs`, `/run/ci-os` or `/run/live`, or when it carries a Companion Stick label (`CI-EFI`, `CI-SHARED`, `CI-BOOT-A/B`,
+   `CI-CACHE`, `CI-PERSIST`, `writable`, `casper-rw`) even if this session did not boot from it.
+2. **Fail closed.** If `/cdrom`'s source cannot be traced to a disk or to RAM (a loop whose backing file cannot be resolved,
+   an unexpected layout) the tool offers *no* disk and sends the user to the normal installer. It never guesses.
+3. **Internal disks only.** Not removable, not hotplug, not `tran=usb`, not on a USB or Thunderbolt path in sysfs (this catches
+   bridges that lie to `lsblk`), not an SD/eMMC card (`mmcblk*`), not read-only, not a loop/zram/ram/dm device, at least
+   25 GB. With several candidates the user chooses, so an external NVMe can never become the silent default.
+4. **One consent, naming the target.** Nothing is written before the click, and the click is not the default key. A boot-menu
+   entry only opens the dialog, so a Stick booted by accident in the automatic entry erases nothing. The helper strips
+   `ZENITY_*` / `DIALOG_*` from the environment so exit codes cannot be remapped, and a zenity that fails counts as Cancel.
+5. **The target is pinned three times.** After the click the disk list is classified again and must still contain the same
+   disk with the same size; again just before the install is confirmed; and the autoinstall file carries an `early-commands`
+   check that runs before any disk is touched: the disk's size must still equal the size that was shown, and the disk must not
+   carry `/cdrom`. (Subiquity skips `early-commands` on a second attempt within one boot, which is why the two earlier checks
+   exist.)
+6. **One instance, one installer.** A non-blocking `flock` refuses a second click or a click while the boot-menu dialog is
+   open. The helper refuses to touch an installer whose state is `RUNNING`, `POST_*`, `UU_*` or `DONE`, and a `/autoinstall.yaml`
+   that is not its own symlink is never overwritten and never removed.
+7. **The password never leaves the box.** Only its SHA-512 hash goes into the autoinstall file, which lives on tmpfs
+   (`/run/ci-os-auto-install/`, mode 0600; `/autoinstall.yaml` is a symlink to it, so a crash leaves a dangling link that
+   subiquity ignores) and is removed on success and on failure. The helper never prints the password (a test parses the
+   script for it). It does appear in the argv of the zenity dialogs of the live session, which is a single-user machine and
+   the password is one-time (`chage -d 0`).
+8. **Failures are visible and honest.** Every API call checks the HTTP status; a refused confirmation is a failure, not a
+   four-hour wait. Any exception shows a dialog. After a failure the autoinstall file is removed and the installer server is
+   restarted, so the next start is a clean one. The message says "Nothing was erased" only when the install was never
+   confirmed, otherwise "The disk may be partly or completely erased".
+9. **No disk tools of its own.** The helper has no `mkfs`, `wipefs`, `sgdisk`, `parted` or `dd`, and no `shell=True`
+   (tested on the script text, and re-checked on the copy inside the ISO by `verify-iso.sh`). Dynamic text in dialogs is
+   escaped (`&`, `<`, backslash), because a partition label is attacker-controlled input.
 
 ## How it works
 
 ```
 click  ->  ci-os-auto-install
-              lsblk -J / findmnt /cdrom  ->  classify disks (excluded | candidate), refuse if medium unknown
-              zenity confirmation  ->  Cancel | Use the normal installer | Erase and install
-              re-classify; write /run/ci-os-auto-install/autoinstall.yaml, ln -s /autoinstall.yaml
+              flock; lsblk -J / findmnt /cdrom (/ losetup)  ->  classify disks, refuse if the medium is unknown
+              (several candidates -> chooser)  ->  zenity confirmation: Cancel | Use the normal installer | Erase and install
+              re-classify; wait for the installer to be ready and idle
+              write /run/ci-os-auto-install/autoinstall.yaml, ln -s /autoinstall.yaml
               systemctl restart snap.ubuntu-desktop-bootstrap.subiquity-server.service
               poll  GET /meta/status  over /run/subiquity/socket
-                NEEDS_CONFIRMATION -> POST /meta/confirm   (the autoinstall confirmation)
-                RUNNING / POST_* ... DONE
-              remove the autoinstall file; "remove the stick" dialog; systemctl reboot
+                NEEDS_CONFIRMATION -> re-classify once more -> POST /meta/confirm (HTTP 200 required)
+                RUNNING / POST_* ... DONE   (the machine powers off by itself)
+              on any failure: remove the file, restart the server, say honestly what happened
 ```
 
 Files (all under `backends/ubuntu/chroot/payload/live-start/`, installed by `customize-chroot.sh` Step 10f):
@@ -91,21 +112,26 @@ ci-os-auto-install --disks   # candidate/excluded table, and whether the boot me
 ci-os-auto-install --plan    # the chosen disk, the autoinstall file (hash masked); changes nothing; exit 3 when no safe disk
 ```
 
-`CI_OS_AI_LSBLK_JSON`, `CI_OS_AI_CDROM_SOURCE` and `CI_OS_AI_CMDLINE` replace the system's answers with fixtures (tests only).
+`CI_OS_AI_LSBLK_JSON`, `CI_OS_AI_CDROM_SOURCE`, `CI_OS_AI_LOOP_BACKING` (`<device> <fstype>`) and `CI_OS_AI_CMDLINE` replace the system's answers with fixtures (tests only).
 
-Exit codes: 0 ok, 3 no safe target / medium unknown, 4 not a live session, 5 installer not ready, 6 cancelled, 7 install failed.
+Exit codes: 0 ok, 3 no safe target / medium unknown, 4 not a live session, 5 installer not ready or busy, 6 cancelled (or another
+instance is open), 7 install failed.
 
 ## Tests
 
 | Where | What |
 |---|---|
-| `backends/ubuntu/chroot/tests/test_auto_install.py` (run by `core/lib/check-repo.sh`) | disk selection on fixtures: Stick boot, DVD boot, medium unknown, a second Stick, USB/removable/read-only/small/loop disks, `dm` parents, string booleans from old `lsblk`; the autoinstall file; the password; script-text rules |
+| `backends/ubuntu/chroot/tests/test_auto_install.py` (run by `core/lib/check-repo.sh`) | 79 tests, no root, no disk, no VM: disk selection on fixtures (Stick boot, DVD boot, loop `/cdrom` with and without a resolvable backing file, `/isodevice`, medium unknown, a second Stick, USB/removable/SD/Thunderbolt/read-only/small/loop disks, `dm` parents, string booleans from old `lsblk`); what the dialog says about whole-disk filesystems, RAID/LUKS members and unrecognised partitions; markup escaping; every dialog answer including zenity failing; the whole `interactive()` and `run_install()` flows with zenity, sudo, systemd and the installer API replaced by recorders (cancel and "normal installer" write nothing, a busy installer is never touched, a refused or failed confirmation cleans up and says the honest thing, the disks changing at the last moment never confirm); the installer-side pin executed in bash with stub `blockdev`/`findmnt`; `--live-setup` inert on an installed system and a boot-menu word matched only as a whole token; the lock; the API wrapper; script-text rules. Ten deliberate mutations of the helper were each caught. |
 | `backends/ubuntu/iso/scripts/verify-iso.sh` "One-click automatic install" | the files are in the image, the helper's dependencies are in the image, **the same unit tests run against the helper inside the ISO**, the GRUB entry exists once and only it carries `ci.autoinstall=1`, and no kernel line carries bare `autoinstall` |
 
 ### Test status
 
-* Unit and image-assertion logic: passing (`check-repo.sh`).
+* Unit and image-assertion logic: passing (`check-repo.sh`); an independent code review found nine blocking or serious issues in
+  the first version and all are fixed and covered by a test.
 * GRUB insertion: exercised on the stock 24.04 `grub.cfg` shape, including the failure path.
+* **Not yet verifiable without a VM** (the review marked these as unverified): the exact snap unit name and client process
+  pattern, that zenity 4.0.1 accepts every flag used, the `/meta/status` states and `/meta/confirm` body in 24.04.5's snap, that
+  `/autoinstall.yaml` is picked up through the symlink, and that `shutdown: poweroff` beats the final dialog.
 * **Not yet done on a built ISO:** the full path (dialog -> subiquity restart -> `/meta/confirm` -> installed disk) in a
   VM, and the new GRUB entry in a real boot. Do not publish as "tested" until `qemu` e2e on a v8 ISO has run; see the open
   items in `docs/architecture/test-and-mass-flash-plan.md`.
