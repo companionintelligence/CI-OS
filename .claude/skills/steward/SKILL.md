@@ -41,6 +41,8 @@ Branches cut before the reorganization use the old paths. Map them:
 | `scripts/*.sh`, `setup-fresh-ubuntu.sh`, `bootstrap-ci-os.sh` | `backends/ubuntu/provision/provision.sh` (tier-gated) + `backends/ubuntu/lib/` |
 | `configs/scripts/`, Cubic/preseed tree | removed — don't resurrect |
 
+Touching `backends/cachyos/`: run the no-Docker tests in `backends/cachyos/iso/tests` (check-repo.sh runs them); after an overlay, renderer, installer or `verify-iso.sh` change run the manual `iso/tests/verify-mini-iso.sh` (about 2 minutes, Docker + network); `build-iso.sh --stop-after validate` checks an overlay change against the real pinned upstream (about 2 minutes, Docker). A patch that touches a kernel, initrd, append or memtest line of a boot menu needs `# ci-os: allow-kernel-line-change`.
+
 **Companion Stick** lives in `stick/`, a Rust Cargo workspace whose binary crate is
 `crates/ci-stick`; see `docs/architecture/companion-stick.md`. Rust is first-class inside
 `stick/` only, the same way Nix is inside `backends/nixos/`. Never make `core/` or the
@@ -57,14 +59,14 @@ example too; a test enforces this. `core/manifest/model-packs.yaml` is provision
 A change to `core/headless/payload/` ships on **every** backend. When it adds a runtime
 dependency (a new binary, e.g. `iptables`), add it to each backend that installs the payload:
 `backends/{ubuntu,mint}/headless-package/DEBIAN/control`, `backends/fedora/headless-setup/install.sh`,
-`backends/arch/headless-setup/install.sh`, `backends/nixos/modules/headless-setup.nix`.
+`backends/arch/headless-setup/install.sh`, `backends/cachyos/installer/modules/packages_online.conf` (Calamares installs the packages; `provision/stage-headless.sh` only copies files), `backends/nixos/modules/headless-setup.nix`.
 Package names per distro: `core/manifest/role-map/*.yaml`. (Bazzite deliberately doesn't ship
 the captive portal — see the end of its `Containerfile`.)
 
 Adding a **new payload file**: the backends don't all copy the payload wholesale. Check each
 one's explicit file lists — `REQUIRED_FILES` in `backends/ubuntu/headless-package/build.sh`,
 the required-file list in the Fedora/Arch `install.sh`, and the per-file `install` lines in
-the NixOS module (`ciOsHeadlessBin`) — and add it wherever it has to be present.
+the NixOS module (`ciOsHeadlessBin`) — and add it wherever it has to be present. Also `backends/cachyos/provision/stage-headless.sh`: every payload file needs a placement rule there (an uncovered file stops it); `backends/cachyos/iso/tests/installer-stage.sh` is the parity test.
 
 ## Never commit
 

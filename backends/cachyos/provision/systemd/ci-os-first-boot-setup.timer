@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry Companion OS first-boot setup until it completes
+ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
+ConditionKernelCommandLine=!archisobasedir
+
+[Timer]
+OnBootSec=15min
+OnUnitInactiveSec=15min
+
+[Install]
+WantedBy=timers.target

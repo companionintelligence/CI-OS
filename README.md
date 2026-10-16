@@ -149,7 +149,7 @@ portal surfaces an inline error and re-enables the form for another attempt.
 
 CI-OS builds and themes the Companion Intelligence appliance **across multiple Linux
 distros** — Ubuntu (the reference implementation today), Linux Mint, Fedora, Arch, Bazzite,
-and NixOS — and provisions the CI ecosystem (Docker, dev tooling, local LLMs, CI-Hub) on top
+NixOS, and a CachyOS-based live and installer ISO — and provisions the CI ecosystem (Docker, dev tooling, local LLMs, CI-Hub) on top
 of each. Shared theming/provisioning logic lives in `core/`; each distro's actual
 build/install mechanism lives in `backends/<distro>/`. See
 [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for the
@@ -157,7 +157,7 @@ full design and rollout plan.
 
 An earlier version of this repo described itself as "Companion Ubuntu" — provisioning and
 branding scripts that only ran on stock Ubuntu 24.04 LTS. That framing is superseded: Ubuntu
-is still the most mature, reference backend, but it's one of six, not the whole project.
+is still the most mature, reference backend, but it's one of seven, not the whole project.
 
 Scripts typically apply:
 
@@ -318,6 +318,19 @@ Like Bazzite, this cannot be evaluated with a real Nix toolchain in this environ
 via grammar-based syntax parsing and manual nixpkgs-source cross-referencing instead.
 
 This completes all six backends in the rebuild plan.
+
+### CachyOS backend (Phase 7, ISO build implemented; not yet booted or installed)
+
+A live and installer ISO of Companion OS based on CachyOS: the pinned CachyOS-Live-ISO profile (archiso, KDE Plasma, online Calamares) plus a Companion OS overlay, built with the stock `mkarchiso` in a container. The installed system is built from the repositories at install time, so provisioning has three layers (live image, Calamares, first boot).
+
+| Goal | Entry point | Run on |
+|------|-------------|--------|
+| **Build the ISO** | [`backends/cachyos/iso/scripts/build-iso.sh`](backends/cachyos/iso/scripts/build-iso.sh) | Any host with Docker (35 to 60 minutes) |
+| **Verify an ISO** | [`backends/cachyos/iso/scripts/verify-iso.sh`](backends/cachyos/iso/scripts/verify-iso.sh) (run in the builder image) | The ISO, no root, no boot |
+| **Provision the installed system** | [`backends/cachyos/provision/provision.sh`](backends/cachyos/provision/provision.sh) (wrapper around the Arch one) | The *target* machine, first boot |
+
+See [`backends/cachyos/README.md`](backends/cachyos/README.md) and [`docs/architecture/cachyos-backend.md`](docs/architecture/cachyos-backend.md) for the decisions, the known limits (no Secure Boot, online install only, the Companion Stick can not boot it) and the test status.
+
 
 ---
 
@@ -666,6 +679,10 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   │   ├── image/                  # Containerfile + build.just — the OCI image definition (KDE Plasma)
 │   │   └── modules/                # First-boot systemd units: CI-Hub deploy, Ollama models,
 │   │                               #   ci user/uv/asdf/Node, captive-portal conditional gate
+│   ├── cachyos/                  # Phase 7 — pinned CachyOS-Live-ISO profile + overlay, built with mkarchiso in a container
+│   │   ├── iso/                   # scripts/build-iso.sh, overlay/, verify-iso.sh, tests/
+│   │   ├── installer/             # Calamares overlay (settings, modules, branding, guards)
+│   │   └── provision/             # first-boot wrapper around backends/arch/provision/provision.sh
 │   └── nixos/                    # Phase 6 — declarative flake + modules, NOT a script or image build
 │       ├── flake.nix              # Entry point: exposes nixosModules for a consumer to import
 │       ├── manifest/              # ecosystem.generated.json (yq-regenerated from ecosystem.yaml) +

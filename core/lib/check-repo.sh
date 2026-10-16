@@ -125,5 +125,40 @@ else
 fi
 rm -f "$md5_out"
 
+echo "── CachyOS edition tests (backends/cachyos/iso/tests)"
+# The no-Docker tests of the CachyOS edition: the overlay engine and host entry point (against a fake docker), the brand and
+# identity overlay, the installer overlay with the first-boot provisioning, the self-test of verify-iso.sh (every check against a
+# good and a broken fixture) and the helper code of the QEMU boot recipe. They need bash 3.2, awk, sed and python3 with PyYAML
+# (yamllint already needs it); a test that exits 2 cannot run here and is reported, not failed. The tests that need Docker, the
+# network or QEMU (overlay-engine-container.sh, overlay-pacstrap.sh, overlay-menu-shot.sh, verify-mini-iso.sh, qemu-boot.sh
+# itself) are manual.
+if [ "${SKIP_CACHYOS_TESTS:-0}" = 1 ]; then
+  echo "! skipped (SKIP_CACHYOS_TESTS=1)"
+else
+  for t in overlay-engine.sh overlay-brand.sh installer-config.sh verify-selftest.sh; do
+    tf="backends/cachyos/iso/tests/$t"
+    if [ ! -f "$tf" ]; then echo "✖ missing: $tf"; rc=1; continue; fi
+    tout="$(mktemp)"; trc=0
+    bash "$tf" > "$tout" 2>&1 || trc=$?
+    if [ "$trc" -eq 0 ]; then
+      echo "  $t: $(grep -E '^== ' "$tout" | tail -n 1)"
+    elif [ "$trc" -eq 2 ]; then
+      echo "! $t cannot run here: $(head -n 1 "$tout")"
+    else
+      echo "✖ $t failed (exit $trc):"
+      { grep -E '^FAIL' "$tout" | head -n 25; } || true
+      tail -n 5 "$tout"
+      rc=1
+    fi
+    rm -f "$tout"
+  done
+  qb_out="$(mktemp)"; qb_rc=0
+  bash backends/cachyos/iso/tests/qemu-boot.sh --selftest > "$qb_out" 2>&1 || qb_rc=$?
+  if [ "$qb_rc" -eq 0 ]; then echo "  qemu-boot.sh --selftest: $(grep -E 'passed' "$qb_out" | tail -n 1)"
+  elif [ "$qb_rc" -eq 2 ]; then echo "! qemu-boot.sh --selftest cannot run here: $(head -n 1 "$qb_out")"
+  else echo "✖ qemu-boot.sh --selftest failed (exit $qb_rc):"; tail -n 15 "$qb_out"; rc=1; fi
+  rm -f "$qb_out"
+fi
+
 [ $rc -eq 0 ] && echo "✔ all checks passed"
 exit $rc

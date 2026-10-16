@@ -13,7 +13,7 @@ Issues: <https://github.com/companionintelligence/CI-Engineering/issues>
 ## What this repo does
 
 Builds and themes the Companion Intelligence appliance base OS **across multiple Linux
-distros** — Ubuntu (reference implementation), Linux Mint, Fedora, Arch, Bazzite, and NixOS —
+distros** — Ubuntu (reference implementation), Linux Mint, Fedora, Arch, Bazzite, NixOS, and a CachyOS-based live and installer ISO —
 and provisions the CI ecosystem (Docker, dev tooling, local LLMs via Ollama, CI-Hub) on top of
 each. See `docs/architecture/multi-distro-design.md` for the full design and rollout plan.
 
@@ -49,6 +49,7 @@ and `stick/README.md`.
 - **`stick/`**: Rust (Cargo workspace, MSRV 1.75, `Cargo.lock` committed). **Rust is
   first-class inside `stick/` only**, the same way Nix is inside `backends/nixos/`. Don't
   introduce it into `core/` or the backends.
+- **`backends/cachyos/`**: bash + Docker (host) and bash 5 (container); a pinned upstream archiso profile plus an overlay. archiso gives files modes only from `file_permissions` (mkarchiso drops modes), so every executable the overlay adds needs an entry in `overlay/profiledef.append.sh`.
 
 ## Key commands
 

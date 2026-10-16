@@ -1,0 +1,43 @@
+# Packages that pacstrap/main.py of the pinned installer (cachyos-calamares-next 3.4.2-13, CachyOS/cachyos-calamares @ 199d715) appends
+# to basePackages IN CODE. modules/pacstrap.conf cannot change them, so they are listed here, once, and read by lib/ci-pkglist.py
+# next to basePackages: the launcher's package preflight (calamares-online.sh) then asks `pacman -Si` for the whole base system, not
+# only for the part the overlay's YAML names, BEFORE the installer touches a disk.
+#
+# The `code-names` guard of guards.list compares this file with the installer's main.py (both ways): a name the code adds that is
+# not listed, or listed and no longer added, makes the guard critical, so an installer update that changes the set is reviewed
+# (the launcher keeps the installer on the ISO) instead of leaving names unchecked. Bumping the installer pin: read the diff of
+# main.py, update this file, `check-packages.py` (every name below except `unused` is checked against the repositories).
+#
+# Format: set | package | when the installer adds it        (one package per line; "#" starts a comment)
+#   always   the install needs it: the preflight fails, and the launcher stops, when the package is gone from the repositories
+#   optional only some installs need it (a filesystem, a platform): the preflight warns, the install goes on
+#   unused   added only on a path this edition cannot take (the bootloader chooser offers GRUB only): listed so the guard knows it,
+#            not checked against the repositories
+#
+always   | linux-cachyos                   | kernels of a non-handheld target
+always   | linux-cachyos-headers
+always   | linux-cachyos-lts
+always   | linux-cachyos-lts-headers
+always   | grub                            | bootloader chooser = grub (the only item)
+always   | grub-hook
+always   | cachyos-grub-theme               | removed again by scripts/ci-os-post-install-fixups.sh
+always   | os-prober
+always   | intel-ucode                     | CPU vendor_id is GenuineIntel (read from /proc/cpuinfo at install time)
+always   | amd-ucode                       | any other vendor: both are checked, the vendor of the machine is not known to the preflight
+optional | snapper                         | root filesystem is Btrfs (with GRUB)
+optional | btrfs-assistant
+optional | grub-btrfs-support
+optional | zfs-utils                       | root filesystem is ZFS
+optional | linux-cachyos-zfs
+optional | linux-cachyos-lts-zfs
+optional | bcachefs-tools                  | root filesystem is bcachefs
+optional | bcachefs-dkms
+optional | linux-cachyos-deckify           | target platform is handheld
+optional | linux-cachyos-deckify-headers
+optional | linux-cachyos-deckify-zfs
+unused   | limine                          | other bootloaders: not offered by modules/packagechooser_bootloader.conf
+unused   | limine-entry-tool
+unused   | limine-snapper-sync
+unused   | refind
+unused   | refind-btrfs
+unused   | systemd-boot-manager

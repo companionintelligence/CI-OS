@@ -1,0 +1,130 @@
+--- a/grub/grub.cfg
++++ b/grub/grub.cfg
+@@ -1,13 +1,7 @@
+-# Defining the Version of the ISO. This line could be easy changed by a Script wich do that automatic before creating ISO self.
+-# Default "GIT", because if somebody outside from the DEVs create a ISO, this ISO wouldnt have a specific Version number.
+-CACHYOS_VERSION="GIT"
++# Companion OS live and installer medium, UEFI menu.
++# The menu text, the background and the colours are Companion OS's; the kernel, initrd and archiso parameters of every
++# entry are those of the live profile this image is built on, unchanged.
+ 
+-if [ "${grub_platform}" == 'efi' ]; then
+-    bios_or_uefi='(UEFI)!'
+-else
+-    bios_or_uefi='(BIOS)!'
+-fi
+-
+ # Load partition table and file system modules
+ insmod part_gpt
+ insmod part_msdos
+@@ -25,6 +19,14 @@
+     set gfxmode="auto"
+     terminal_input console
+     terminal_output gfxterm
++    # Companion OS menu (rendered by render-assets.sh): a theme, with the plain background as the fallback should the
++    # theme not load. png and gfxmenu are modules that grub-mkstandalone embeds.
++    insmod png
++    background_image /boot/grub/splash.png
++    if [ -f /boot/grub/theme/theme.txt ]; then
++        insmod gfxmenu
++        set theme=/boot/grub/theme/theme.txt
++    fi
+ fi
+ 
+ # Enable serial console
+@@ -48,33 +50,32 @@
+ fi
+ 
+ # Set default menu entry
+-default=cachyos
++default=companion-os
+ timeout=10
+ timeout_style=menu
+ 
+-# Welcome Text
+-menuentry "Welcome to CachyOS $CACHYOS_VERSION Live ISO $bios_or_uefi" {
+-insmod ext2
+-}
+-menuentry "----------------------------------------------------" {
+-insmod ext2
+-}
++# Menu colours: the names are derived from the brand tokens at build time (render-assets.sh writes
++# companion-os-theme.cfg); the pair below is only what a menu without that file falls back to.
++set menu_color_normal=white/black
++set menu_color_highlight=black/cyan
++if [ -f /boot/grub/companion-os-theme.cfg ]; then
++    source /boot/grub/companion-os-theme.cfg
++fi
+ 
+-
+ # Menu entries
+-menuentry "CachyOS" --class arch --class gnu-linux --class gnu --class os --id 'cachyos' {
++menuentry "Companion OS (Plasma)" --class arch --class gnu-linux --class gnu --class os --id 'companion-os' {
+     set gfxpayload=keep
+     linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-cachyos archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G copytoram=auto module_blacklist=pcspkr i915.modeset=1 amdgpu.modeset=1 nvme_load=yes
+     initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-cachyos.img
+ }
+ 
+-menuentry "CachyOS LTS Kernel" --class arch --class gnu-linux --class gnu --class os --id 'cachyos-lts' {
++menuentry "Companion OS (Plasma, LTS kernel)" --class arch --class gnu-linux --class gnu --class os --id 'companion-os-lts' {
+     set gfxpayload=keep
+     linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-cachyos-lts archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G copytoram=auto module_blacklist=pcspkr i915.modeset=1 amdgpu.modeset=1 nvme_load=yes
+     initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-cachyos-lts.img
+ }
+ 
+-menuentry "CachyOS Legacy Hardware (GPU nomodeset)" --class arch --class gnu-linux --class gnu --class os --id 'cachyos-fallback' {
++menuentry "Companion OS (Plasma, safe graphics)" --class arch --class gnu-linux --class gnu --class os --id 'companion-os-safe' {
+     set gfxpayload=keep
+     linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-cachyos-lts archisobasedir=%INSTALL_DIR% archisosearchuuid=%ARCHISO_UUID% cow_spacesize=10G copytoram=auto module_blacklist=nvidia,nvidia_modeset,nvidia_uvm,nvidia_drm nomodeset nvme_load=yes
+     initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-cachyos-lts.img
+--- a/grub/loopback.cfg
++++ b/grub/loopback.cfg
+@@ -1,13 +1,7 @@
+-# Defining the Version of the ISO. This line could be easy changed by a Script wich do that automatic before creating ISO self.
+-# Default "GIT", because if somebody outside from the DEVs create a ISO, this ISO wouldnt have a specific Version number.
+-CACHYOS_VERSION="GIT"
++# Companion OS live and installer medium, loopback menu.
++# The menu text, the background and the colours are Companion OS's; the kernel, initrd and archiso parameters of every
++# entry are those of the live profile this image is built on, unchanged.
+ 
+-if [ "${grub_platform}" == 'efi' ]; then
+-    bios_or_uefi='(UEFI)!'
+-else
+-    bios_or_uefi='(BIOS)!'
+-fi
+-
+ # https://www.supergrubdisk.org/wiki/Loopback.cfg
+ 
+ # Search for the ISO volume
+@@ -24,27 +18,18 @@
+ fi
+ 
+ # Set default menu entry
+-default=cachyos
++default=companion-os
+ timeout=10
+ timeout_style=menu
+ 
+-# Welcome Text
+-menuentry "Welcome to CachyOS $CACHYOS_VERSION Live ISO $bios_or_uefi" {
+-insmod ext2
+-}
+-menuentry "----------------------------------------------------" {
+-insmod ext2
+-}
+-
+-
+-# Menu entries
+-menuentry "CachyOS" --class arch --class gnu-linux --class gnu --class os --id 'cachyos' {
++# Menu entries (this file boots the LTS kernel, as upstream's does)
++menuentry "Companion OS (Plasma, LTS kernel)" --class arch --class gnu-linux --class gnu --class os --id 'companion-os' {
+     set gfxpayload=keep
+     linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-cachyos-lts archisobasedir=%INSTALL_DIR% img_dev=UUID=${archiso_img_dev_uuid} img_loop="${iso_path}" cow_spacesize=10G copytoram=auto module_blacklist=pcspkr i915.modeset=1 amdgpu.modeset=1 nvme_load=yes
+     initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-cachyos-lts.img
+ }
+ 
+-menuentry "CachyOS Legacy Hardware (GPU nomodeset)" --class arch --class gnu-linux --class gnu --class os --id 'cachyos-fallback' {
++menuentry "Companion OS (Plasma, safe graphics)" --class arch --class gnu-linux --class gnu --class os --id 'companion-os-safe' {
+     set gfxpayload=keep
+     linux /%INSTALL_DIR%/boot/%ARCH%/vmlinuz-linux-cachyos-lts archisobasedir=%INSTALL_DIR% img_dev=UUID=${archiso_img_dev_uuid} img_loop="${iso_path}" cow_spacesize=10G copytoram=auto module_blacklist=nvidia,nvidia_modeset,nvidia_uvm,nvidia_drm nomodeset nvme_load=yes
+     initrd /%INSTALL_DIR%/boot/%ARCH%/initramfs-linux-cachyos-lts.img

@@ -465,7 +465,7 @@ runs on Linux: on an Ubuntu 24.04 host it builds without Docker.
 3. **Safe Ubuntu x86_64 flashing, persistence and QEMU boot tests. ✅**
 4. Offline Hub/Memory payload install and model import.
 5. Signed A/B updater with rollback.
-6. Other distros (Fedora, Arch, Debian) and ARM64.
+6. Other distros (Fedora, Arch, Debian) and ARM64. The CachyOS ISO (backends/cachyos) is archiso-based; a Stick slot for it needs an archiso boot profile in bootcfg.rs, a boot_profile field in bundle.schema.json and an archiso-shaped QEMU boot image, and Secure Boot is unavailable for it. See docs/architecture/cachyos-backend.md#secure-boot-and-the-companion-stick.
 
 ### Still out of scope after slice 3
 

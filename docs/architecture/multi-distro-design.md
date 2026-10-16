@@ -1,8 +1,8 @@
 # CI-OS multi-distro architecture
 
 CI-OS is moving from Ubuntu-only rebrand scripts to a monorepo that builds a themed,
-ecosystem-provisioned Companion Intelligence appliance image across six distro targets:
-Ubuntu, Linux Mint, Fedora Workstation, Arch Linux, Bazzite, and NixOS.
+ecosystem-provisioned Companion Intelligence appliance image across seven targets:
+Ubuntu, Linux Mint, Fedora Workstation, Arch Linux, Bazzite, NixOS, and a CachyOS-based live and installer ISO.
 
 This supersedes two statements that used to be true and are no longer the goal:
 `CI-OS/README.md`'s *"CI-OS is Companion Ubuntu... not a from-scratch or shipped OS"* and
@@ -50,6 +50,8 @@ backends/
                                                                         # iso/ (kickstart/lorax) is Phase 3b, deferred
   arch/      {provision, desktop-theme, headless-setup}/               # no ISO-build mode — implemented (Phase 4);
                                                                         # archiso profile-building deferred (see below)
+  cachyos/   {iso, installer, provision}/                             # Phase 7: pinned CachyOS-Live-ISO profile + overlay; archiso ISO build,
+                                                                        # online Calamares installer; implemented, not yet booted or installed
   bazzite/   {image/Containerfile, image/build.just, modules/}/       # OCI image, not chroot
   nixos/     {flake.nix, modules/{branding.nix, ecosystem.nix, headless-setup.nix}}/
 ```
@@ -221,6 +223,35 @@ assumes GNOME Shell + GDM and a bootloader are already present (Arch has no inst
 guaranteeing either) — `provision.sh`'s `check_desktop_prereqs()` warns rather than fails when
 GNOME/GDM aren't detected, and `15-grub-theme.sh` is the one step that actively detects and
 branches on GRUB-vs-systemd-boot instead of assuming.
+
+### `backends/cachyos/` (Phase 7, ISO build implemented; not yet booted or installed)
+
+```
+backends/cachyos/
+  upstream.lock   every pin: upstream commit and fallback, builder image digest, CachyOS key fingerprint, mirrorlist, edition identity
+  iso/            scripts/build-iso.sh (host: only Docker), in-container build and overlay engine, verify-iso.sh; docker/; overlay/; tests/
+  installer/      Calamares overlay: settings, module configs, branding, guards, scripts
+  provision/      first-boot wrapper around backends/arch/provision/provision.sh, systemd units, setup-portal stager
+```
+
+A live and installer ISO of Companion OS based on CachyOS, and the first archiso-based backend. It does not write an Arch-native
+archiso profile (that stays deferred, below): it consumes a **pinned upstream profile** (CachyOS-Live-ISO: KDE Plasma,
+plasma-login-manager, the online Calamares installer), applies an **overlay** (`files/`, `patches/`, `packages.add|remove`,
+`profiledef.append.sh`) to a throw-away copy of it and runs the stock `mkarchiso` in a privileged amd64 container; the host needs
+only Docker. Upstream is never edited.
+
+* **Three layers**, because the CachyOS installer builds the target from the network and does not copy the live image: the live
+  image (identity, menus, launcher), Calamares (package list, payload staging, unit enabling, identity carry-over) and first boot
+  (`backends/arch/provision/provision.sh` behind a wrapper).
+* **Identity**: `NAME="Companion OS"`; `ID=cachyos` and `ID_LIKE=arch` stay (CI-Hub string-matches `ID_LIKE=arch`); a later-sorting
+  pacman hook rewrites the whole os-release after `cachyos-hooks`' own hook.
+* **Reuse**: the Arch `provision.sh` behind a thin wrapper (as Mint wraps Ubuntu's), `core/headless/payload`, `core/render/*`,
+  `vendor/brand`. Nothing in `backends/arch/` is edited.
+* **Limits**: online install only; rolling package set; no Secure Boot; the Companion Stick can not boot it (casper is hard-coded);
+  the live profile is baseline x86-64 (the `cachyos-v3` repositories fail under Rosetta).
+* **Status**: unit-tested on fixtures and on a miniature ISO; no Companion ISO has been built, booted or installed.
+
+See [`cachyos-backend.md`](cachyos-backend.md) and `backends/cachyos/README.md`.
 
 ## GNOME Shell / GDM gresource rebranding
 
@@ -443,7 +474,7 @@ line-by-line cross-referencing against fetched nixpkgs source for every module/o
 claimed, not guesswork. A genuine `nix flake check` against a real nixpkgs revision
 remains open follow-up work for whoever has a working Nix toolchain.
 
-This completes all six backends in the rollout table.
+This completes backends 1 to 6 of the rollout table; Phase 7 (CachyOS) is described after the Arch section.
 
 ## The ecosystem manifest
 
@@ -491,10 +522,11 @@ compliant, not a shortcut — CI-OS's own README already treats the Ubuntu ISO p
 | 4 | Arch | M | **Implemented.** `provision.sh` is a genuine pacman reimplementation (rolling-release partial-upgrade and no-autostart conventions have no apt/dnf analog — see its own header). GNOME Shell/GDM branding reuses the same accent-color mechanism Fedora uses (independently re-confirmed for Arch, not assumed). `15-grub-theme.sh` is the one new structural piece: a GRUB-vs-systemd-boot detect-and-delegate wrapper, since Arch has no installer flavor guaranteeing GRUB is present. |
 | 5 | Bazzite | L/XL | **Implemented.** Fundamentally different execution model — see the section below. Targets KDE Plasma (Bazzite's flagship variant), adapts to Podman rather than Docker CE, bakes theming + most ecosystem tools into the image, defers $HOME-writing tools (uv/asdf/Node/the `ci` user) and credential-gated deploys (CI-Hub, Ollama models) to first-boot systemd units. |
 | 6 | NixOS | L | **Implemented.** A second fundamentally different execution model — see the section below. A Nix flake exposing importable `nixosModules`, not a provisioning script or an image build. Requires reversing CI-OS's former "no Nix" rule (scoped to this one backend). |
+| 7 | CachyOS ISO | L | **ISO build implemented; not yet booted or installed.** A pinned CachyOS-Live-ISO profile plus a Companion OS overlay, built with the stock `mkarchiso` in a container; the online Calamares installer with a Companion overlay; first-boot provisioning reuses the Arch `provision.sh` behind a wrapper. No Secure Boot, and the Companion Stick can not boot it; see `docs/architecture/cachyos-backend.md`. |
 
 Deferred, tracked but not committed: Mint ISO-building, Arch archiso profile-building (explicitly
 out of scope for Phase 4 — no default DE, no shared code with kickstart/debootstrap, low payoff
-relative to effort), Fedora kickstart/lorax (can slip past 3a), Bazzite model-baking into the
+relative to effort; Phase 7 builds an ISO from a pinned CachyOS profile instead, not an Arch-native one), Fedora kickstart/lorax (can slip past 3a), Bazzite model-baking into the
 image (default: pull at first boot, not baked in), Arch AUR-helper automation (Phase 4's
 `install_vscode()`/`install_companion_launcher()` stub rather than invoke yay/paru, per this
 deferral).

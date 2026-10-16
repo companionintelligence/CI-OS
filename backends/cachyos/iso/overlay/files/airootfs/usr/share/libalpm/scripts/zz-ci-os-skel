@@ -1,0 +1,175 @@
+#!/bin/bash
+# Companion OS desktop defaults for new users: edits the Plasma skeleton that the CachyOS package
+# "cachyos-kde-settings" lays down in /etc/skel, so the live user (mkarchiso copies /etc/skel into
+# /home/liveuser after the packages are installed) and every user the installer creates start with the
+# Companion OS look instead of CachyOS's.
+#
+# Why edit instead of shipping our own /etc/skel files. The panel layout and the kdeglobals files are owned by
+# cachyos-kde-settings: a file of ours at the same path makes pacman abort with "exists in filesystem", and a package
+# update would put CachyOS's back. A PostTransaction hook (zz-ci-os-skel.hook, Target = cachyos-kde-settings) runs this
+# after the package is installed or upgraded, so the edit is redone every time. ksplashrc and kscreenlockerrc are not
+# the package's, but the live profile ships its own kscreenlockerrc and one mechanism is easier to reason about than two.
+# Every edit is idempotent and only the keys named here are touched.
+#
+# What it changes (CachyOS's values are what the skel carries today; see the comments at each step):
+#   plasma-org.kde.plasma.desktop-appletsrc   the start button's icon (it names org.cachyos.hello, an icon of a package
+#       that is not shipped, so it would be broken) and the wallpaper, which the skel puts under [Containments][4]
+#       although the desktop is another containment (Plasma reads a wallpaper's settings from the containment it
+#       belongs to, so that entry most likely never took effect)
+#   kdeglobals, kdedefaults/kdeglobals        ColorScheme=BreezeDark -> CI-OS-Dark, with the scheme's colours merged in
+#       (KDE reads the colours from kdeglobals, not from the scheme file, so a name alone would change nothing)
+#   ksplashrc                                 no splash screen (Breeze's carries the KDE and Plasma marks)
+#   kscreenlockerrc                           the lock screen shows the Companion OS wallpaper
+#
+# Usage: zz-ci-os-skel [DIR]     DIR holds the .config to edit; default: /etc/skel
+# CI_OS_ROOT=<dir> prefixes every absolute path (tests, carry-over onto a mounted target).
+# Run it on /etc/skel BEFORE the first user's home is made from it: a home that already exists is not changed.
+# Plain bash + awk (POSIX awk is enough); no kwriteconfig, no Plasma session needed.
+set -euo pipefail
+
+ROOT="${CI_OS_ROOT:-}"
+SKEL="${1:-$ROOT/etc/skel}"
+CFG="$SKEL/.config"
+SCHEME_NAME="CI-OS-Dark"
+SCHEME_FILE="$ROOT/usr/share/color-schemes/$SCHEME_NAME.colors"
+WALLPAPER_URL="file:///usr/share/wallpapers/companion/contents/images/3840x2160.jpg"
+KICKOFF_ICON="ci-os-logo"
+
+say() { printf 'zz-ci-os-skel: %s\n' "$*" >&2; }
+warn() { printf 'zz-ci-os-skel: WARNING: %s\n' "$*" >&2; }
+
+command -v awk >/dev/null 2>&1 || { warn "awk not found, nothing done"; exit 0; }
+[[ -d "$SKEL" ]] || { warn "$SKEL does not exist, nothing done"; exit 0; }
+mkdir -p "$CFG"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+
+# --- tiny INI helpers (KDE config files) ------------------------------------------------------------------------------
+# Group headers are matched as whole lines. A group is named without its outer brackets, so a nested group is written
+# "Containments][22][Wallpaper" for [Containments][22][Wallpaper]. Blank lines that trail a group stay after the key
+# that is added to it, so the file keeps its look. Each helper builds the new file in $WORK and copies it over the old
+# one only when awk succeeded, so a failure leaves the file as it was and the copy keeps its mode and owner.
+
+# ini_set <file> <group> <key> <value>: set key in group, creating the file and the group when missing.
+ini_set() {
+  local file="$1" group="$2" key="$3" value="$4" tmp="$WORK/ini_set"
+  [[ -f "$file" ]] || : > "$file"
+  awk -v g="[$group]" -v k="$key" -v v="$value" '
+    function flush_blanks() { while (blanks > 0) { print ""; blanks-- } }
+    BEGIN { ingroup = 0; done = 0; seen = 0; blanks = 0 }
+    /^\[/ {
+      if (ingroup && !done) { print k "=" v; done = 1 }
+      flush_blanks()
+      ingroup = ($0 == g)
+      if (ingroup) seen = 1
+      print
+      next
+    }
+    ingroup && $0 == "" { blanks++; next }
+    ingroup && index($0, k "=") == 1 { flush_blanks(); if (!done) { print k "=" v; done = 1 }; next }
+    { flush_blanks(); print }
+    END {
+      if (ingroup && !done) { print k "=" v; done = 1 }
+      flush_blanks()
+      if (!seen) { if (NR > 0) print ""; print g; print k "=" v }
+    }' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+}
+
+# desktop_containment <appletsrc>: the id of the containment that is the desktop (plugin org.kde.plasma.folder).
+desktop_containment() {
+  awk '
+    /^\[Containments\]\[[0-9]+\]$/ { id = $0; sub(/^\[Containments\]\[/, "", id); sub(/\]$/, "", id); cur = id; next }
+    /^\[/ { cur = "" }
+    cur != "" && $0 == "plugin=org.kde.plasma.folder" { print cur; exit }' "$1"
+}
+
+# drop_foreign_wallpaper <appletsrc>: remove every [Containments][N][Wallpaper][org.kde.image][General] group that
+# names a CachyOS path (the skel's wallpaper group), keep the others.
+drop_foreign_wallpaper() {
+  local file="$1" tmp="$WORK/drop_wallpaper"
+  awk '
+    function flush() { if (n > 0 && !(cand && hit)) printf "%s", buf; buf = ""; n = 0 }
+    /^\[/ { flush(); cand = (substr($0, 1, 13) == "[Containments" && index($0, "[Wallpaper][org.kde.image][General]") > 0); hit = 0 }
+    { buf = buf $0 "\n"; n++; if (cand && tolower($0) ~ /cachyos/) hit = 1 }
+    END { flush() }' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+}
+
+# merge_scheme <kdeglobals> <scheme file> <name>: what choosing a colour scheme in System Settings does. The scheme's
+# [Colors:*], [ColorEffects:*] and [WM] groups replace the file's and [General] ColorScheme names it. Everything else
+# in the file (widgetStyle, fonts, icon theme, the animation speed) stays. One awk run: BEGIN reads the scheme's
+# groups, the main rules copy the file minus the groups the scheme replaces, END appends the scheme's.
+merge_scheme() {
+  local file="$1" scheme="$2" name="$3" tmp="$WORK/merge_scheme"
+  [[ -f "$file" ]] || : > "$file"
+  awk -v scheme="$scheme" '
+    function ours(h) { return (substr(h, 1, 8) == "[Colors:" || substr(h, 1, 14) == "[ColorEffects:" || h == "[WM]") }
+    BEGIN {
+      while ((getline line < scheme) > 0) {
+        if (line ~ /^\[/) { cur = line; incopy = ours(cur); if (incopy) { order[++ng] = cur; body[cur] = "" } ; continue }
+        if (incopy && line != "") body[cur] = body[cur] line "\n"
+      }
+      close(scheme)
+    }
+    function flush_blanks() { while (blanks > 0) { print ""; blanks-- } }
+    # Blank lines are held back: the ones in front of a group that is replaced go with it (the scheme is appended with its
+    # own blank line, so a second run would otherwise add one more every time).
+    /^\[/ { skip = ours($0); if (skip) blanks = 0; else flush_blanks() }
+    skip { next }
+    $0 == "" { blanks++; next }
+    { flush_blanks(); print }
+    END {
+      for (i = 1; i <= ng; i++) { print ""; print order[i]; printf "%s", body[order[i]] }
+    }' "$file" > "$tmp"
+  cat "$tmp" > "$file"
+  ini_set "$file" General ColorScheme "$name"
+}
+
+# kickoff_applets <appletsrc>: "N][Applets][M" for every applet whose plugin is the Kickoff start menu
+kickoff_applets() {
+  awk '
+    /^\[Containments\]\[[0-9]+\]\[Applets\]\[[0-9]+\]$/ { g = $0; sub(/^\[/, "", g); sub(/\]$/, "", g); cur = g; next }
+    /^\[/ { cur = "" }
+    cur != "" && $0 == "plugin=org.kde.plasma.kickoff" { print cur; cur = "" }' "$1"
+}
+
+# --- 1. start button icon and desktop wallpaper -----------------------------------------------------------------------
+applets="$CFG/plasma-org.kde.plasma.desktop-appletsrc"
+if [[ -f "$applets" ]]; then
+  kickoffs="$(kickoff_applets "$applets")"
+  if [[ -n "$kickoffs" ]]; then
+    while IFS= read -r k; do
+      ini_set "$applets" "$k][Configuration][General" icon "$KICKOFF_ICON"
+    done <<< "$kickoffs"
+  else
+    warn "no Kickoff applet in $applets: the start button keeps whatever icon the layout gives it"
+  fi
+  drop_foreign_wallpaper "$applets"
+  desktop="$(desktop_containment "$applets")"
+  if [[ -n "$desktop" ]]; then
+    ini_set "$applets" "Containments][$desktop][Wallpaper][org.kde.image][General" Image "$WALLPAPER_URL"
+    say "appletsrc: start icon $KICKOFF_ICON, wallpaper on desktop containment $desktop"
+  else
+    warn "no desktop containment (plugin org.kde.plasma.folder) in $applets: wallpaper not set"
+  fi
+else
+  say "no $applets (not cachyos-kde-settings' layout): start icon and desktop wallpaper left to the Plasma defaults"
+fi
+
+# --- 2. colour scheme --------------------------------------------------------------------------------------------------
+if [[ -r "$SCHEME_FILE" ]]; then
+  for f in "$CFG/kdeglobals" "$CFG/kdedefaults/kdeglobals"; do
+    mkdir -p "$(dirname "$f")"
+    merge_scheme "$f" "$SCHEME_FILE" "$SCHEME_NAME"
+  done
+  say "kdeglobals: colour scheme $SCHEME_NAME"
+else
+  warn "$SCHEME_FILE missing: colour scheme not set"
+fi
+
+# --- 3. no Breeze splash, Companion OS lock screen ---------------------------------------------------------------------
+ini_set "$CFG/ksplashrc" KSplash Engine none
+ini_set "$CFG/ksplashrc" KSplash Theme None
+ini_set "$CFG/kscreenlockerrc" "Greeter][Wallpaper][org.kde.image][General" Image "$WALLPAPER_URL"
+say "ksplashrc: splash off; kscreenlockerrc: lock screen wallpaper"

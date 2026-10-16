@@ -1,0 +1,8 @@
+# Packages taken out of the upstream package list, one exact name per line (# starts a comment).
+#
+# The brand and identity overlay removes none. Packages that carry CachyOS identity but also do work the live image
+# or the installer needs (cachyos-hello is the installer launcher upstream, cachyos-kde-settings is the Plasma skel,
+# cachyos-hooks is the CachyOS pacman hooks) stay: their visible strings are replaced by the hooks in
+# files/airootfs/usr/share/libalpm/ and by the installer overlay, not by dropping the package.
+#
+# Other parts of the overlay (the installer) may append their own lines below.

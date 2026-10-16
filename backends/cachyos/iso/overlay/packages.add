@@ -1,0 +1,11 @@
+# Packages added to the live image's package list, one per line (# starts a comment).
+#
+# The brand and identity overlay needs none: it only adds files, pacman hooks and configuration for what the upstream
+# list already installs. Build-time tools that render the artwork (librsvg, imagemagick, plymouth) belong to
+# ../render-deps.txt, the build container, not to the image.
+#
+# Other parts of the overlay (the installer) may append their own lines below.
+
+# kdialog: calamares-online.sh reports failures from a desktop icon, which has no terminal. The live image has libnotify but
+# neither kdialog nor zenity (checked in the built demo ISO's pacman database).
+kdialog

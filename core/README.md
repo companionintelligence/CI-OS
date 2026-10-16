@@ -18,5 +18,5 @@ Companion Intelligence appliance image is built on.
   and hostapd/dnsmasq configs. The payload itself is distro-portable; only the packaging
   wrapper (`.deb`, `.rpm`, `PKGBUILD`, ...) is backend-specific.
 
-See `docs/architecture/multi-distro-design.md` for the full target layout across all six distro
+See `docs/architecture/multi-distro-design.md` for the full target layout across all seven target
 backends (Ubuntu, Mint, Fedora, Arch, Bazzite, NixOS) and the rollout plan.

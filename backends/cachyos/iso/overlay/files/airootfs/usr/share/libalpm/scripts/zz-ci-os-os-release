@@ -1,0 +1,120 @@
+#!/bin/bash
+# Companion OS identity: writes /etc/os-release and /etc/lsb-release, whole, every time it runs.
+#
+# Why this exists. The CachyOS package "cachyos-hooks" rewrites those two files after every upgrade of
+# filesystem, lsb-release or cachyos-hooks itself (its os-release.hook, lsb-release.hook and cachyos-branding.hook
+# call a sed script that sets NAME="CachyOS Linux" and the CachyOS URLs), so a file written once is
+# CachyOS's again after the next "pacman -Syu". libalpm runs hooks in the alphabetical order of their file
+# names (suffix ignored, across all hook directories), and "zz-ci-os-os-release" sorts after every one of those, so this
+# runs last and the Companion OS identity is what is left. The hook that calls it is
+# /usr/share/libalpm/hooks/zz-ci-os-os-release.hook; both ship in the live image and are carried to the installed
+# system by /usr/share/ci-os/installed/carry-over.
+#
+# What it writes, and what it deliberately keeps:
+#   NAME, PRETTY_NAME, HOME_URL ..., LOGO, VARIANT, CI_OS_*    Companion OS (the Ubuntu edition's keys, same values)
+#   ID=cachyos, ID_LIKE=arch                                   the base's machine identity, UNCHANGED. CI-Hub's
+#       installer string-compares ID_LIKE with "arch" (one token, nothing else in it), and third-party tools key
+#       off ID. Only the human-facing strings are ours.
+#   BUILD_ID=rolling                                           the base is a rolling release
+#   IMAGE_ID, IMAGE_VERSION                                    kept when the file already has them (mkarchiso adds them)
+#
+# The version, the build day and the console colour are read from /usr/share/ci-os/release, which the image build
+# writes from the canon tokens (render-assets.sh); no value that changes between builds is typed here. A file
+# without them (or without that file) gets a PRETTY_NAME with no version: an invented number would be worse.
+#
+# CI_OS_ROOT=<dir> makes every path relative to <dir> (tests, and carry-over onto a mounted target). Needs only
+# bash, mv, rm, mkdir, mktemp, sed and awk (all in the Arch base group).
+set -euo pipefail
+
+ROOT="${CI_OS_ROOT:-}"
+RELEASE_FILE="$ROOT/usr/share/ci-os/release"
+OS_RELEASE="$ROOT/etc/os-release"
+LSB_RELEASE="$ROOT/etc/lsb-release"
+
+say() { printf 'zz-ci-os-os-release: %s\n' "$*" >&2; }
+
+# A value that goes into a file other programs source: only characters that cannot break a quote or a line.
+valid() { # valid <regex> <value>
+  [[ "$2" =~ $1 ]]
+}
+
+CI_OS_VERSION="" CI_OS_BUILD="" CI_OS_ANSI_COLOR=""
+if [[ -r "$RELEASE_FILE" ]]; then
+  while IFS='=' read -r key value || [[ -n "$key" ]]; do
+    value="${value%\"}"; value="${value#\"}"
+    case "$key" in
+      CI_OS_VERSION) valid '^[0-9A-Za-z._+~-]{1,32}$' "$value" && CI_OS_VERSION="$value" ;;
+      CI_OS_BUILD) valid '^[0-9]{8}$' "$value" && CI_OS_BUILD="$value" ;;
+      CI_OS_ANSI_COLOR) valid '^[0-9;]{1,40}$' "$value" && CI_OS_ANSI_COLOR="$value" ;;
+    esac
+  done < "$RELEASE_FILE"
+else
+  say "no $RELEASE_FILE; keeping the version and build the file already has, if any"
+fi
+
+# What the current file says about itself (a rewrite must not lose the stamp, nor the mkarchiso image keys). ANSI_COLOR
+# is not taken from it: after cachyos-hooks has run, that is CachyOS's colour; only the release file knows ours.
+old_value() { # old_value <KEY>: the unquoted value of KEY in the current os-release, or nothing
+  [[ -r "$OS_RELEASE" ]] || return 0
+  sed -n "s/^$1=\"\{0,1\}\([^\"]*\)\"\{0,1\}\$/\1/p" "$OS_RELEASE" | head -n 1
+}
+if [[ -z "$CI_OS_VERSION" ]]; then
+  v="$(old_value CI_OS_VERSION)"; valid '^[0-9A-Za-z._+~-]{1,32}$' "$v" && CI_OS_VERSION="$v"
+fi
+if [[ -z "$CI_OS_BUILD" ]]; then
+  v="$(old_value CI_OS_BUILD)"; valid '^[0-9]{8}$' "$v" && CI_OS_BUILD="$v"
+fi
+IMAGE_ID="$(old_value IMAGE_ID)"; valid '^[0-9A-Za-z._-]{0,64}$' "$IMAGE_ID" || IMAGE_ID=""
+IMAGE_VERSION="$(old_value IMAGE_VERSION)"; valid '^[0-9A-Za-z._+~-]{0,64}$' "$IMAGE_VERSION" || IMAGE_VERSION=""
+LSB_VERSION="$(sed -n 's/^LSB_VERSION=\"\{0,1\}\([0-9.]*\)\"\{0,1\}$/\1/p' "$LSB_RELEASE" 2>/dev/null | head -n 1 || true)"
+LSB_VERSION="${LSB_VERSION:-1.4}"
+
+pretty="Companion OS"
+[[ -z "$CI_OS_VERSION" ]] || pretty="Companion OS $CI_OS_VERSION"
+
+# Write to a temp file next to the target and rename over it: a symlink (Arch's /etc/os-release points at
+# /usr/lib/os-release) is replaced, not followed, so the package-owned /usr/lib/os-release is never touched.
+put() { # put <dest> <mode>: stdin becomes the file
+  local dest="$1" mode="$2" tmp
+  mkdir -p "$(dirname "$dest")"
+  tmp="$(mktemp "$dest.XXXXXX")"
+  cat > "$tmp"
+  chmod "$mode" "$tmp"
+  mv -f "$tmp" "$dest"
+}
+
+{
+  printf 'NAME="Companion OS"\n'
+  printf 'PRETTY_NAME="%s"\n' "$pretty"
+  printf 'ID=cachyos\n'
+  printf 'ID_LIKE=arch\n'
+  printf 'BUILD_ID=rolling\n'
+  printf 'VARIANT="Plasma (based on CachyOS)"\n'
+  [[ -z "$CI_OS_ANSI_COLOR" ]] || printf 'ANSI_COLOR="%s"\n' "$CI_OS_ANSI_COLOR"
+  printf 'HOME_URL="https://ci.computer"\n'
+  printf 'DOCUMENTATION_URL="https://docs.ci.computer"\n'
+  printf 'SUPPORT_URL="https://ci.computer/support"\n'
+  printf 'BUG_REPORT_URL="https://ci.computer/bugs"\n'
+  printf 'PRIVACY_POLICY_URL="https://ci.computer/privacy"\n'
+  printf 'LOGO=ci-os-logo\n'
+  printf 'CI_OS_ID=ci-os\n'
+  [[ -z "$CI_OS_VERSION" ]] || printf 'CI_OS_VERSION="%s"\n' "$CI_OS_VERSION"
+  [[ -z "$CI_OS_BUILD" ]] || printf 'CI_OS_BUILD="%s"\n' "$CI_OS_BUILD"
+  [[ -z "$IMAGE_ID" ]] || printf 'IMAGE_ID=%s\n' "$IMAGE_ID"
+  [[ -z "$IMAGE_VERSION" ]] || printf 'IMAGE_VERSION=%s\n' "$IMAGE_VERSION"
+} | put "$OS_RELEASE" 644
+
+# lsb_release -si / -sr keep reporting the base (cachyos, rolling); only the description is ours.
+{
+  printf 'LSB_VERSION=%s\n' "$LSB_VERSION"
+  printf 'DISTRIB_ID=cachyos\n'
+  printf 'DISTRIB_RELEASE=rolling\n'
+  printf 'DISTRIB_DESCRIPTION="%s"\n' "$pretty"
+} | put "$LSB_RELEASE" 644
+
+# Read back what was written: a hook cannot stop a transaction, so say it loudly instead.
+if ! grep -qx 'NAME="Companion OS"' "$OS_RELEASE" || ! grep -qx 'ID_LIKE=arch' "$OS_RELEASE"; then
+  say "ERROR: $OS_RELEASE does not read back as Companion OS (ID_LIKE=arch)"
+  exit 1
+fi
+say "wrote $OS_RELEASE ($pretty) and $LSB_RELEASE"

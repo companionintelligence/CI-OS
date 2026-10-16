@@ -1,0 +1,17 @@
+#!/bin/sh
+# Slow-boot relief for virtual machines (Companion OS live ISO). © Companion Intelligence — Lifescope Inc
+#
+# cachyos-settings sets DefaultTimeoutStartSec=15s for the system and the user manager, and cachyos-drm-awaiter's
+# drm-module-load.target gives up 30 s after boot. Measured under QEMU TCG (no KVM) on a loaded host: systemd-nsresourced
+# needs ~25 s of vCPU time to verify and load its BPF-LSM programs and is killed after 15 s, over and over; while it is
+# starting, systemd-tmpfiles-setup-dev-early (ordered before systemd-udevd) hangs with a connection queued on the nsresourced
+# socket, so systemd-udevd never starts, the display driver never loads and the 30 s DRM target drops the boot into emergency
+# mode. The Plasma user units then miss the same 15 s limit. None of this is expected on KVM or on real hardware, so only a VM gets the longer limits.
+# $1 is the generator output directory; a generator must never fail the boot.
+out="${1:-/run/systemd/generator}"
+systemd-detect-virt --quiet --vm 2>/dev/null || exit 0
+mkdir -p "$out/systemd-nsresourced.service.d" "$out/drm-module-load.target.d" /run/systemd/user.conf.d 2>/dev/null || exit 0
+printf '[Service]\nTimeoutStartSec=5min\n' > "$out/systemd-nsresourced.service.d/10-companion-vm.conf"
+printf '[Unit]\nJobTimeoutSec=10min\n' > "$out/drm-module-load.target.d/10-companion-vm.conf"
+printf '[Manager]\nDefaultTimeoutStartSec=3min\n' > /run/systemd/user.conf.d/10-companion-vm.conf
+exit 0

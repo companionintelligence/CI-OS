@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Companion OS wallpaper
+Comment=Sets the Companion OS wallpaper on the Plasma desktop once per user
+Exec=/usr/libexec/ci-os/apply-wallpaper
+OnlyShowIn=KDE;
+NoDisplay=true
+X-KDE-autostart-phase=2
+X-KDE-autostart-after=panel

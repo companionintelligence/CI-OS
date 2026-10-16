@@ -1,0 +1,25 @@
+# Companion OS: what the installed system gets from the live image, as absolute paths in the live image.
+# One path per line; a directory is copied whole. Blank lines and lines starting with # are ignored.
+# Read by /usr/share/ci-os/installed/carry-over (the installer overlay runs it).
+# Every path is either a file of this overlay or something render-assets.sh generates into the image; the overlay
+# test checks that each one is one of those.
+
+# Identity: the hook that keeps /etc/os-release and /etc/lsb-release ours, the stamp it reads, the desktop defaults hook
+/usr/share/libalpm/hooks/zz-ci-os-os-release.hook
+/usr/share/libalpm/scripts/zz-ci-os-os-release
+/usr/share/libalpm/hooks/zz-ci-os-skel.hook
+/usr/share/libalpm/scripts/zz-ci-os-skel
+/usr/share/ci-os/release
+
+# Desktop: icon (os-release LOGO= and the start button), About This System, colours, wallpaper, login screen
+/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg
+/etc/xdg/kcm-about-distrorc
+/usr/share/color-schemes/CI-OS-Dark.colors
+/usr/share/wallpapers/companion
+/usr/libexec/ci-os/apply-wallpaper
+/etc/xdg/autostart/ci-os-wallpaper.desktop
+/etc/plasmalogin.conf.d/10-companion-os.conf
+
+# Boot: GRUB theme (grubcfg.conf GRUB_THEME) and Plymouth theme (plymouthcfg.conf plymouth_theme)
+/usr/share/grub/themes/companion-os
+/usr/share/plymouth/themes/companion-os

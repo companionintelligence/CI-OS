@@ -1,0 +1,14 @@
+# Companion OS desktop defaults in /etc/skel (start button icon, wallpaper, colour scheme, no Breeze splash).
+# cachyos-kde-settings owns the skel files, so they are edited after the package is installed or upgraded,
+# not replaced. A permanent hook, not a build-only one: the installed system needs it too.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = cachyos-kde-settings
+
+[Action]
+Description = Applying the Companion OS desktop defaults to /etc/skel...
+When = PostTransaction
+Depends = bash
+Exec = /usr/bin/bash /usr/share/libalpm/scripts/zz-ci-os-skel

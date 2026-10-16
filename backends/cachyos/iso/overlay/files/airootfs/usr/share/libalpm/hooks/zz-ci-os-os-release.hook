@@ -1,0 +1,16 @@
+# Companion OS identity. Sorts after every CachyOS hook that touches /etc/os-release and /etc/lsb-release
+# (cachyos-branding, lsb-release, os-release): libalpm runs hooks alphabetically, suffix ignored.
+# A permanent hook, not a build-only one: it stays in the live image and goes to the installed system.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = filesystem
+Target = lsb-release
+Target = cachyos-hooks
+
+[Action]
+Description = Writing the Companion OS identity (/etc/os-release, /etc/lsb-release)...
+When = PostTransaction
+Depends = bash
+Exec = /usr/bin/bash /usr/share/libalpm/scripts/zz-ci-os-os-release

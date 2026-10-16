@@ -1,0 +1,16 @@
+/*
+ * SPDX-FileCopyrightText: no
+ * SPDX-License-Identifier: CC0-1.0
+ *
+ * Stylesheet of the Companion OS installer branding. Kept to the Qt widget defaults of the installer plus the one thing the
+ * installer's own stylesheet sets (a readable base font size): colours come from branding.desc (tokens), not from here, so there
+ * is no hex value to keep in step with the brand canon.
+ */
+
+QWidget {
+    font: 13px;
+}
+
+QDialogButtonBox {
+    dialogbuttonbox-buttons-have-icons: 0;
+}

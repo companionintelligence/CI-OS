@@ -1,0 +1,14 @@
+NAME="Companion OS"
+PRETTY_NAME="Companion OS"
+ID=cachyos
+ID_LIKE=arch
+BUILD_ID=rolling
+VARIANT="Plasma (based on CachyOS)"
+ANSI_COLOR="38;2;197;232;220"
+HOME_URL="https://ci.computer"
+DOCUMENTATION_URL="https://docs.ci.computer"
+SUPPORT_URL="https://ci.computer/support"
+BUG_REPORT_URL="https://ci.computer/bugs"
+PRIVACY_POLICY_URL="https://ci.computer/privacy"
+LOGO=ci-os-logo
+CI_OS_ID=ci-os

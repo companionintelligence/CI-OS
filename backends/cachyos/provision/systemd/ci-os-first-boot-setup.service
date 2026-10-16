@@ -1,0 +1,28 @@
+[Unit]
+Description=Companion OS first-boot setup (Docker, Ollama and the CI-Hub tools)
+Documentation=https://ci.computer
+After=network-online.target
+Wants=network-online.target
+# Runs until provisioning has succeeded once: the script writes this marker only on success, and
+# ci-os-first-boot-setup.timer retries while it is absent.
+ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
+# Never in the live session: archiso passes archisobasedir=... on the kernel command line.
+ConditionKernelCommandLine=!archisobasedir
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ci-os/first-boot-setup.sh
+# No RemainAfterExit: an "active (exited)" unit would ignore the retry timer.
+RemainAfterExit=no
+# No start timeout. The run ends in a pull of the Ollama models, and the largest, qwen3.6:27b, is 17.8 GB (core/manifest/model-packs.yaml,
+# size_bytes 17769076933): 1800 s needs 79 Mbit/s sustained with nothing else running, and a systemd kill half way through the
+# download used up one of the three attempts. A finite value is a promise about somebody else's link speed. What bounds the run instead:
+# the script's lock (one run at a time), its attempt counter (three automatic runs), and `systemctl stop`, which the person at the
+# machine can always issue. (systemd.service(5): Type=oneshot has no start timeout by default either; the line makes the intent
+# explicit, and the tests fail if it becomes a small number again.)
+TimeoutStartSec=infinity
+StandardOutput=journal+console
+StandardError=journal+console
+
+[Install]
+WantedBy=multi-user.target

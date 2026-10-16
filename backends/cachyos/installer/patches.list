@@ -1,0 +1,12 @@
+# Cosmetic text patches applied to files the overlay does NOT replace (so the installer's own logic stays upstream's).
+# Format, one per line, "|"-separated:   path under the installer root | sed expression | marker
+# The marker is a fixed string that must be in the file first. A missing file or marker is a cosmetic warning
+# (lib/ci-guards.sh ci_g_apply_cosmetic_patches): the text stays as CachyOS wrote it, nothing breaks.
+# The sed expression runs on the whole file; keep it to single-line substitutions.
+#
+# Progress texts shown in the installer's window while it installs (the English text and its translations name the product).
+/etc/calamares/modules/shellprocess-before-online.conf | /name/ s/CachyOS/Companion OS/g | CachyOS
+# Limine only (this edition installs GRUB): the name the Limine/snapper integration writes for the system.
+/etc/calamares/scripts/bootloader-post-setup | s/TARGET_OS_NAME="CachyOS"/TARGET_OS_NAME="Companion OS"/ | TARGET_OS_NAME="CachyOS"
+# Btrfs installs: the description of the snapshot taken right after the install.
+/etc/calamares/scripts/btrfs-installation-snapshot | s/Fresh CachyOS Installation/Fresh Companion OS Installation/ | Fresh CachyOS Installation

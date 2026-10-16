@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Install Companion OS
+GenericName=System Installer
+Comment=Install Companion OS on this computer
+Exec=/usr/local/bin/calamares-online.sh
+Icon=ci-os-logo
+Terminal=false
+StartupNotify=false
+Categories=System;
+Keywords=install;installer;setup;system;
