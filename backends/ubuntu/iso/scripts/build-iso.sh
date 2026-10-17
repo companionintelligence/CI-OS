@@ -8,7 +8,9 @@
 # 2. Extract base Ubuntu ISO
 # 3. Customize the squashfs rootfs
 # 4. Apply branding and identity changes
-# 5. Repack the ISO, with a regenerated /md5sum.txt (md5sum-txt.sh) that the live system's casper-md5check verifies on every boot
+# 5. Split the rootfs into the layer the installer installs (minimal.squashfs) and the live-only layer
+#    (minimal.standard.live.squashfs), verify that the live stack is still the rootfs, and repack the ISO with a regenerated
+#    /md5sum.txt (md5sum-txt.sh) that the live system's casper-md5check verifies on every boot
 # 6. Generate checksums and signatures
 #
 # Usage:
@@ -79,6 +81,10 @@ log_error() {
     echo -e "${RED}[ERROR]${NC} $*"
 }
 
+# The split of the merged rootfs into the installer's base layer and the live-only layer (repack_squashfs).
+# shellcheck source=lib/split-live-layer.sh
+source "$SCRIPT_DIR/lib/split-live-layer.sh"
+
 # Check if running as root
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -94,8 +100,9 @@ check_dependencies() {
     
     # unmkinitramfs (initramfs-tools-core) unpacks the stock casper initrd, to take the live Plymouth theme files from it.
     # awk and dd are what md5sum-txt.sh (the image's md5sum.txt) runs on.
+    # comm, cmp, du, chroot and mknod are what the layer split (lib/split-live-layer.sh) runs on; it also needs overlayfs.
     for cmd in debootstrap mksquashfs unsquashfs xorriso rsync gpg glib-compile-resources gresource cpio zstd \
-               unmkinitramfs curl sha256sum tar dpkg-deb awk dd; do
+               unmkinitramfs curl sha256sum tar dpkg-deb awk dd comm cmp du chroot mknod; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
         fi
@@ -381,29 +388,38 @@ make_placeholder_layer() {
 }
 
 # Repack squashfs
+#
+# The merged rootfs is NOT put into one layer. The live session stacks all three casper layers, but the installer
+# (subiquity -> curtin) installs the ONE layer install-sources.yaml names. The stock ISO keeps everything that belongs to the
+# live session alone (the casper package with its initramfs hook, the live dconf overrides, the installer's own snap, the
+# live cloud-init and getty settings ...) in the third layer, minimal.standard.live.squashfs, which the installer never
+# installs. Merged into one base layer it was copied to the installed disk, and every initrd curtin regenerated there
+# carried casper's hook ("export BOOT=casper"): the machine stopped at "Unable to find a medium containing a live file
+# system" (a QEMU install of the v7 ISO, 2026-10-15). subiquity has no package-removal step to undo it afterwards.
+#
+# So the build splits the merged, customized rootfs C (lib/split-live-layer.sh):
+#     minimal.squashfs                  B  the installed system: C minus the live-only content (the table in the library)
+#     minimal.standard.squashfs         an empty placeholder (install-sources.yaml's second entry needs the file)
+#     minimal.standard.live.squashfs    L  exactly what must be stacked on B to give C
+# The live session sees overlay(B, placeholder, L) == C, byte for byte (checked below by mounting the three real layers
+# and comparing the stack with C); the installer sees B. The kernels and the bootloader stay in B: the installer finds a
+# kernel already installed and curtin only generates the initrd, which now has no casper in it.
+#
+# The stock LANGUAGE layers (minimal.<lang>.squashfs, minimal.standard.<lang>.squashfs and the *.no-languages ones) are
+# REMOVED, and install-sources.yaml lists no preinstalled_langs. Why: when a source has preinstalled_langs, subiquity
+# installs from "<base>.<lang>.squashfs" (models/source.py get_source), a layer stacked ON TOP of the base. Every stock
+# language layer carries a stock var/lib/dpkg/status and a stock gschemas.compiled and whiteouts for the font packages it
+# drops. Stacked over our base, an installed system would have all our files but a package database that has never heard
+# of docker-ce, setup-device, tailscale, ... and the stock wallpaper schema. With no preinstalled_langs the installer uses
+# minimal.squashfs alone; locale_support: langpack still makes it install the chosen language's packs from apt.
 repack_squashfs() {
     log_info "Repacking squashfs filesystem..."
-    
+
     local chroot_dir="$WORK_DIR/chroot"
     local casper_dir="$WORK_DIR/custom-iso/casper"
     local output_squashfs="$casper_dir/minimal.squashfs"
-    
-    # ─────────────────────────────────────────────────────────────────────────
-    # Strategy: We put the full merged rootfs into minimal.squashfs (the base
-    # layer). We create small empty placeholder layers for
-    # minimal.standard.squashfs and minimal.standard.live.squashfs (since our
-    # base already contains everything from all 3 original layers).
-    #
-    # The stock LANGUAGE layers (minimal.<lang>.squashfs, minimal.standard.<lang>.squashfs and the
-    # *.no-languages ones) are REMOVED, and install-sources.yaml lists no preinstalled_langs. Why:
-    # when a source has preinstalled_langs, subiquity installs from "<base>.<lang>.squashfs"
-    # (models/source.py get_source), a layer stacked ON TOP of the base. Every stock language layer
-    # carries a stock var/lib/dpkg/status and a stock gschemas.compiled and whiteouts for the font
-    # packages it drops. Stacked over our merged base, an installed system would have all our files
-    # but a package database that has never heard of docker-ce, setup-device, tailscale, ... and the
-    # stock wallpaper schema. With no preinstalled_langs the installer uses minimal.squashfs alone;
-    # locale_support: langpack still makes it install the chosen language's packs from apt.
-    # ─────────────────────────────────────────────────────────────────────────
+    local live_squashfs="$casper_dir/minimal.standard.live.squashfs"
+    local split_dir="$WORK_DIR/split-result"
 
     # Remove ONLY the 3 main layers we are replacing. Keep all language
     # layers, enhanced-secureboot layers, and all metadata files intact.
@@ -418,55 +434,50 @@ repack_squashfs() {
               "$casper_dir"/minimal.standard."$lang_suffix".{squashfs,size,manifest}
     done
 
-    # mksquashfs packs /tmp itself (only its contents are excluded below), so it has to be 1777
+    # mksquashfs packs /tmp itself (only its contents are excluded, see CI_SPLIT_PACK_EXCLUDES), so it has to be 1777
     # before the pack, whatever the unsquashed layers or the customization steps left behind.
     if [[ "$(stat -c %a "$chroot_dir/tmp")" != 1777 ]]; then
         log_warn "chroot /tmp was not mode 1777; fixing it before packing"
         chmod 1777 "$chroot_dir/tmp"
     fi
 
-    # Pack the full merged rootfs into minimal.squashfs
-    # -quiet suppresses per-file progress output (millions of lines that crash terminals)
-    log_info "Compressing rootfs into minimal.squashfs (this takes 5-15 minutes)..."
-    mksquashfs "$chroot_dir" "$output_squashfs" \
-        -comp xz -b 1M \
-        -e 'var/cache/apt/archives/*' \
-        -e 'var/lib/apt/lists/*' \
-        -e 'tmp/*' \
-        -e 'root/.bash_history' \
-        -noappend \
-        -no-recovery \
-        -quiet
+    # Split C into B (-> minimal.squashfs) and L (-> minimal.standard.live.squashfs). The original stock layers, kept in
+    # $WORK_DIR/squashfs, are the reference for the parts of the live layer that rewrote files the installed system shares
+    # (the snapd preseed state, cloud.cfg). -quiet suppresses per-file progress output (millions of lines that crash terminals).
+    rm -rf "$split_dir"
+    mkdir -p "$split_dir"
+    log_info "Splitting the rootfs into the installer's base layer (minimal.squashfs) and the live-only layer (this takes 5-15 minutes)..."
+    ci_split_live_layer "$chroot_dir" "$output_squashfs" "$live_squashfs" "$split_dir" "$WORK_DIR/squashfs" \
+        || { log_error "could not split the rootfs into the installer's base layer and the live-only layer"; return 1; }
 
-    # Create empty placeholder layers for standard and live.
-    # Our minimal.squashfs already contains everything from all 3 original
-    # layers plus our customizations, so these layers need to exist (casper
-    # and the installer expect them) but don't need to add any content. Their
-    # directory modes must mirror the rootfs, though (see make_placeholder_layer).
+    # Create the empty placeholder layer for standard. The installer base (minimal.squashfs) and the live layer carry
+    # everything between them, so this layer has to exist (casper and the installer's second install-sources.yaml entry
+    # expect it) but adds no content. Its directory modes must mirror the rootfs, though (see make_placeholder_layer).
     local empty_dir
     empty_dir="$(mktemp -d)"
     make_placeholder_layer "$chroot_dir" "$empty_dir"
-    for placeholder in minimal.standard.squashfs minimal.standard.live.squashfs; do
-        log_info "Creating placeholder layer: $placeholder"
-        mksquashfs "$empty_dir" "$casper_dir/$placeholder" \
-            -comp xz -noappend -no-recovery 2>/dev/null
-    done
+    log_info "Creating placeholder layer: minimal.standard.squashfs"
+    mksquashfs "$empty_dir" "$casper_dir/minimal.standard.squashfs" \
+        -comp xz -noappend -no-recovery -quiet >/dev/null 2>&1
     rm -rf "$empty_dir"
 
-    # ── Update filesystem.size ──────────────────────────────────────────────
-    # Total installed (uncompressed) size. Subiquity checks disk space.
-    log_info "Updating filesystem sizes..."
-    du -sx --block-size=1 "$chroot_dir" | cut -f1 > "$casper_dir/filesystem.size"
-    local installed_size
-    installed_size="$(cat "$casper_dir/filesystem.size")"
+    # The check that makes the split safe to ship: mount the three real layers, stack them as casper does, require the
+    # installer's base to be free of live-only content and the stack to be the rootfs, byte for byte.
+    ci_split_verify_layers "$chroot_dir" "$output_squashfs" "$casper_dir/minimal.standard.squashfs" "$live_squashfs" "$split_dir" \
+        || { log_error "the split layers do not add up to the rootfs; refusing to build an image from them"; return 1; }
 
-    # Update per-layer .size files for the 3 layers we replaced.
-    # All other .size files remain from the original ISO.
-    echo "$installed_size" > "$casper_dir/minimal.size"
-    echo "0" > "$casper_dir/minimal.standard.size"
-    echo "0" > "$casper_dir/minimal.standard.live.size"
+    # ── .size and .manifest files, filesystem.size ──────────────────────────
+    # True for the layers this image has: minimal.size is the installed base, minimal.standard.size 0 (the placeholder),
+    # minimal.standard.live.size the live delta, filesystem.size the whole live stack (subiquity checks disk space against
+    # install-sources.yaml's size, below). The three per-layer manifests list what each layer adds, in the stock shape.
+    log_info "Updating filesystem sizes and the per-layer manifests..."
+    ci_split_write_metadata "$casper_dir" "$split_dir" || return 1
+    local installed_size="$CI_SPLIT_SIZE_BASE"
+    log_info "Layer sizes (du): installed base ${installed_size} bytes, live-only layer ${CI_SPLIT_SIZE_LIVE} bytes, whole live stack ${CI_SPLIT_SIZE_TOTAL} bytes"
+    log_info "Layer files: minimal.squashfs $(stat -c%s "$output_squashfs") bytes, minimal.standard.live.squashfs $(stat -c%s "$live_squashfs") bytes"
 
     # ── Use the manifest generated earlier ──────────────────────────────────
+    # filesystem.manifest lists the packages of the LIVE system (the whole rootfs C), which the live stack still is.
     if [[ ! -f "$casper_dir/filesystem.manifest" ]] || [[ ! -s "$casper_dir/filesystem.manifest" ]]; then
         log_warn "Manifest not found or empty — generating now (chroot mounts may be down)..."
         chroot "$chroot_dir" dpkg-query -W --showformat='${Package} ${Version}\n' \
@@ -477,6 +488,7 @@ repack_squashfs() {
     # MUST mirror the original Ubuntu structure with BOTH entries:
     #   1. ubuntu-desktop-minimal (default: true, path: minimal.squashfs)
     #   2. ubuntu-desktop (default: false, path: minimal.standard.squashfs)
+    # Both install the base layer alone in practice (the standard layer is empty): the installed system is minimal.squashfs.
     #
     # The id MUST be ubuntu-desktop-minimal / ubuntu-desktop — subiquity
     # dispatches curthooks (grub-install, initramfs, snap seeding) based on
@@ -545,6 +557,7 @@ ISYAML
     rm -f "$casper_dir/SHA256SUMS.gpg"
     log_info "Removed stale SHA256SUMS.gpg"
 
+    rm -rf "$split_dir"
     log_info "Squashfs repacked successfully"
 }
 
@@ -1031,10 +1044,14 @@ main() {
     chroot "$WORK_DIR/chroot" dpkg-query -W --showformat='${Package} ${Version}\n' \
         > "$casper_dir/filesystem.manifest" 2>/dev/null || true
 
-    # Generate filesystem.manifest-remove is NOT needed for Ubuntu 24.04.
-    # The original ISO does not ship one — subiquity handles package removal
-    # internally. Adding one with wrong package names can break the installer.
-    # Clean up any stale versions from previous builds.
+    # No filesystem.manifest-remove is generated, and none is needed: nothing reads it. The stock Ubuntu 24.04 ISO ships
+    # none, and the installer (subiquity / ubuntu-desktop-bootstrap) has NO package-removal step: it extracts the layer
+    # install-sources.yaml names and runs curthooks (subiquity/server/controllers/install.py). Stock Ubuntu keeps the live-only
+    # content out of the installed system by keeping it in a layer the installer never installs
+    # (minimal.standard.live.squashfs). This build merges the three layers to customize them, so repack_squashfs splits the
+    # result back into an installer base and a live-only layer (lib/split-live-layer.sh); a manifest-remove with the live-only
+    # package names would change nothing (and a wrong name in one is how an installer breaks). Clean up any stale versions
+    # from previous builds.
     rm -f "$casper_dir/filesystem.manifest-remove"
     rm -f "$casper_dir/filesystem.manifest-minimal-remove"
 

@@ -38,9 +38,15 @@
 #      copies agree key by key apart from the fonts; the initrd's default theme is the bgrt one the overlay repaints
 #      (needs unmkinitramfs); the installed system's fallback logo is the same file, and every package-owned
 #      Plymouth file the build rewrites (the watermark, the bgrt and spinner themes, the text theme's template) is dpkg-diverted;
-#   3e. the placeholder casper layers keep the rootfs directory modes (/tmp stays 1777);
+#   3e. the casper layers stacked on the base keep the rootfs directory modes (/tmp stays 1777);
 #   3f. NetworkManager still manages wired devices (no netplan file overrides the
 #      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged);
+#   3g. the installer base layer is clean: the layer the installer copies to the disk (minimal.squashfs) carries
+#      nothing that belongs to the live session only (the casper package and its files, the live dconf overrides,
+#      the installer's own snap), and the live layer (minimal.standard.live.squashfs) is the real live delta, not a
+#      placeholder: casper's files, a dpkg status that lists casper, true .size and .manifest files, while
+#      minimal.standard.squashfs stays the empty placeholder and the boot menus' kernel lines are the stock ones
+#      (given VERIFY_BASE_ISO, equal to the base ISO's). Why: docs/architecture/ubuntu-iso-layers.md;
 #   8. the medium's /md5sum.txt, which the live system's casper-md5check.service verifies on every boot, is correct: every entry matches the
 #      file in the image (each file is hashed by streaming it out of the ISO, nothing is extracted), no entry names a file that is
 #      gone, and every regular file the stock convention lists (all but /md5sum.txt, /EFI and the subdirectories of /boot/grub)
@@ -62,7 +68,8 @@
 #   VERIFY_BASE_ISO=ISO .. the stock Ubuntu ISO this one was built from: also assert that
 #                          /EFI/boot/{bootx64,grubx64,mmx64}.efi are byte-identical to it
 #                          (the Secure Boot chain is intact) and that casper/initrd starts with the
-#                          stock initrd, byte for byte, and that the md5sum.txt exclusions are the stock ISO's own;
+#                          stock initrd, byte for byte, that the md5sum.txt exclusions are the stock ISO's own, and that
+#                          the kernel lines of grub.cfg and loopback.cfg are the stock ISO's (section 3g);
 #                          without it those checks are skipped
 #
 # Needs: xorriso squashfs-tools zstd cpio python3 (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio python3), and
@@ -128,6 +135,11 @@ xorriso -osirrox on -indev "$ISO" \
 # theming has no ci-os-bg.png) is a FAILURE that aborts the rest of that xorriso command line, and must not hide
 # the files after it.
 xorriso -osirrox on -indev "$ISO" -extract /boot/grub/ci-os-bg.png "$ISOX/ci-os-bg.png" >/dev/null 2>&1
+# The per-layer .size and .manifest files (section 3g), one run each for the same reason.
+for f in minimal.size minimal.standard.size minimal.standard.live.size \
+         minimal.manifest minimal.standard.manifest minimal.standard.live.manifest; do
+    xorriso -osirrox on -indev "$ISO" -extract "/casper/$f" "$ISOX/$f" >/dev/null 2>&1
+done
 xorriso -osirrox on -indev "$ISO" \
     -extract /EFI/boot/bootx64.efi "$ISOX/bootx64.efi" \
     -extract /EFI/boot/grubx64.efi "$ISOX/grubx64.efi" \
@@ -142,7 +154,7 @@ R="$WORK/root"; mkdir -p "$R"
 # -no-xattrs: an unprivileged run cannot write trusted.overlay.* and unsquashfs aborts on the first failure.
 unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/os-release usr/lib/os-release etc/os-release.ubuntu-base etc/lsb-release etc/issue etc/issue.net etc/hostname \
-    etc/casper.conf etc/default/grub var/lib/dpkg/status \
+    etc/casper.conf etc/default/grub var/lib/dpkg/status var/lib/snapd/seed/seed.yaml var/lib/snapd/state.json etc/cloud/cloud.cfg \
     etc/dconf/profile/user etc/dconf/db/local.d \
     usr/share/glib-2.0/schemas \
     usr/share/gnome-background-properties \
@@ -165,6 +177,21 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     usr/share/gnome-shell/extensions/ubuntu-appindicators@ubuntu.com/metadata.json \
     usr/share/gnome-shell/extensions/tiling-assistant@ubuntu.com/metadata.json \
     >/dev/null 2>&1 || true
+
+# The live layer is what casper stacks on top of the base in a live session and the installer never installs
+# (section 3g). What is live-only is read from it, not from the base: casper.conf is in this layer.
+LIVESQ="$ISOX/minimal.standard.live.squashfs"
+LIVELIST="$WORK/minimal.standard.live.listing.txt"
+LR="$WORK/live-root"; mkdir -p "$LR"
+: > "$LIVELIST"
+if [[ -s "$LIVESQ" ]]; then
+    unsquashfs -ll "$LIVESQ" 2>/dev/null | sed 's#squashfs-root##' > "$LIVELIST"
+    unsquashfs -no-xattrs -q -f -d "$LR" "$LIVESQ" etc/casper.conf var/lib/dpkg/status var/lib/snapd/seed/seed.yaml etc/cloud/cloud.cfg >/dev/null 2>&1 || true
+fi
+# casper.conf belongs to the live session, so the build keeps it out of the base layer. An image built before the
+# layers were split still has it there: the checks that read it follow it.
+CASPER_CONF="$LR/etc/casper.conf"
+[[ -f "$CASPER_CONF" ]] || CASPER_CONF="$R/etc/casper.conf"
 
 in_listing() { grep -q -E "$1" "$LISTING"; }
 pkg_ok() { # package installed ("install ok installed" in dpkg status)
@@ -270,7 +297,7 @@ if awk -F: '$3>=1000 && $3<=59999 {f=1} END{exit !f}' "$R/etc/passwd"; then
     fail "image has a UID 1000-59999 account: casper will NOT create the live user"
 else pass "no UID 1000-59999 account in the image (casper creates the live user)"; fi
 # casper has no USERGROUPS; do not cargo-cult it.
-check "casper.conf does not pretend to set USERGROUPS (casper ignores it)" bash -c "! grep -q USERGROUPS '$R/etc/casper.conf'"
+check "casper.conf does not pretend to set USERGROUPS (casper ignores it)" bash -c "! grep -q USERGROUPS '$CASPER_CONF'"
 check "docker.io is not installed (conflicts with docker-ce)" bash -c "! awk 'BEGIN{RS=\"\"} \$1==\"Package: docker.io\"' '$R/var/lib/dpkg/status' | grep -q 'install ok installed'"
 
 # 1d. One-click automatic install (customize-chroot.sh Step 10f; docs/architecture/one-click-install.md).
@@ -445,10 +472,13 @@ if [[ -z "$LANGLAYERS" ]]; then pass "no stock language layers on the ISO"; else
 
 section "3e. Casper overlay layers must not change directory modes"
 # casper stacks minimal.squashfs, minimal.standard.squashfs and minimal.standard.live.squashfs with overlayfs, and a
-# directory that exists in several layers takes its mode from the TOPMOST one. The two upper layers are placeholders;
-# made with a plain mkdir they turn /tmp into drwxr-xr-x for the whole live session, and then the installer and the
-# desktop launcher (shown as untrusted) cannot write their temp files. So every directory in an upper layer must carry
-# the same mode as the same path in the root layer, and /tmp must be sticky and world-writable everywhere.
+# directory that exists in several layers takes its mode from the TOPMOST one. The upper layers are the empty placeholder
+# (standard) and the live-only delta (live); made with a plain mkdir, or packed from a scratch directory whose own
+# mode is not the rootfs's, they turn /tmp (or the root) into drwxr-xr-x for the whole live session, and then the
+# installer and the desktop launcher (shown as untrusted) cannot write their temp files. So every directory in an
+# upper layer must carry the same mode as the same path in the root layer, and /tmp must be sticky and world-writable in
+# the root layer and in every layer that has one (the placeholder always does; the live delta only if something under it
+# changed, and a layer without /tmp does not override it).
 LL_PREFIX='^[^ ]+ +[^ ]+ +[0-9]+ +[0-9-]+ +[0-9:]+ ?' # "mode owner/group size date time " in front of the path
 dir_mode() { # dir_mode <listing> <path>: mode of that directory in an `unsquashfs -ll` listing; "" = the layer root
     awk -v want="$2" -v pre="$LL_PREFIX" '$1 ~ /^d/ { p = $0; sub(pre, "", p); if (p == want) { print $1; exit } }' "$1"
@@ -459,7 +489,8 @@ for layer in minimal.standard minimal.standard.live; do
     LSQ="$ISOX/$layer.squashfs"
     if [[ ! -s "$LSQ" ]]; then fail "could not extract /casper/$layer.squashfs"; continue; fi
     LAYERLIST="$WORK/$layer.listing.txt"
-    unsquashfs -ll "$LSQ" 2>/dev/null | sed 's#squashfs-root##' > "$LAYERLIST"
+    # The live layer's listing was made when the files were extracted (it is a big layer since the layers were split).
+    [[ -s "$LAYERLIST" ]] || unsquashfs -ll "$LSQ" 2>/dev/null | sed 's#squashfs-root##' > "$LAYERLIST"
     ndirs=0; nbad=0
     while IFS=$'\t' read -r mode path; do
         ndirs=$((ndirs + 1))
@@ -477,7 +508,12 @@ for layer in minimal.standard minimal.standard.live; do
         pass "layer $layer: all $ndirs directories have the same mode as in the root layer"
     fi
     tmp_layer="$(dir_mode "$LAYERLIST" /tmp)"
-    if [[ "$tmp_layer" == drwxrwxrwt ]]; then pass "layer $layer: /tmp is drwxrwxrwt"; else fail "layer $layer: /tmp is ${tmp_layer:-missing}, must be drwxrwxrwt"; fi
+    if [[ "$tmp_layer" == drwxrwxrwt ]]; then pass "layer $layer: /tmp is drwxrwxrwt"
+    elif [[ -z "$tmp_layer" && "$layer" == minimal.standard.live ]]; then
+        # The live layer is a delta, not a placeholder: it has /tmp only if something under it changed. A layer without
+        # the directory does not override it, and the layers below (checked above and for the placeholder) are drwxrwxrwt.
+        pass "layer $layer: has no /tmp, so the layers below provide it (drwxrwxrwt)"
+    else fail "layer $layer: /tmp is ${tmp_layer:-missing}, must be drwxrwxrwt"; fi
 done
 
 section "3f. NetworkManager still manages wired devices"
@@ -489,6 +525,257 @@ check "no etc/netplan file sets a global renderer other than NetworkManager" \
     bash -c "! grep -hE '^  renderer:' '$R'/etc/netplan/*.yaml | grep -qvE 'NetworkManager'"
 check "01-network-manager-all.yaml still has renderer: NetworkManager" \
     file_has "$R/etc/netplan/01-network-manager-all.yaml" '^  renderer:[[:space:]]*NetworkManager[[:space:]]*$'
+
+section "3g. Installer base layer is clean: nothing live-only reaches the installed system"
+# subiquity installs the layer install-sources.yaml names (minimal.squashfs) and nothing else; casper stacks all the
+# layers only in a live session. The stock ISO keeps everything that belongs to the live session alone in a separate
+# layer, minimal.standard.live.squashfs. A base layer that carries it copies it to the installed disk: the casper
+# package with its initramfs hook (every initrd the installer then regenerates boots the live medium, "Unable to find a
+# medium containing a live file system"), the live session's dconf overrides, the installer's own snap. build-iso.sh
+# therefore splits the merged rootfs into that base and a live-only delta (docs/architecture/ubuntu-iso-layers.md); the
+# checks below keep the split honest, and tests/verify-installer-base.sh shows each of them failing on a broken image.
+#
+# The rows of BASE_FORBIDDEN are "label|extended regular expression", matched against the whole path of every entry of an
+# `unsquashfs -ll` listing (a symlink's " -> target" removed).
+# Paths that look live-only but belong to a package the base keeps are NOT rows. The one that was: /usr/share/finalrd, a directory
+# that mdadm (kept: the disk tools stay) fills with /usr/share/finalrd/mdadm.finalrd, a hook that is inert without finalrd. A row
+# for it failed on the first image built with the split (2026-10-17), which no synthetic fixture had shown. The same table, with the reason for each row, is in
+# docs/architecture/ubuntu-iso-layers.md: change them together.
+BASE_FORBIDDEN=(
+    "/etc/casper.conf|^/etc/casper\\.conf\$"
+    "casper initramfs configuration (casperize.conf, default-layer.conf)|^/etc/initramfs-tools/conf\\.d/(casperize|default-layer)\\.conf\$"
+    "casper initramfs scripts and hook (the hook is what makes every initrd boot casper)|^/usr/share/initramfs-tools/(scripts|hooks)/casper"
+    "casper programs, data and documentation|^/usr/(lib|share)/casper(/|\$)|^/usr/share/doc/casper(/|\$)|^/usr/sbin/casper-|^/sbin/casper-"
+    "casper dpkg file lists and helper state|^/var/lib/dpkg/info/casper\\.|^/var/lib/systemd/deb-systemd-helper-enabled/.*casper"
+    "casper systemd units and their enable links|^/usr/lib/systemd/system/casper[^/]*\\.service\$|^/etc/systemd/system/.*casper[^/]*\\.service\$"
+    "finalrd (casper's shutdown helper) files, unit and enable links|^/usr/lib/finalrd(/|\$)|^/usr/bin/finalrd\$|^/usr/share/doc/finalrd(/|\$)|^/usr/share/man/man1/finalrd\\.|^/usr/lib/systemd/system/finalrd\\.service\$|^/etc/systemd/system/.*finalrd\\.service\$|^/var/lib/dpkg/info/finalrd\\."
+    "live-session dconf overrides (livecd-rootfs.gschema.override)|^/usr/share/glib-2\\.0/schemas/livecd-rootfs\\.gschema\\.override\$"
+    "installer snap files, snapd state, AppArmor and seccomp profiles (ubuntu-desktop-bootstrap, core22)|^/(snap|var/snap|var/lib/snapd|var/cache/snapd|var/cache/apparmor)/(.*/)?(snap\\.|snap-update-ns\\.)?(ubuntu-desktop-bootstrap|core22)([_./-]|\$)"
+    "installer snap mount units and service units|^/etc/systemd/system/(.*/)?snap[.-](ubuntu(-|\\\\x2d)desktop(-|\\\\x2d)bootstrap|core22)[.-]"
+    "installer user service (ubuntu-desktop-installer.service)|ubuntu-desktop-installer\\.service\$"
+    "subiquity live-session files (/etc/subiquity, subiquity_config.mount and the device drop-in that wants it)|^/etc/subiquity(/|\$)|^/usr/lib/systemd/system/subiquity_config\\.mount\$|^/etc/systemd/system/dev-disk-by[^/]*\\.device\\.d(/|\$)"
+    "live-image cloud-init files (06_quiet.cfg, the NoCloud seed)|^/etc/cloud/cloud\\.cfg\\.d/06_quiet\\.cfg\$|^/var/lib/cloud/seed/nocloud(/|\$)"
+    "live-image apt preferences backup (preferences.d.save/preferences.d; the stock standard layer has the flat files) and packages.chroot|^/etc/apt/preferences\\.d\\.save/preferences\\.d(/|\$)|^/root/packages\\.chroot(/|\$)"
+    "live-session systemd settings (masked getty@tty1, udisks2-inhibit, media-filesystem.mount link, snapd no-reexec)|^/usr/lib/systemd/system/getty@tty1\\.service\$|^/usr/lib/systemd/system/(.*/)?udisks2-inhibit\\.service\$|^/usr/lib/systemd/system/local-fs\\.target\\.wants/media-filesystem\\.mount\$|^/usr/lib/systemd/system/snapd\\.service\\.d/no-reexec\\.conf\$"
+    "live-session journald drop-ins|^/etc/systemd/journald\\.conf\\.d/no-rate-limit\\.conf\$|^/etc/systemd/system/systemd-journald\\.service\\.d/no-(compact|hardening)\\.conf\$"
+)
+# Packages that belong to the live layer only: not in the base layer's dpkg status in any state (a purged package that
+# left its configuration files shows up there as "deinstall ok config-files"). finalrd exists for casper (Depends).
+LIVE_ONLY_PKGS=(casper finalrd)
+# Paths the live layer must contain, as "label|extended regular expression" (as above, matched against the live layer's
+# listing): casper's own files, so that the layer is not a placeholder and the live session keeps the md5 check of the medium
+# (casper-md5check.service, enabled on every live boot), and the live-session pieces that the build takes out of the base, so
+# that they are in the live layer and not simply gone.
+LIVE_REQUIRED=(
+    "/etc/casper.conf|^/etc/casper\\.conf\$"
+    "casper-md5check (the checker)|^/usr/lib/casper/casper-md5check\$"
+    "casper-md5check.service (its unit)|^/usr/lib/systemd/system/casper-md5check\\.service\$"
+    "casper.service|^/usr/lib/systemd/system/casper\\.service\$"
+    "the enable link of casper-md5check.service|^/etc/systemd/system/multi-user\\.target\\.wants/casper-md5check\\.service\$"
+    "casper initramfs script|^/usr/share/initramfs-tools/scripts/casper\$"
+    "casper initramfs hook|^/usr/share/initramfs-tools/hooks/casper\$"
+    "casper dpkg file list|^/var/lib/dpkg/info/casper\\.list\$"
+    "finalrd.service|^/usr/lib/systemd/system/finalrd\\.service\$"
+    "casper initramfs configuration (casperize.conf, default-layer.conf)|^/etc/initramfs-tools/conf\\.d/casperize\\.conf\$"
+    "default-layer.conf (the live initrd's layer path)|^/etc/initramfs-tools/conf\\.d/default-layer\\.conf\$"
+    "livecd-rootfs.gschema.override|^/usr/share/glib-2\\.0/schemas/livecd-rootfs\\.gschema\\.override\$"
+    "the installer's user service|^/usr/lib/systemd/user/ubuntu-desktop-installer\\.service\$"
+    "subiquity's kernel-meta-package file|^/etc/subiquity/kernel-meta-package\$"
+    "the installer snap file in the seed|^/var/lib/snapd/seed/snaps/ubuntu-desktop-bootstrap_[0-9]+\\.snap\$"
+)
+
+LL_ANY='^[^ ]+ +[^ ]+ +[0-9]+(, *[0-9]+)? +[0-9-]+ +[0-9:]+ ?' # the same prefix as LL_PREFIX, also for device nodes ("0,  0")
+listing_paths() { # listing_paths <listing>: the path of every entry, one per line, a symlink's " -> target" dropped
+    awk -v pre="$LL_ANY" '{ p = $0; sub(pre, "", p); sub(/ -> .*$/, "", p); print p }' "$1"
+}
+status_pkgs() { # status_pkgs <dpkg status>: "name<TAB>version" of every installed package, sorted
+    awk 'BEGIN{RS=""; FS="\n"} { n = ""; v = ""; ok = 0
+             for (i = 1; i <= NF; i++) { if ($i ~ /^Package: /) n = substr($i, 10); else if ($i ~ /^Version: /) v = substr($i, 10); else if ($i == "Status: install ok installed") ok = 1 }
+             if (ok && n != "") print n "\t" v }' "$1" 2>/dev/null | sort -u
+}
+manifest_pkgs() { # manifest_pkgs <layer manifest>: the same from a layer manifest (the "+name[:arch]<TAB>version" lines of a diff)
+    sed -n 's/^+\([^+].*\)$/\1/p' "$1" 2>/dev/null | grep -v '^snap:' \
+        | awk -F'\t' '{ n = $1; sub(/:[^:]*$/, "", n); print n "\t" $2 }' | sort -u
+}
+pkg_present() { # pkg_present <dpkg status> <package>: a paragraph for it, in whatever state
+    awk -v p="$2" 'BEGIN{RS=""; FS="\n"} $1 == "Package: " p {f = 1} END{exit !f}' "$1" 2>/dev/null
+}
+layer_size_bounds() { # layer_size_bounds <listing>: "lo hi", the range a true `du -sx --block-size=1` of the layer's tree falls in
+    # lo: 80% of the bytes of the regular files (hard links are listed once per name; the rest of the slack is for sparse
+    # files and compressing filesystems). hi: every regular file rounded up to 4 KiB, 4 KiB for every other entry, +20%, +1 MiB.
+    awk '{ t = substr($1, 1, 1)
+           if (t == "-") { app += $3; blk += int(($3 + 4095) / 4096) * 4096 } else other++ }
+         END { printf "%.0f %.0f\n", app * 0.8, (blk + other * 4096) * 1.2 + 1048576 }' "$1"
+}
+check_layer_size() { # check_layer_size <layer> <listing> <size file>: the size file is a number the layer's own listing allows
+    local layer="$1" lst="$2" sf="$3" size lo hi
+    if [[ ! -s "$sf" ]]; then fail "layer $layer: its .size file is missing or empty"; return; fi
+    size="$(tr -d '[:space:]' < "$sf")"
+    if ! [[ "$size" =~ ^[0-9]+$ ]]; then fail "layer $layer: its .size file is not a number ('$size')"; return; fi
+    size=$((10#$size))
+    read -r lo hi < <(layer_size_bounds "$lst")
+    if ((size >= lo && size <= hi)); then
+        pass "layer $layer: .size ($size) is plausible for what the layer holds ($lo to $hi bytes)"
+    else
+        fail "layer $layer: .size is $size but the layer holds $lo to $hi bytes (a copy of another layer's number, or 0 for a layer that is not empty)"
+    fi
+}
+casper_kernel_lines() { # casper_kernel_lines <menu>: the `linux /casper/vmlinuz` lines, blanks squeezed, one per line
+    grep -E '^[[:space:]]*linux[[:space:]]+/casper/vmlinuz' "$1" 2>/dev/null | tr -s ' \t' ' ' | sed 's/^ //; s/ $//'
+}
+stock_kernel_line() { # a squeezed kernel line on stdin is the stock shape: only the words the stock menus use, and the one Companion adds
+    awk '{ bad = ($1 != "linux" || $2 != "/casper/vmlinuz")
+           for (i = 3; i <= NF && $i != "---"; i++) if ($i != "nomodeset" && $i != "iso-scan/filename=${iso_path}" && $i != "ci.autoinstall=1") bad = 1
+           if ($i != "---" || $(i + 1) != "quiet" || $(i + 2) != "splash" || NF != i + 2) bad = 1
+           exit bad }'
+}
+
+BASE_PATHS="$WORK/base-paths.txt"
+listing_paths "$LISTING" > "$BASE_PATHS"
+BASE_STATUS="$R/var/lib/dpkg/status"
+# A listing that could not be read makes every "has no" check below pass for nothing.
+if grep -qxF /var/lib/dpkg/status "$BASE_PATHS" && [[ -s "$BASE_STATUS" ]]; then
+    pass "base layer: listing and dpkg status are readable ($(wc -l < "$BASE_PATHS") entries)"
+    for row in "${BASE_FORBIDDEN[@]}"; do
+        label="${row%%|*}"; re="${row#*|}"
+        hits="$(grep -E -e "$re" "$BASE_PATHS" | head -n 3 | tr '\n' ' ')"
+        if [[ -z "$hits" ]]; then pass "base layer has no $label"; else fail "base layer ships $label: ${hits% }"; fi
+    done
+    for p in "${LIVE_ONLY_PKGS[@]}"; do
+        if pkg_present "$BASE_STATUS" "$p"; then fail "base layer's dpkg status lists the live-only package $p"
+        else pass "base layer's dpkg status has no live-only package $p"; fi
+    done
+    # The installer snap is seeded by the live layer's snapd files. If the base kept them, snapd on the installed system
+    # would try to seed a snap whose file is not there, and know about an installer it does not have.
+    SEEDY="$R/var/lib/snapd/seed/seed.yaml"
+    if [[ -s "$SEEDY" ]]; then
+        if grep -q 'ubuntu-desktop-bootstrap' "$SEEDY"; then fail "base layer's snapd seed.yaml names the installer snap (ubuntu-desktop-bootstrap)"
+        else pass "base layer's snapd seed.yaml names no installer snap"; fi
+        seed_missing=""
+        while read -r sf; do
+            [[ -n "$sf" ]] || continue
+            grep -qxF "/var/lib/snapd/seed/snaps/$sf" "$BASE_PATHS" || seed_missing="$seed_missing $sf"
+        done < <(sed -n 's/^[[:space:]-]*file:[[:space:]]*//p' "$SEEDY" | tr -d '\r"'"'")
+        if [[ -z "$seed_missing" ]]; then pass "base layer's snapd seed.yaml names only snap files the base layer holds"
+        else fail "base layer's snapd seed.yaml names snap files that are not in the base layer:$seed_missing"; fi
+    else
+        note "base layer has no var/lib/snapd/seed/seed.yaml (no snaps seeded)"
+    fi
+    if [[ -s "$R/var/lib/snapd/state.json" ]]; then
+        if grep -Eq 'ubuntu-desktop-bootstrap|core22' "$R/var/lib/snapd/state.json"; then fail "base layer's snapd state.json knows an installer snap (ubuntu-desktop-bootstrap or core22)"
+        else pass "base layer's snapd state.json knows no installer snap"; fi
+    fi
+    # Files the live image rewrote in place (the same path as in the stock layers below it): the base takes the stock ones back.
+    if [[ -s "$R/etc/cloud/cloud.cfg" ]]; then
+        if grep -q 'subiquity-shell' "$R/etc/cloud/cloud.cfg"; then fail "base layer's /etc/cloud/cloud.cfg is the live session's (it creates the installer user with /usr/bin/subiquity-shell)"
+        else pass "base layer's /etc/cloud/cloud.cfg is not the live session's"; fi
+    fi
+    if grep -E -q '^l.* /usr/lib/systemd/systemd-networkd-wait-online -> ' "$LISTING"; then
+        fail "base layer's systemd-networkd-wait-online is the live session's symlink ($(grep -E ' /usr/lib/systemd/systemd-networkd-wait-online -> ' "$LISTING" | sed 's/.* -> //' | head -n 1)), not the real binary"
+    else
+        pass "base layer's systemd-networkd-wait-online is not replaced by a symlink"
+    fi
+else
+    fail "base layer: could not read its listing or var/lib/dpkg/status, so none of the live-only checks could run"
+fi
+
+# The live layer: the real live delta, not an empty placeholder.
+LIVE_PATHS="$WORK/live-paths.txt"
+listing_paths "$LIVELIST" > "$LIVE_PATHS"
+LIVE_STATUS="$LR/var/lib/dpkg/status"
+if [[ ! -s "$LIVELIST" ]]; then
+    fail "live layer: could not list /casper/minimal.standard.live.squashfs"
+else
+    live_files="$(awk '$1 !~ /^d/' "$LIVELIST" | wc -l | tr -d ' ')"
+    if [[ "$live_files" -gt 0 ]]; then pass "live layer is not a placeholder ($live_files entries that are not directories)"
+    else fail "live layer is an empty placeholder (directories only): casper is in no layer the live session sees"; fi
+    live_missing=""
+    for row in "${LIVE_REQUIRED[@]}"; do
+        grep -E -q -e "${row#*|}" "$LIVE_PATHS" || live_missing="$live_missing [${row%%|*}]"
+    done
+    if [[ -z "$live_missing" ]]; then pass "live layer holds what the base had taken out: casper's files, casper-md5check and its enable link, the installer's pieces"
+    else fail "live layer lacks:$live_missing"; fi
+    if [[ -s "$LR/var/lib/snapd/seed/seed.yaml" ]] && grep -q 'ubuntu-desktop-bootstrap' "$LR/var/lib/snapd/seed/seed.yaml"; then pass "live layer's snapd seed.yaml still names the installer snap"
+    else fail "live layer's snapd seed.yaml does not name the installer snap (the live session cannot seed it)"; fi
+    if [[ -s "$LR/etc/cloud/cloud.cfg" ]] && grep -q 'subiquity-shell' "$LR/etc/cloud/cloud.cfg"; then pass "live layer carries the live session's /etc/cloud/cloud.cfg"
+    else fail "live layer does not carry the live session's /etc/cloud/cloud.cfg (the base's stock copy would apply in the live session too)"; fi
+    if [[ -s "$LIVE_STATUS" ]] && awk 'BEGIN{RS=""; FS="\n"} $1 == "Package: casper" { for (i = 1; i <= NF; i++) if ($i == "Status: install ok installed") f = 1 } END{exit !f}' "$LIVE_STATUS"; then
+        pass "live layer's dpkg status lists casper as installed"
+    else
+        fail "live layer's dpkg status does not list casper as installed (or has none)"
+    fi
+fi
+# minimal.standard.squashfs sits between the two and stays the empty placeholder the stock ISO's install-sources.yaml entry needs.
+STDSQ="$ISOX/minimal.standard.squashfs"; STDLIST="$WORK/minimal.standard.listing.txt"
+[[ -s "$STDLIST" ]] || { [[ -s "$STDSQ" ]] && unsquashfs -ll "$STDSQ" 2>/dev/null | sed 's#squashfs-root##' > "$STDLIST"; }
+if [[ -s "$STDLIST" ]]; then
+    std_files="$(awk '$1 !~ /^d/' "$STDLIST" | wc -l | tr -d ' ')"
+    if [[ "$std_files" -eq 0 ]]; then pass "minimal.standard.squashfs is still the empty placeholder"
+    else fail "minimal.standard.squashfs holds $std_files entries that are not directories (it must stay an empty placeholder)"; fi
+else
+    fail "could not list /casper/minimal.standard.squashfs"
+fi
+
+# The per-layer .size and .manifest files describe the layers this image has, not the stock ones.
+check_layer_size minimal "$LISTING" "$ISOX/minimal.size"
+check_layer_size minimal.standard "${STDLIST:-/dev/null}" "$ISOX/minimal.standard.size"
+check_layer_size minimal.standard.live "$LIVELIST" "$ISOX/minimal.standard.live.size"
+PK="$WORK/pkgs"; mkdir -p "$PK"
+status_pkgs "$BASE_STATUS" > "$PK/base.status"
+status_pkgs "$LIVE_STATUS" > "$PK/live.status"
+for m in minimal minimal.standard minimal.standard.live; do manifest_pkgs "$ISOX/$m.manifest" > "$PK/$m.manifest"; done
+comm -13 "$PK/base.status" "$PK/live.status" > "$PK/live.delta"
+if [[ ! -s "$ISOX/minimal.manifest" ]]; then fail "minimal.manifest is missing or empty"
+elif cmp -s "$PK/minimal.manifest" "$PK/base.status"; then pass "minimal.manifest lists exactly the packages of the base layer ($(wc -l < "$PK/base.status"))"
+else fail "minimal.manifest is not the base layer's package list ($(comm -23 "$PK/minimal.manifest" "$PK/base.status" | wc -l | tr -d ' ') only in the manifest, $(comm -13 "$PK/minimal.manifest" "$PK/base.status" | wc -l | tr -d ' ') only in the layer)"; fi
+if [[ ! -e "$ISOX/minimal.standard.manifest" ]]; then fail "minimal.standard.manifest is missing"
+elif [[ ! -s "$PK/minimal.standard.manifest" ]]; then pass "minimal.standard.manifest lists no package (the layer is empty)"
+else fail "minimal.standard.manifest still lists $(wc -l < "$PK/minimal.standard.manifest" | tr -d ' ') package(s) (the stock list; the layer is empty)"; fi
+if [[ ! -s "$ISOX/minimal.standard.live.manifest" ]]; then fail "minimal.standard.live.manifest is missing or empty"
+elif cmp -s "$PK/minimal.standard.live.manifest" "$PK/live.delta" && [[ -s "$PK/live.delta" ]]; then
+    pass "minimal.standard.live.manifest lists exactly the packages the live layer adds to the base ($(wc -l < "$PK/live.delta" | tr -d ' '))"
+else
+    fail "minimal.standard.live.manifest is not the live layer's package delta ($(comm -23 "$PK/minimal.standard.live.manifest" "$PK/live.delta" | wc -l | tr -d ' ') only in the manifest, $(comm -13 "$PK/minimal.standard.live.manifest" "$PK/live.delta" | wc -l | tr -d ' ') only in the layer)"
+fi
+live_casper_ver="$(awk -F'\t' '$1 == "casper" {print $2}' "$PK/live.status")"
+if [[ -n "$live_casper_ver" && "$(awk -F'\t' '$1 == "casper" {print $2}' "$PK/minimal.standard.live.manifest")" == "$live_casper_ver" ]]; then
+    pass "minimal.standard.live.manifest lists casper $live_casper_ver, the version the live layer has"
+else
+    fail "minimal.standard.live.manifest does not list casper at the version the live layer has (${live_casper_ver:-none})"
+fi
+if awk -F'\t' '$1 == "casper" {f = 1} END{exit !f}' "$PK/minimal.manifest"; then fail "minimal.manifest lists casper (the base layer has none)"
+else pass "minimal.manifest does not list casper"; fi
+
+# The boot menus keep the stock kernel lines. The live boot needs no kernel parameter to find its layers (the stock initrd
+# carries the layer path in its own configuration), and a parameter such as boot= or layerfs-path= is how a change to
+# the layer layout gets "fixed" in the menu instead of in the layers. The one Companion addition is ci.autoinstall=1.
+for menu in grub.cfg loopback.cfg; do
+    if [[ ! -s "$ISOX/$menu" ]]; then fail "could not extract $menu from the ISO"; continue; fi
+    klines="$(casper_kernel_lines "$ISOX/$menu")"
+    nk="$(printf '%s\n' "$klines" | grep -c . || true)"; nbad=0
+    while IFS= read -r kl; do
+        [[ -n "$kl" ]] || continue
+        printf '%s\n' "$kl" | stock_kernel_line || { nbad=$((nbad + 1)); fail "$menu: kernel line is not the stock one: $kl"; }
+    done <<<"$klines"
+    if [[ "$nk" -lt 2 ]]; then fail "$menu: $nk kernel lines found, expected the stock entries"
+    elif [[ "$nbad" -eq 0 ]]; then pass "$menu: all $nk kernel lines are the stock ones (no boot=, layerfs-path= or other added parameter)"; fi
+done
+if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
+    BASEMENU="$WORK/base-menus"; mkdir -p "$BASEMENU"
+    for menu in grub.cfg loopback.cfg; do
+        xorriso -osirrox on -indev "$VERIFY_BASE_ISO" -extract "/boot/grub/$menu" "$BASEMENU/$menu" >/dev/null 2>&1
+        if [[ -s "$BASEMENU/$menu" && -s "$ISOX/$menu" ]]; then
+            ours="$(casper_kernel_lines "$ISOX/$menu" | sed 's/ ci\.autoinstall=1//' | sort -u)"
+            stock="$(casper_kernel_lines "$BASEMENU/$menu" | sort -u)"
+            if [[ "$ours" == "$stock" ]]; then pass "$menu: the kernel lines equal the base ISO's (apart from ci.autoinstall=1)"
+            else fail "$menu: the kernel lines differ from the base ISO's"; fi
+        else
+            fail "$menu: could not compare the kernel lines with the base ISO's"
+        fi
+    done
+else
+    note "kernel lines not compared with a stock ISO's (skipped: set VERIFY_BASE_ISO=<stock Ubuntu ISO>)"
+fi
 
 # ── 4. branding ─────────────────────────────────────────────────────────────
 section "4. Branding: user-visible identity is Companion OS"
@@ -554,9 +841,9 @@ fi
 check "/etc/issue is Companion OS" file_has "$R/etc/issue" 'Companion OS'
 check "installed-system hostname is companion-os" file_has "$R/etc/hostname" '^companion-os$'
 check "GRUB_DISTRIBUTOR is Companion OS" file_has "$R/etc/default/grub" '^GRUB_DISTRIBUTOR="Companion OS"'
-check "live session host name is not 'ubuntu'" bash -c "! grep -q -E '^export HOST=\"ubuntu\"' '$R/etc/casper.conf'"
-check "live session user is not 'ubuntu'" bash -c "! grep -q -E '^export USERNAME=\"ubuntu\"' '$R/etc/casper.conf'"
-check "casper keeps BUILD_SYSTEM=Ubuntu (casper logic depends on it)" file_has "$R/etc/casper.conf" '^export BUILD_SYSTEM="Ubuntu"'
+check "live session host name is not 'ubuntu'" bash -c "! grep -q -E '^export HOST=\"ubuntu\"' '$CASPER_CONF'"
+check "live session user is not 'ubuntu'" bash -c "! grep -q -E '^export USERNAME=\"ubuntu\"' '$CASPER_CONF'"
+check "casper keeps BUILD_SYSTEM=Ubuntu (casper logic depends on it)" file_has "$CASPER_CONF" '^export BUILD_SYSTEM="Ubuntu"'
 check "MOTD header is Companion OS" bash -c "grep -q 'Companion OS' '$R'/etc/update-motd.d/00-ci-os-header"
 if in_listing '^-rw-r--r-- .* /etc/update-motd\.d/00-header$'; then pass "Ubuntu's own MOTD welcome (00-header) is disabled"; else fail "Ubuntu's own MOTD welcome (00-header) is still executable"; fi
 

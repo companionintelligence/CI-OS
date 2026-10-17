@@ -85,7 +85,8 @@ The compiled gresource is committed to source at:
 `build-iso.sh` then:
 
 1. Mounts and extracts the base Ubuntu ISO
-2. Unsquashes all three casper layers into a merged chroot
+2. Unsquashes all three stock casper layers (`minimal`, `minimal.standard`, `minimal.standard.live`) into one merged chroot,
+   the rootfs `C` that the next step customizes
 3. Runs `backends/ubuntu/chroot/customize-chroot.sh` on the extracted rootfs to apply:
    - OS identity (CI-OS name, version, first-boot rebrand service)
    - Telemetry/bloatware removal
@@ -115,8 +116,15 @@ The compiled gresource is committed to source at:
    - AMD GPU / ROCm helper tools
    - Installer whitelabel (whitelabel.yaml, slides)
    - MOTD and CI-OS utilities
-4. Repacks squashfs, regenerates casper manifests (the two placeholder casper layers mirror the rootfs
-   directory modes, so `/tmp` stays `1777` in the overlay)
+4. Splits the customized rootfs `C` back into layers (`repack_squashfs`, `scripts/lib/split-live-layer.sh`; see
+   [Layers](#layers-what-the-installer-installs-and-what-only-the-live-session-sees)): `minimal.squashfs` is `C` minus the live-only
+   content (the `casper` package and its files, the live dconf overrides, the installer's own snap, the live image's cloud-init, getty
+   and udisks settings, ...) and is the **only layer the installer copies to the disk**; `minimal.standard.live.squashfs` holds exactly
+   what must be stacked on it to give `C` back, so the live session is unchanged; `minimal.standard.squashfs` stays an empty
+   placeholder whose directory modes mirror the rootfs, so `/tmp` stays `1777` in the overlay. The build mounts the three packed layers,
+   stacks them as casper does and stops unless the stack equals `C` and the base holds no live-only content. It then writes the true
+   `.size` and `.manifest` files, `install-sources.yaml` (the installer still installs `minimal.squashfs` alone, no language layers) and
+   `casper/SHA256SUMS`
 5. Brands the live boot media (`brand_boot_media`). The live session's splash is drawn from Plymouth files
    inside `casper/initrd`, which the rootfs theming never reaches, so a small zstd cpio overlay is appended to
    the stock initrd (padded to 4 bytes; the kernel unpacks concatenated archives in order and later files win,
@@ -141,6 +149,33 @@ The compiled gresource is committed to source at:
    xorriso run (`write_md5sum_txt`, [below](#disc-integrity-md5sumtxt-inside-the-image)) and the finished
    image is read back against it before the build succeeds
 7. Produces SHA256/MD5 checksums
+
+---
+
+## Layers: what the installer installs and what only the live session sees
+
+The Ubuntu 24.04 desktop ISO keeps its root filesystem in three stacked squashfs layers. casper (the live session) mounts all three;
+subiquity and curtin (the installer) copy **one stack to the disk, the one `casper/install-sources.yaml` names**, and the third layer,
+`minimal.standard.live.squashfs`, is named by no entry. Everything that belongs to the live session alone lives there: the `casper`
+package and its initramfs hook, the live session's dconf overrides, the installer's own snap, the live image's cloud-init, getty and
+udisks settings. That is why a stock install never has them.
+
+Until the split this build merged the three layers, customized the result and put **all of it** into `minimal.squashfs`. The installer
+copied the live-only content to the disk, and casper's initramfs hook (`BOOT=casper` in every initrd regenerated there) made the
+installed system stop at "Unable to find a medium containing a live file system". The live ISO boots fine in that state, which is why
+nothing showed it until a complete install of the v7 image (2026-10-15 and 16). The comment in `build-iso.sh` that said a
+`filesystem.manifest-remove` was "not needed" and that "subiquity handles package removal" was wrong for the merged design: subiquity
+has no removal step, and stock Ubuntu only avoids the problem by never installing the live layer.
+
+| Layer | Content now | Seen by |
+|---|---|---|
+| `minimal.squashfs` | the customized rootfs minus the live-only content (kernels, firmware and bootloader stay: the installed system needs them) | live session and **installer** |
+| `minimal.standard.squashfs` | empty placeholder | live session, and installer entry 2 (adds nothing) |
+| `minimal.standard.live.squashfs` | exactly what must be stacked on the two others to give the customized rootfs back: casper and its files, the live-only files, the stock versions of the files the live image rewrote | **live session only** |
+
+The list of what is live-only, the reason for each row, how to extend it, what each test proves and the test status are in
+[`docs/architecture/ubuntu-iso-layers.md`](../../../docs/architecture/ubuntu-iso-layers.md). `verify-iso.sh` section 3g and
+`tests/verify-installer-base.sh` guard it, `tests/installed-boot.sh` boots an installed system built from the base layer.
 
 ---
 
@@ -393,8 +428,11 @@ one-hour build (or in `verify-iso.sh`, which the manual `build-companion-os-iso.
 | `tests/boot-media-plymouth.sh` | `brand_boot_media`, the initrd overlay | manual, throw-away container (`unmkinitramfs`, `cpio`, `zstd`); `CI_TEST_STOCK_INITRD=<stock casper/initrd>` adds the real stock initrd |
 | `tests/plymouth-ground-render.sh` | what the real Plymouth plugin draws, `ci_plymouth_recolor` | manual, throw-away container (`plymouth`, `xvfb`; command in its header) |
 | `desktop-theme/tests/plymouth-theme.sh` | the rootfs Plymouth step, its diversions | manual, throw-away container (command in its header) |
-| `tests/placeholder-layer-modes.sh` | the placeholder casper layers' directory modes | manual, privileged container (`squashfs-tools`, overlayfs) |
+| `tests/placeholder-layer-modes.sh` | `make_placeholder_layer`: the empty `minimal.standard.squashfs` keeps the rootfs directory modes (the live layer's modes are checked by `verify-iso.sh` section 3e and `tests/split-live-layer.sh`) | manual, privileged container (`squashfs-tools`, overlayfs) |
 | `tests/verify-logo-surfaces.sh` | the logo checks of `verify-iso.sh` | manual, container with `python3` and a renderer |
+| `tests/verify-installer-base.sh` | `verify-iso.sh` section 3g: every check of "the installer base layer is clean" fails on the defect it is for (144 variants on a small synthetic image, 49 of them taken from the split library's own lists; run it against weakened copies of the script to test the test) | manual, container with `xorriso squashfs-tools zstd cpio python3`, 1 to 3 minutes |
+| `tests/split-live-layer.sh` | the split of the merged rootfs into the installer base and the live-only layer (`scripts/lib/split-live-layer.sh`): Part A the helpers on synthetic trees, Part B the whole split on the saved work data of a build (overlay of the layers equals the rootfs, no casper in the base, true `.size` and `.manifest`) | Part A anywhere (bash 3.2 is enough); Part B manual, privileged container with the saved build volume mounted read-only (command in its header) |
+| `tests/installed-boot.sh` | the INSTALLED system boots: a disk built the way an install ends up from the installer base layer, initrds regenerated, then booted in QEMU to the greeter | manual, privileged Docker plus QEMU, minutes to tens of minutes; header has the options |
 | `core/lib/tests/*.sh` | `ci_grub_nearest_color`, `ci_divert_file` | manual |
 
 Touching `core/lib/theme-lib.sh` (`ci_plymouth_recolor`), `build-iso.sh`'s `brand_boot_media`, or `md5sum-txt.sh` means running
@@ -430,7 +468,7 @@ sha256sum -c SHA256SUMS
 ### Disc integrity (`md5sum.txt` inside the image)
 
 The live medium carries `/md5sum.txt`, and the live system checks it on **every boot**: casper's
-`casper-md5check.service`, enabled in the live root filesystem, runs `/usr/lib/casper/casper-md5check /cdrom /cdrom/md5sum.txt`
+`casper-md5check.service`, enabled in the live layer (`minimal.standard.live.squashfs`: it is casper's, so the installed system has none), runs `/usr/lib/casper/casper-md5check /cdrom /cdrom/md5sum.txt`
 over it. For each `<md5>  ./<path>` line it prints `<path>: OK` or `<path>: mismatch` and it ends with "errors found in N
 files" or "no errors found"; a file that is listed but cannot be opened is one error. The result is in
 `journalctl -u casper-md5check` and `/run/casper-md5check.json`, and `fsck.mode=skip` on the kernel command line skips the
@@ -498,8 +536,9 @@ backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-1.0-amd64.iso
 Needs no root and does not boot the ISO. It extracts the root squashfs, the initrd and a few files and
 asserts that every CI-Hub and wireless-setup tool is pre-installed, that the hotspot units are guarded
 against live sessions, that Docker is unguarded and the docker group is set up, that the optional tools
-are installed from their pinned sources, that the Settings > About logo, the dock start icon, the `LOGO=` icon and the greeter logo are the canon mark and diverted from the packages that own the stock files (it reads their pixels and paths and compares them with `vendor/brand`: the About PNGs hold only the mode's primary token colour, the greeter only the three tones of the colour mark, `ci-os-logo.svg` is the vendored `mark.svg` byte for byte, the start icon carries every path of the mark and no artwork colour, its crop lies inside the mark's canvas and, with `rsvg-convert`, keeps the mark's ink (`40-start-icon.sh` crops with a constant cut for the 1.0.0 mark and stops on a mark with another viewBox), and, with `rsvg-convert` or ImageMagick on the verifying machine, the PNG shapes match a fresh render of the mark; run it from the repo checkout, and see `tests/verify-logo-surfaces.sh`), that the placeholder casper layers keep the rootfs directory modes
-(`/tmp` is `1777`; `tests/placeholder-layer-modes.sh` checks the build step in a privileged container), that NetworkManager still manages wired devices (no
+are installed from their pinned sources, that the Settings > About logo, the dock start icon, the `LOGO=` icon and the greeter logo are the canon mark and diverted from the packages that own the stock files (it reads their pixels and paths and compares them with `vendor/brand`: the About PNGs hold only the mode's primary token colour, the greeter only the three tones of the colour mark, `ci-os-logo.svg` is the vendored `mark.svg` byte for byte, the start icon carries every path of the mark and no artwork colour, its crop lies inside the mark's canvas and, with `rsvg-convert`, keeps the mark's ink (`40-start-icon.sh` crops with a constant cut for the 1.0.0 mark and stops on a mark with another viewBox), and, with `rsvg-convert` or ImageMagick on the verifying machine, the PNG shapes match a fresh render of the mark; run it from the repo checkout, and see `tests/verify-logo-surfaces.sh`), that the casper layers stacked on the base keep the rootfs directory modes
+(`/tmp` is `1777`; `tests/placeholder-layer-modes.sh` checks the build step in a privileged container), that the **installer base layer is clean**
+(section 3g, [below](#installer-base-layer-section-3g)), that NetworkManager still manages wired devices (no
 `/etc/netplan` file sets a global renderer other than NetworkManager; the setup-mode profile sets
 `renderer: networkd` on `eth0` only), and that the visible branding is Companion OS while `ID=ubuntu`, `DISTRIB_ID`,
 `BUILD_SYSTEM` and the ISO volume id (which apt, casper, the installer and Secure Boot depend on) are
@@ -515,6 +554,27 @@ either asks for the firmware background (which would make the plugin paint black
 that the overlay's and the rootfs' copies agree key by key apart from the fonts, and (with `unmkinitramfs`) that the initrd's default theme is the
 bgrt one the overlay repaints, the text splash is titled
 Companion OS, and `bgrt-fallback.png` is the same non-Ubuntu 128 px canon mark in the overlay and the rootfs. In the rootfs every package-owned Plymouth file the build rewrites (the watermark, `bgrt-fallback.png`, `bgrt.plymouth`, `spinner.plymouth`, and the text theme's template `ubuntu-text.plymouth.in`, from which the package regenerates the text theme) is `dpkg-divert`ed, so a package upgrade or an `/etc/lsb-release` trigger cannot bring Ubuntu's logo or colours back (`desktop-theme/tests/plymouth-theme.sh` shows this against the real packages).
+<a id="installer-base-layer-section-3g"></a>
+Section 3g checks the layer split ([Layers](#layers-what-the-installer-installs-and-what-only-the-live-session-sees)).
+The base layer (`minimal.squashfs`, the only layer the installer copies to the disk) must hold none of what the stock ISO keeps in its
+live layer: neither package `casper` nor `finalrd` (in no dpkg state), none of casper's files, initramfs configuration, scripts, hook, units
+or enable links, no `livecd-rootfs.gschema.override`, nothing of the installer snaps `ubuntu-desktop-bootstrap` and `core22` (files, desktop
+entry, AppArmor and seccomp profiles, mount and service units, seed entry, snapd state), nothing of subiquity's live-session files, and none
+of the other live-image files in the table of
+[`docs/architecture/ubuntu-iso-layers.md`](../../../docs/architecture/ubuntu-iso-layers.md) (masked `getty@tty1`, `udisks2-inhibit`, the
+journald drop-ins, ...); its snapd seed names only snap files the base holds, its `/etc/cloud/cloud.cfg` is not the live session's (which
+creates the user `installer`) and `systemd-networkd-wait-online` is the real binary, not a symlink to `/bin/true`.
+The live layer (`minimal.standard.live.squashfs`) must not be a placeholder: it holds casper's files (including `casper-md5check` and the enable link of
+its unit) and the live-session pieces the base had taken out (the installer's user service, `kernel-meta-package`, the livecd override, the
+installer snap's seed file), the live session's own `cloud.cfg` and snapd `seed.yaml`, a dpkg status that lists casper, and a `.size` file in the
+range its own listing allows; `minimal.standard.squashfs` stays the empty placeholder. The `.manifest` files are the stock "diff" shape and match the
+dpkg status files (`minimal.manifest` the base's packages, `minimal.standard.manifest` none, `minimal.standard.live.manifest` the packages the live
+layer adds). The kernel lines of `grub.cfg` and `loopback.cfg` stay the stock ones
+(`linux /casper/vmlinuz [nomodeset] [iso-scan/filename=${iso_path}] --- quiet splash`, plus `ci.autoinstall=1` in the one automatic entry; with
+`VERIFY_BASE_ISO`, equal to the stock ISO's). Run on the v7 image (which put the whole merged rootfs in `minimal.squashfs`) the section
+passes 9 and fails 31 of its 40 checks; on an ISO carrying the real output of the split (made from the v7 build's saved chroot) it passes all 40.
+`tests/verify-installer-base.sh` shows every check failing on the defect it is for. Run the section on every built image: a row can be wrong
+about a real base layer in a way the stock layers and a small fixture cannot show (the finalrd row once flagged a file of the kept package `mdadm`).
 Section 8 checks the image's `md5sum.txt` (see [Disc integrity](#disc-integrity-md5sumtxt-inside-the-image)):
 every entry matches the file in the ISO, no entry names a file that is gone, and every regular file the stock convention
 lists is listed. It is `verify`'s model of casper-md5check, not a boot of the image, and says so in its output.
@@ -577,6 +637,22 @@ df -h
 ```bash
 sudo umount -lf work/chroot/{dev/pts,sys,proc,run,dev}
 ```
+
+### The installed system stops at "Unable to find a medium containing a live file system"
+
+Symptom: the live ISO boots and installs, but the first boot of the installed disk prints `/init: line 38: can't open /dev/sr0: No
+medium found` over and over and ends with "Attempt interactive netboot from a URL?". Cause: the base layer the installer copied
+(`minimal.squashfs`) held the stock live layer's content, among it the `casper` package, whose initramfs hook is in every initrd the
+installer regenerates (`BOOT=casper`). Every image built before the layer split has that layout; the v7 image was installed and failed this
+way, earlier ones were not installed here. Check: `verify-iso.sh`
+section 3g lists what the base layer ships that it must not (casper's files and package, `livecd-rootfs.gschema.override`, the installer
+snap's files, ...), and `tests/installed-boot.sh --quick` (per its header: no disk, no boot, about a minute) names `casper` in the base layer. Fix: build with the
+layer split (`lib/split-live-layer.sh`) and install again; a disk that is already installed can be repaired from a live session by
+purging `casper`, deleting `/etc/initramfs-tools/conf.d/casperize.conf` and `default-layer.conf`, removing
+`livecd-rootfs.gschema.override` and recompiling the schemas, then `update-initramfs -u -k all`. That repair was tried once, on a QEMU copy
+of the v7 install, and reached the GDM greeter; it is not a supported procedure (the same image also leaves the live image's
+`/etc/cloud/cloud.cfg`, which creates a user `installer` with `NOPASSWD:ALL` sudo, and a masked tty1 getty). Details and evidence:
+[`docs/architecture/ubuntu-iso-layers.md`](../../../docs/architecture/ubuntu-iso-layers.md), section 2.
 
 ### ISO won't boot
 
