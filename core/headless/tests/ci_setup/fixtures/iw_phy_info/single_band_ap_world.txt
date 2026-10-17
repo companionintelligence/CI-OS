@@ -1,0 +1,128 @@
+Wiphy phy2
+	wiphy index: 2
+	max # scan SSIDs: 20
+	max scan IEs length: 365 bytes
+	max # sched scan SSIDs: 20
+	max # match sets: 11
+	Retry short limit: 7
+	Retry long limit: 4
+	Coverage class: 0 (up to 0m)
+	Device supports AP-side u-APSD.
+	Supported Ciphers:
+		* WEP40 (00-0f-ac:1)
+		* WEP104 (00-0f-ac:5)
+		* TKIP (00-0f-ac:2)
+		* CCMP-128 (00-0f-ac:4)
+		* CMAC (00-0f-ac:6)
+	Available Antennas: TX 0x3 RX 0x3
+	Configured Antennas: TX 0x3 RX 0x3
+	Supported interface modes:
+		 * managed
+		 * AP
+		 * AP/VLAN
+		 * monitor
+	Band 1:
+		Capabilities: 0x19ef
+			RX LDPC
+			HT20/HT40
+			SM Power Save disabled
+			RX HT20 SGI
+			RX HT40 SGI
+			TX STBC
+			RX STBC 1-stream
+			Max AMSDU length: 7935 bytes
+			DSSS/CCK HT40
+		Maximum RX AMPDU length 65535 bytes (exponent: 0x003)
+		Minimum RX AMPDU time spacing: 4 usec (0x05)
+		HT Max RX data rate: 300 Mbps
+		HT TX/RX MCS rate indexes supported: 0-15
+		Frequencies:
+			* 2412 MHz [1] (20.0 dBm)
+			* 2417 MHz [2] (20.0 dBm)
+			* 2422 MHz [3] (20.0 dBm)
+			* 2427 MHz [4] (20.0 dBm)
+			* 2432 MHz [5] (20.0 dBm)
+			* 2437 MHz [6] (20.0 dBm)
+			* 2442 MHz [7] (20.0 dBm)
+			* 2447 MHz [8] (20.0 dBm)
+			* 2452 MHz [9] (20.0 dBm)
+			* 2457 MHz [10] (20.0 dBm)
+			* 2462 MHz [11] (20.0 dBm)
+			* 2467 MHz [12] (20.0 dBm) (no IR)
+			* 2472 MHz [13] (20.0 dBm) (no IR)
+			* 2484 MHz [14] (disabled)
+		Bitrates (non-HT):
+			* 1.0 Mbps
+			* 2.0 Mbps (short preamble supported)
+			* 5.5 Mbps (short preamble supported)
+			* 11.0 Mbps (short preamble supported)
+			* 6.0 Mbps
+			* 9.0 Mbps
+			* 12.0 Mbps
+			* 18.0 Mbps
+			* 24.0 Mbps
+			* 36.0 Mbps
+			* 48.0 Mbps
+			* 54.0 Mbps
+	valid interface combinations:
+		 * #{ managed } <= 1, #{ AP } <= 1,
+		   total <= 2, #channels <= 1
+	HT Capability overrides:
+		 * MCS: ff ff ff ff ff ff ff ff ff ff
+		 * maximum A-MSDU length
+		 * supported channel width
+		 * short GI for 40 MHz
+		 * max A-MPDU length exponent
+		 * min MPDU start spacing
+	Supported commands:
+		 * new_interface
+		 * set_interface
+		 * new_key
+		 * start_ap
+		 * new_station
+		 * new_mpath
+		 * set_mesh_config
+		 * set_bss
+		 * authenticate
+		 * associate
+		 * deauthenticate
+		 * disassociate
+		 * join_ibss
+		 * join_mesh
+		 * remain_on_channel
+		 * set_tx_bitrate_mask
+		 * frame
+		 * frame_wait_cancel
+		 * set_wiphy_netns
+		 * set_channel
+		 * set_wds_peer
+		 * probe_client
+		 * set_noack_map
+		 * register_beacons
+		 * start_p2p_device
+		 * set_mcast_rate
+		 * connect
+		 * disconnect
+	Supported TX frame types:
+		 * managed: 0x00 0x10 0x20 0x30 0x40 0x50 0xa0 0xb0 0xc0 0xd0
+		 * AP: 0x00 0x20 0x40 0xa0 0xb0 0xc0 0xd0
+	Supported RX frame types:
+		 * managed: 0x40 0xb0 0xd0
+		 * AP: 0x00 0x20 0x40 0xa0 0xb0 0xc0 0xd0
+	software interface modes (can always be added):
+		 * AP/VLAN
+		 * monitor
+	Device supports scan flush.
+	Device supports randomizing MAC-addr in sched scans.
+	Supported extended features:
+		* [ VHT_IBSS ]: VHT-IBSS
+		* [ RRM ]: RRM
+		* [ SET_SCAN_DWELL ]: scan dwell setting
+		* [ CQM_RSSI_LIST ]: multiple CQM_RSSI_THOLD
+		* [ CONTROL_PORT_OVER_NL80211 ]: control port over nl80211
+		* [ TXQS ]: FQ-CoDel-enabled intermediate TXQs
+		* [ SCAN_RANDOM_SN ]: use random sequence numbers in scans
+		* [ SCAN_MIN_PREQ_CONTENT ]: use probe request with only rate IEs in scans
+		* [ CAN_REPLACE_PTK0 ]: can safely replace PTK 0 when rekeying
+		* [ AIRTIME_FAIRNESS ]: airtime fairness scheduling
+		* [ AQL ]: Airtime Queue Limits (AQL)

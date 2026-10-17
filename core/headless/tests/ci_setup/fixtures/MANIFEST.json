@@ -1,0 +1,285 @@
+{
+  "legend": "origin 'captured' = real output of the named tool; origin 'synthetic' = written by hand or by a throwaway script from the tool's documented or source-code format, because no wireless hardware was available. A synthetic fixture proves the parser reads the format; it does not prove a particular chip prints it. Everything under scenarios/ is a composition of these files (plus small synthetic ip/nmcli files) used for whole-probe tests and is synthetic. Real iw output captured on hardware should be added under real/ with origin 'captured'.",
+  "files": {
+    "iw_dev/ap_running.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev",
+      "note": "hand-written from the output format of iw's interface.c (print_iface_handler); tab indentation exact"
+    },
+    "iw_dev/empty.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev",
+      "note": "hand-written from the output format of iw's interface.c (print_iface_handler); tab indentation exact"
+    },
+    "iw_dev/escaped_ssid.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev",
+      "note": "hand-written from the output format of iw's interface.c (print_iface_handler); tab indentation exact"
+    },
+    "iw_dev/two_phys.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev",
+      "note": "hand-written from the output format of iw's interface.c (print_iface_handler); tab indentation exact"
+    },
+    "iw_link/connected.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev <if> link",
+      "note": "hand-written from iw's link.c"
+    },
+    "iw_link/not_connected.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev <if> link",
+      "note": "hand-written from iw's link.c"
+    },
+    "iw_phy_info/dual_band_6ghz_ap_sta_2ch_de.txt": {
+      "origin": "synthetic",
+      "tool": "iw phy <phy> info / iw list",
+      "note": "generated once by a throwaway script from the layout iw's info.c prints (sections, bullets, frequency flags, two-line interface combinations, DFS sub-lines); chip-shaped examples, not captures of any real chip"
+    },
+    "iw_phy_info/dual_band_world_domain.txt": {
+      "origin": "synthetic",
+      "tool": "iw phy <phy> info / iw list",
+      "note": "generated once by a throwaway script from the layout iw's info.c prints (sections, bullets, frequency flags, two-line interface combinations, DFS sub-lines); chip-shaped examples, not captures of any real chip"
+    },
+    "iw_phy_info/hwsim_radio.txt": {
+      "origin": "synthetic",
+      "tool": "iw phy <phy> info / iw list",
+      "note": "generated once by a throwaway script from the layout iw's info.c prints (sections, bullets, frequency flags, two-line interface combinations, DFS sub-lines); chip-shaped examples, not captures of any real chip"
+    },
+    "iw_phy_info/iw_list_two_wiphys.txt": {
+      "origin": "synthetic",
+      "tool": "iw phy <phy> info / iw list",
+      "note": "generated once by a throwaway script from the layout iw's info.c prints (sections, bullets, frequency flags, two-line interface combinations, DFS sub-lines); chip-shaped examples, not captures of any real chip"
+    },
+    "iw_phy_info/sae_single_channel_radar_widths.txt": {
+      "origin": "synthetic",
+      "tool": "iw phy <phy> info / iw list",
+      "note": "generated once by a throwaway script from the layout iw's info.c prints (sections, bullets, frequency flags, two-line interface combinations, DFS sub-lines); chip-shaped examples, not captures of any real chip"
+    },
+    "iw_phy_info/single_band_ap_world.txt": {
+      "origin": "synthetic",
+      "tool": "iw phy <phy> info / iw list",
+      "note": "generated once by a throwaway script from the layout iw's info.c prints (sections, bullets, frequency flags, two-line interface combinations, DFS sub-lines); chip-shaped examples, not captures of any real chip"
+    },
+    "iw_phy_info/sta_only_no_ap.txt": {
+      "origin": "synthetic",
+      "tool": "iw phy <phy> info / iw list",
+      "note": "generated once by a throwaway script from the layout iw's info.c prints (sections, bullets, frequency flags, two-line interface combinations, DFS sub-lines); chip-shaped examples, not captures of any real chip"
+    },
+    "iw_phy_info/usb_ap_1ch_us.txt": {
+      "origin": "synthetic",
+      "tool": "iw phy <phy> info / iw list",
+      "note": "generated once by a throwaway script from the layout iw's info.c prints (sections, bullets, frequency flags, two-line interface combinations, DFS sub-lines); chip-shaped examples, not captures of any real chip"
+    },
+    "iw_reg_get/de_with_selfmanaged_phy.txt": {
+      "origin": "synthetic",
+      "tool": "iw reg get",
+      "note": "hand-written from iw's reg.c (print_reg_handler): global and per-phy blocks, DFS regions, rule and flag syntax"
+    },
+    "iw_reg_get/unknown_99_custom.txt": {
+      "origin": "synthetic",
+      "tool": "iw reg get",
+      "note": "hand-written from iw's reg.c (print_reg_handler): global and per-phy blocks, DFS regions, rule and flag syntax"
+    },
+    "iw_reg_get/us.txt": {
+      "origin": "synthetic",
+      "tool": "iw reg get",
+      "note": "hand-written from iw's reg.c (print_reg_handler): global and per-phy blocks, DFS regions, rule and flag syntax"
+    },
+    "iw_reg_get/world.txt": {
+      "origin": "synthetic",
+      "tool": "iw reg get",
+      "note": "hand-written from iw's reg.c (print_reg_handler): global and per-phy blocks, DFS regions, rule and flag syntax"
+    },
+    "iw_scan/empty.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev <if> scan dump",
+      "note": "hand-written from iw's scan.c output for BSS, RSN, WPA and Country elements; includes SSIDs chosen to break a careless parser"
+    },
+    "iw_scan/mixed_neighbourhood.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev <if> scan dump",
+      "note": "hand-written from iw's scan.c output for BSS, RSN, WPA and Country elements; includes SSIDs chosen to break a careless parser"
+    },
+    "iw_scan/old_style_header.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev <if> scan dump",
+      "note": "hand-written from iw's scan.c output for BSS, RSN, WPA and Country elements; includes SSIDs chosen to break a careless parser"
+    },
+    "iw_station_dump/empty.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev <if> station dump",
+      "note": "hand-written from iw's station.c"
+    },
+    "iw_station_dump/two_clients.txt": {
+      "origin": "synthetic",
+      "tool": "iw dev <if> station dump",
+      "note": "hand-written from iw's station.c"
+    },
+    "nmcli/connection_show.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "nmcli/connectivity_full.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "nmcli/connectivity_none.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "nmcli/connectivity_portal.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "nmcli/device_show_pretty_multiline.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "nmcli/device_show_terse_multiline.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "nmcli/device_status.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "nmcli/general_status.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "nmcli/wifi_list.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "nmcli/wifi_list_injection.txt": {
+      "origin": "synthetic",
+      "tool": "nmcli",
+      "note": "hand-written from nmcli's own sources (nmcli-utils.c print routines: terse escaping, multiline layout; nmcli-common2.c device state strings; nmcli-devices.c security strings) and the nmcli manual, fetched 2026-10-17"
+    },
+    "real/ip_j_addr.json": {
+      "origin": "captured",
+      "tool": "ip -j (iproute2-7.2.0, libbpf 1.7.0) in a throwaway archlinux:latest container, 2026-10-17",
+      "note": "REAL output. Container network plus two dummy interfaces made for the capture: wlan0 192.168.1.20/24 with default via 192.168.1.1 metric 600, ap0 192.168.99.1/24, and a blackhole route 10.99.0.0/16"
+    },
+    "real/ip_j_link.json": {
+      "origin": "captured",
+      "tool": "ip -j (iproute2-7.2.0, libbpf 1.7.0) in a throwaway archlinux:latest container, 2026-10-17",
+      "note": "REAL output. Container network plus two dummy interfaces made for the capture: wlan0 192.168.1.20/24 with default via 192.168.1.1 metric 600, ap0 192.168.99.1/24, and a blackhole route 10.99.0.0/16"
+    },
+    "real/ip_j_route.json": {
+      "origin": "captured",
+      "tool": "ip -j (iproute2-7.2.0, libbpf 1.7.0) in a throwaway archlinux:latest container, 2026-10-17",
+      "note": "REAL output. Container network plus two dummy interfaces made for the capture: wlan0 192.168.1.20/24 with default via 192.168.1.1 metric 600, ap0 192.168.99.1/24, and a blackhole route 10.99.0.0/16"
+    },
+    "real/ip_j_route6.json": {
+      "origin": "captured",
+      "tool": "ip -j (iproute2-7.2.0, libbpf 1.7.0) in a throwaway archlinux:latest container, 2026-10-17",
+      "note": "REAL output. Container network plus two dummy interfaces made for the capture: wlan0 192.168.1.20/24 with default via 192.168.1.1 metric 600, ap0 192.168.99.1/24, and a blackhole route 10.99.0.0/16"
+    },
+    "rfkill/list.json": {
+      "origin": "synthetic",
+      "tool": "rfkill list / rfkill --json",
+      "note": "hand-written from the formats of rfkill (util-linux) as remembered; not captured"
+    },
+    "rfkill/list_hard_blocked.txt": {
+      "origin": "synthetic",
+      "tool": "rfkill list / rfkill --json",
+      "note": "hand-written from the formats of rfkill (util-linux) as remembered; not captured"
+    },
+    "rfkill/list_none.txt": {
+      "origin": "synthetic",
+      "tool": "rfkill list / rfkill --json",
+      "note": "hand-written from the formats of rfkill (util-linux) as remembered; not captured"
+    },
+    "rfkill/list_ok.txt": {
+      "origin": "synthetic",
+      "tool": "rfkill list / rfkill --json",
+      "note": "hand-written from the formats of rfkill (util-linux) as remembered; not captured"
+    },
+    "supplicant/hostapd_all_sta.txt": {
+      "origin": "synthetic",
+      "tool": "wpa_cli status / hostapd_cli status, all_sta, event stream",
+      "note": "hand-written from the wpa_supplicant and hostapd documentation and control-interface source as remembered; not captured"
+    },
+    "supplicant/hostapd_events.txt": {
+      "origin": "synthetic",
+      "tool": "wpa_cli status / hostapd_cli status, all_sta, event stream",
+      "note": "hand-written from the wpa_supplicant and hostapd documentation and control-interface source as remembered; not captured"
+    },
+    "supplicant/hostapd_status_disabled.txt": {
+      "origin": "synthetic",
+      "tool": "wpa_cli status / hostapd_cli status, all_sta, event stream",
+      "note": "hand-written from the wpa_supplicant and hostapd documentation and control-interface source as remembered; not captured"
+    },
+    "supplicant/hostapd_status_enabled.txt": {
+      "origin": "synthetic",
+      "tool": "wpa_cli status / hostapd_cli status, all_sta, event stream",
+      "note": "hand-written from the wpa_supplicant and hostapd documentation and control-interface source as remembered; not captured"
+    },
+    "supplicant/wpa_status_completed.txt": {
+      "origin": "synthetic",
+      "tool": "wpa_cli status / hostapd_cli status, all_sta, event stream",
+      "note": "hand-written from the wpa_supplicant and hostapd documentation and control-interface source as remembered; not captured"
+    },
+    "supplicant/wpa_status_scanning.txt": {
+      "origin": "synthetic",
+      "tool": "wpa_cli status / hostapd_cli status, all_sta, event stream",
+      "note": "hand-written from the wpa_supplicant and hostapd documentation and control-interface source as remembered; not captured"
+    },
+    "sys/cmdline_arch_live_country.txt": {
+      "origin": "synthetic",
+      "tool": "/proc/cmdline",
+      "note": "representative kernel command lines of the boot paths (Stick, plain casper live, installed, archiso)"
+    },
+    "sys/cmdline_installed.txt": {
+      "origin": "synthetic",
+      "tool": "/proc/cmdline",
+      "note": "representative kernel command lines of the boot paths (Stick, plain casper live, installed, archiso)"
+    },
+    "sys/cmdline_plain_live.txt": {
+      "origin": "synthetic",
+      "tool": "/proc/cmdline",
+      "note": "representative kernel command lines of the boot paths (Stick, plain casper live, installed, archiso)"
+    },
+    "sys/cmdline_quoted.txt": {
+      "origin": "synthetic",
+      "tool": "/proc/cmdline",
+      "note": "representative kernel command lines of the boot paths (Stick, plain casper live, installed, archiso)"
+    },
+    "sys/cmdline_stick_auto.txt": {
+      "origin": "synthetic",
+      "tool": "/proc/cmdline",
+      "note": "representative kernel command lines of the boot paths (Stick, plain casper live, installed, archiso)"
+    },
+    "sys/cmdline_stick_headless.txt": {
+      "origin": "synthetic",
+      "tool": "/proc/cmdline",
+      "note": "representative kernel command lines of the boot paths (Stick, plain casper live, installed, archiso)"
+    },
+    "sys/drm_connected.txt": {
+      "origin": "synthetic",
+      "tool": "/sys/class/drm/*/status",
+      "note": "one 'connector status' pair per line; the test turns each into a DictFs file"
+    },
+    "sys/drm_none_connected.txt": {
+      "origin": "synthetic",
+      "tool": "/sys/class/drm/*/status",
+      "note": "one 'connector status' pair per line; the test turns each into a DictFs file"
+    },
+    "sys/zone.tab": {
+      "origin": "captured",
+      "tool": "excerpt of /usr/share/zoneinfo/zone.tab (tz database, public domain) from the macOS host, 2026-10-17",
+      "note": "REAL file content: the header comment and the rows of AD, DE, FR, GB, JP, NZ, ZA, SG, four US, three RU, three CA and three AU zones"
+    }
+  }
+}

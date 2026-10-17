@@ -1,0 +1,9 @@
+phy#0
+	Interface ap0
+		ifindex 7
+		wdev 0x3
+		addr 38:11:22:33:44:57
+		ssid Companion-Setup-AB12
+		type AP
+		channel 6 (2437 MHz), width: 20 MHz, center1: 2437 MHz
+		txpower 20.00 dBm

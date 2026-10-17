@@ -1,0 +1,3 @@
+card0-eDP-1 connected
+card0-HDMI-A-1 disconnected
+card0-Writeback-1 unknown

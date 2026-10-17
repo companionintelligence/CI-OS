@@ -1,0 +1,17 @@
+{
+  "ip -j addr": "ip_addr.json",
+  "ip -j link": "ip_link.json",
+  "ip -j route": "ip_route.json",
+  "iw dev": "../../iw_dev/two_phys.txt",
+  "iw dev wlan0 link": "../../iw_link/connected.txt",
+  "iw dev wlan0 scan dump": "../../iw_scan/mixed_neighbourhood.txt",
+  "iw dev wlan1 link": "../../iw_link/not_connected.txt",
+  "iw dev wlan1 scan dump": "../../iw_scan/empty.txt",
+  "iw phy phy0 info": "../../iw_phy_info/dual_band_6ghz_ap_sta_2ch_de.txt",
+  "iw phy phy1 info": "../../iw_phy_info/usb_ap_1ch_us.txt",
+  "iw reg get": "../../iw_reg_get/de_with_selfmanaged_phy.txt",
+  "nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status": "nm_dev.txt",
+  "nmcli -t -f NAME,UUID,TYPE,DEVICE connection show": "nm_conn.txt",
+  "nmcli networking connectivity": "nm_connectivity.txt",
+  "rfkill list": "../../rfkill/list_ok.txt"
+}

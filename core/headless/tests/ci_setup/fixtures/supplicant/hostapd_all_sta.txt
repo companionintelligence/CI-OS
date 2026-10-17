@@ -1,0 +1,21 @@
+8a:11:22:33:44:01
+flags=[AUTH][ASSOC][AUTHORIZED][WMM][HT]
+aid=1
+capability=0x431
+listen_interval=10
+supported_rates=82 84 8b 96 0c 12 18 24
+timeout_next=NULLFUNC POLL
+rx_packets=120
+tx_packets=90
+rx_bytes=12345
+tx_bytes=23456
+inactive_msec=120
+signal=-45
+rx_rate_info=130
+tx_rate_info=72
+8a:11:22:33:44:02
+flags=[AUTH][ASSOC][WMM]
+aid=2
+capability=0x421
+listen_interval=10
+timeout_next=NULLFUNC POLL

@@ -1,0 +1,363 @@
+{
+  "channel_plan": {
+    "band": "5",
+    "candidates": [
+      36
+    ],
+    "channel": 36,
+    "country_code": "US",
+    "hw_mode": "a",
+    "ok": true,
+    "reasons": [
+      "the AP shares the uplink's channel"
+    ],
+    "rejected": {},
+    "requires_cac": false,
+    "world_safe": false
+  },
+  "commands": {
+    "ip -j addr": {
+      "bytes": 149,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "ip -j link": {
+      "bytes": 177,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "ip -j route": {
+      "bytes": 260,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev": {
+      "bytes": 179,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev wlan0 link": {
+      "bytes": 342,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev wlan0 scan dump": {
+      "bytes": 0,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw phy phy0 info": {
+      "bytes": 6117,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw reg get": {
+      "bytes": 459,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "nmcli -t -f NAME,UUID,TYPE,DEVICE connection show": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "nmcli networking connectivity": {
+      "bytes": 5,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "rfkill list": {
+      "bytes": 114,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    }
+  },
+  "country": {
+    "code": "US",
+    "confidence": "medium",
+    "known": true,
+    "notes": [],
+    "self_managed": false,
+    "source": "kernel"
+  },
+  "interfaces": [
+    {
+      "bus": {
+        "bus": null,
+        "device": null,
+        "driver": null,
+        "phy": null,
+        "vendor": null
+      },
+      "channel": 36,
+      "freq_mhz": 5180,
+      "ifindex": 3,
+      "mac": "38:11:22:33:44:55",
+      "name": "wlan0",
+      "phy": "phy0",
+      "ssid_escaped": "HomeNet",
+      "ssid_hex": "486f6d654e6574",
+      "txpower_dbm": 22.0,
+      "type": "managed",
+      "wdev": "0x1",
+      "width_mhz": 80
+    }
+  ],
+  "ip": {
+    "addresses": [
+      {
+        "family": "inet",
+        "ifname": "wlan0",
+        "local": "192.168.1.20",
+        "prefixlen": 24,
+        "scope": "global"
+      }
+    ],
+    "links": [
+      {
+        "flags": [
+          "BROADCAST",
+          "MULTICAST",
+          "UP",
+          "LOWER_UP"
+        ],
+        "has_carrier": true,
+        "ifindex": 2,
+        "is_up": true,
+        "link_type": "ether",
+        "mac": "38:11:22:33:44:55",
+        "master": null,
+        "mtu": 1500,
+        "name": "wlan0",
+        "operstate": "UP"
+      }
+    ],
+    "routes": [
+      {
+        "dev": "wlan0",
+        "dst": "default",
+        "gateway": "192.168.1.1",
+        "is_default": true,
+        "metric": 600,
+        "prefsrc": "192.168.1.20",
+        "protocol": "dhcp",
+        "scope": null,
+        "type": "unicast"
+      },
+      {
+        "dev": "wlan0",
+        "dst": "192.168.1.0/24",
+        "gateway": null,
+        "is_default": false,
+        "metric": 0,
+        "prefsrc": "192.168.1.20",
+        "protocol": "kernel",
+        "scope": "link",
+        "type": "unicast"
+      }
+    ],
+    "uplink": "wlan0",
+    "used_ipv4_networks": [
+      "192.168.1.0/24",
+      "192.168.1.20/24"
+    ]
+  },
+  "network_manager": {
+    "connectivity": "full",
+    "devices": [],
+    "wifi_profiles": []
+  },
+  "phys": {
+    "phy0": {
+      "bands": [
+        "2.4",
+        "5"
+      ],
+      "combos": [
+        {
+          "channels": 1,
+          "limits": [
+            {
+              "max": 2,
+              "types": [
+                "managed"
+              ]
+            },
+            {
+              "max": 1,
+              "types": [
+                "AP"
+              ]
+            },
+            {
+              "max": 1,
+              "types": [
+                "mesh point"
+              ]
+            }
+          ],
+          "radar_widths": [],
+          "sta_ap_bi_match": true,
+          "total": 3
+        }
+      ],
+      "concurrent_ap_sta": {
+        "channels": 1,
+        "sta_ap_bi_match": true,
+        "total": 3
+      },
+      "dfs_channels": {
+        "5": [
+          52,
+          56,
+          60,
+          64,
+          100,
+          104,
+          108,
+          112,
+          116,
+          120,
+          124,
+          128,
+          132,
+          136,
+          140,
+          144
+        ]
+      },
+      "index": 0,
+      "modes": [
+        "IBSS",
+        "managed",
+        "AP",
+        "AP/VLAN",
+        "monitor",
+        "mesh point"
+      ],
+      "name": "phy0",
+      "passive_only_channels": {},
+      "start_ap_command": true,
+      "supports_ap": true,
+      "supports_sae": false,
+      "usable_ap_channels": {
+        "2.4": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        "5": [
+          36,
+          40,
+          44,
+          48,
+          149,
+          153,
+          157,
+          161,
+          165
+        ]
+      }
+    }
+  },
+  "radio": {
+    "ap_iface": "wlan0",
+    "ap_phy": "phy0",
+    "follow_uplink_mhz": 5180,
+    "mode": "concurrent",
+    "needs_unblock": false,
+    "notes": [
+      "every access-point-capable radio is in use for the uplink"
+    ],
+    "reason": "ok",
+    "sta_iface": "wlan0",
+    "sta_phy": "phy0"
+  },
+  "regdom": [
+    {
+      "country": "US",
+      "dfs": "FCC",
+      "phy": null,
+      "rules": 9,
+      "scope": "global",
+      "self_managed": false
+    }
+  ],
+  "rfkill": {
+    "entries": [
+      {
+        "blocked": false,
+        "device": "phy0",
+        "hard_blocked": false,
+        "id": 0,
+        "soft_blocked": false,
+        "type": "wlan"
+      },
+      {
+        "blocked": true,
+        "device": "hci0",
+        "hard_blocked": false,
+        "id": 1,
+        "soft_blocked": true,
+        "type": "bluetooth"
+      }
+    ],
+    "wlan": {
+      "hard_blocked": [],
+      "present": true,
+      "soft_blocked": []
+    }
+  },
+  "scan": {
+    "count": 0,
+    "countries": {},
+    "networks": [],
+    "survey_2_4": {}
+  },
+  "system": {
+    "claimed": false,
+    "display": "unknown",
+    "headless_param": "auto",
+    "live": false,
+    "stick": false,
+    "timezone": null,
+    "timezone_country": null
+  },
+  "version": 1,
+  "wifi_links": {
+    "wlan0": {
+      "bssid": "aa:bb:cc:00:00:02",
+      "channel": 36,
+      "connected": true,
+      "freq_mhz": 5180,
+      "signal_dbm": -48.0,
+      "ssid_escaped": "HomeNet",
+      "ssid_hex": "486f6d654e6574"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+BOOT_IMAGE=/casper/vmlinuz boot=casper persistent ci_stick.slot=A ci.headless=1 quiet splash ---

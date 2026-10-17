@@ -1,0 +1,138 @@
+{
+  "channel_plan": null,
+  "commands": {
+    "ip -j addr": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "ip -j link": {
+      "bytes": 176,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "ip -j route": {
+      "bytes": 3,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev": {
+      "bytes": 0,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw reg get": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "nmcli -t -f NAME,UUID,TYPE,DEVICE connection show": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "nmcli networking connectivity": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "rfkill list": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    }
+  },
+  "country": {
+    "code": null,
+    "confidence": "none",
+    "known": false,
+    "notes": [],
+    "self_managed": false,
+    "source": "unknown"
+  },
+  "interfaces": [],
+  "ip": {
+    "addresses": [],
+    "links": [
+      {
+        "flags": [
+          "BROADCAST",
+          "MULTICAST",
+          "UP",
+          "LOWER_UP"
+        ],
+        "has_carrier": true,
+        "ifindex": 2,
+        "is_up": true,
+        "link_type": "ether",
+        "mac": "38:11:22:33:44:55",
+        "master": null,
+        "mtu": 1500,
+        "name": "eth0",
+        "operstate": "UP"
+      }
+    ],
+    "routes": [],
+    "uplink": null,
+    "used_ipv4_networks": []
+  },
+  "network_manager": {
+    "connectivity": "unknown",
+    "devices": [],
+    "wifi_profiles": []
+  },
+  "phys": {},
+  "radio": {
+    "ap_iface": null,
+    "ap_phy": null,
+    "follow_uplink_mhz": null,
+    "mode": "none",
+    "needs_unblock": false,
+    "notes": [
+      "no wireless interface found"
+    ],
+    "reason": "no_wifi",
+    "sta_iface": null,
+    "sta_phy": null
+  },
+  "regdom": [],
+  "rfkill": {
+    "entries": [],
+    "wlan": {
+      "hard_blocked": [],
+      "present": false,
+      "soft_blocked": []
+    }
+  },
+  "scan": {
+    "count": 0,
+    "countries": {},
+    "networks": [],
+    "survey_2_4": {}
+  },
+  "system": {
+    "claimed": false,
+    "display": "unknown",
+    "headless_param": "auto",
+    "live": false,
+    "stick": false,
+    "timezone": null,
+    "timezone_country": null
+  },
+  "version": 1,
+  "wifi_links": {}
+}

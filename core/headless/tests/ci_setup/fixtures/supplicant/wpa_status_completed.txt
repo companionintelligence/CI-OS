@@ -1,0 +1,13 @@
+bssid=aa:bb:cc:00:00:02
+freq=5180
+ssid=HomeNet
+id=0
+mode=station
+pairwise_cipher=CCMP
+group_cipher=CCMP
+key_mgmt=WPA2-PSK
+wpa_state=COMPLETED
+ip_address=192.168.1.20
+p2p_device_address=3a:11:22:33:44:55
+address=38:11:22:33:44:55
+uuid=5b3a8f1e-0c9a-4a52-9a77-111111111111

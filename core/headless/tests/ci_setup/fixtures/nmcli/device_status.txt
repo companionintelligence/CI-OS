@@ -1,0 +1,9 @@
+wlan0:wifi:connecting (getting IP configuration):HomeNet
+eth0:ethernet:connected:Wired connection 1
+p2p-dev-wlan0:wifi-p2p:disconnected:
+wlan1:wifi:unavailable:
+lo:loopback:connected (externally):lo
+docker0:bridge:unmanaged:
+wlx00c0caaabbcc:wifi:connected (site only):Cafe\:Guest
+wlan2:wifi:connecting (need authentication):Corp
+wlan3:wifi:connection failed:
