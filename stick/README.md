@@ -59,6 +59,72 @@ ci-stick doctor --bundle /media/$USER/CI-SHARED --pubkey ./dev.pub --full   # + 
 ```
 
 Exit codes: `0` ok, `1` verification failed, `2` usage or I/O error, or a safety refusal.
+(The `models plan|lock|fetch|cache-info` commands add `3` to `7`; see below.)
+
+### Models: lock, plan, fetch, cache-info
+
+The model-pack catalog (`core/manifest/model-packs.yaml`) says what a stick should carry.
+`models lock` asks the registry what those tags are *today* and records it in
+`core/manifest/model-packs.lock.json`: manifest bytes and digest, layer digests and sizes, and
+the llama.cpp/GGUF child of a tag the registry serves as a manifest list. Digests are never
+typed by hand, and the file is canonical JSON, so a re-run that finds nothing new changes
+nothing. `models fetch` seeds an Ollama-format model store from that lock: resumable,
+verified, and safe to interrupt at any moment.
+
+```bash
+# Maintainers: resolve the catalog against the registry (needs the network), then review the diff
+ci-stick models lock                          # writes core/manifest/model-packs.lock.json
+ci-stick models lock --check                  # exit 3 if the registry or the catalog drifted
+
+# Anyone: what would a pack cost, and does it fit?   (no network)
+ci-stick models plan --pack stick-128 --cache /Volumes/CI-CACHE
+
+# Download it (resumable; run the same command again after any interruption)
+ci-stick models fetch --pack stick-128 --cache /Volumes/CI-CACHE
+ci-stick models fetch --model nomic-embed-text --cache /Volumes/CI-CACHE   # one model from the lock
+ci-stick models fetch --pack stick-128 --cache ... --max-bytes-per-sec 5MiB --concurrency 2
+ci-stick models fetch --pack stick-128 --cache ... --events -    # JSON-lines progress on stdout
+
+ci-stick models cache-info --cache /Volumes/CI-CACHE             # size, partials, free space, complete packs
+```
+
+The cache directory defaults to `$CI_STICK_CACHE`, the registry to `$CI_OS_REGISTRY_URL`
+(else `https://registry.ollama.ai`); `HTTPS_PROXY` and `NO_PROXY` are honoured. Layout of a
+cache (`OLLAMA_MODELS` is `<cache>/models`):
+
+```
+<cache>/models/blobs/sha256-<hex>                            the model, projector, licence ... (shared blobs once)
+<cache>/models/manifests/registry.ollama.ai/library/<name>/<tag>   the registry's manifest, verbatim, written last
+<cache>/models/manifests-v2/                                 empty on purpose (a read-only stick needs it to exist)
+<cache>/ci-models/partial/<hex>-partial, ...-partial.journal resumable downloads, outside the directory Ollama prunes
+<cache>/ci-models/status.json                                progress for the setup portal, rewritten atomically
+```
+
+* **Trust**: only references in the lock can be fetched; every blob must match its SHA-256 and
+  size from the lock before it gets its final name; a manifest is written only after all
+  of its blobs verified. The registry's presigned download URLs are never logged or stored.
+  Redirects are followed by `ci-stick` itself: https only, at most 5 hops, a host outside
+  `ollama.com`/`ollama.ai`/`hf.co`/`huggingface.co`/`cloudflarestorage.com` must resolve to a
+  public address (no loopback, private, link-local, CGNAT ...).
+* **Resume**: a partial is a file plus a journal that is `fsync`'d before it is updated. A killed
+  process (even SIGKILL) loses at most the last 64 MiB; Ctrl-C and SIGTERM flush the journal and
+  exit with 6. Resuming re-reads and re-hashes the vouched prefix, and a bad prefix costs one
+  clean restart, never a corrupt blob.
+* **Licences**: a model whose licence is `unverified` in the catalog is skipped (exit 5) unless
+  you pass `--accept-licenses`; the other models of the pack are still fetched.
+* **Space**: `plan`/`fetch` refuse (exit 4) when the pack is more than 97 % of the volume (the
+  3 % rule of the pack catalog) or the bytes still to write exceed the free space; running out
+  of space mid-download also exits 4 and keeps the partial.
+* **exFAT**: no symlinks or hard links, no reliance on `chmod`, names checked for characters and
+  reserved device names Windows cannot hold, case-folding collisions refused, `._*`
+  AppleDouble and Finder files ignored.
+
+Exit codes of these four commands: `0` ok, `1` error (not resumable), `2` usage error or
+unreadable input, `3` `lock --check` found drift, `4` not enough space, `5` a licence was not
+accepted, `6` interrupted or the network stayed down (partials kept, rerun to resume),
+`7` integrity failure. `--events` lines, `status.json` and the full CLI contract are documented
+at the top of `src/cmd_models.rs` and `src/events.rs`. This release handles Ollama registry
+models; Hugging Face entries in the catalog are skipped by `lock` with a warning.
 
 ### Flashing
 
@@ -187,6 +253,13 @@ stick/
     signing.rs  hashing.rs      ed25519 detached signatures; streaming sha256
     paths.rs                    relative-path rules (no escapes)
     packs.rs                    model-pack catalog + fit logic
+    cmd_models.rs               models plan | lock | fetch | cache-info (CLI contract in its header)
+    net.rs                      HTTP transport trait (ureq), URL + redirect/SSRF policy, retry timing
+    registry/                   Ollama registry client: references, manifests, tag -> lock entry
+    lockfile.rs                 model-packs.lock.json types, validation, canonical JSON
+    fetch/                      plan, resumable verified downloads, workers, throttle
+    cache/                      cache layout + name rules, store, resume journal, BlobSink
+    events.rs                   JSON-lines events and status.json
     devices.rs  host.rs         read-only device listing; host capability matrix
     doctor.rs  progress.rs  timefmt.rs
     flash.rs                    verify -> plan -> build filesystems -> write -> read back

@@ -1,0 +1,11 @@
+# Dependency resolution for the Companion Stick workspace.
+#
+# `rust-version = "1.75"` (Cargo.toml) is the MSRV that the `stick` CI job checks with
+# `cargo +1.75 check --locked --all-targets`. Newer releases of some dependencies
+# (ureq 3.4.x, reqwest 0.13, ...) declare a higher Rust version, so any `cargo update`
+# or new dependency must resolve MSRV-aware or the lock jumps to a crate 1.75 cannot build.
+# Cargo 1.84+ reads this key; older cargo ignores it (set
+# CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback there). The ureq dependency is also
+# pinned exactly (`=3.2.1`) in crates/ci-stick/Cargo.toml for the same reason.
+[resolver]
+incompatible-rust-versions = "fallback"

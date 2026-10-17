@@ -26,6 +26,13 @@
 //! | `tools`     | running gdisk/dosfstools/exfatprogs/e2fsprogs/mtools                   |
 //! | `flash`     | verify -> plan -> build filesystems -> write -> read back              |
 //! | `slot`      | read/flip `active_slot` in the ESP's grubenv                           |
+//! | `net`       | HTTP transport for model downloads: URL + redirect/SSRF policy, retry timing |
+//! | `registry`  | Ollama registry client: references, manifests, tag -> lock entry       |
+//! | `lockfile`  | `model-packs.lock.json`: what the registry served, canonical JSON      |
+//! | `cache`     | the model cache on exFAT: layout rules, store, resume journal, sink    |
+//! | `fetch`     | resumable verified downloads into the cache (plan, workers, throttle) |
+//! | `events`    | JSON-lines progress events and the portal's `status.json`              |
+//! | `cmd_models`| `ci-stick models plan\|lock\|fetch\|cache-info` (CLI contract in its header) |
 //!
 //! Only `flash` and `slot set` write to a stick or stick image, and only after the checks
 //! in `target` pass. Other filesystem writes are limited to `lock` (writes `bundle.json`
@@ -33,8 +40,12 @@
 //! key/signature files the caller names).
 
 pub mod bootcfg;
+pub mod cache;
+pub mod cmd_models;
 pub mod devices;
 pub mod doctor;
+pub mod events;
+pub mod fetch;
 pub mod flash;
 pub mod gpt;
 pub mod grubenv;
@@ -42,10 +53,13 @@ pub mod hashing;
 pub mod host;
 pub mod layout;
 pub mod lock;
+pub mod lockfile;
 pub mod manifest;
+pub mod net;
 pub mod packs;
 pub mod paths;
 pub mod progress;
+pub mod registry;
 pub mod signing;
 pub mod size;
 pub mod slot;
