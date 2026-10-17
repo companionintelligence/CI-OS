@@ -24,6 +24,10 @@ if [ "$SYSTEMD_RUNNING" = 1 ]; then
     systemctl stop setup-network-monitor.service 2>/dev/null || true
     systemctl stop dnsmasq-setup.service 2>/dev/null || true
     systemctl stop hostapd-setup.service 2>/dev/null || true
+    # End a running hotspot episode properly: AP address off the interface, the radio back to NetworkManager, nginx stopped.
+    if [ -x /usr/local/bin/setup-device-hotspot-start.sh ]; then
+        /usr/local/bin/setup-device-hotspot-start.sh stop 2>/dev/null || true
+    fi
     sleep 1
 
     # Kill any lingering processes

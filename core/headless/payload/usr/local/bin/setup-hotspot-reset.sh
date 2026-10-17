@@ -4,17 +4,20 @@
 
 set -euo pipefail
 
-WIFI_IFACE="${1:-wlp192s0}"
+HOTSPOT_START_SCRIPT="${SETUP_DEVICE_HOTSPOT_START:-/usr/local/bin/setup-device-hotspot-start.sh}"
 FLUSH_SETUP_PROFILES="${FLUSH_SETUP_PROFILES:-0}"
+WIFI_IFACE="${1:-}"
 
 log() {
-    local msg="[$(date +'%Y-%m-%d %H:%M:%S')] $1"
+    local msg
+    msg="[$(date +'%Y-%m-%d %H:%M:%S')] $1"
     echo "$msg"
     echo "$msg" | systemd-cat -t setup-hotspot-reset -p info
 }
 
 warn() {
-    local msg="[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $1"
+    local msg
+    msg="[$(date +'%Y-%m-%d %H:%M:%S')] WARNING: $1"
     echo "$msg"
     echo "$msg" | systemd-cat -t setup-hotspot-reset -p warning
 }
@@ -36,10 +39,22 @@ flush_setup_profiles() {
     done <<< "$names"
 }
 
+if [[ -z "$WIFI_IFACE" ]]; then
+    # No interface given: the one the hotspot would use (an AP-capable Wi-Fi interface), not a board-specific name.
+    if ! WIFI_IFACE="$("$HOTSPOT_START_SCRIPT" --detect-interface 2>/dev/null)" || [[ -z "$WIFI_IFACE" ]]; then
+        warn "No Wi-Fi interface that can run an access point was found; pass the interface name as the first argument"
+        exit 3
+    fi
+fi
+
 log "Starting hotspot reset on interface $WIFI_IFACE"
 
 log "Stopping setup monitor/AP services"
 systemctl stop setup-network-monitor.service hostapd-setup.service dnsmasq-setup.service || true
+# Undo what the last hotspot start changed (AP address, NetworkManager's hold on the interface, nginx).
+if [[ -x "$HOTSPOT_START_SCRIPT" ]]; then
+    "$HOTSPOT_START_SCRIPT" stop || warn "Hotspot teardown returned non-zero"
+fi
 
 log "Disconnecting interface from any active WiFi connection"
 nmcli device disconnect "$WIFI_IFACE" >/dev/null 2>&1 || true
@@ -66,11 +81,11 @@ log "Restarting setup services"
 systemctl restart setup-backend.service
 systemctl restart setup-network-monitor.service
 
-if [[ -x /usr/local/bin/setup-device-hotspot-start.sh ]]; then
+if [[ -x "$HOTSPOT_START_SCRIPT" ]]; then
     log "Forcing hotspot startup script once"
-    /usr/local/bin/setup-device-hotspot-start.sh || warn "Hotspot startup script returned non-zero"
+    "$HOTSPOT_START_SCRIPT" || warn "Hotspot startup script returned non-zero"
 else
-    warn "/usr/local/bin/setup-device-hotspot-start.sh not found; skipping forced start"
+    warn "$HOTSPOT_START_SCRIPT not found; skipping forced start"
 fi
 
 log "Current service states"

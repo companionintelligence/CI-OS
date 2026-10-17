@@ -112,7 +112,7 @@ PACKAGE_NAME="setup-device_${VERSION}_${ARCH}.deb"
 OUTPUT_FILE="${BUILD_DIR}/${PACKAGE_NAME}"
 
 # Build-time dependencies needed to install/configure the package during local testing
-BUILD_DEPS=(hostapd dnsmasq nginx-light python3-flask network-manager)
+BUILD_DEPS=(hostapd dnsmasq nginx-light python3-flask network-manager iw iproute2 rfkill)
 
 # If running as root, attempt to install missing build-time packages so
 # a local `dpkg -i` of the produced package will complete without unmet deps.

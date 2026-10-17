@@ -1,7 +1,10 @@
 [Unit]
 Description=DNSmasq for setup portal DHCP and DNS
+# Started on demand by setup-device-hotspot-start.sh; not enabled at boot.
 After=hostapd-setup.service network.target
 Requires=hostapd-setup.service
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple

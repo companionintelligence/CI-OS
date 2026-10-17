@@ -50,7 +50,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+export REPO_ROOT
 # shellcheck source=../../../core/lib/theme-lib.sh
 source "$REPO_ROOT/core/lib/theme-lib.sh"
 require_root
@@ -104,7 +105,9 @@ log_success "All required payload files present"
 # network-manager -> NetworkManager (different capitalization, no hyphen;
 # usually already present by default on Fedora Workstation, installed here
 # anyway for headless/minimal installs where it might not be).
-FEDORA_DEPS=(hostapd dnsmasq nginx python3 python3-flask python3-gunicorn NetworkManager)
+# iw: AP-capability check, regulatory-domain query and the pre-scan; iproute (ip, ss): AP address and port check;
+# util-linux: flock (one hotspot start at a time) and rfkill. nftables is not needed: no firewall rule is added.
+FEDORA_DEPS=(hostapd dnsmasq nginx python3 python3-flask python3-gunicorn NetworkManager iw iproute util-linux)
 
 if ! command -v dnf >/dev/null 2>&1; then
   log_error "dnf not found — this installer is Fedora/dnf-specific"
@@ -245,24 +248,40 @@ log_info "Reloading systemd daemon..."
 systemctl daemon-reload
 
 log_info "Enabling services for boot-time startup..."
-systemctl enable hostapd-setup.service 2>/dev/null || true
-systemctl enable dnsmasq-setup.service 2>/dev/null || true
-systemctl enable nginx.service 2>/dev/null || true
 systemctl enable setup-backend.service 2>/dev/null || true
 systemctl enable setup-network-monitor.service 2>/dev/null || true
+
+# NOT enabled: hostapd-setup, dnsmasq-setup and nginx. setup-device-hotspot-start.sh starts all three, by name, when the
+# monitor finds no connectivity, and stops them again when the hotspot episode ends. Enabled at boot they would run an
+# access point on every start (the static config names one board's interface and the committed passphrase) and open
+# port 80 with the setup API behind it on every network the machine joins. A re-run over an older install may find them
+# enabled: turn that off.
+systemctl disable hostapd-setup.service 2>/dev/null || true
+systemctl disable dnsmasq-setup.service 2>/dev/null || true
+
+# nginx is on demand too - unless it serves anything besides the portal on this machine.
+nginx_serves_only_the_portal() {
+  local site
+  for site in /etc/nginx/conf.d/*.conf; do
+    [[ -e "$site" ]] || continue
+    [[ "$(basename "$site")" == setup-portal.conf ]] || return 1
+  done
+  return 0
+}
+if nginx_serves_only_the_portal; then
+  systemctl disable nginx.service 2>/dev/null || true
+  systemctl stop nginx.service 2>/dev/null || true
+else
+  log_warn "nginx serves other sites on this machine; leaving it enabled. The setup portal is served by it too while it runs (the /api/ location only answers the setup network and this machine)."
+fi
 
 # Remove any stale setup-complete flag so the hotspot can start fresh if
 # there's no connectivity.
 rm -f /var/lib/setup-device/setup-complete
 
-log_info "Validating nginx configuration..."
+log_info "Validating nginx configuration (nginx itself is started on demand by the hotspot script)..."
 if nginx -t; then
   log_success "nginx configuration is valid"
-  if systemctl start nginx.service; then
-    log_success "nginx service started"
-  else
-    log_warn "Failed to start nginx.service — portal UI may be unavailable until fixed"
-  fi
 else
   log_warn "nginx configuration test failed — portal UI may be unavailable until /etc/nginx/conf.d/setup-portal.conf is fixed"
 fi
@@ -283,5 +302,5 @@ fi
 
 echo ""
 log_success "Fedora headless setup-device install complete"
-log_info "hostapd-setup/dnsmasq-setup only start once setup-network-monitor detects no connectivity"
+log_info "hostapd-setup, dnsmasq-setup and nginx are not enabled: setup-device-hotspot-start.sh starts them when setup-network-monitor detects no connectivity, and stops them when the episode ends"
 log_info "Known gaps: no real RPM packaging (see header), no interface-scoped firewalld zone, SELinux booleans/contexts applied best-effort and unverified on a live box"

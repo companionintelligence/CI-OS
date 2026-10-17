@@ -60,14 +60,19 @@ if [ "$SYSTEMD_RUNNING" = 1 ]; then
     sleep 1
 fi
 
-# Enable all services for boot-time startup
-# These commands ensure services start automatically on next boot
+# Enable the services that run at every boot: the backend (gunicorn on 127.0.0.1:5000, idle until a request
+# arrives) and the monitor that decides whether the setup hotspot is needed.
 echo "Enabling services for boot-time startup..."
-systemctl enable hostapd-setup.service 2>/dev/null || true
-systemctl enable dnsmasq-setup.service 2>/dev/null || true
-systemctl enable nginx.service 2>/dev/null || true
 systemctl enable setup-backend.service 2>/dev/null || true
 systemctl enable setup-network-monitor.service 2>/dev/null || true
+
+# NOT enabled: hostapd-setup, dnsmasq-setup and nginx. setup-device-hotspot-start.sh starts all three, by name, when the
+# monitor finds no connectivity, and stops them again when the hotspot episode ends. Enabled at boot they would run an
+# access point on every start (the static config names one board's interface and the committed passphrase) and open
+# port 80 with the setup API behind it on every network the machine joins. A package that is being UPGRADED may have
+# them enabled from an older version: disable them here.
+systemctl disable hostapd-setup.service 2>/dev/null || true
+systemctl disable dnsmasq-setup.service 2>/dev/null || true
 
 # Final daemon-reload before starting services
 if [ "$SYSTEMD_RUNNING" = 1 ]; then
@@ -139,6 +144,30 @@ if [ -d /etc/nginx/sites-enabled ]; then
     find /etc/nginx/sites-enabled -maxdepth 1 -xtype l -delete 2>/dev/null || true
 fi
 
+# nginx on demand. The nginx package enables and starts itself when it is installed. When the portal is the ONLY site
+# it would serve, that leaves the setup site on port 80 of every interface all the time; turn it off here and let the
+# hotspot script start it for the length of a setup episode. If an administrator serves anything else with nginx it is
+# left alone (and says so).
+nginx_serves_only_the_portal() {
+    for _site in /etc/nginx/sites-enabled/* /etc/nginx/conf.d/*.conf; do
+        [ -e "$_site" ] || continue
+        case "$(basename "$_site")" in
+            setup-portal|setup-portal.conf|default) ;;
+            *) return 1 ;;
+        esac
+    done
+    return 0
+}
+if nginx_serves_only_the_portal; then
+    systemctl disable nginx.service 2>/dev/null || true
+    if [ "$SYSTEMD_RUNNING" = 1 ]; then
+        systemctl stop nginx.service 2>/dev/null || true
+    fi
+else
+    echo "Note: nginx serves other sites on this machine; it is left enabled. The setup portal is served by it too"
+    echo "while it runs - the /api/ location only answers the setup network and this machine."
+fi
+
 # Image or chroot install (no systemd running): validate the nginx config, then stop here. The enabled
 # units start on the first real boot; there is nothing to start now.
 if [ "$SYSTEMD_RUNNING" != 1 ]; then
@@ -147,29 +176,15 @@ if [ "$SYSTEMD_RUNNING" != 1 ]; then
     else
         echo "Warning: nginx configuration test failed"
     fi
-    echo "systemd is not running (image or chroot install): services are enabled and will start on first boot."
+    echo "systemd is not running (image or chroot install): the backend and the monitor are enabled and will start on first boot."
     exit 0
 fi
 
-# Validate and start nginx first so portal and API proxy are available
+# Validate the nginx configuration. nginx itself is NOT started here: the hotspot script starts it when the setup
+# portal is needed (see above).
 echo "Validating nginx configuration..."
 if nginx -t; then
     echo "✓ Nginx configuration is valid"
-
-    # Check if port 80 is already in use (e.g., by Companion Hub)
-    if ss -tlnp 2>/dev/null | grep -q ':80 '; then
-        echo "Info: Port 80 is already in use (likely Companion Hub)"
-        echo "Nginx will be started by setup-network-monitor when hotspot activates"
-        systemctl enable nginx.service 2>/dev/null || true
-    else
-        echo "Starting nginx service..."
-        if systemctl start nginx.service; then
-            echo "✓ Nginx service started successfully"
-        else
-            echo "Warning: Failed to start nginx.service"
-            echo "Portal UI may be unavailable until nginx is fixed and started"
-        fi
-    fi
 else
     echo "Warning: nginx configuration test failed"
     echo "Portal UI may be unavailable until nginx configuration issues are fixed"
@@ -207,14 +222,9 @@ systemctl is-enabled --quiet setup-backend.service && echo "✓ setup-backend.se
 systemctl is-active --quiet setup-network-monitor.service && echo "✓ setup-network-monitor.service is active" || echo "✗ setup-network-monitor.service is not active"
 systemctl is-enabled --quiet setup-network-monitor.service && echo "✓ setup-network-monitor.service is enabled" || echo "✗ setup-network-monitor.service is not enabled"
 
-systemctl is-active --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is active" || echo "✗ hostapd-setup.service is not active (will start if no connectivity)"
-systemctl is-enabled --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is enabled" || echo "✗ hostapd-setup.service is not enabled"
-
-systemctl is-active --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.service is active" || echo "✗ dnsmasq-setup.service is not active (will start if no connectivity)"
-systemctl is-enabled --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.service is enabled" || echo "✗ dnsmasq-setup.service is not enabled"
-
-systemctl is-active --quiet nginx.service && echo "✓ nginx.service is active" || echo "✗ nginx.service is not active"
-systemctl is-enabled --quiet nginx.service && echo "✓ nginx.service is enabled" || echo "✗ nginx.service is not enabled"
+systemctl is-active --quiet hostapd-setup.service && echo "✓ hostapd-setup.service is active" || echo "- hostapd-setup.service is not active (started on demand if there is no connectivity)"
+systemctl is-active --quiet dnsmasq-setup.service && echo "✓ dnsmasq-setup.service is active" || echo "- dnsmasq-setup.service is not active (started on demand if there is no connectivity)"
+systemctl is-active --quiet nginx.service && echo "✓ nginx.service is active" || echo "- nginx.service is not active (started on demand while the setup portal is needed)"
 
 echo ""
 echo "Setup device installation complete."

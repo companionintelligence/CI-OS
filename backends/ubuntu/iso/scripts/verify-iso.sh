@@ -233,11 +233,20 @@ for f in /usr/local/bin/setup-network-monitor.sh /usr/local/bin/setup-device-hot
     if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
 done
 
-section "3. Services: enabled where they should be, guarded where they must not run live"
+section "3. Services: enabled / on demand, guarded where they must not run live"
 # The guard is ConditionPathExists=!/cdrom/casper/vmlinuz, not boot=casper: casper does not put boot=casper on
 # the command line of the plain ISO, but the live medium is always mounted at /cdrom (also on a Companion Stick).
-for u in hostapd-setup.service dnsmasq-setup.service setup-backend.service setup-network-monitor.service; do
+# Boot-enabled: the backend (loopback only) and the monitor that decides whether the portal is needed. ON DEMAND (not
+# enabled): hostapd-setup, dnsmasq-setup and nginx, which setup-device-hotspot-start.sh starts by name when the monitor
+# sees no connectivity: enabling them ran an access point at every boot and crash-looped on any machine whose Wi-Fi is
+# not named wlp192s0 (found by the installed-boot test, 2026-10-17).
+for u in setup-backend.service setup-network-monitor.service; do
     if unit_enabled "$u"; then pass "enabled for the installed system: $u"; else fail "NOT enabled: $u"; fi
+done
+for u in hostapd-setup.service dnsmasq-setup.service nginx.service; do
+    if unit_enabled "$u"; then fail "boot-enabled (must be on demand: started by setup-device-hotspot-start.sh): $u"; else pass "on demand, not enabled at boot: $u"; fi
+done
+for u in hostapd-setup.service dnsmasq-setup.service setup-backend.service setup-network-monitor.service; do
     d="etc/systemd/system/$u.d/10-not-live.conf"
     if file_has "$R/$d" '^ConditionPathExists=!/cdrom/casper/vmlinuz'; then
         pass "never starts in a live session (casper): $u"

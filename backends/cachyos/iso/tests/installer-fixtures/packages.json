@@ -369,6 +369,10 @@
       "repo": "extra",
       "version": "20260925-1"
     },
+    "iproute2": {
+      "repo": "core",
+      "version": "7.2.0-1"
+    },
     "iw": {
       "repo": "core",
       "version": "6.17-1"
@@ -840,6 +844,10 @@
     "usbutils": {
       "repo": "core",
       "version": "019-1"
+    },
+    "util-linux": {
+      "repo": "core",
+      "version": "2.42.4-1"
     },
     "vim": {
       "repo": "extra",

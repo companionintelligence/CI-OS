@@ -20,16 +20,17 @@
 # here:
 #
 #   setup-network-monitor.sh polls connectivity in a loop and, on loss,
-#   calls setup-device-hotspot-start.sh, which: autodetects the real WiFi
-#   interface via nmcli/iw (not a fixed name), generates a FRESH RANDOM
-#   4-character SSID suffix EVERY TIME the hotspot starts, REWRITES
+#   calls setup-device-hotspot-start.sh, which: picks the WiFi interface
+#   that supports AP mode (nmcli/iw, not a fixed name), generates a FRESH
+#   RANDOM 4-character SSID suffix EVERY TIME the hotspot starts, REWRITES
 #   /etc/hostapd/hostapd-setup.conf and /etc/dnsmasq.d/setup-portal.conf in
 #   place with that interface/SSID before starting hostapd-setup.service /
 #   dnsmasq-setup.service, tells NetworkManager to unmanage the interface,
-#   pauses CI-Hub's Traefik container to free port 80, and pre-scans WiFi
-#   networks before switching the radio into AP mode (required by the
-#   single-radio chips this hardware uses, which cannot scan once already
-#   in AP mode).
+#   starts nginx, and pre-scans WiFi networks before switching the radio
+#   into AP mode (required by the single-radio chips this hardware uses,
+#   which cannot scan once already in AP mode). The same script's `stop`
+#   mode undoes all of that when the episode ends (it never touches
+#   Traefik or any other container).
 #
 # NONE of that is expressible as a NixOS module option evaluated once
 # against a static config — it is runtime device-state orchestration. Two
@@ -211,7 +212,7 @@ let
     hw_mode=g
     channel=6
     max_num_sta=10
-    country_code=US
+    ap_isolate=1
     ieee80211n=1
     ht_capab=[SHORT-GI-20]
     ieee80211ax=0
@@ -330,6 +331,26 @@ in
     dhcpRangeEnd = lib.mkOption {
       type = lib.types.str;
       default = "192.168.99.250";
+    };
+
+    setupSubnet = lib.mkOption {
+      type = lib.types.str;
+      default = "192.168.99.0/24";
+      description = ''
+        The setup network (the subnet of gatewayIp). The portal's /api/ location answers only this
+        subnet and the machine itself; it listens on every interface, and the API changes the
+        machine's network configuration.
+      '';
+    };
+
+    portalOnDemand = lib.mkOption {
+      type = lib.types.bool;
+      default = true;
+      description = ''
+        Do not start nginx at boot. setup-device-hotspot-start.sh starts it when the setup hotspot is
+        needed and stops it when the episode ends (the payload's own behaviour on every other
+        backend). Turn it off only if nginx must run all the time for another reason.
+      '';
     };
 
     captivePortalDomain = lib.mkOption {
@@ -470,7 +491,7 @@ in
     # the always-on watcher that decides, at runtime, whether to start the
     # two units above (see this file's header). Runs as root (no User=),
     # matching the original unit file, since it needs `ip link`/`nmcli
-    # device set ... managed no`/`docker stop traefik` privileges.
+    # device set ... managed no` privileges.
     systemd.services.setup-network-monitor = {
       description = "Setup Device Network Monitor";
       after = [ "network.target" ];
@@ -480,12 +501,13 @@ in
         networkmanager
         iproute2
         iputils
+        iw
         rfkill
         util-linux
-        docker
         systemd
         coreutils
         gnugrep
+        gnused
         gawk
       ];
       serviceConfig = {
@@ -508,7 +530,8 @@ in
       wants = [ "network-online.target" ];
       wantedBy = [ "multi-user.target" ];
       unitConfig.ConditionPathExists = pairingGateCondition;
-      path = with pkgs; [ networkmanager dmidecode coreutils inetutils ];
+      # (setup_service.py also runs setup-device-hotspot-start.sh: it needs ip/ss, iw, awk, flock and pgrep on this PATH)
+      path = with pkgs; [ networkmanager dmidecode coreutils inetutils iproute2 util-linux procps iw gawk ];
       environment.PYTHONUNBUFFERED = "1";
       serviceConfig = {
         Type = "simple";
@@ -580,8 +603,18 @@ in
             '';
           };
 
+          # The API changes the machine's network configuration and has no credential of its
+          # own yet: only the setup network and this machine may use it (the payload's nginx
+          # site does the same).
           "/api/" = {
             proxyPass = "http://127.0.0.1:5000";
+            extraConfig = ''
+              allow ${cfg.setupSubnet};
+              allow 127.0.0.0/8;
+              allow ::1;
+              deny all;
+              client_max_body_size 64k;
+            '';
           };
 
           "/" = {
@@ -592,20 +625,13 @@ in
           };
         };
       };
-
-      # Companion Hub proxy — <captivePortalDomain>:5002 -> Hub (when on the
-      # setup network), matching the payload's own second server block.
-      virtualHosts."ci-os-hub-proxy" = {
-        serverName = cfg.captivePortalDomain;
-        listen = [
-          { addr = "0.0.0.0"; port = 5002; }
-          { addr = "[::]"; port = 5002; }
-        ];
-        locations."/" = {
-          proxyPass = "http://127.0.0.1:5002";
-          proxyWebsockets = true;
-        };
-      };
     };
+
+    # nginx is started by setup-device-hotspot-start.sh for the length of a setup episode, like
+    # hostapd-setup and dnsmasq-setup above; services.nginx.enable would otherwise put it in
+    # multi-user.target and serve the portal (and the API behind it) on every boot. No :5002
+    # proxy here either: the payload's nginx site dropped it, because the CI Hub container
+    # publishes host port 5002 and a second listener on it makes one of the two fail to bind.
+    systemd.services.nginx.wantedBy = lib.mkIf cfg.portalOnDemand (lib.mkForce [ ]);
   };
 }

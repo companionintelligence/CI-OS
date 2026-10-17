@@ -14,6 +14,7 @@ DESIGN: NO WIFI SCANNING OR SYNC
 - Cloud API calls (pairing) occur only after /api/configure: user has connected to their network.
 """
 
+import contextlib
 import os
 import sys
 import json
@@ -25,6 +26,7 @@ import signal
 import logging
 import secrets
 import string
+import unicodedata
 from datetime import datetime, timedelta
 from html import escape as html_escape
 from pathlib import Path
@@ -34,10 +36,17 @@ import urllib.request
 import urllib.error
 import urllib.parse
 
-# Configuration paths
-CONFIG_DIR = Path('/etc/setup-device')
-DATA_DIR = Path('/var/lib/setup-device')
-LOG_FILE = '/var/log/setup-backend.log'
+# Configuration paths. SETUP_DEVICE_ROOT relocates every path this service reads or writes under a
+# prefix; it exists so the tests (core/headless/tests/payload) can run the real code against a scratch
+# directory. It is unset on a device (systemd gives the unit no such variable), which leaves '/'.
+_ROOT = Path(os.environ.get('SETUP_DEVICE_ROOT') or '/')
+CONFIG_DIR = _ROOT / 'etc' / 'setup-device'
+DATA_DIR = _ROOT / 'var' / 'lib' / 'setup-device'
+LOG_FILE = str(_ROOT / 'var' / 'log' / 'setup-backend.log')
+RUN_DIR = _ROOT / 'run' / 'setup-device'
+HOTSPOT_SCRIPT = str(_ROOT / 'usr' / 'local' / 'bin' / 'setup-device-hotspot-start.sh')
+HUB_START_SCRIPT = str(_ROOT / 'usr' / 'local' / 'bin' / 'ci-os-hub-start.sh')
+NETPLAN_SETUP_FILE = _ROOT / 'etc' / 'netplan' / '50-setup-mode.yaml'
 
 PAIRING_CODE_JSON = CONFIG_DIR / 'pairing_code.json'
 SETUP_COMPLETE_FILE = DATA_DIR / 'setup-complete'
@@ -291,12 +300,16 @@ def get_device_id():
     
     for cmd, method_name in methods:
         try:
+            # stdout=PIPE with stderr=DEVNULL, not capture_output=True: subprocess.run raises
+            # ValueError("stdout and stderr arguments may not be used with capture_output")
+            # for that combination, which the except below swallowed, so these probes
+            # silently never ran.
             result = subprocess.run(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
                 text=True,
-                timeout=5,
-                stderr=subprocess.DEVNULL
+                timeout=5
             )
             if result.returncode == 0 and result.stdout.strip():
                 device_id = result.stdout.strip()
@@ -365,41 +378,36 @@ def get_pairing_info_from_cloud(pairing_code, timeout=10):
     # Normalize to uppercase (removes non-alphanumeric characters)
     normalized_code = normalize_pairing_code(pairing_code)
     encoded_code = urllib.parse.quote(normalized_code)
+    _register_secret(normalized_code)
     url = _cloud_pairing_url() + f'?pairing_code={encoded_code}'
-    logger.info(f"[CLOUD GET] Request URL: {url}")
-    logger.info(f"[CLOUD GET] Pairing code (normalized): {normalized_code}")
+    # The query string carries the pairing code: log the endpoint, never the full URL.
+    logger.info(f"[CLOUD GET] Request: {_cloud_pairing_url()} (pairing code in the query string, not logged)")
     try:
         req = urllib.request.Request(url, headers=_cloud_request_headers(), method='GET')
-        logger.info(f"[CLOUD GET] Sending GET request to cloud API...")
+        logger.info("[CLOUD GET] Sending GET request to cloud API...")
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode('utf-8', errors='replace')
-            logger.info(f"[CLOUD GET] Response status: {resp.status}")
-            logger.info(f"[CLOUD GET] Response body: {body}")
+            logger.info(f"[CLOUD GET] Response status: {resp.status}; {_describe_cloud_payload(body)}")
             try:
                 parsed = json.loads(body)
                 if isinstance(parsed, dict):
                     device_id = parsed.get('device_id') or parsed.get('deviceId')
-                    cloud_pairing_code = parsed.get('pairing_code') or parsed.get('pairingCode', '')
                     if device_id:
-                        logger.info(
-                            f"Retrieved pairing info from cloud: device_id={device_id}, "
-                            f"pairing_code={cloud_pairing_code}"
-                        )
+                        logger.info(f"Retrieved pairing info from cloud: device_id={device_id}")
                         return True, parsed
                     else:
-                        logger.warning(f"Missing device_id in response: {parsed}")
+                        logger.warning(f"Missing device_id in response ({_describe_cloud_payload(parsed)})")
                         return False, parsed
                 return False, parsed
             except json.JSONDecodeError:
-                logger.warning(f"Invalid JSON response: {body}")
+                logger.warning(f"Invalid JSON response ({_describe_cloud_payload(body)})")
                 return False, body
     except urllib.error.HTTPError as e:
         try:
             body = e.read().decode('utf-8', errors='replace')
         except Exception:
             body = str(e)
-        logger.error(f"[CLOUD GET] HTTP Error {e.code}: {body}")
-        logger.error(f"[CLOUD GET] Request URL was: {url}")
+        logger.error(f"[CLOUD GET] HTTP Error {e.code}: {_describe_cloud_payload(body)}")
         try:
             parsed = json.loads(body)
             return False, parsed
@@ -432,6 +440,121 @@ def _redact_cloud_payload(payload):
         if redacted.get(field):
             redacted[field] = '***redacted***'
     return json.dumps(redacted)
+
+
+def _describe_cloud_payload(payload):
+    """What the log may say about a cloud response: its shape, never its contents.
+
+    A cloud body can carry the pairing code, the device key or the tunnel token, and
+    an error body can echo the request. The log records the field NAMES (which is
+    what a support engineer needs to see that `device_id` was missing) and the size.
+    """
+    if isinstance(payload, (bytes, bytearray)):
+        payload = payload.decode('utf-8', errors='replace')
+    if isinstance(payload, str):
+        try:
+            parsed = json.loads(payload)
+        except Exception:
+            return f"non-JSON body of {len(payload)} characters"
+        payload = parsed
+    if isinstance(payload, dict):
+        return "JSON object with fields: " + ", ".join(sorted(str(k) for k in payload)[:20])
+    return f"JSON {type(payload).__name__}"
+
+
+# Secrets that this process has handled (a Wi-Fi passphrase, a pairing code). The log
+# formatter masks any of them that still reaches a log line by accident -- a library
+# exception that quotes a command line, a future log statement. Not the primary defence:
+# the code does not log these. It is the net under it, and the tests plant canaries to
+# prove both layers.
+_REGISTERED_SECRETS = {}   # value -> None, in insertion order: the oldest goes first when the table is full
+_REGISTERED_SECRETS_LOCK = threading.Lock()
+_MIN_SECRET_LENGTH = 6
+_MAX_REGISTERED_SECRETS = 64
+
+
+def _register_secret(value):
+    if isinstance(value, str) and len(value) >= _MIN_SECRET_LENGTH:
+        with _REGISTERED_SECRETS_LOCK:
+            _REGISTERED_SECRETS.pop(value, None)          # re-registering makes it the newest
+            while len(_REGISTERED_SECRETS) >= _MAX_REGISTERED_SECRETS:
+                del _REGISTERED_SECRETS[next(iter(_REGISTERED_SECRETS))]
+            _REGISTERED_SECRETS[value] = None
+
+
+_SECRET_PATTERNS = (
+    # ?pairing_code=ABC123 in a URL
+    re.compile(r'(pairing_?code=)[A-Za-z0-9%_-]+', re.IGNORECASE),
+    # "api_key": "..." / api_key=...
+    re.compile(
+        r'((?:api_?key|tunnel_?token|device_?key|psk|passphrase|password)["\']?\s*[:=]\s*["\']?)[^"\'\s,}&]+',
+        re.IGNORECASE,
+    ),
+)
+
+
+def _scrub(text):
+    """Mask registered secrets and well-known credential patterns in a log line."""
+    if not isinstance(text, str):
+        return text
+    with _REGISTERED_SECRETS_LOCK:
+        secrets_now = sorted(_REGISTERED_SECRETS, key=len, reverse=True)
+    for value in secrets_now:
+        if value in text:
+            text = text.replace(value, '***')
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub(r'\1***', text)
+    return text
+
+
+class _ScrubbingFormatter(logging.Formatter):
+    """Formatter that runs the finished line (message plus traceback) through _scrub()."""
+
+    def format(self, record):
+        return _scrub(super().format(record))
+
+
+# --- Wi-Fi input validation (IEEE 802.11) -----------------------------------------------------------------------------
+class InvalidInput(ValueError):
+    """A submitted SSID or passphrase that cannot be what the standard allows."""
+
+
+_HEX_PSK = re.compile(r'[0-9A-Fa-f]{64}\Z')
+
+
+def validate_ssid(ssid):
+    """An SSID is 1 to 32 OCTETS (not characters) and, as typed into the portal, text
+    without control characters (a newline would also forge log lines).
+
+    Returns the SSID unchanged or raises InvalidInput with a message that does not
+    repeat the value.
+    """
+    if not isinstance(ssid, str):
+        raise InvalidInput('SSID must be text')
+    try:
+        raw = ssid.encode('utf-8')
+    except UnicodeEncodeError:
+        raise InvalidInput('SSID is not valid text')
+    if not 1 <= len(raw) <= 32:
+        raise InvalidInput('SSID must be 1 to 32 bytes long')
+    for ch in ssid:
+        if unicodedata.category(ch) in ('Cc', 'Zl', 'Zp'):
+            raise InvalidInput('SSID must not contain control characters')
+    return ssid
+
+
+def validate_psk(psk):
+    """A WPA2/WPA3-personal secret is 8 to 63 printable ASCII characters (a passphrase),
+    or exactly 64 hex digits (the raw 256-bit PSK). Returns it unchanged or raises
+    InvalidInput. An open network has no secret at all: the caller does not validate ''.
+    """
+    if not isinstance(psk, str):
+        raise InvalidInput('Wi-Fi password must be text')
+    if _HEX_PSK.match(psk):
+        return psk
+    if not 8 <= len(psk) <= 63 or any(not 0x20 <= ord(ch) <= 0x7e for ch in psk):
+        raise InvalidInput('Wi-Fi password must be 8 to 63 printable ASCII characters, or 64 hex digits')
+    return psk
 
 
 def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10):
@@ -473,7 +596,7 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10)
         req = urllib.request.Request(url, data=data, headers=headers, method='POST')
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             body = resp.read().decode('utf-8', errors='replace')
-            logger.info(f"Device ID update response: {resp.status} {_redact_cloud_payload(body)}")
+            logger.info(f"Device ID update response: {resp.status}; {_describe_cloud_payload(body)}")
             try:
                 parsed = json.loads(body)
                 return True, parsed
@@ -484,7 +607,7 @@ def update_device_id_in_cloud(pairing_code, device_id, api_key=None, timeout=10)
             body = e.read().decode('utf-8', errors='replace')
         except Exception:
             body = str(e)
-        logger.warning(f"Device ID update HTTP error: {e.code} {body}")
+        logger.warning(f"Device ID update HTTP error: {e.code}; {_describe_cloud_payload(body)}")
         try:
             parsed = json.loads(body)
             return False, parsed
@@ -526,7 +649,7 @@ def _notify_hub_registration_callback_get(payload, timeout=6):
             parsed = json.loads(resp.read().decode('utf-8', errors='replace'))
             if isinstance(parsed, dict) and parsed.get('success'):
                 return True
-            logger.warning(f"Legacy Hub callback returned non-success payload: {parsed}")
+            logger.warning(f"Legacy Hub callback returned non-success payload ({_describe_cloud_payload(parsed)})")
     except Exception as e:
         logger.warning(f"Legacy Hub callback failed: {e}")
 
@@ -593,7 +716,7 @@ def notify_hub_registration_callback(cloud_response, retries=10, retry_delay=2):
                     if isinstance(parsed, dict) and parsed.get('success'):
                         logger.info(f"Hub callback succeeded on attempt {attempt}: {CI_HUB_REGISTRATION_CALLBACK_URL}")
                         return True
-                    logger.warning(f"Hub callback attempt {attempt} returned non-success payload: {parsed}")
+                    logger.warning(f"Hub callback attempt {attempt} returned non-success payload ({_describe_cloud_payload(parsed)})")
             except urllib.error.HTTPError as e:
                 if e.code in (404, 405):
                     logger.warning("Hub has no POST registration callback — falling back to the legacy GET")
@@ -642,7 +765,8 @@ _PLACEHOLDER_DEVICE_KEYS = {'none', 'null', 'undefined', 'nil', ''}
 def record_pairing_failure(code, message):
     """Persist why the last pairing attempt was refused."""
     try:
-        LAST_PAIRING_ERROR_JSON.write_text(json.dumps({
+        # The message names the user's SSID: root-only like every other file written here.
+        _write_secret_file(LAST_PAIRING_ERROR_JSON, json.dumps({
             'code': (code or 'PAIRING_FAILED')[:64],
             'message': (message or 'Pairing failed.')[:512],
             'at': datetime.now().isoformat(),
@@ -707,22 +831,36 @@ def load_saved_device_key(device_id):
     return None
 
 def _write_secret_file(path, text):
-    """Write `text` to `path` so it is never readable by anyone but root, even briefly.
+    """Write `text` to `path` so it is never readable by anyone but root, even briefly,
+    and so a crash can never leave it half-written.
 
-    `open()` then `chmod()` publishes the file at the umask's 0644 first and narrows
-    it after, so a device credential is world-readable for the length of the write
-    and stays that way if the process dies in between. Creating with 0o600 closes
-    that window; the chmod after still narrows a file that already existed.
+    The text goes to a sibling temporary file that is created with mode 0600 (O_EXCL, so
+    an existing file or symlink of that name is never followed), flushed to disk, and then
+    renamed over `path`. `open()` followed by `chmod()` publishes the file at the umask's
+    0644 first and narrows it after; truncating the real file in place loses the old
+    content when the write fails. The rename is atomic on one filesystem, so a reader sees
+    either the old file or the new one. The final chmod narrows nothing that matters (the
+    temporary file is already 0600) and keeps the intent visible.
     """
-    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    path = Path(path)
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
-        handle = os.fdopen(fd, 'w')
-    except Exception:
-        os.close(fd)
+        try:
+            handle = os.fdopen(fd, 'w')
+        except BaseException:
+            os.close(fd)
+            raise
+        with handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(tmp, 0o600)
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
         raise
-    with handle:
-        handle.write(text)
-    os.chmod(path, 0o600)
 
 def save_cloud_credentials(device_id, api_key):
     """Save device_id and api_key for later use (API key comes from GET response)"""
@@ -773,18 +911,37 @@ CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 Path(LOG_FILE).parent.mkdir(parents=True, exist_ok=True)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler(sys.stdout)
-    ]
-)
-logger = logging.getLogger(__name__)
+
+def _private_log_file(path):
+    """Create the log file root-only (0600) if it is missing and narrow it if an older
+    version left it 0644. Done with an explicit mode rather than a process-wide umask:
+    a umask of 077 would also be inherited by ci-os-hub-start.sh and everything it
+    installs."""
+    try:
+        os.close(os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600))
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+
+
+# Configure logging. The module logger is configured explicitly (not via basicConfig, which
+# is a no-op once anything has configured the root logger), every handler formats through
+# _ScrubbingFormatter, and the file is private: it records SSIDs and the progress of
+# pairing, and used to record the pairing code.
+_private_log_file(LOG_FILE)
+logger = logging.getLogger('setup_service')
+logger.setLevel(logging.INFO)
+logger.propagate = False
+for _stale_handler in list(logger.handlers):
+    logger.removeHandler(_stale_handler)
+    _stale_handler.close()
+for _handler in (logging.FileHandler(LOG_FILE), logging.StreamHandler(sys.stdout)):
+    _handler.setFormatter(_ScrubbingFormatter('%(asctime)s [%(levelname)s] %(message)s'))
+    logger.addHandler(_handler)
 
 app = Flask(__name__)
+# The form is a few hundred bytes. Refuse anything larger before it is parsed.
+app.config['MAX_CONTENT_LENGTH'] = 64 * 1024
 
 # Ensure pairing code on first request (gunicorn does not call main())
 _pairing_ensured = False
@@ -808,7 +965,11 @@ def _ensure_pairing_on_first_request():
         _pairing_code_error = False
         _pairing_ensured = True
 
-# Signal handling for graceful shutdown
+# Graceful shutdown for the stand-alone server of main() only. Under gunicorn (how the
+# unit runs this module) the worker installs its own SIGTERM/SIGINT handling BEFORE it
+# imports the application; registering handlers at import time replaced it, so the worker
+# ignored the master's SIGTERM and `systemctl stop setup-backend` waited out
+# TimeoutStopSec. Handlers belong in main(), which gunicorn never calls.
 shutdown_flag = False
 
 def signal_handler(signum, frame):
@@ -816,9 +977,6 @@ def signal_handler(signum, frame):
     global shutdown_flag
     logger.info(f"Received signal {signum}, shutting down gracefully...")
     shutdown_flag = True
-
-signal.signal(signal.SIGTERM, signal_handler)
-signal.signal(signal.SIGINT, signal_handler)
 
 def normalize_pairing_code(code):
     """Normalize pairing code: remove non-alphanumeric characters, convert to uppercase"""
@@ -878,15 +1036,14 @@ def ensure_pairing_code():
                     # Ensure we only keep the 'code' field
                     cleaned_data = {'code': pairing_data.get('code', '')}
                     # Rewrite file with only the code field
-                    with open(PAIRING_CODE_JSON, 'w') as f:
-                        json.dump(cleaned_data, f, indent=2)
-                    os.chmod(PAIRING_CODE_JSON, 0o600)
+                    _write_secret_file(PAIRING_CODE_JSON, json.dumps(cleaned_data, indent=2))
                     # Update pairing_data for validation below
                     pairing_data = cleaned_data
                 
                 # Check if code exists and is valid
                 if 'code' in pairing_data and pairing_data['code']:
                     logger.info("Using existing pairing code")
+                    _register_secret(pairing_data['code'])
                     return pairing_data['code']
                 else:
                     logger.warning("Pairing code file exists but has no valid code, regenerating...")
@@ -895,13 +1052,12 @@ def ensure_pairing_code():
         
         # Generate new code
         pairing_data = generate_pairing_code()
-        with open(PAIRING_CODE_JSON, 'w') as f:
-            json.dump(pairing_data, f, indent=2)
-        
-        # Set root-only permissions
-        os.chmod(PAIRING_CODE_JSON, 0o600)
-        
-        logger.info(f"Generated new pairing code: {pairing_data['code']}")
+        # Root-only from the first byte, written atomically (see _write_secret_file).
+        _write_secret_file(PAIRING_CODE_JSON, json.dumps(pairing_data, indent=2))
+
+        # The code itself is a secret and stays out of the log; it is in PAIRING_CODE_JSON.
+        _register_secret(pairing_data['code'])
+        logger.info("Generated a new pairing code")
         return pairing_data['code']
         
     except Exception as e:
@@ -974,15 +1130,55 @@ def get_wifi_interface():
         return 'wlan0'  # Fallback
 
 def _split_nmcli_t_fields(line):
-    """Split nmcli -t fields while preserving escaped colons (\\:)."""
-    parts = re.split(r'(?<!\\):', line.strip())
-    return [p.replace('\\:', ':') for p in parts]
+    """Split one line of `nmcli -t` output into its fields.
+
+    In terse mode nmcli escapes a literal ':' in a value as '\\:' and a literal backslash
+    as '\\\\'. This undoes both while splitting on the unescaped colons only (a value that
+    ends in a backslash, such as 'a\\\\', must not hide the separator after it).
+    """
+    fields, current, escaped = [], [], False
+    for ch in line.strip():
+        if escaped:
+            current.append(ch)
+            escaped = False
+        elif ch == '\\':
+            escaped = True
+        elif ch == ':':
+            fields.append(''.join(current))
+            current = []
+        else:
+            current.append(ch)
+    if escaped:
+        current.append('\\')
+    fields.append(''.join(current))
+    return fields
+
+
+# Profiles this service creates are named OWN_PROFILE_PREFIX + the SSID. Nothing else is ever
+# deleted: the old rule deleted every NetworkManager profile whose NAME equalled the posted SSID
+# (or "<SSID> <digits>"), of ANY type, so an unauthenticated POST with ssid "Wired connection 1"
+# removed the machine's wired profiles. The rule now needs all of: Wi-Fi type, this prefix, an
+# exact name match.
+OWN_PROFILE_PREFIX = 'ci-setup-'
+NM_WIFI_TYPE = '802-11-wireless'
+
+
+def _own_profile_name(ssid):
+    return OWN_PROFILE_PREFIX + ssid
 
 
 def _connection_name_matches_ssid(connection_name, ssid):
-    """Return True when NM connection name maps to SSID or its numeric suffix variants."""
-    escaped_name = re.escape(ssid)
-    return bool(re.match(rf"^{escaped_name}(?:\s+\d+)?$", connection_name or ''))
+    """True when an NM connection name is the profile this service keeps for `ssid`.
+
+    Also accepts the bare SSID (and NetworkManager's "<SSID> <n>" variants): profiles that an
+    earlier version of this service created were named that way, and a device already
+    connected through one of them is reused rather than re-created.
+    """
+    name = connection_name or ''
+    for base in (_own_profile_name(ssid), ssid):
+        if re.match(rf"^{re.escape(base)}(?:\s+\d+)?$", name):
+            return True
+    return False
 
 
 def get_active_wifi_connection():
@@ -1020,7 +1216,7 @@ def find_open_bssid_for_ssid(ssid):
     """Return strongest open BSSID for an SSID, or None if none found."""
     try:
         result = subprocess.run(
-            ['nmcli', '-t', '-f', 'SSID,BSSID,SIGNAL,SECURITY', 'device', 'wifi', 'list'],
+            ['nmcli', '-t', '-f', 'SSID,BSSID,SIGNAL,SECURITY', 'device', 'wifi', 'list', '--rescan', 'no'],
             capture_output=True,
             text=True,
             timeout=10
@@ -1062,65 +1258,91 @@ def find_open_bssid_for_ssid(ssid):
         logger.warning(f"Error selecting open BSSID for {ssid}: {e}")
         return None
 
-def delete_wifi_connections_by_name(connection_name):
-    """Delete SSID profile variants (e.g. `SSID`, `SSID 1`, `SSID 2`) to avoid stale duplicates."""
+def _nm_env():
+    """Environment for nmcli calls whose output or error text is parsed: English, whatever
+    the system locale is (the matching below is on nmcli's English messages)."""
+    env = dict(os.environ)
+    env['LC_ALL'] = 'C'
+    return env
+
+
+def delete_owned_wifi_profiles(ssid, keep_uuid=None):
+    """Delete the profiles THIS SERVICE created earlier for `ssid`, so a stale one cannot win
+    over the new one at activation. Returns the UUIDs it deleted.
+
+    A profile is deleted only when ALL of these hold: its type is 802-11-wireless, its name is
+    exactly OWN_PROFILE_PREFIX + ssid, and it is not `keep_uuid`. Wired, VPN, bridge and
+    every Wi-Fi profile the user or the installer made (other names) are never touched, no
+    matter what SSID was posted.
+    """
+    deleted = []
     try:
         result = subprocess.run(
-            ['nmcli', '-t', '-f', 'NAME,UUID', 'connection', 'show'],
+            ['nmcli', '-t', '-f', 'NAME,UUID,TYPE', 'connection', 'show'],
             capture_output=True,
             text=True,
-            timeout=10
+            timeout=10,
+            env=_nm_env()
         )
         if result.returncode != 0:
             logger.warning(f"Could not list existing connections: {result.stderr}")
-            return
+            return deleted
 
-        # NetworkManager auto-creates suffix variants like "<ssid> 1" when name collisions occur.
-        escaped_name = re.escape(connection_name)
-        name_pattern = re.compile(rf"^{escaped_name}(?:\s+\d+)?$")
-
+        wanted_name = _own_profile_name(ssid)
         for raw in (result.stdout or '').splitlines():
             if not raw.strip():
                 continue
             parts = _split_nmcli_t_fields(raw)
-            if len(parts) < 2:
+            if len(parts) < 3:
                 continue
-            name, uuid = parts[0], parts[1]
-            if not name_pattern.match(name) or not uuid:
+            name, uuid, con_type = parts[0], parts[1], parts[2]
+            if con_type != NM_WIFI_TYPE or name != wanted_name or not uuid or uuid == keep_uuid:
                 continue
 
             delete_result = subprocess.run(
                 ['nmcli', 'connection', 'delete', 'uuid', uuid],
                 capture_output=True,
                 text=True,
-                timeout=5
+                timeout=5,
+                env=_nm_env()
             )
             if delete_result.returncode == 0:
-                logger.info(f"Deleted existing connection profile {name} ({uuid})")
+                logger.info(f"Deleted the earlier profile {name} ({uuid})")
+                deleted.append(uuid)
             else:
                 logger.warning(
                     f"Failed to delete connection profile {name} ({uuid}): {delete_result.stderr}"
                 )
     except Exception as e:
-        logger.warning(f"Failed to cleanup connection profiles for {connection_name}: {e}")
+        logger.warning(f"Failed to clean up earlier profiles for the network: {e}")
+    return deleted
 
 
 def create_wifi_connection(ssid, password):
-    """Create NetworkManager connection for WiFi and return its UUID."""
-    try:
-        # Remove duplicate profile names so activation cannot pick stale credentials.
-        delete_wifi_connections_by_name(ssid)
+    """Create the NetworkManager profile for a Wi-Fi network and return its UUID.
 
+    The passphrase is NOT given to nmcli here. `nmcli connection add ... wifi-sec.psk <value>`
+    would put it on the command line, where every local account can read it from
+    /proc/<pid>/cmdline and `ps` for as long as the call runs. nmcli's manual has no file or
+    standard-input form for `connection add`, `connection modify` or `device wifi connect`
+    (`--ask` is documented as not for scripts). It does have one for activation:
+    `nmcli connection up ... passwd-file <file>`, with lines of the form
+    `802-11-wireless-security.psk:<secret>`. So the profile is created with the key
+    management set and no secret, and connect_to_wifi() hands the secret over through a
+    root-only file that exists for the length of the call.
+    """
+    try:
         # Detect the actual WiFi interface on this system
         wifi_ifname = get_wifi_interface()
         logger.info(f"Using WiFi interface: {wifi_ifname}")
 
-        # Create new connection - explicitly specify the WiFi interface
+        # Create the new connection first, explicitly on the WiFi interface; only once it exists
+        # are this service's earlier profiles for the same network removed.
         cmd = ['nmcli', 'connection', 'add', 'type', 'wifi',
-               'con-name', ssid, 'ifname', wifi_ifname, 'ssid', ssid]
+               'con-name', _own_profile_name(ssid), 'ifname', wifi_ifname, 'ssid', ssid]
 
         if password:
-            cmd.extend(['wifi-sec.key-mgmt', 'wpa-psk', 'wifi-sec.psk', password])
+            cmd.extend(['wifi-sec.key-mgmt', 'wpa-psk'])
         else:
             cmd.extend(['wifi-sec.key-mgmt', 'none'])
             # If SSID exists with mixed security variants, lock to an open BSSID.
@@ -1132,7 +1354,7 @@ def create_wifi_connection(ssid, password):
         # WiFi network does not hand out DNS via DHCP.
         cmd.extend(['ipv4.dns', '8.8.8.8 1.1.1.1', 'ipv4.ignore-auto-dns', 'no'])
 
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=_nm_env())
 
         if result.returncode != 0:
             logger.error(f"Failed to create connection: {result.stderr}")
@@ -1141,14 +1363,69 @@ def create_wifi_connection(ssid, password):
         match = re.search(r'\(([0-9a-fA-F-]{36})\)', result.stdout or '')
         connection_uuid = match.group(1) if match else None
         logger.info(f"Created WiFi connection: {ssid} (uuid={connection_uuid or 'unknown'})")
+        # A stale profile of ours for the same network must not win at activation; the new one is
+        # activated by UUID below, but NetworkManager would also pick between them at every boot.
+        delete_owned_wifi_profiles(ssid, keep_uuid=connection_uuid)
         return connection_uuid
 
     except Exception as e:
         logger.error(f"Error creating WiFi connection: {e}")
         return None
 
-def connect_to_wifi(connection_target, use_uuid=False):
-    """Activate NetworkManager connection by UUID (preferred) or by name."""
+
+@contextlib.contextmanager
+def _passwd_file(secret):
+    """Yield the path of a root-only file holding `secret` in nmcli's passwd-file format, or
+    None when there is no secret. The file is removed when the block ends, however it ends."""
+    if not secret:
+        yield None
+        return
+    RUN_DIR.mkdir(parents=True, exist_ok=True)
+    os.chmod(RUN_DIR, 0o700)
+    path = RUN_DIR / f".passwd.{os.getpid()}.{secrets.token_hex(6)}"
+    fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(fd, 'w') as handle:
+            handle.write(f"802-11-wireless-security.psk:{secret}\n")
+        yield str(path)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(path)
+
+
+def _passphrase_is_stored(connection_uuid):
+    """Did NetworkManager keep the passphrase it was given at activation?
+
+    True, False, or None when it cannot be told. The passphrase is handed over through
+    nmcli's passwd-file at `connection up`; nmcli's manual does not say that a secret
+    supplied that way is written into the profile, and a profile without it joins the
+    network now and cannot rejoin after a reboot. This reads the profile's secret back
+    (the value stays in this process and is never logged) so the journal says so on the
+    first device where it happens, not after the first power cut.
+    """
+    try:
+        result = subprocess.run(
+            ['nmcli', '--show-secrets', '--get-values', '802-11-wireless-security.psk',
+             'connection', 'show', 'uuid', connection_uuid],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            env=_nm_env()
+        )
+    except Exception as e:
+        logger.debug(f"Could not read back the stored passphrase: {e}")
+        return None
+    if result.returncode != 0:
+        return None
+    return bool((result.stdout or '').strip())
+
+
+def connect_to_wifi(connection_target, use_uuid=False, password=None):
+    """Activate NetworkManager connection by UUID (preferred) or by name.
+
+    `password` (a validated passphrase or 64-digit hex PSK) reaches nmcli through its
+    passwd-file option, never on the command line; see create_wifi_connection().
+    """
     target_desc = f"uuid={connection_target}" if use_uuid else f"SSID: {connection_target}"
     logger.info(f"[WIFI CONNECT] Attempting to connect to {target_desc}")
     try:
@@ -1158,13 +1435,17 @@ def connect_to_wifi(connection_target, use_uuid=False):
         else:
             cmd.append(connection_target)
 
-        result = subprocess.run(
-            cmd,
-            capture_output=True,
-            text=True,
-            timeout=30
-        )
-        
+        with _passwd_file(password) as secrets_path:
+            if secrets_path:
+                cmd.extend(['passwd-file', secrets_path])
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30,
+                env=_nm_env()
+            )
+
         if result.returncode != 0:
             stderr_lower = (result.stderr or '').lower()
             # Missing secrets is not transient: retrying 30 times only adds delay and noise.
@@ -1183,8 +1464,13 @@ def connect_to_wifi(connection_target, use_uuid=False):
             logger.error(f"[WIFI CONNECT] stderr: {result.stderr}")
             logger.error(f"[WIFI CONNECT] stdout: {result.stdout}")
             return False, None
-        
+
         logger.info(f"[WIFI CONNECT] Successfully connected to WiFi: {connection_target}")
+        if password and use_uuid and _passphrase_is_stored(connection_target) is False:
+            logger.warning(
+                "[WIFI CONNECT] NetworkManager joined the network but did not store the passphrase in the "
+                "profile: this device will not rejoin it after a reboot (it will offer the setup hotspot again)"
+            )
         # Verify connection status
         verify_result = subprocess.run(
             ['nmcli', '-t', '-f', 'NAME,DEVICE,TYPE,STATE', 'connection', 'show', '--active'],
@@ -1195,7 +1481,7 @@ def connect_to_wifi(connection_target, use_uuid=False):
         if verify_result.returncode == 0:
             logger.info(f"[WIFI CONNECT] Active connections: {verify_result.stdout.strip()}")
         return True, None
-        
+
     except Exception as e:
         logger.error(f"[WIFI CONNECT] Exception connecting to WiFi {connection_target}: {e}", exc_info=True)
         return False, None
@@ -1250,26 +1536,62 @@ def disconnect_from_wifi():
         logger.error(f"[WIFI DISCONNECT] Exception disconnecting WiFi: {e}", exc_info=True)
         return False
 
+def _run_script(argv, timeout):
+    """Run a helper script and return its exit status. On timeout the script gets SIGTERM
+    first and a grace period, so the cleanup trap in setup-device-hotspot-start.sh runs;
+    subprocess.run(timeout=...) would SIGKILL it halfway through an AP start and leave the
+    radio unmanaged with an address on it."""
+    proc = subprocess.Popen(argv)
+    try:
+        return proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        logger.warning(f"{argv[0]} did not finish within {timeout}s; asking it to stop")
+        proc.terminate()
+        try:
+            proc.wait(timeout=20)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        raise
+
+
 def stop_hotspot_services():
-    """Stop hotspot services after successful configuration"""
+    """End the access-point episode: stop hostapd, dnsmasq and the nginx portal, drop the
+    AP address and give the radio back to NetworkManager. All of it is done by the hotspot
+    script's `stop` mode, which undoes exactly what its start did."""
     try:
         logger.info("Stopping hotspot services...")
-        
-        subprocess.run(['systemctl', 'stop', 'hostapd-setup.service'], timeout=5)
-        subprocess.run(['systemctl', 'stop', 'dnsmasq-setup.service'], timeout=5)
-        
+        try:
+            status = _run_script([HOTSPOT_SCRIPT, 'stop'], timeout=60)
+        except Exception as e:
+            logger.warning(f"Hotspot teardown script could not run ({e})")
+            status = None
+        if status != 0:
+            # Missing script, timeout or failure: at least stop the radio services, as the
+            # service always did.
+            logger.warning("Stopping the hotspot units directly")
+            subprocess.run(['systemctl', 'stop', 'dnsmasq-setup.service'], timeout=5)
+            subprocess.run(['systemctl', 'stop', 'hostapd-setup.service'], timeout=5)
+
         logger.info("Hotspot services stopped")
         return True
-        
+
     except Exception as e:
         logger.error(f"Error stopping hotspot services: {e}")
         return False
 
 def start_hotspot_services():
-    """Start hotspot services (used after scan-mode)"""
+    """Start the setup hotspot again after a join attempt that stopped it and failed.
+
+    Only for that case. Nothing triggered by a request's own content may call this: it
+    drops every client off the access point. The start script takes its own lock, so a
+    call that races the monitor's does nothing."""
     try:
         logger.info("Starting hotspot services...")
-        subprocess.run(['/usr/local/bin/setup-device-hotspot-start.sh'], timeout=30)
+        status = _run_script([HOTSPOT_SCRIPT], timeout=120)
+        if status != 0:
+            logger.warning(f"Hotspot start exited with status {status}")
+            return False
         logger.info("Hotspot services started")
         return True
     except Exception as e:
@@ -1279,7 +1601,7 @@ def start_hotspot_services():
 def remove_setup_netplan_config():
     """Remove netplan static IP config to allow NetworkManager to take over"""
     try:
-        netplan_file = Path('/etc/netplan/50-setup-mode.yaml')
+        netplan_file = NETPLAN_SETUP_FILE
         if netplan_file.exists():
             logger.info("Removing setup-mode netplan configuration...")
             netplan_file.unlink()
@@ -1338,10 +1660,25 @@ def wait_for_networkmanager_ready(timeout=20):
     logger.warning("NetworkManager did not become ready within timeout")
     return False
 
+_STARTED_AT = time.monotonic()
+
+@app.route('/api/health', methods=['GET'])
 @app.route('/health', methods=['GET'])
 def health():
-    """Health check endpoint"""
-    return jsonify({'status': 'ok', 'service': 'setup-backend'})
+    """Liveness. The portal polls /api/health (nginx proxies only /api/, so /health was
+    unreachable through it and every poll was a 404); /health stays for checks on loopback.
+
+    Open to anyone who can reach the API, so it carries only fields that are no secret and
+    no use to an attacker: no SSID, no pairing code, no paths, no versions of anything.
+    """
+    return jsonify({
+        'status': 'ok',
+        'service': 'setup-backend',
+        'uptime_seconds': int(time.monotonic() - _STARTED_AT),
+        'setup_complete': SETUP_COMPLETE_FILE.exists(),
+        'configuring': CONFIGURING_FLAG.exists(),
+        'pairing_code_error': _pairing_code_error,
+    })
 
 @app.route('/api/status', methods=['GET'])
 def status():
@@ -1422,7 +1759,7 @@ def _hotspot_active():
 # Present while _connect_and_pair() owns the radio (hotspot stopped, WiFi not yet up).
 # setup-network-monitor.sh holds off restarting the hotspot while it exists and is
 # recent. In /run so a crash-and-reboot never leaves it behind.
-CONFIGURING_FLAG = Path('/run/setup-device/configuring')
+CONFIGURING_FLAG = RUN_DIR / 'configuring'
 
 def _mark_configuring(active):
     try:
@@ -1535,52 +1872,94 @@ def _configure_wired(ssid, password, pairing_code, connection_uuid, hub_state, w
     _spawn_background_configure(ssid, password, pairing_code, connection_uuid, False, hub_state)
     return response, True
 
+def _read_configure_request():
+    """Parse and validate the body of POST /api/configure WITHOUT any side effect.
+
+    Returns (fields, None) on success, where fields is a dict with the cleaned `ssid`,
+    `password` and `pairing_code` strings, or (None, (response, status)) for the 400 to
+    send. Everything that can be wrong with the request itself is decided here, before the
+    radio lock is taken and before NetworkManager, the hotspot or the cloud is touched: a
+    malformed body used to fall into configure()'s catch-all, which restarted the access
+    point and dropped every connected client.
+    """
+    if request.is_json:
+        # silent=True: a body that is not JSON gives None (-> 400 below), not an exception.
+        data = request.get_json(silent=True)
+        if not isinstance(data, dict):
+            return None, (jsonify({'error': 'Request body must be a JSON object'}), 400)
+    else:
+        data = request.form.to_dict()
+
+    if not data:
+        return None, (jsonify({'error': 'No data provided'}), 400)
+
+    raw_ssid = data.get('ssid', '')
+    raw_password = data.get('password', '')
+    raw_pairing_code = data.get('pairing_code', '')
+    # An absent or null field is the empty string; anything else that is not text is a bad request.
+    if raw_password is None:
+        raw_password = ''
+    if raw_pairing_code is None:
+        raw_pairing_code = ''
+    if raw_ssid is None:
+        raw_ssid = ''
+    for value in (raw_ssid, raw_password, raw_pairing_code):
+        if not isinstance(value, str):
+            return None, (jsonify({'error': 'ssid, password and pairing_code must be text'}), 400)
+    if len(raw_pairing_code) > 64:
+        return None, (jsonify({'error': 'Pairing code is too long'}), 400)
+
+    if not raw_ssid:
+        return None, (jsonify({'error': 'SSID required'}), 400)
+    try:
+        ssid = validate_ssid(raw_ssid)
+        password = validate_psk(raw_password) if raw_password else ''
+    except InvalidInput as e:
+        return None, (jsonify({'error': str(e)}), 400)
+
+    # From here the passphrase and the code are known secrets: keep them out of every log line.
+    _register_secret(password)
+    _register_secret(normalize_pairing_code(raw_pairing_code))
+    return {'ssid': ssid, 'password': password, 'pairing_code': raw_pairing_code}, None
+
+
 @app.route('/api/configure', methods=['POST'])
 def configure():
     """Configure WiFi connection"""
+    fields, bad_request = _read_configure_request()
+    if bad_request is not None:
+        return bad_request
+    ssid = fields['ssid']
+    password = fields['password']
+    pairing_code = fields['pairing_code']
+
     if not _configure_lock.acquire(blocking=False):
         # Another attempt (possibly in the background) still owns the radio.
         return jsonify({'error': 'Setup is already in progress. Please wait.'}), 409
     handed_off = False
     try:
-        # Accept both JSON and form-encoded data
-        if request.is_json:
-            data = request.get_json()
-        else:
-            data = request.form.to_dict()
-        
-        if not data:
-            return jsonify({'error': 'No data provided'}), 400
-        
-        pairing_code = data.get('pairing_code', '')
-        ssid = data.get('ssid', '')
-        password = data.get('password', '')
-
         hub_state = get_hub_pairing_state()
         require_pairing = hub_state['require_pairing']
         logger.info(
             f"[CONFIGURE] Hub state: running={hub_state['hub_running']}, "
             f"registered={hub_state['hub_registered']}, require_pairing={require_pairing}"
         )
-        
+
         if require_pairing and not pairing_code:
             return jsonify({'error': 'Pairing code required for unregistered Hub'}), 400
-        
-        if not ssid:
-            return jsonify({'error': 'SSID required'}), 400
-        
+
         normalized_code = normalize_pairing_code(pairing_code) if pairing_code else ''
         if require_pairing and len(normalized_code) != 6:
             return jsonify({'error': 'Pairing code must be 6 characters'}), 400
-        
-        logger.info(f"[CONFIGURE] Starting WiFi configuration")
+
+        logger.info("[CONFIGURE] Starting WiFi configuration")
         logger.info(f"[CONFIGURE] SSID: {ssid}")
         if require_pairing:
-            logger.info(f"[CONFIGURE] Pairing code (normalized): {normalized_code}")
+            logger.info("[CONFIGURE] Pairing code required for this device state")
         else:
             logger.info("[CONFIGURE] Pairing code not required for this device state")
         logger.info(f"[CONFIGURE] Password provided: {'Yes' if password else 'No (open network)'}")
-        
+
         active_wifi = get_active_wifi_connection()
         if active_wifi and _connection_name_matches_ssid(active_wifi.get('name', ''), ssid):
             connection_uuid = active_wifi['uuid']
@@ -1596,24 +1975,22 @@ def configure():
                 logger.error(f"[CONFIGURE] Failed to create WiFi connection for {ssid}")
                 return jsonify({'error': 'Failed to create WiFi connection'}), 500
             logger.info(f"[CONFIGURE] NetworkManager connection created successfully (uuid={connection_uuid})")
-        
-        # Persist credentials securely (root-only, JSON format)
+
+        # Persist credentials securely (root-only from the first byte, replaced atomically)
         try:
             credentials = {
                 'ssid': ssid,
                 'password': password,
                 'configured_at': datetime.now().isoformat()
             }
-            with open(CREDENTIALS_JSON, 'w') as f:
-                json.dump(credentials, f, indent=2)
-            os.chmod(CREDENTIALS_JSON, 0o600)
+            _write_secret_file(CREDENTIALS_JSON, json.dumps(credentials, indent=2))
         except Exception as e:
             logger.error(f"Failed to save credentials: {e}")
-        
+
         # NOTE: We do NOT create setup-complete flag - it should not gate hotspot operations
         # The network monitor runs independently and starts hotspot if no connectivity detected
         # Setup is complete when WiFi connection is active, not when the flag is written
-        
+
         want_json = _wants_json()
         if _hotspot_active():
             # The client reached this form over the setup hotspot, and the radio serving
@@ -1638,14 +2015,11 @@ def configure():
             ssid, password, pairing_code, connection_uuid, require_pairing, hub_state, want_json
         )
     except Exception as e:
+        # Nothing here touches the access point. This block runs BEFORE the join stops it, so
+        # the hotspot is still up and the client can simply retry; restarting it from here
+        # would drop every connected client for any request that merely failed. (Once
+        # _connect_and_pair has stopped the hotspot, it restores it itself.)
         logger.error(f"Configuration error: {e}", exc_info=True)
-        try:
-            start_hotspot_services()  # Restore hotspot so user can retry
-        except Exception as hotspot_err:
-            logger.warning(
-                "Failed to restore hotspot services after configuration error: %s",
-                hotspot_err, exc_info=True
-            )
         return jsonify({'error': 'Internal server error'}), 500
     finally:
         if not handed_off:
@@ -1659,12 +2033,14 @@ def _connect_and_pair(ssid, password, pairing_code, connection_uuid, require_pai
     thread -- whose return value nobody reads -- when it is; see configure().
     """
     _mark_configuring(True)
+    hotspot_stopped = False
     try:
         # A new attempt: whatever failed last time is no longer the current state.
         clear_pairing_failure()
 
         # Stop hotspot services - allow time for driver to release AP mode
         time.sleep(2)
+        hotspot_stopped = True
         stop_hotspot_services()
         time.sleep(3)  # Driver recovery: some chips need delay before station mode
         
@@ -1694,7 +2070,7 @@ def _connect_and_pair(ssid, password, pairing_code, connection_uuid, require_pai
         wifi_connected = False
         max_wifi_wait = 30  # Wait up to 30 seconds for WiFi connection
         for i in range(max_wifi_wait):
-            connected, failure_reason = connect_to_wifi(connection_uuid, use_uuid=True)
+            connected, failure_reason = connect_to_wifi(connection_uuid, use_uuid=True, password=password)
             if connected:
                 wifi_connected = True
                 logger.info("WiFi connection established")
@@ -1826,13 +2202,16 @@ def _connect_and_pair(ssid, password, pairing_code, connection_uuid, require_pai
 
     except Exception as e:
         logger.error(f"Configuration error: {e}", exc_info=True)
-        try:
-            start_hotspot_services()  # Restore hotspot so user can retry
-        except Exception as hotspot_err:
-            logger.warning(
-                "Failed to restore hotspot services after configuration error: %s",
-                hotspot_err, exc_info=True
-            )
+        if hotspot_stopped:
+            # This attempt took the access point down and failed before it could finish:
+            # restore it so the user can retry. (Never done for a failure before that point.)
+            try:
+                start_hotspot_services()
+            except Exception as hotspot_err:
+                logger.warning(
+                    "Failed to restore hotspot services after configuration error: %s",
+                    hotspot_err, exc_info=True
+                )
         return jsonify({'error': 'Internal server error'}), 500
     finally:
         _mark_configuring(False)
@@ -1853,11 +2232,12 @@ def _pair_with_cloud(pairing_code, hub_state, want_json, success_extra=None):
     try:
         # Normalize pairing code to uppercase before cloud validation
         normalized_pairing_code = normalize_pairing_code(pairing_code)
-        logger.info(f"Getting pairing info from cloud for pairing code: {normalized_pairing_code} (normalized from: {pairing_code})")
+        _register_secret(normalized_pairing_code)
+        logger.info("Getting pairing info from cloud for the submitted pairing code")
         success, pairing_info = get_pairing_info_from_cloud(normalized_pairing_code)
 
         if not success:
-            logger.error(f"Failed to get pairing info from cloud: {pairing_info}")
+            logger.error(f"Failed to get pairing info from cloud ({_describe_cloud_payload(pairing_info)})")
             # Keep WiFi connected. Registration can be retried without forcing users back to AP mode.
             error_msg = 'Failed to validate pairing code with cloud service. Device stayed connected; please verify pairing code and retry.'
             record_pairing_failure('CLOUD_VALIDATION_FAILED', 'CI Portal could not validate the pairing code. Check the code and try again.')
@@ -1887,23 +2267,21 @@ def _pair_with_cloud(pairing_code, hub_state, want_json, success_extra=None):
             cloud_device_id = pairing_info.get('device_id') or pairing_info.get('deviceId')
             api_key = pairing_info.get('api_key')
             cloud_pairing_code = pairing_info.get('pairing_code') or pairing_info.get('pairingCode', '')
+            _register_secret(api_key)
+            _register_secret(normalize_pairing_code(cloud_pairing_code) if isinstance(cloud_pairing_code, str) else '')
 
             if not cloud_device_id:
-                logger.warning(f"Missing device_id in cloud response: {pairing_info}")
+                logger.warning(f"Missing device_id in cloud response ({_describe_cloud_payload(pairing_info)})")
             else:
                 # Validate pairing code matches (case-insensitive comparison)
                 user_code_normalized = normalize_pairing_code(pairing_code)
                 cloud_code_normalized = normalize_pairing_code(cloud_pairing_code)
 
-                logger.info(f"[PAIRING VALIDATION] Comparing pairing codes")
-                logger.info(f"[PAIRING VALIDATION] User entered (original): {pairing_code}")
-                logger.info(f"[PAIRING VALIDATION] User entered (normalized): {user_code_normalized}")
-                logger.info(f"[PAIRING VALIDATION] Cloud returned (original): {cloud_pairing_code}")
-                logger.info(f"[PAIRING VALIDATION] Cloud returned (normalized): {cloud_code_normalized}")
+                logger.info("[PAIRING VALIDATION] Comparing pairing codes")
 
                 if cloud_code_normalized and user_code_normalized != cloud_code_normalized:
-                    logger.error(f"[PAIRING VALIDATION] MISMATCH! User: {user_code_normalized} != Cloud: {cloud_code_normalized}")
-                    logger.error(f"[PAIRING VALIDATION] Original user input: {pairing_code}, Cloud response: {cloud_pairing_code}")
+                    # Neither code is logged: both are secrets, and the cloud's is the one that works.
+                    logger.error("[PAIRING VALIDATION] MISMATCH between the submitted code and the cloud's")
                     logger.info("[PAIRING VALIDATION] Pairing mismatch detected; keeping WiFi connected for retry")
                     record_pairing_failure('PAIRING_MISMATCH', 'The pairing code did not match. Check the code and try again.')
 
@@ -1960,7 +2338,7 @@ def _pair_with_cloud(pairing_code, hub_state, want_json, success_extra=None):
                 )
 
                 if update_success:
-                    logger.info(f"Device ID updated successfully in cloud: {_redact_cloud_payload(update_resp)}")
+                    logger.info(f"Device ID updated successfully in cloud ({_describe_cloud_payload(update_resp)})")
                     clear_pairing_failure()
                     redirect_metadata = _build_redirect_metadata(update_resp, pairing_info)
                     # Persist api_key from POST response if it was not present in GET response.
@@ -1987,7 +2365,7 @@ def _pair_with_cloud(pairing_code, hub_state, want_json, success_extra=None):
                         save_hub_env(local_device_id, post_api_key or api_key)
                         try:
                             subprocess.run(
-                                ['/usr/local/bin/ci-os-hub-start.sh'],
+                                [HUB_START_SCRIPT],
                                 capture_output=True, timeout=30
                             )
                         except Exception as hub_err:
@@ -2084,7 +2462,10 @@ def _pair_with_cloud(pairing_code, hub_state, want_json, success_extra=None):
 def main():
     """Main entry point - daemon-safe"""
     logger.info("Starting setup-backend service")
-    
+
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+
     # Ensure pairing code exists on first boot
     global _pairing_code_error
     if ensure_pairing_code() is None:
