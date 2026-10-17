@@ -1,0 +1,99 @@
+# Licences of the models in core/manifest/model-packs.yaml - PROVISIONAL.
+#
+# One row per licence name that appears in a pack's `license:` field. It answers three
+# questions for the stick's tooling: which SPDX id and terms URL does this licence have, does a
+# person have to accept it before the model is copied (`gate`), and which `license` strings stop
+# a release bundle (`release_blocking`). It is read by stick/crates/ci-stick/src/packs.rs
+# (`LicenseTable`), and `cargo test` in stick/ checks it against the catalog: every licence a
+# pack names must have a row here, so a new model cannot slip in with an unreviewed licence.
+#
+# This file is NOT legal review. It records where a licence's terms live and how the tooling
+# treats it; Gemma and Llama redistribution terms still need a human (see docs/architecture/
+# model-packs-128gb.md section 4.5 and models-tooling.md).
+#
+# Fields:
+# - name        exactly the string a pack uses in `license:` (case-insensitive match).
+# - spdx        the SPDX identifier, or a `LicenseRef-...` identifier where SPDX lists none.
+# - spdx_listed true when `spdx` is on the SPDX License List.
+# - url         where the terms are published (https only).
+# - gate        what the tooling does before it puts the model on a stick or into a cache:
+#                 none    - nothing; the licence text travels with the model blob.
+#                 notice  - show the name and URL, no recorded acceptance.
+#                 accept  - refuse until the person accepts it by name
+#                           (`ci-stick models fetch --accept-license "<name>"`, or the launcher's dialog).
+# - aliases     other spellings of the same licence: Hugging Face `cardData.license` ids and
+#               the short names the Ollama registry uses. Names and aliases are matched
+#               case-insensitively, so `apache-2.0` needs no alias of its own.
+# - notes       what a reviewer should know. Optional.
+#
+# `release_blocking` is the explicit list of `license` strings that block a release bundle, as
+# docs/architecture/companion-stick.md requires ("any entry marked `unverified` blocks a
+# release"). A licence that is neither in `licenses` nor listed here also blocks a release. The
+# list is short on purpose, and a test pins it.
+
+schema_version: 1
+status: provisional
+
+release_blocking:
+  - unverified
+
+licenses:
+  - name: Apache-2.0
+    spdx: Apache-2.0
+    spdx_listed: true
+    url: https://www.apache.org/licenses/LICENSE-2.0
+    gate: none
+    aliases: [Apache License 2.0]
+    notes: The registry's licence layer is the full text and travels in the blob store.
+
+  - name: MIT
+    spdx: MIT
+    spdx_listed: true
+    url: https://opensource.org/license/mit
+    gate: none
+    aliases: [MIT License]
+    notes: The registry's licence layer is the full text and travels in the blob store.
+
+  - name: Gemma Terms of Use
+    spdx: LicenseRef-Gemma-Terms-of-Use
+    spdx_listed: false
+    url: https://ai.google.dev/gemma/terms
+    gate: accept
+    aliases: [gemma, Gemma Terms]
+    notes: >-
+      Not an open-source licence. The Gemma Prohibited Use Policy
+      (https://ai.google.dev/gemma/prohibited_use_policy) is incorporated and has to be passed
+      on to recipients. Gemma 4 models are Apache-2.0 per their registry licence layer and are
+      listed under that name instead.
+
+  - name: Llama 3.1 Community License
+    spdx: LicenseRef-Llama-3.1-Community-License
+    spdx_listed: false
+    url: https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/LICENSE
+    gate: accept
+    aliases: [llama3.1]
+    notes: >-
+      Requires "Built with Llama" attribution, an acceptable use policy and has a
+      700 million monthly-active-user clause.
+
+  - name: Llama 3.2 Community License
+    spdx: LicenseRef-Llama-3.2-Community-License
+    spdx_listed: false
+    url: https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/LICENSE
+    gate: accept
+    aliases: [llama3.2]
+    notes: >-
+      Requires "Built with Llama" attribution, an acceptable use policy and has a
+      700 million monthly-active-user clause. The registry licence layer of the vision variant
+      (llama3.2-vision) carries an additional European Union clause: review it before that
+      model is bundled.
+
+  - name: Llama 3.3 Community License
+    spdx: LicenseRef-Llama-3.3-Community-License
+    spdx_listed: false
+    url: https://github.com/meta-llama/llama-models/blob/main/models/llama3_3/LICENSE
+    gate: accept
+    aliases: [llama3.3]
+    notes: >-
+      Requires "Built with Llama" attribution, an acceptable use policy and has a
+      700 million monthly-active-user clause.

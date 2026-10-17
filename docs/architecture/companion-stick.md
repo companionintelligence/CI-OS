@@ -35,11 +35,15 @@ and the contracts that CI Hub and CI Memory publish; it does not reimplement the
 | `ci-stick flash` | **done** | Verify, then partition and write a stick or a sparse stick image from the layout plan |
 | `ci-stick slot show / set` | **done** | Read or flip the A/B pointer (`active_slot` in the ESP's grubenv) |
 | `ci-stick install` | planned (4) | Install Hub, Memory and models onto the host with consent |
-| `ci-stick models sync / import / lock` | planned (4) | Fill the cache, import packs into Hub and resolve digests |
+| `ci-stick models lock / plan / fetch / cache-info` | **done** for Ollama models (4) | Resolve digests into a lock file, then fill the cache from it, resumably and hash-verified ([models-tooling.md](models-tooling.md)) |
+| `ci-stick models verify / gc / export / import / view`, Hugging Face models | planned (4) | Audit and clean a cache, carry signed offline packs, build the symlink view for Hugging Face-layout tools |
 | `ci-stick update` | planned (5) | Signed A/B updater with rollback |
 
 Exit codes for every command: `0` means OK, `1` means verification failed, `2` means a
-usage or I/O error. Every command that reports something also accepts `--json`.
+usage or I/O error. Every command that reports something also accepts `--json`. The
+`models` commands add `3` (drift found by `lock --check`), `4` (not enough space), `5` (a
+licence was not accepted), `6` (interrupted or network lost; partials are kept, run again) and
+`7` (a hash or size did not match).
 
 ## Partition layout (`ci-stick-layout/1`)
 
@@ -151,16 +155,23 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
 ## Model-pack policy
 
 - "All models" has no upper bound, so sticks carry **curated packs**: `starter`,
-  `balanced`, `coding`, `vision` and `large`. Each model entry pins `name:tag`, `digest`,
-  quantization, licence, `size_bytes`, `min_ram_gb`, `min_vram_gb` (null means it runs on
-  CPU or unified memory) and supported platforms.
+  `balanced`, `coding`, `vision` and `large`, the two 128 GB packs below, and
+  `appliance-core` (the three models `ecosystem.yaml` pre-pulls). Each model entry pins
+  `name:tag`, `digest`, quantization, licence, `size_bytes`, `min_ram_gb`, `min_vram_gb`
+  (null means it runs on CPU or unified memory) and supported platforms. A Hugging Face
+  GGUF model is the same record, spelled `hf.co/<org>/<repo>` with the quantization label as
+  `tag`; the schema and `schema_version` do not change for it.
 - The source is
   [`core/manifest/model-packs.yaml`](../../core/manifest/model-packs.yaml). It is
   **provisional** and will be generated from CI Hub's curated catalog once that catalog is
   published. Every model that `ecosystem.yaml` pre-pulls must appear in some pack, and a
   test enforces this.
 - `digest` stays `null` until a `models lock` step resolves it from the registry. Digests
-  are never typed by hand. A release bundle will require every digest to be resolved.
+  are never typed by hand. A release bundle will require every digest to be resolved. What the
+  registries said (manifest bytes, layer digests, sizes, Hugging Face commits) is recorded in the
+  generated `core/manifest/model-packs.lock.json` (to be committed); the YAML's `size_bytes` is a copy of it,
+  and a test fails on a one-byte difference once the lock exists
+  ([models-tooling.md](models-tooling.md), section 4).
 - `size_bytes` is the exact byte size the Ollama registry lists (config plus layers), read
   on a given date; registry tags are mutable, so the digest-pinning `models lock` step is
   what makes a bundle reproducible. `ci-stick models list --device 512GB` shows what fits.
@@ -178,8 +189,15 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
   exFAT has no symlinks or permissions (ownership comes from mount options). When a stick
   is populated from macOS, copy with `COPYFILE_DISABLE=1` and run `dot_clean`, or the
   AppleDouble `._*` files inside `manifests/` are read as manifests named `._latest`.
+  It is **one** content-addressed store for every consumer: partial downloads and files
+  Ollama must not see live in a sibling `<CI-CACHE>/ci-models/`, and Hugging Face-layout tools (which
+  need symlinks) read a small symlink view built on a Linux-native filesystem instead of a second
+  copy ([models-tooling.md](models-tooling.md), section 7).
 - Each licence travels with its model. The launcher shows licences before import, and any
-  entry marked `unverified` blocks a release.
+  entry marked `unverified` blocks a release. `core/manifest/licenses.yaml` maps every licence a pack
+  names to its SPDX id, terms URL and gate (Gemma and Llama terms need a recorded acceptance; Apache-2.0 and
+  MIT do not) and holds the explicit `release_blocking` list; a test fails if a pack names a licence that
+  is not in it.
 
 ## Consuming Hub, Memory and model contracts
 
@@ -304,11 +322,14 @@ share it.
 - Secure Boot works through shim for Ubuntu images; see its own limitations under
   [Secure Boot](#secure-boot).
 - `CI-SHARED` and `CI-CACHE` are formatted empty. Populating them (launchers, docs, OCI
-  images and models) is slice 4; the model half needs a daemon-free `ci-stick models sync`
-  that fetches manifests and blobs from the registry, verifies size and sha256, and writes
-  the manifest last (a prototype was proven against the public registry and a real Ollama
-  daemon; see [model-packs-128gb.md](model-packs-128gb.md), section 5.4). exFAT can't be
-  written without root or mounting, so there is no README yet either.
+  images and models) is slice 4; the model half has its tool now: the daemon-free
+  `ci-stick models fetch` fetches manifests and blobs from the registry, verifies size and
+  sha256, and writes the manifest last, into any directory, but it has not been run against a
+  real exFAT volume or a real Ollama 0.40 daemon (a prototype was proven against the public
+  registry and a 0.33 daemon; see [model-packs-128gb.md](model-packs-128gb.md), section 5.4,
+  and [models-tooling.md](models-tooling.md)). exFAT can't be written without root or
+  mounting, so a host without that has to fill a directory and copy it, and there is no
+  README yet either.
 - Mass flashing (several sticks at once, intake capacity test, per-stick identity,
   independent verification) has no tooling yet: [mass-flashing.md](mass-flashing.md).
 - Device writes are Linux-only. On macOS and Windows, `flash --device` and `slot --device`
@@ -473,5 +494,7 @@ runs on Linux: on an Ubuntu 24.04 host it builds without Docker.
 - **No host install**, and no launcher yet.
 - **No updater** (manual `slot set` only) and no key rotation.
 - **No `build`.** Staging trees are assembled by hand or by scripts for now.
-- **No digest resolution** (`models lock`), and no Windows device listing (`doctor` says
-  "not supported yet").
+- **No committed lock yet.** `ci-stick models lock` resolves digests, but
+  `core/manifest/model-packs.lock.json` is not in the repository, and `ci-stick lock --packs`
+  has no step yet that copies the lock's digests into `bundle.json`, which still carries
+  `digest: null`. There is also no Windows device listing (`doctor` says "not supported yet").

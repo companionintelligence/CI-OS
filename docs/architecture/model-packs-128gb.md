@@ -2,7 +2,7 @@
 
 > **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
-Status: **implemented** as the packs `stick-128` and `stick-128-oci` in `core/manifest/model-packs.yaml`, and pinned by the test `stick_128_packs_fit_the_real_128gb_stick_with_headroom` in `stick/crates/ci-stick/src/packs.rs`. Nothing is written to a stick yet: populating `CI-CACHE` needs `ci-stick models sync` (section 7), which does not exist. Sizes were read from the Ollama registry on 2026-10-13.
+Status: **implemented** as the packs `stick-128` and `stick-128-oci` in `core/manifest/model-packs.yaml`, and pinned by the test `stick_128_packs_fit_the_real_128gb_stick_with_headroom` in `stick/crates/ci-stick/src/packs.rs`. The daemon-free fetch that populates `CI-CACHE` (called `ci-stick models sync` in the first draft of this review) is now `ci-stick models fetch`; its design and what exists are in [models-tooling.md](models-tooling.md). Sizes were read from the Ollama registry on 2026-10-13; see the drift note below.
 
 ## 1. Result in one table
 
@@ -17,6 +17,8 @@ All sizes are the exact sum of `config.size + sum(layers.size)` from `https://re
 - `ci-stick models list --device 123942731776` shows `stick-128 74.4 GB yes` and `stick-128-oci 59.2 GB yes`.
 - Per-file cluster rounding is negligible (8.96 MB over 85 blob files for A). Seven or fewer files dominate the size.
 - Only 3 of the 21 models are required by `core/manifest/ecosystem.yaml:84`: `nomic-embed-text`, `gemma3:1b`, `qwen3.6:27b`. They are ranks 1-3.
+
+**Drift since 2026-10-13.** Registry tags are mutable, and one already moved. On 2026-10-17 a re-fetch of all 21 `stick-128` manifests matched the sizes in this section to the byte for 20 models; `glm-ocr:latest` had been re-pushed on 2026-10-14T15:27:10Z and grew from 2,219,299,168 to 2,655,025,740 bytes (+435,726,572, +19.6 %; it now has four layers, including an 869,018,176 B projector). With that figure `stick-128` is 74,795,277,212 bytes and leaves 3.34 GiB of the 73 GiB cache instead of 3.72 GiB; `stick-128-oci` is 59,679,766,369 bytes and leaves 2.42 GiB (3.3 %) after the 15 GiB OCI reserve. Both still pass the 3 % rule, but the tables in sections 1 and 4.2 are the 2026-10-13 snapshot. The catalog test that read only the YAML could not see this; once `core/manifest/model-packs.lock.json` exists, `catalog_sizes_match_the_lock_when_it_exists` fails on any difference of even one byte ([models-tooling.md](models-tooling.md), section 4.3). The sizes of the other models in the catalog (`starter` to `large`) were last read on 2026-10-13 and have not been re-checked.
 
 ## 2. What the repo requires (read first)
 
@@ -203,7 +205,7 @@ $OLLAMA_MODELS/
 
 ### 5.4 Daemon-free pre-seeding, tested
 
-A prototype (not committed) implemented this and ran against the public registry; the future `ci-stick models sync` should do the same:
+A prototype (not committed) implemented this and ran against the public registry; `ci-stick models fetch` ([models-tooling.md](models-tooling.md)) is the committed version of the same procedure, with a lock that pins the manifest bytes:
 
 1. `GET https://registry.ollama.ai/v2/library/<name>/manifests/<tag>` with `Accept: application/vnd.docker.distribution.manifest.v2+json`. Keep the raw bytes.
 2. For `config` and each `layers[]` entry, `GET /v2/library/<name>/blobs/sha256:<hex>` (follows the 307 to R2; use `Range` to resume). Stream to `blobs/sha256-<hex>.partial`, check byte length equals `size` and sha256 equals `<hex>`, then rename to `blobs/sha256-<hex>`.
@@ -217,6 +219,8 @@ A prototype (not committed) implemented this and ran against the public registry
 
 The two packs are appended to `core/manifest/model-packs.yaml` (search for `name: stick-128`). `stick-128-oci` aliases the first pack's entries with YAML anchors (`serde_yaml` resolves them; the Hub catalog contract that will eventually generate this file must either support aliases or expand them). All digests are `null`. The existing entries in the other five packs were refreshed to the exact registry sizes at the same time, so one model ref has one size everywhere, and `qwen3.6:27b` changed from `license: unverified` to `Apache-2.0` (the registry licence layer).
 
+A third pack, `appliance-core` (`nomic-embed-text:latest`, `gemma3:1b`, `qwen3.6:27b`, 18,849,446,790 bytes), aliases the first three `stick-128` entries. It is the pack-shaped form of what `core/manifest/ecosystem.yaml` pre-pulls; a test keeps it equal to that list. Every licence in the catalog also has a row in `core/manifest/licenses.yaml`, which says which ones (Gemma, Llama) need a recorded acceptance and keeps `unverified` as the explicit release blocker.
+
 Effects on the existing checks:
 - All packs together (shared models counted once) go from 284.8 GB to **319.8 GB**. That still fits the 512 GB layout's 304 GiB (326.4 GB) cache, so the whole-catalog test still passes.
 - `ci-stick models list --device 123942731776` reports `stick-128` at 74.4 GB (fits) and `stick-128-oci` at 59.2 GB (fits); `large` (159.7 GB) does not fit a 128 GB stick, as expected.
@@ -227,5 +231,5 @@ Effects on the existing checks:
 - exFAT with Ollama was never run. The rules forbade attaching or formatting any disk, so I did not attach a disk image either. Everything in 5.2 is from kernel v6.8 and Ollama source, not an on-device test.
 - v0.40.x was not executed. The legacy-manifest fallback is from the v0.40.3 source only.
 - Read speed from the sticks is unknown. As arithmetic only: USB 2.0 is 480 Mb/s (60 MB/s theoretical), so mmap-loading `qwen3.6:27b` (17.77 GB) takes at least 5 min and realistically 7 min or more at about 40 MB/s. The five USB 3 sticks should be several times faster. Measure before promising anything.
-- Population time: 74.4 GB per stick. Download once (about 50 min at the 24.8 MB/s I measured) and then copy the verified seed to each stick. Do not re-download nine times. Copy speed is limited by the sticks, and the four USB 2 sticks share cascaded hubs.
+- Population time: 74.4 GB per stick (74.8 GB with the current `glm-ocr`). Download once (about 50 min at the 24.8 MB/s I measured) and then copy the verified seed to each stick. Do not re-download nine times. Copy speed is limited by the sticks, and the four USB 2 sticks share cascaded hubs.
 - Licences were read only as the first lines of each layer plus keyword searches. Gemma ToU flow-down and Llama attribution still need a human review before a release bundle.

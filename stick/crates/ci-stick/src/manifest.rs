@@ -9,7 +9,7 @@
 //! stable: [`Bundle::to_canonical_json`] emits fields in declaration order, 2-space indented,
 //! with a trailing newline, and `lock` sorts `artifacts` by path.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
 
@@ -365,11 +365,181 @@ pub struct Model {
     pub platforms: Vec<Platform>,
 }
 
+/// Where a model's bytes come from. It is decided by how [`Model::name`] is spelled, never by
+/// an extra field: the `Model` record and `schema_version` stay as they are (decision D2 in
+/// `docs/architecture/models-tooling.md`), and a Hugging Face model is spelled the way CI Hub's
+/// curated catalog and Ollama itself spell it, `hf.co/<org>/<repo>` with the quantization label
+/// (or file name) as `tag`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ModelSource {
+    /// `registry.ollama.ai`: `name` is `<model>` or `<namespace>/<model>`.
+    Ollama,
+    /// `huggingface.co` through its Ollama-compatible registry endpoint: `name` is
+    /// `hf.co/<org>/<repo>`.
+    HuggingFace,
+}
+
+/// Name prefix that marks a Hugging Face model.
+pub const HF_NAME_PREFIX: &str = "hf.co/";
+
 impl Model {
-    /// `name:tag`, the identity used for de-duplication across packs.
+    /// `name:tag`, the identity used for de-duplication across packs. For a Hugging Face model
+    /// this is exactly the Ollama reference `hf.co/<org>/<repo>:<quant>`.
     pub fn reference(&self) -> String {
         format!("{}:{}", self.name, self.tag)
     }
+
+    pub fn source(&self) -> ModelSource {
+        if self.name.starts_with(HF_NAME_PREFIX) {
+            ModelSource::HuggingFace
+        } else {
+            ModelSource::Ollama
+        }
+    }
+
+    /// `(org, repo)` for a Hugging Face model whose name has the exact shape
+    /// `hf.co/<org>/<repo>`.
+    pub fn hf_repo(&self) -> Option<(&str, &str)> {
+        let rest = self.name.strip_prefix(HF_NAME_PREFIX)?;
+        let (org, repo) = rest.split_once('/')?;
+        (!repo.contains('/')).then_some((org, repo))
+    }
+
+    /// Why `name` and `tag` are not an acceptable model reference, if they are not. This is the
+    /// catalog grammar, stricter than the bundle schema (which only demands a non-empty string,
+    /// and stays that way until the next `schema_version`): the strings become file names on an
+    /// exFAT volume (`models/manifests/<host>/<namespace>/<name>/<tag>`), so they must be
+    /// portable, and a tag that names a cloud-only model has no weights to download.
+    pub fn ref_problem(&self) -> Option<String> {
+        let r = self.reference();
+        let problem = match self.source() {
+            ModelSource::HuggingFace => match self.hf_repo() {
+                Some((org, repo)) => hf_id_problem(org)
+                    .map(|p| format!("organisation {org:?}: {p}"))
+                    .or_else(|| hf_id_problem(repo).map(|p| format!("repository {repo:?}: {p}"))),
+                None => Some("a Hugging Face name must be exactly hf.co/<org>/<repo>".to_string()),
+            },
+            ModelSource::Ollama => {
+                let parts: Vec<&str> = self.name.split('/').collect();
+                if parts.len() > 2 {
+                    Some(
+                        "an Ollama name is <model> or <namespace>/<model> (a registry host \
+                         is not allowed; Hugging Face models are spelled hf.co/<org>/<repo>)"
+                            .to_string(),
+                    )
+                } else {
+                    parts
+                        .iter()
+                        .find_map(|p| part_problem(p).map(|e| format!("{p:?}: {e}")))
+                }
+            }
+        };
+        let problem = problem.or_else(|| part_problem(&self.tag).map(|e| format!("tag: {e}")));
+        let problem = problem.or_else(|| {
+            (self.source() == ModelSource::Ollama && is_cloud_tag(&self.tag))
+                .then(|| "a :cloud tag has no weights to carry".to_string())
+        });
+        problem.map(|p| format!("model reference {r:?}: {p}"))
+    }
+}
+
+fn is_cloud_tag(tag: &str) -> bool {
+    tag == "cloud" || tag.ends_with("-cloud")
+}
+
+/// Windows device names, which exFAT can hold but Windows cannot open (with or without an
+/// extension), so a model or tag spelled like one would be unreadable on a Windows host.
+fn is_windows_reserved(part: &str) -> bool {
+    let stem = part.split('.').next().unwrap_or(part).to_ascii_uppercase();
+    matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || (stem.len() == 4
+            && (stem.starts_with("COM") || stem.starts_with("LPT"))
+            && matches!(stem.as_bytes()[3], b'1'..=b'9'))
+}
+
+/// One path-safe component of a model reference (an Ollama name part or a tag): 1 to 80 characters
+/// of `[A-Za-z0-9_.-]`, starting with a letter, digit or `_` and not ending in `.` (the rule
+/// Ollama applies to its parts, plus Windows' no-trailing-dot and device-name rules).
+fn part_problem(p: &str) -> Option<String> {
+    let Some(first) = p.chars().next() else {
+        return Some("is empty".into());
+    };
+    if p.chars().count() > 80 {
+        return Some("is longer than 80 characters".into());
+    }
+    if !(first.is_ascii_alphanumeric() || first == '_') {
+        return Some("must start with a letter, digit or '_'".into());
+    }
+    if let Some(bad) = p
+        .chars()
+        .find(|c| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-')))
+    {
+        return Some(format!("contains {bad:?}; only [A-Za-z0-9_.-] is allowed"));
+    }
+    if p.ends_with('.') {
+        return Some("must not end with '.' (Windows cannot open such a file)".into());
+    }
+    if is_windows_reserved(p) {
+        return Some("is a Windows device name".into());
+    }
+    None
+}
+
+/// A Hugging Face organisation or repository id: Hugging Face's own rule (1 to 96 characters of
+/// `[A-Za-z0-9_.-]`, starting and ending with a word character, no `--` and no `..`), plus the
+/// Windows device-name rule.
+fn hf_id_problem(id: &str) -> Option<String> {
+    let is_word = |c: char| c.is_ascii_alphanumeric() || c == '_';
+    if id.is_empty() || id.chars().count() > 96 {
+        return Some("must be 1 to 96 characters".into());
+    }
+    if let Some(bad) = id
+        .chars()
+        .find(|&c| !(is_word(c) || matches!(c, '.' | '-')))
+    {
+        return Some(format!("contains {bad:?}; only [A-Za-z0-9_.-] is allowed"));
+    }
+    if !id.starts_with(is_word) || !id.ends_with(is_word) {
+        return Some("must start and end with a letter, digit or '_'".into());
+    }
+    if id.contains("--") || id.contains("..") {
+        return Some("must not contain '--' or '..'".into());
+    }
+    if is_windows_reserved(id) {
+        return Some("is a Windows device name".into());
+    }
+    None
+}
+
+/// Problems with the *spelling* of every model reference in `packs`: each [`Model::ref_problem`],
+/// plus two references that differ only by case (exFAT is case-insensitive: they would be one
+/// file). Used by the pack catalog loader. Deliberately not part of [`validate_packs`], which
+/// also runs on signed `bundle.json` files whose schema this release does not tighten.
+pub fn model_ref_problems(packs: &[ModelPack]) -> Vec<String> {
+    let mut problems = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut folded: BTreeMap<String, String> = BTreeMap::new();
+    for m in packs.iter().flat_map(|p| &p.models) {
+        let r = m.reference();
+        // Packs share models (YAML aliases), so judge each distinct reference once.
+        if !seen.insert(r.clone()) {
+            continue;
+        }
+        if let Some(p) = m.ref_problem() {
+            problems.push(p);
+            continue;
+        }
+        match folded.get(&r.to_ascii_lowercase()) {
+            Some(first) => problems.push(format!(
+                "model references {first:?} and {r:?} differ only by case (exFAT would treat them as one file)"
+            )),
+            None => {
+                folded.insert(r.to_ascii_lowercase(), r);
+            }
+        }
+    }
+    problems
 }
 
 impl ModelPack {
@@ -761,6 +931,147 @@ mod tests {
         assert!(BootChain::Development
             .secure_boot_line()
             .contains("NOT supported"));
+    }
+
+    fn model_named(name: &str, tag: &str) -> Model {
+        Model {
+            name: name.into(),
+            tag: tag.into(),
+            digest: None,
+            quantization: "Q4_K_M".into(),
+            license: "Apache-2.0".into(),
+            size_bytes: 1,
+            min_ram_gb: 1,
+            min_vram_gb: None,
+            platforms: vec![Platform::LinuxX86_64],
+        }
+    }
+
+    #[test]
+    fn ollama_and_hugging_face_references_are_accepted() {
+        for (name, tag) in [
+            ("qwen3.6", "27b"),
+            ("nomic-embed-text", "latest"),
+            ("gpt-oss", "120b"),
+            ("granite4.1", "3b"),
+            ("someone/their_model", "Q4_K_M"),
+            ("hf.co/unsloth/gemma-3-270m-it-GGUF", "Q4_K_M"),
+            ("hf.co/unsloth/GLM-5.2-GGUF", "UD-Q4_K_XL"),
+            ("hf.co/ggml-org/gemma-3-270m-GGUF", "gemma-3-270m-Q8_0.gguf"),
+            ("hf.co/_org/a.b_c-d", "BF16"),
+        ] {
+            let m = model_named(name, tag);
+            assert_eq!(m.ref_problem(), None, "{name}:{tag}");
+        }
+    }
+
+    #[test]
+    fn hugging_face_models_use_the_ollama_spelling_without_a_new_field() {
+        let m = model_named("hf.co/unsloth/gemma-3-270m-it-GGUF", "Q4_K_M");
+        assert_eq!(m.source(), ModelSource::HuggingFace);
+        assert_eq!(m.hf_repo(), Some(("unsloth", "gemma-3-270m-it-GGUF")));
+        // The identity is the reference CI Hub stores as `backendModelId`.
+        assert_eq!(m.reference(), "hf.co/unsloth/gemma-3-270m-it-GGUF:Q4_K_M");
+        assert_eq!(model_named("gemma3", "1b").source(), ModelSource::Ollama);
+        assert_eq!(model_named("gemma3", "1b").hf_repo(), None);
+        assert_eq!(model_named("hf.co/unsloth", "Q4").hf_repo(), None);
+        assert_eq!(model_named("hf.co/a/b/c", "Q4").hf_repo(), None);
+        // The plain record validates; nothing about it is special to the bundle format.
+        assert!(validate_packs(&[ModelPack {
+            name: "p".into(),
+            description: "d".into(),
+            models: vec![m],
+        }])
+        .is_empty());
+    }
+
+    #[test]
+    fn unportable_or_ambiguous_references_are_rejected() {
+        let cases = [
+            ("", "latest", "is empty"),
+            ("gemma3", "", "tag: is empty"),
+            ("-gemma", "1b", "must start with"),
+            ("gemma 3", "1b", "only [A-Za-z0-9_.-]"),
+            ("gemma3", "1b:q4", "only [A-Za-z0-9_.-]"),
+            ("gemma:3", "1b", "only [A-Za-z0-9_.-]"),
+            ("gemma3.", "1b", "must not end with '.'"),
+            ("gemma3", "q4.", "must not end with '.'"),
+            ("a/b/c", "latest", "<namespace>/<model>"),
+            ("registry.example.com/ns/model", "1b", "<namespace>/<model>"),
+            ("gemma3/", "1b", "is empty"),
+            ("gemma\\3", "1b", "only [A-Za-z0-9_.-]"),
+            ("..", "1b", "must start with"),
+            ("con", "latest", "Windows device name"),
+            ("model", "nul.gguf", "Windows device name"),
+            ("model", "COM3", "Windows device name"),
+            ("kimi-k3", "cloud", "no weights"),
+            ("gpt-oss", "120b-cloud", "no weights"),
+            ("hf.co/org", "Q4", "exactly hf.co/<org>/<repo>"),
+            ("hf.co/org/repo/extra", "Q4", "exactly hf.co/<org>/<repo>"),
+            ("hf.co//repo", "Q4", "must be 1 to 96"),
+            ("hf.co/-org/repo", "Q4", "must start and end"),
+            ("hf.co/org/repo-", "Q4", "must start and end"),
+            ("hf.co/org/re..po", "Q4", "'--' or '..'"),
+            ("hf.co/org/re--po", "Q4", "'--' or '..'"),
+            ("hf.co/org/re po", "Q4", "only [A-Za-z0-9_.-]"),
+            ("hf.co/org/nul", "Q4", "Windows device name"),
+        ];
+        for (name, tag, why) in cases {
+            let problem = model_named(name, tag)
+                .ref_problem()
+                .unwrap_or_else(|| panic!("{name}:{tag} should be rejected"));
+            assert!(problem.contains(why), "{name}:{tag}: {problem}");
+        }
+        let long = "a".repeat(81);
+        assert!(model_named(&long, "1b")
+            .ref_problem()
+            .unwrap()
+            .contains("80"));
+        let long_id = "a".repeat(97);
+        assert!(model_named(&format!("hf.co/org/{long_id}"), "Q4")
+            .ref_problem()
+            .unwrap()
+            .contains("96"));
+        // A :cloud *tag* is only a problem for Ollama; Hugging Face quant labels are free text.
+        assert_eq!(model_named("hf.co/org/repo", "cloud").ref_problem(), None);
+    }
+
+    #[test]
+    fn references_that_differ_only_by_case_collide_on_exfat() {
+        let pack = |models: Vec<Model>| {
+            vec![ModelPack {
+                name: "p".into(),
+                description: "d".into(),
+                models,
+            }]
+        };
+        let ok = pack(vec![
+            model_named("hf.co/unsloth/Gemma-GGUF", "Q4_K_M"),
+            model_named("hf.co/unsloth/Gemma-GGUF", "Q4_K_M"),
+            model_named("gemma3", "1b"),
+        ]);
+        assert!(model_ref_problems(&ok).is_empty());
+        let clash = pack(vec![
+            model_named("hf.co/unsloth/Gemma-GGUF", "Q4_K_M"),
+            model_named("hf.co/unsloth/gemma-gguf", "q4_k_m"),
+        ]);
+        let problems = model_ref_problems(&clash);
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        assert!(problems[0].contains("differ only by case"), "{problems:?}");
+        // One bad reference shared by two packs is reported once.
+        let shared = vec![
+            ModelPack {
+                name: "a".into(),
+                description: "d".into(),
+                models: vec![model_named("bad name", "1b")],
+            },
+            ModelPack {
+                name: "b".into(),
+                description: "d".into(),
+                models: vec![model_named("bad name", "1b")],
+            },
+        ];
+        assert_eq!(model_ref_problems(&shared).len(), 1);
     }
 
     #[test]

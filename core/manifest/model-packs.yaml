@@ -11,20 +11,29 @@
 # marketplace. See docs/architecture/companion-stick.md ("Model-pack policy").
 #
 # Rules:
-# - `digest` stays null until a `ci-stick models lock` step resolves it from the
-#   registry. Never type a digest by hand.
+# - `digest` stays null until a `ci-stick models lock` step resolves it from the registry. Never
+#   type a digest by hand.
 # - `size_bytes` is the exact byte size of the model as the Ollama registry lists it: the sum of the
 #   manifest's config and layer sizes (https://registry.ollama.ai/v2/library/<name>/manifests/<tag>,
 #   decimal bytes), read 2026-10-13. Registry tags are mutable, so this is a snapshot; `ci-stick models
 #   lock` must pin the manifest digest. Never list `:cloud` tags (no weights) or non-GGUF `tensor` models.
-#   Keep the same model ref at one size across packs.
+#   Keep the same model ref at one size across packs (a test enforces it, for every field).
+#   Once core/manifest/model-packs.lock.json exists, the lock is the authority: a test fails when a
+#   size here differs from the lock by even one byte, and the sizes are then copied from the lock.
+# - A Hugging Face GGUF model uses the same record, spelled the way CI Hub's catalog and Ollama
+#   spell it: `name: hf.co/<org>/<repo>`, `tag: <quantization label or file name>`. There is no
+#   other field for it; the repository revision, the file and its LFS sha256 live in the lock.
+#   Only single-file, ungated repositories qualify. No pack lists one yet.
 # - `min_ram_gb`: system RAM needed to run the model at a usable context length.
 # - `min_vram_gb`: null = runs acceptably on CPU / unified memory; a number = practical
 #   minimum discrete-GPU VRAM.
 # - Every model already pre-pulled by core/manifest/ecosystem.yaml (llm.models) must
-#   appear in some pack; `cargo test` in stick/ enforces that.
-# - `license` is the licence's SPDX id or published name. "unverified" means it must be
-#   confirmed from Hub's catalog before a release bundle ships.
+#   appear in some pack, and the `appliance-core` pack must list exactly those models;
+#   `cargo test` in stick/ enforces both.
+# - `license` is the licence's SPDX id or published name, and must have a row in
+#   core/manifest/licenses.yaml (a test enforces it). "unverified" means it must be confirmed from
+#   Hub's catalog before a release bundle ships: it is the explicit `release_blocking` entry of
+#   that file, and `ci-stick models fetch` refuses it unless told to accept unverified licences.
 #
 # Check what fits a device:  ci-stick models list --device 512GB
 
@@ -169,8 +178,11 @@ packs:
       - &m_qwen3_embedding_0_6b {name: qwen3-embedding, tag: 0.6b, digest: null,
          quantization: Q8_0, license: Apache-2.0, size_bytes: 639150858,
          min_ram_gb: 4, min_vram_gb: null, platforms: *all}
+      # size_bytes copied from core/manifest/model-packs.lock.json (the registry re-pushed glm-ocr:latest on
+      # 2026-10-14: 2219299168 -> 2655025740 bytes; stick-128 is now 74795277212 bytes). Never edit by hand:
+      # re-run `ci-stick models lock` and copy; a test fails on any difference from the lock.
       - &m_glm_ocr_latest {name: glm-ocr, tag: latest, digest: null,
-         quantization: F16, license: MIT, size_bytes: 2219299168, min_ram_gb: 8,
+         quantization: F16, license: MIT, size_bytes: 2655025740, min_ram_gb: 8,
          min_vram_gb: null, platforms: *all}
       - &m_granite4_1_3b {name: granite4.1, tag: 3b, digest: null,
          quantization: Q4_K_M, license: Apache-2.0, size_bytes: 2099520281,
@@ -222,3 +234,17 @@ packs:
       - *m_functiongemma_270m
       - *m_gemma3_270m
       - *m_all_minilm_latest
+
+  # ---- appliance core --------------------------------------------------------------------
+  # What core/manifest/ecosystem.yaml `llm.models` pre-pulls on a provisioned machine: the embedding
+  # model, the tiny chat model and the flagship model (18.8 GB, the only one with a hardware gate).
+  # It is the first three ranks of stick-128, aliased from there so each model has one set of facts;
+  # a test keeps the list equal to ecosystem.yaml. It is the pack a background prefetch (off by
+  # default) would fetch, and the pack the model-fit gate in docs/architecture/models-tooling.md
+  # applies to.
+  - name: appliance-core
+    description: What ecosystem.yaml pre-pulls - embedding model, tiny chat model, flagship model (3 models)
+    models:
+      - *m_nomic_embed_text_latest
+      - *m_gemma3_1b
+      - *m_qwen3_6_27b
