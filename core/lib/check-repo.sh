@@ -53,7 +53,7 @@ echo "── no retired product names in backends/, core/ and .github/"
 # ci-os-* paths are not product names and do not match. Three places spell the old names on purpose and are not scanned:
 # this file, verify-iso.sh (it asserts they are absent from a built image) and iso/tests (a test plants one to see that it
 # is caught). docs/ keeps the history and stick/ is a separate change.
-old_names="$(git grep -nE 'CI OS|CI-OS Desktop|CI-OS Blue Teal|Companion Ubuntu|Intelligence Operating System|Companion Intelligence OS|Companion Intelligence [0-9$]' -- backends core .github ':(exclude)core/lib/check-repo.sh' ':(exclude)backends/ubuntu/iso/scripts/verify-iso.sh' ':(exclude)backends/ubuntu/iso/tests' 2>/dev/null || true)"
+old_names="$(git grep -nE 'CI OS|CI-OS Desktop|CI-OS Blue Teal|Companion Ubuntu|Intelligence Operating System|Companion Intelligence OS|Companion Intelligence [0-9$]' -- backends core .github ':(exclude)core/lib/check-repo.sh' ':(exclude)backends/ubuntu/iso/scripts/verify-iso.sh' ':(exclude)backends/ubuntu/iso/tests' ':(exclude)backends/ubuntu/chroot/tests/models-units.sh' 2>/dev/null || true)"
 if [ -n "$old_names" ]; then
   echo "✖ a retired product name is back; the name is \"Companion OS\":"; echo "$old_names"; rc=1
 fi
@@ -159,6 +159,32 @@ else
   else echo "✖ qemu-boot.sh --selftest failed (exit $qb_rc):"; tail -n 15 "$qb_out"; rc=1; fi
   rm -f "$qb_out"
 fi
+
+echo "── setup portal, ISO layer split and model tooling tests (fixtures and stubs only: no root, no Docker, no network)"
+# Each suite exits 0 = passed, 2 = cannot run here (reported, not failed), anything else = failed. They cover: the shared setup-portal
+# payload (core/headless/tests/payload), the ci_setup library (quick run), the layer split (Part A: pure helpers), the installed-boot
+# smoke test's self-test, and the OS-side model adapter (core/lib/ci-os-models.sh). The heavy parts (Part B of the split test, the
+# installed-boot boot, the hwsim harness stick/tests/qemu/hotspot-hwsim.sh, `ci-stick models lock --check`) are manual: see their READMEs.
+for suite in \
+  "setup-portal payload|bash core/headless/tests/payload/run.sh" \
+  "ci_setup library|bash core/headless/tests/ci_setup/run.sh --quick" \
+  "ISO layer split, Part A|env SPLIT_TEST_PART=A bash backends/ubuntu/iso/tests/split-live-layer.sh" \
+  "installed-boot self-test|bash backends/ubuntu/iso/tests/installed-boot.sh --selftest" \
+  "OS model adapter|bash backends/ubuntu/chroot/tests/models-all.sh"; do
+  sname="${suite%%|*}"; scmd="${suite#*|}"
+  sfile="$(printf '%s' "$scmd" | sed -n 's/.*\(core\/[^ ]*\.sh\|backends\/[^ ]*\.sh\).*/\1/p')"
+  if [ -n "$sfile" ] && [ ! -f "$sfile" ]; then echo "✖ missing: $sfile ($sname)"; rc=1; continue; fi
+  sout="$(mktemp)"; src=0
+  $scmd > "$sout" 2>&1 || src=$?
+  if [ "$src" -eq 0 ]; then
+    echo "  $sname: $(grep -E '(passed|PASS|✔| OK)' "$sout" | tail -n 1 | cut -c1-110)"
+  elif [ "$src" -eq 2 ]; then
+    echo "! $sname cannot run here: $(head -n 1 "$sout" | cut -c1-110)"
+  else
+    echo "✖ $sname failed (exit $src):"; { grep -E '^(FAIL|✖)' "$sout" | head -n 20; } || true; tail -n 5 "$sout"; rc=1
+  fi
+  rm -f "$sout"
+done
 
 [ $rc -eq 0 ] && echo "✔ all checks passed"
 exit $rc
