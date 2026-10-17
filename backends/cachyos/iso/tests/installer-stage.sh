@@ -244,6 +244,18 @@ DESC="--print-units: the access point (hostapd-setup, dnsmasq-setup) is started 
 if in_list hostapd-setup "$ONDEMAND" && in_list dnsmasq-setup "$ONDEMAND" && in_list setup-backend "$ENABLED" && in_list setup-network-monitor "$ENABLED"; then verdict 0
 else verdict 1; echo "      enabled: $ENABLED  on demand: $ONDEMAND"; fi
 
+# What the staged hotspot episode does and does not do (the payload's own tests are core/headless/tests/payload; these are the
+# properties this edition relies on when it leaves the units to be started on demand).
+DESC="the hotspot script never touches Docker or Traefik (it used to run 'docker stop traefik' and never started it again)"
+if ! grep -v '^[[:space:]]*#' "$HOTSPOT" | grep -qiE 'docker|traefik'; then verdict 0; else verdict 1; fi
+DESC="the hotspot script ends an episode it started: it has a stop mode and a trap that runs it when a start fails or is interrupted"
+if grep -qE '^[[:space:]]*stop\)' "$HOTSPOT" && grep -qE '^trap on_exit EXIT' "$HOTSPOT" && grep -qE "^trap 'exit 143' TERM" "$HOTSPOT"; then verdict 0; else verdict 1; fi
+DESC="the staged nginx site answers /api/ only to the setup network and this machine (the portal listens on every interface)"
+NGSITE="$PCOPY/core/headless/payload/nginx/sites-available/setup-portal"
+if awk '/location \/api\// { f = 1 } f && /allow 192\.168\.99\.0\/24;/ { a = 1 } f && /deny all;/ { d = 1 } f && /proxy_pass/ { exit } END { exit (a && d) ? 0 : 1 }' "$NGSITE"; then verdict 0; else verdict 1; fi
+DESC="the staged hostapd config isolates clients (ap_isolate=1) and sets no country of its own"
+if grep -q '^ap_isolate=1' "$T/etc/hostapd/hostapd-setup.conf" && ! grep -q '^country_code=' "$T/etc/hostapd/hostapd-setup.conf"; then verdict 0; else verdict 1; fi
+
 # =============================================================================================================================
 echo "== C  ci-os-stage-target.sh (the Calamares step)"
 STG="$OV/scripts/ci-os-stage-target.sh"
@@ -552,7 +564,9 @@ if [ "$PW_RC" = 3 ] && ! grep -q 'Ollama' "$W/pw/out"; then verdict 0; else verd
 # --- the Ollama models (F6): the stub ollama and MANIFEST_MODELS are defined above, next to pw_run ---
 pw_models() {  # [VAR=value ...] bash PW [args]: the wrapper with the stub ollama on the PATH and a fresh call counter
   rm -f "$W/pw/ollama-count"
-  PW_PATH="$W/pw/bin:/usr/bin:/bin" pw_run env SUDO_USER=bob PW_OLLAMA_COUNT="$W/pw/ollama-count" CI_OS_OLLAMA_TRIES=4 CI_OS_OLLAMA_SLEEP=0 "$@"
+  # The hardware-fit gate (core/lib/gpu-detect.sh) would answer for THIS machine; the checks below are about the wrapper's own logic, so
+  # the gate is forced open here (a later VAR=value in "$@" overrides it, see the gate test below).
+  PW_PATH="$W/pw/bin:/usr/bin:/bin" pw_run env SUDO_USER=bob PW_OLLAMA_COUNT="$W/pw/ollama-count" CI_OS_OLLAMA_TRIES=4 CI_OS_OLLAMA_SLEEP=0 CI_OS_MODEL_FIT_OVERRIDE=allow "$@"
 }
 DESC="the manifest the wrapper reads says what this test assumes (llm.models: nomic-embed-text, gemma3:1b, qwen3.6:27b)"
 if [ "$(awk '/^llm:/ { f = 1; next } f && /models:/ { print; exit }' "$REPO_ROOT/core/manifest/ecosystem.yaml" | tr -d ' ')" = 'models:[nomic-embed-text,"gemma3:1b","qwen3.6:27b"]' ]; then verdict 0; else verdict 1; fi
@@ -572,6 +586,10 @@ if [ "$PW_RC" = 74 ] && grep -q 'missing after provisioning: gemma3:1b' "$W/pw/o
 pw_models PW_OLLAMA_MODELS="" bash "$PW"
 DESC="an empty model list (a fresh server) is an answer, not a failure to answer: one call, all three reported missing, exit 74"
 if [ "$PW_RC" = 74 ] && [ "$(cat "$W/pw/ollama-count")" = 1 ]; then verdict 0; else verdict 1; fi
+
+pw_models CI_OS_MODEL_FIT_OVERRIDE=deny PW_OLLAMA_MODELS="" bash "$PW"
+DESC="the hardware-fit gate: models this machine cannot hold are skipped on purpose and are NOT reported missing (no endless 'degraded'), exit 0"
+if [ "$PW_RC" = 0 ] && grep -q 'skipped on purpose' "$W/pw/out" && ! grep -q 'missing after provisioning' "$W/pw/out"; then verdict 0; else verdict 1; sed 's/^/      /' "$W/pw/out"; fi
 
 pw_models PW_OLLAMA_MODELS="$MANIFEST_MODELS" PW_OLLAMA_FAIL_FIRST=3 bash "$PW"
 DESC="the Ollama server is not up yet: the check polls (3 failed answers, then the list) instead of a fixed pause, and passes"

@@ -130,8 +130,16 @@ check_models() {
     sleep "$OLLAMA_SLEEP"
   done
   have="$(printf '%s\n' "$listing" | awk 'NR > 1 { print $1 }')"
+  # The same hardware-fit gate the Arch provisioner applies before it pulls (core/lib/gpu-detect.sh): a model the machine cannot
+  # hold was skipped on purpose and is not "missing", otherwise a small machine would end "degraded" for good.
+  # shellcheck source=../../../core/lib/gpu-detect.sh
+  [ -r "$SCRIPT_DIR/../../../core/lib/gpu-detect.sh" ] && . "$SCRIPT_DIR/../../../core/lib/gpu-detect.sh"
   for m in $want; do
     case "$m" in *:*) ;; *) m="$m:latest" ;; esac
+    if declare -F ci_os_model_gate_allows >/dev/null 2>&1 && ! ci_os_model_gate_allows "$m"; then
+      echo "[CI-OS] $m skipped on purpose: ${CI_OS_MODEL_FIT_REASON:-the machine is below the RAM/VRAM budget of the model}" >&2
+      continue
+    fi
     printf '%s\n' "$have" | grep -qxF -- "$m" || missing="$missing ${m%:latest}"
   done
   [ -z "$missing" ] || { echo "[CI-OS] Required Ollama model(s) missing after provisioning:$missing" >&2; return 1; }

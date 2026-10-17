@@ -1,0 +1,21 @@
+[Unit]
+Description=Companion OS: Hugging Face cache view of the model store (symlinks)
+# Builds /var/lib/ci-os/hf-view/hub/models--ORG--NAME/{refs/main,snapshots/<commit>/<file>} as symlinks to the blobs
+# on the CI-CACHE volume, so huggingface_hub and llama.cpp (HF_HUB_CACHE / LLAMA_CACHE) read the one copy that Ollama
+# also uses instead of copying it onto the root filesystem. A few kilobytes; idempotent; nothing to do (and no
+# error) when no cache volume is mounted. ollama.service builds the same view when it selects the stick, this
+# unit covers boots where Ollama does not run (live sessions) and a volume mounted by the desktop.
+After=local-fs.target ollama.service
+ConditionPathExists=/usr/bin/ci-os-models
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/ci-os-models view --quiet
+TimeoutStartSec=60
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

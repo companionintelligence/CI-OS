@@ -1,0 +1,23 @@
+Companion OS model tooling, files for the Arch-based edition (data only: nothing here is executable or active).
+
+The OS-side model adapter is shared by every edition. Its home is backends/ubuntu/chroot/payload/models/README.md
+(what each file does, the cache, the environment, the Hugging Face view, the hardware-fit gate, the opt-in background
+prefetch, how ci-stick gets onto an image). The files in this directory are the units and settings that README installs,
+for an edition whose build cannot copy files from that payload directory:
+
+  ollama.service.d-20-ci-os-models.conf   -> /etc/systemd/system/ollama.service.d/20-ci-os-models.conf
+  ci-os-hf-view.service                   -> /usr/lib/systemd/system/
+  ci-os-models-prefetch.service           -> /usr/lib/systemd/system/
+  ci-os-models-prefetch.timer             -> /usr/lib/systemd/system/
+  ci-os-models-prefetch.path              -> /usr/lib/systemd/system/   (enable this one; it starts the timer)
+  profile-ci-os-models.sh                 -> /etc/profile.d/ci-os-models.sh
+  models.conf.example                     -> /etc/ci-os/models.conf (copy and edit; every key is optional)
+
+They are byte-identical copies of the files in the payload directory (backends/ubuntu/chroot/tests/models-units.sh
+fails if they drift). They also need, on the target: /usr/bin/ci-os-models (core/lib/ci-os-models.sh, mode 0755),
+/usr/lib/ci-os/gpu-detect.sh (core/lib/gpu-detect.sh), /usr/share/ci-os/model-packs.yaml (core/manifest/model-packs.yaml),
+/usr/libexec/ci-os/ollama-models-env (the payload script, mode 0755), and ci-stick (optional; without it Ollama references
+fall back to 'ollama pull' and Hugging Face references are refused).
+
+Background prefetch is OFF: it runs only if /etc/ci-os/models-prefetch exists and /etc/ci-os/models.conf names a pack,
+on an unmetered link, with no setup access point up, never into RAM.

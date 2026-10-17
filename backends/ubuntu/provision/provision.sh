@@ -985,7 +985,13 @@ pull_ollama_models() {
         # shellcheck source=../../../core/lib/gpu-detect.sh
         source "$gpu_detect"
         if ci_os_hardware_supported; then
-            PULL_QWEN=1
+            # The Strix Halo rule above is the class gate; the data-driven fit gate (RAM and GPU memory against
+            # core/manifest/model-packs.yaml) applies on top of it. "No fit data" never blocks a pull.
+            if ci_os_model_gate_allows qwen3.6:27b; then
+                PULL_QWEN=1
+            else
+                log_info "Skipping qwen3.6:27b: ${CI_OS_MODEL_FIT_REASON}"
+            fi
         else
             log_info "Skipping qwen3.6:27b: ${CI_OS_HARDWARE_SUPPORT_REASON}"
         fi
