@@ -20,10 +20,10 @@ has been run end to end** (see "What is not tested").
 | `scripts/ci-os-stage-target.sh` | the Calamares step that puts Companion OS on the target (payload, first-boot, identity) | run from `/usr/share/ci-os/calamares/scripts/` |
 | `scripts/ci-os-post-install-fixups.sh` | fix-ups of CachyOS hard-codes, run in the target | copied to `/usr/lib/ci-os/` of the target |
 | `lib/ci-pkglist.py` | reads the package names the installer will ask pacman for: `basePackages`, `pacstrap-code-added.list`, the package job's operations, the netinstall groups. One definition for the launcher's preflight, `check-packages.py` and the tests | used by the launcher and the tests |
-| `stage-installer.sh`, `render-installer-assets.sh` | assemble the above into the ISO build's staging tree (`$CI_OS_STAGING_DIR`), render the three branding pictures | build time |
+| `stage-installer.sh`, `render-installer-assets.sh` | assemble the above into the ISO build's staging tree (`$CI_OS_STAGING_DIR`), render the four branding pictures (logo, icon, welcome, bootloader) | build time |
 | `packages/` | `check-packages.py` (names exist?), `capture-upstream-facts.sh` (the installer's shape), `validate-module-schemas.py`, `live-extra.list` | maintainer tools |
 | `contract.env` | values shared with the brand overlay (`iso/overlay/INSTALLED.md`); the test fails if a config disagrees | tests |
-| `../provision/` | first-boot provisioning wrapper and service, `stage-headless.sh` | staged into the target |
+| `../provision/` | first-boot provisioning wrapper and service, `stage-headless.sh`, `progress-filter.sh` (keeps terminal redraws out of the log and the journal) | staged into the target |
 | `../iso/overlay/files/airootfs/usr/local/bin/calamares-online.sh` | the launcher (replaces upstream's script of the same name) | live ISO |
 | `../iso/overlay/files/airootfs/usr/share/applications/ci-os-install.desktop` | "Install Companion OS" | live ISO |
 | `../iso/overlay/files/airootfs/etc/pacman.d/hooks/ci-os-neutralise-hello.hook` | hides CachyOS Hello in the live session | build time only |
@@ -124,13 +124,46 @@ guard"): the same safety, but an incompatible CachyOS release does not turn the 
   missing (`name` also matches `name:latest`; another tag does not count). `first-boot-setup.sh` treats 74 as *degraded*: no done
   marker, the attempt stays counted (three automatic ones), `/var/lib/ci-os/first-boot-setup-status` says why, the timer tries
   again in 15 minutes and `ollama pull` is only repeated for what is missing, and the last attempt says that setup is NOT marked
-  complete and names `sudo ci-os-setup`. The unit has `TimeoutStartSec=infinity`: `qwen3.6:27b` alone is 17.8 GB, and fetching
-  that in the former 1800 s takes 79 Mbit/s sustained, with a systemd kill half way using up an attempt. The download is about
+  complete and names `sudo ci-os-setup`. Nothing in the unit may kill the run half way (no `RuntimeMaxSec`; it was a `Type=oneshot`
+  with `TimeoutStartSec=infinity` until the ISO #4 run, see below): `qwen3.6:27b` alone is 17.8 GB, and fetching
+  that in 1800 s takes 79 Mbit/s sustained, with a systemd kill half way using up an attempt. The download is about
   18.8 GB in all on every install (nomic-embed-text 0.27 GB, gemma3:1b 0.81 GB, qwen3.6:27b 17.8 GB; `core/manifest/model-packs.yaml`);
   the Arch script does not gate the large model on RAM, VRAM or disk the
   way the Ubuntu one does (`ci_os_hardware_supported`), so **a machine that cannot hold `qwen3.6:27b` ends in "degraded" for good**:
   that gate belongs in the shared provisioner, which this change does not edit. An interrupted boot (power off during the
   download) uses up one of the three automatic attempts because a run is counted when it starts.
+- **What the ISO #4 install run changed (full run on the 30 GiB NVMe target: live, Calamares online install, installed boot, first boot).**
+  Each item has a test; none is confirmed on a booted system until the next ISO is built and the frames are re-shot.
+  - `ollama list` ran as root under a unit with no `$HOME`, the CLI panics without one (exit 2), and the wrapper read that as "server
+    never answered": all three models were installed and the run ended "degraded" (74) every time. Now the unit sets `HOME=/root`,
+    `provision.sh` sets it when it is unset, and the failure message shows the last stderr of `ollama list`. The Arch script's own
+    calls run through `sudo -u "$ACTUAL_USER"`, where sudo supplies that user's HOME, so they needed nothing.
+  - The first-boot oneshot held `graphical.target` (16 min 27 s with a network): a target is ordered after what it wants, and a
+    oneshot's start job lasts as long as the script. The unit is `Type=exec` now, with no `network-online.target` ordering (the
+    script polls for the network itself), `Nice=10`; retries stay with the timer and the attempt counter.
+  - `ollama pull` redraws its progress block ten times a second: 14,052 log lines (1.9 MB) and `[147B blob data]` in the journal for
+    three pulls. `progress-filter.sh` (in front of the log and the journal; the terminal of `sudo ci-os-setup` keeps the raw stream)
+    prints each layer every 5% or 30 s and strips the colour codes of the Arch script. A `PATH` shim around `ollama` does not work:
+    the pulls run under `sudo -u`, and Arch's sudoers sets `secure_path`. The filter is ONE awk program (linear: its bash first
+    version needed 35 s for a line of 15,000 ESC and the provisioner blocked in `write()` meanwhile), with a high-water mark per layer
+    (a retry that goes 41, 39, 41 ... is one line per window, not one per sample) and a clamp for absurd percentages.
+  - The tail of the first-boot output was lost when the main process exited: the filter and the `tee` live in a process substitution,
+    and with the unit's default `KillMode=control-group` systemd SIGTERMs them the moment the script is done (measured under a real
+    systemd manager, 300-redraw run, 40 runs each: the bash filter lost the closing lines 40 times, the awk filter without the fix 16
+    times, with it 0). `first-boot-setup.sh` now closes its stdout and stderr in an EXIT trap and waits, at most 5 s, for the
+    substitution (`$!`), so a background child that keeps the pipe open cannot keep the unit up either.
+  - `cachy-update` (a "Cachy-Update" menu entry and a teal C in the tray of the installed desktop; the live image never had it) is no
+    longer in the Plasma group, its user timer is no longer enabled, and `ci-os-post-install-fixups.sh` removes it if it arrives anyway
+    (hiding it when pacman refuses). Nothing requires it; the update path of this edition is `sudo pacman -Syu`.
+  - The installer's look: the colour scheme paints Highlight like the window, so the progress bar's fill, the selected rows of the
+    keyboard, bootloader, package and partition lists were invisible. `branding/companion/stylesheet.qss` sets those colours from the
+    brand tokens (contrast checked by `installer-config.py`), removes the Welcome page's dark stock pictograms, the bootloader
+    chooser shows the Companion mark instead of Calamares' zip-archive placeholder, and the package descriptions are short enough
+    for the window.
+  - **Still open:** the model set takes the 30 GiB target from 7.8 GiB to 26 GiB used; a smaller disk fails a pull for lack of
+    space. The guard (skip a model when the free space of the model directory is below its `size_bytes` plus a margin, and do not
+    count it as missing) belongs in the shared gate `ci_os_model_gate_allows` in `core/lib/gpu-detect.sh`, which the Arch script and
+    this wrapper both call; it cannot be done here without editing `backends/arch/**`.
 - **No host firewall (UFW is not installed, the `enable-ufw` step is dropped).** Reasons: the Ubuntu edition ships `ufw` installed
   but disabled (`docs/architecture/tier-b-tools.md`, risk R4: CI-Hub's containers reach the host's Ollama on `0.0.0.0:11434`
   through the docker bridge, which a default-deny INPUT policy would block); the stock `enable-ufw` sets `default deny incoming`,
@@ -249,13 +282,20 @@ matches only the bare state words, while `nmcli` prints `connecting (getting IP 
 ## Tests
 
 ```
-backends/cachyos/iso/tests/installer-config.sh        # runs the three below; no root, no Docker, no network (bash 3.2+, python3 + PyYAML, git)
+backends/cachyos/iso/tests/installer-config.sh        # runs the parts below; no root, no Docker, no network (bash 3.2+, python3 + PyYAML, git)
   installer-config.py       YAML and text invariants, contract.env, the package fixture, the sequence order, the units (which run at
-                            boot and which the hotspot script starts), the guards.list policy, the first-boot unit's timeout
+                            boot and which the hotspot script starts), the guards.list policy, the first-boot unit's shape (does not hold
+                            the boot targets, HOME), the installer stylesheet's contrast, the bootloader picture, the package descriptions
   installer-launcher.sh     guard library (unparseable sequences and lists, frozen-list drift, code-added packages) and launcher
                             (package preflight of the whole base system) against a fake Calamares tree and stubbed pacman/bsdtar/pkexec/dialogs
-  installer-stage.sh        stager, payload PARITY, Calamares staging step, fix-ups, first-boot driver (incl. degraded runs),
-                            provisioning wrapper (incl. the Ollama model check against a stand-in `ollama`)
+  installer-stage.sh        stager, payload PARITY, Calamares staging step, fix-ups (incl. cachy-update), first-boot driver (incl. degraded
+                            runs and the output filter), provisioning wrapper (incl. the Ollama model check against a stand-in `ollama`
+                            that panics without HOME)
+  progress-filter.sh        the output filter on the real recorded stream of `ollama pull`, a 3000-redraw flood, a layer that goes up and
+                            down (20,000 samples), plain output, consecutive pulls, the time rule, escape-heavy newline-free input
+                            (each case under 2 s), percentages, binary junk, no awk; and the driver's hand-over of the output: the
+                            tail survives the exit of the main process (200 runs with its process group killed at once, a slow
+                            filter as the sensitive case, a background child that holds the pipe)
 ```
 
 ## What is not tested
@@ -270,7 +310,12 @@ backends/cachyos/iso/tests/installer-config.sh        # runs the three below; no
 - The Arch provisioner itself (`backends/arch/provision/provision.sh`) has never run on CachyOS here, so the model check was tested
   against a stand-in `ollama` (its `list` output and a server that comes up late or never), not a real server: that `ollama list` as
   root reaches a server bound to `0.0.0.0`, and that a pull resumes after `systemctl stop`, are from the documentation, not seen.
-  `TimeoutStartSec=infinity` and the retry timer were not run under systemd either.
+  The first-boot unit and the retry timer were checked with `systemd-analyze verify` (systemd 262 in the builder image: nothing but the
+  emulation artefact below) and by the tests of their text, but never run under systemd: that `Type=exec` really keeps
+  `graphical.target` from waiting is from systemd.target(5), not seen on a boot.
+- The installer stylesheet was rendered offscreen with PySide6, the Breeze style and the CI-OS-Dark palette (the selected rows, the progress
+  bar with its text, the netinstall tree, the bootloader page with the real picture), not in Calamares itself: the widget names come from the
+  pinned package's strings and its stock stylesheet, not from a run.
 - The `settings-drift`, `list-drift` and `code-names` guards were tested on the recorded SHAPE of 3.4.2-13 and on edited copies of
   it (empty file, flow style, renamed key, comment on the header, added and removed items), with BSD awk 20200816 and gawk 5.4.1;
   not on a newer upstream release.
@@ -279,3 +324,9 @@ backends/cachyos/iso/tests/installer-config.sh        # runs the three below; no
   harmless) and `nginx -T` shows both the stock `localhost` server and the portal's `listen 80 default_server`;
   `systemd-analyze verify` reports nothing about the first-boot service and timer except "Command ... is not executable: Invalid
   argument", which it prints for `/usr/bin/true` too (an artefact of the emulated container). No daemon was started.
+- The drain of the output (the EXIT trap of `first-boot-setup.sh`) is tested without systemd (`progress-filter.sh`, section M: a process
+  group that is SIGTERMed when the main process exits, which is what `KillMode=control-group` does) and, by hand, under a real systemd USER
+  manager (`first-boot-drain-container.sh`; the control without the trap loses the tail 10 of 10 runs there). That script needs a
+  container where `systemd --user` starts: in the amd64 builder image under Rosetta it stops with "Failed to pin executor binary ...
+  Invalid argument" (the same artefact as above), so its run here was in an arm64 Ubuntu 26.04 container (systemd 259) with gawk. It is
+  not the unit on a booted CachyOS.

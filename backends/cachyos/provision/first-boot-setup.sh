@@ -22,12 +22,28 @@
 #
 # No `set -e`: provision.sh tolerates individual network failures itself, and a hard exit here would skip the marker bookkeeping.
 #
+# Output. Everything this script and the provisioners print goes through progress-filter.sh (next to provision.sh in the bootstrap
+# tree) before it reaches the journal and the log: Ollama redraws its progress block ten times a second, and ISO #4's log grew to
+# 14,052 lines / 1.9 MB for three pulls, each redraw a "[147B blob data]" journal entry, while the Arch provisioner's colour codes made
+# every ordinary line a blob too. When a person runs `sudo ci-os-setup` in a terminal they keep the raw stream on the screen (colours,
+# the live progress bar) and only the log copy is filtered. A missing or failing filter degrades to `cat`, never to lost output.
+#
+# The tail of the output. The filter and the tee live in a process substitution, which is not a child bash waits for, and the unit has
+# the default KillMode=control-group: systemd SIGTERMs whatever is still in the cgroup the moment the main process exits. A pipeline
+# that is a little slower than a plain `tee` then loses the last lines of the run ("First-boot setup completed", "NOTE: Log out ...",
+# "Will retry automatically ...": measured under a real systemd manager with a byte-at-a-time filter, 24 to 40 runs in 40, and 16 in 40
+# with the awk filter; KillMode=mixed made no difference). So
+# the EXIT trap (drain_output) closes this script's stdout and stderr, which gives the pipeline its end of input, and waits for the
+# substitution to finish, for at most 5 s: a background child of the provisioner that still holds the pipe cannot keep the unit up.
+#
 # Environment (tests; the defaults are the installed system): CI_OS_BOOTSTRAP_ROOT, CI_OS_STATE_DIR, CI_OS_LOG_FILE,
-# CI_OS_LOCK_FILE, CI_OS_CMDLINE_FILE, CI_OS_RUN_ARCHISO, CI_OS_NETWORK_TRIES, CI_OS_NETWORK_SLEEP, CI_OS_NETWORK_PROBE (an executable).
+# CI_OS_LOCK_FILE, CI_OS_CMDLINE_FILE, CI_OS_RUN_ARCHISO, CI_OS_NETWORK_TRIES, CI_OS_NETWORK_SLEEP, CI_OS_NETWORK_PROBE (an executable),
+# CI_OS_FORCE_TTY=1 (take the interactive branch of the output set-up without a terminal).
 set -u
 
 BOOTSTRAP_ROOT="${CI_OS_BOOTSTRAP_ROOT:-/usr/lib/ci-os/bootstrap}"
 PROVISION_SH="$BOOTSTRAP_ROOT/backends/cachyos/provision/provision.sh"
+PROGRESS_FILTER="$BOOTSTRAP_ROOT/backends/cachyos/provision/progress-filter.sh"
 STATE_DIR="${CI_OS_STATE_DIR:-/var/lib/ci-os}"
 LOG_FILE="${CI_OS_LOG_FILE:-/var/log/ci-os-first-boot-setup.log}"
 # Written ONLY when provisioning succeeded, models included. The unit and the timer are gated on it.
@@ -53,7 +69,29 @@ if [[ ${#PROVISION_ARGS[@]} -eq 0 ]]; then
 fi
 
 mkdir -p "$STATE_DIR" "$(dirname "$LOG_FILE")" 2>/dev/null || true
-exec > >(tee -a "$LOG_FILE") 2>&1
+# The stream a log and the journal can take. Used inside the process substitutions below, which run in subshells of this script and
+# see this function. `|| cat`: a filter that died must not take the output (and, through SIGPIPE, the provisioning) with it.
+log_stream() {
+    if [[ -r "$PROGRESS_FILTER" ]]; then bash "$PROGRESS_FILTER" || cat; else cat; fi
+}
+if [[ -t 1 || "${CI_OS_FORCE_TTY:-}" == 1 ]]; then
+    # The inner substitution is the filtered copy for the log; the outer shell waits for it, so that waiting for the outer one (LOG_PID)
+    # is waiting for both. (`wait` of a substitution's pid needs bash 4.4; without it the log copy may finish a moment after the script.)
+    exec > >(tee >({ log_stream >> "$LOG_FILE"; } 2>/dev/null; cat >/dev/null); p=$!; [[ -z "$p" ]] || wait "$p" 2>/dev/null) 2>&1
+else
+    exec > >(log_stream | tee -a "$LOG_FILE") 2>&1
+fi
+# The pid of the substitution just made (empty where bash does not set $!, and then there is nothing to wait for; set -u would abort).
+set +u; LOG_PID=$!; set -u
+drain_output() {
+    [[ -n "${LOG_PID:-}" ]] || return 0
+    exec >&- 2>&-
+    local t0=$SECONDS
+    # A wall-clock bound (SECONDS), not a count of sleeps: where a process start is slow a count would take far longer than 5 s.
+    while kill -0 "$LOG_PID" 2>/dev/null && (( SECONDS - t0 < 5 )); do sleep 0.05; done
+    return 0
+}
+trap drain_output EXIT
 
 echo "[CI-OS] First-boot setup starting at $(date -u)$([[ "$MANUAL" == true ]] && echo ' (manual)')"
 
@@ -116,7 +154,7 @@ if [[ ! -r "$PROVISION_SH" ]]; then
 fi
 
 if [[ "$MANUAL" != true ]]; then
-    # Count the run before starting it, so one killed by TimeoutStartSec (a slow model pull) still counts toward the limit.
+    # Count the run before starting it, so one that is killed (a shutdown or `systemctl stop` in the middle of a model pull) still counts toward the limit.
     attempts=$(cat "$ATTEMPTS_FILE" 2>/dev/null || echo 0)
     [[ "$attempts" =~ ^[0-9]+$ ]] || attempts=0
     attempts=$((attempts + 1))

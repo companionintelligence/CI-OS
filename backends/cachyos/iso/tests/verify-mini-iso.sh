@@ -124,7 +124,7 @@ for c in bootloader displaymanager grubcfg netinstall packagechooser_bootloader 
          shellprocess-before-online shellprocess_initialize_pacman shellprocess_modify_mk_hook shellprocess_reset_mk_hook shellprocess_btrfs_snapshot \
          shellprocess_cleanup_calamares users welcome_online; do : > "$ROOT/etc/calamares/modules/$c.conf"; done
 # shellcheck disable=SC1090
-( . "$CACHYOS/iso/scripts/verify-iso.sh"; for p in $V_REQUIRED_PKGS cachyos-hello cachyos-kde-settings; do echo "$p 1.0-1"; done ) | sort -u > "$W/pkglist.txt"
+( . "$CACHYOS/iso/scripts/verify-iso.sh"; for p in $V_REQUIRED_PKGS cachyos-hello cachyos-kde-settings kdialog; do echo "$p 1.0-1"; done ) | sort -u > "$W/pkglist.txt"
 while read -r n v; do d="$ROOT/var/lib/pacman/local/$n-$v"; mkdir -p "$d"; printf '%%NAME%%\n%s\n' "$n" > "$d/desc"; printf '%%FILES%%\n' > "$d/files"; done < "$W/pkglist.txt"
 # the symlinks upstream's own build generates
 mkdir -p "$ROOT/etc/systemd/system"

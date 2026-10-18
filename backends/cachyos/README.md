@@ -111,7 +111,7 @@ backends/cachyos/iso/tests/installer-config.sh    # installer overlay, launcher 
 backends/cachyos/iso/tests/verify-selftest.sh     # every check of verify-iso.sh, on fixtures (a good one and a broken one each)
 ```
 
-`installer-config.sh` also runs `compat-libs.sh` (the compatibility-library lock, its stager and the `mksquashfs` shim, with the
+`installer-config.sh` also runs `progress-filter.sh` (the filter that keeps `ollama pull`'s redraws and colour codes out of the first-boot log and the journal, and the driver's hand-over of that output: the real recorded stream, floods, a layer that goes up and down, linear time on escape-heavy input, the tail of the output when the main process exits, streaming), `compat-libs.sh` (the compatibility-library lock, its stager and the `mksquashfs` shim, with the
 network and the keyring stubbed) and `gate-calamares.sh` (the build-time installer gate, on a fake image with recorded `ldd` and
 start output), and `installer-launcher.sh` holds the keyring cases of the launcher (see [Rolling-release drift](#rolling-release-drift-the-compat-lock-and-the-installer-gate)).
 
@@ -128,6 +128,8 @@ backends/cachyos/iso/tests/overlay-pacstrap.sh       # does the identity survive
 backends/cachyos/iso/tests/overlay-hook-pacman.sh    # a real pacman runs the hook that hides CachyOS Hello (no network)
 backends/cachyos/iso/tests/overlay-menu-shot.sh      # screenshots of the two boot menus in QEMU
 backends/cachyos/iso/tests/compat-gate-container.sh  # the installer gate on the REAL packages: F2 reproduced, three mutations, the stock mkarchiso (about 10 minutes)
+backends/cachyos/iso/tests/first-boot-units-container.sh  # systemd-analyze verify on the first-boot service and timer (Docker, no network; systemd is never PID 1)
+backends/cachyos/iso/tests/first-boot-drain-container.sh  # the tail of the first-boot output survives the exit of the unit's main process, under a real systemd USER manager (Docker, no network; never PID 1)
 ```
 
 `verify-mini-iso.sh` stops short of what takes the time (packages, `mkarchiso`): it fetches the pinned upstream, renders the assets,

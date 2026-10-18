@@ -13,6 +13,9 @@
 #                           redirects every lookup; the launcher end to end against stubs)
 #   installer-stage.sh      stage-installer.sh, stage-headless.sh (the payload PARITY test), the Calamares staging step, the
 #                           post-install fix-ups, the first-boot driver, the provisioning wrapper, on fixture directories
+#   progress-filter.sh      the filter that keeps terminal redraws (Ollama's progress, colour codes) out of the first-boot log and
+#                           the journal: the real recorded stream, a 3000-redraw flood, pass-through, consecutive pulls, the time rule,
+#                           garbage input, streaming
 #   compat-libs.sh          the compatibility libraries that keep the installer starting on a rolling-release skew (compat-libs.lock,
 #                           the stager's checks, the mksquashfs shim, the wiring in 20-build.sh; risk R1, incident 2026-10-18)
 #   gate-calamares.sh       the build-time gate that stops mkarchiso when the installer in the assembled image cannot start (every
@@ -44,6 +47,7 @@ run() {  # NAME COMMAND...
 run installer-config.py python3 -I "$HERE/installer-config.py"
 run installer-launcher.sh bash "$HERE/installer-launcher.sh"
 run installer-stage.sh bash "$HERE/installer-stage.sh"
+run progress-filter.sh bash "$HERE/progress-filter.sh"
 run compat-libs.sh bash "$HERE/compat-libs.sh"
 run gate-calamares.sh bash "$HERE/gate-calamares.sh"
 

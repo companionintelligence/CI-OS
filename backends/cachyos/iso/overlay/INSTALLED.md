@@ -105,6 +105,7 @@ directory (an unpacked squashfs, the mkarchiso work tree, a mounted target).
 
 The Calamares branding component, the installer launcher, the welcome checks and the `cachyos-hello` gate, Limine
 (its entry name is hard-coded in Calamares' Python; the overlay forces GRUB), the Firefox "for Arch Linux" about
-string, and CachyOS-named applications that remain installed (`cachyos-kernel-manager`, `cachyos-packageinstaller`,
-`cachy-update`). The kernel keeps its name (`linux-cachyos`, `uname -r` ends in `-cachyos`): it is the base's kernel and
+string, and CachyOS-named applications that remain installed (`cachyos-kernel-manager`, `cachyos-packageinstaller`; `cachy-update`
+is no longer one of them: the Plasma group of the installer does not list it and the post-install fix-up removes it if it arrives
+anyway). The kernel keeps its name (`linux-cachyos`, `uname -r` ends in `-cachyos`): it is the base's kernel and
 is disclosed rather than hidden.

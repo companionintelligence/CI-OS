@@ -9,6 +9,13 @@
 #   - cachyos-hello, cachyos-wallpapers, cachyos-kernel-manager, cachyos-packageinstaller, the CachyOS KDE theme packages and
 #     the fish/zsh shell configs: CachyOS-branded applications and artwork. The kernels, cachyos-settings and
 #     cachyos-kde-settings (the Plasma defaults) stay: they are the base this edition is built on.
+#   - cachy-update (the "Cachy-Update - An interactive update notifier & applier for CachyOS" menu entry, a teal "C" tray icon in every
+#     desktop frame of the installed system, and a user timer that runs `arch-update --check` daily): the only CachyOS-named UI that
+#     reached the installed desktop of ISO #4 (the live image never had it). Nothing requires it (`pacman -Sii cachy-update`: Required By
+#     None), and what it offers, one click to `pacman -Syu` on a rolling release, is exactly what a Companion appliance must not do
+#     unattended (the compatibility-library incident of 2026-10-18: a repository update broke the installer on a day's skew). The
+#     update path of this edition is a person running `sudo pacman -Syu` until the product has an update story of its own.
+#     ci-os-post-install-fixups.sh removes it again if it arrives some other way (a stale list, a dependency added later).
 #   - every desktop other than Plasma, handheld groups, kdeconnect (a network listener without a firewall).
 # Companion OS' own packages (Docker, the setup-portal stack, tailscale ...) are NOT here: they are `operations` in
 # modules/packages_online.conf, so they install whatever the user ticks on this page.
@@ -16,6 +23,9 @@
 # Every name was checked against archlinux.org and the CachyOS repository database; the result is recorded in
 # iso/tests/installer-fixtures/packages.json and re-checked offline by iso/tests/installer-config.sh.
 # `$LOCALE` in a name is Calamares' own placeholder (the language chosen on the locale page).
+# Descriptions of the groups the user SEES (not hidden) stay under 72 characters: the page is a two-column tree in a 1100 px window, the
+# description column holds about 90 characters at 13 px, and ISO #4's longest (98) was cut off at the window edge with "...". Hidden
+# groups and subgroups are never shown, so their text is free. iso/tests/installer-config.py checks the limit.
 
 - name: "Base system (hidden)"
   description: "CachyOS repository plumbing: hooks, keyrings, mirror lists and hardware detection"
@@ -187,7 +197,6 @@
     - ark
     - bluedevil
     - breeze-gtk
-    - cachy-update
     - cachyos-kde-settings
     - dolphin
     - ffmpegthumbs
@@ -223,7 +232,7 @@
     - xsettingsd
 
 - name: "Firefox and language package"
-  description: "Web browser (the Companion OS apps are web based) with the language pack of the language you chose"
+  description: "Web browser for the Companion OS apps, in your language"
   hidden: false
   selected: true
   critical: false
@@ -240,7 +249,7 @@
     - chromium
 
 - name: "NVIDIA GPU acceleration for local AI"
-  description: "Ollama with CUDA and the NVIDIA container toolkit for Docker. Large download; needs an NVIDIA GPU"
+  description: "CUDA for Ollama and Docker (large download); needs an NVIDIA GPU"
   hidden: false
   selected: false
   critical: false
@@ -249,7 +258,7 @@
     - nvidia-container-toolkit
 
 - name: "AMD ROCm acceleration for local AI"
-  description: "Ollama with ROCm. Very large download (about 3 GiB installed); needs a supported AMD GPU"
+  description: "Ollama with ROCm (about 3 GiB); needs a supported AMD GPU"
   hidden: false
   selected: false
   critical: false

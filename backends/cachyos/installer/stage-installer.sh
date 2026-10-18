@@ -16,8 +16,9 @@
 #   modules/*                                   module configs, netinstall.yaml, the two shellprocess instances
 #   lib/ci-guards.sh lib/ci-pkglist.py          the guard library and the package-list reader
 #   scripts/*.sh                                ci-os-stage-target.sh, ci-os-post-install-fixups.sh
-#   branding/companion/                         branding.desc, show.qml, stylesheet.qss with the brand tokens filled in
-#                                               (logo.png, icon.png, welcome.png are added by render-installer-assets.sh)
+#   branding/companion/                         branding.desc, show.qml, stylesheet.qss with the brand tokens filled in (its CTRL_*
+#                                               placeholders: selection row, progress track, outline, fill and text)
+#                                               (logo.png, icon.png, welcome.png, bootloader.png are added by render-installer-assets.sh)
 #   target/bootstrap/                           the provisioning tree for the installed system, in the repository's own layout:
 #                                               backends/arch/provision/provision.sh, backends/cachyos/provision/*.sh,
 #                                               core/lib/{ci-hub,generate-tunnel-certs,gpu-detect}.sh, core/manifest/*,
@@ -56,7 +57,8 @@ TOKENS="$REPO/vendor/brand/tokens/tokens.sh"
 [ -f "$TOKENS" ] || die "brand tokens not found: $TOKENS"
 # shellcheck source=/dev/null
 . "$TOKENS"
-for v in CI_DARK_SIDEBAR CI_DARK_SIDEBAR_FOREGROUND CI_DARK_SIDEBAR_PRIMARY CI_DARK_SIDEBAR_PRIMARY_FOREGROUND CI_DARK_BACKGROUND CI_DARK_FOREGROUND; do
+for v in CI_DARK_SIDEBAR CI_DARK_SIDEBAR_FOREGROUND CI_DARK_SIDEBAR_PRIMARY CI_DARK_SIDEBAR_PRIMARY_FOREGROUND CI_DARK_BACKGROUND CI_DARK_FOREGROUND \
+         CI_DARK_PRIMARY CI_DARK_PRIMARY_FOREGROUND CI_DARK_MUTED_FOREGROUND CI_ACCENT_PHTHALO_HOVER; do
   [ -n "${!v:-}" ] || die "token $v is missing from $TOKENS"
 done
 
@@ -86,6 +88,12 @@ subst() {  # SRC DEST
       -e "s|@SIDEBAR_HIGHLIGHT_TEXT@|$CI_DARK_SIDEBAR_PRIMARY_FOREGROUND|g" \
       -e "s|@SLIDE_BACKGROUND@|$CI_DARK_BACKGROUND|g" \
       -e "s|@SLIDE_TEXT@|$CI_DARK_FOREGROUND|g" \
+      -e "s|@CTRL_SELECTION@|$CI_DARK_PRIMARY|g" \
+      -e "s|@CTRL_SELECTION_TEXT@|$CI_DARK_PRIMARY_FOREGROUND|g" \
+      -e "s|@CTRL_TRACK@|$CI_DARK_BACKGROUND|g" \
+      -e "s|@CTRL_TRACK_OUTLINE@|$CI_DARK_MUTED_FOREGROUND|g" \
+      -e "s|@CTRL_FILL@|$CI_ACCENT_PHTHALO_HOVER|g" \
+      -e "s|@CTRL_FILL_TEXT@|$CI_DARK_FOREGROUND|g" \
       "$1" > "$DEST/$2"
   chmod 644 "$DEST/$2"
   if grep -qE '@[A-Z][A-Z_]*@' "$DEST/$2"; then die "unresolved placeholder in $2: $(grep -oE '@[A-Z][A-Z_]*@' "$DEST/$2" | sort -u | tr '\n' ' ')"; fi
@@ -95,7 +103,7 @@ for f in branding.desc show.qml stylesheet.qss; do subst "$HERE/branding/compani
 # --- the target payload ------------------------------------------------------------------------------------------------------------------
 BOOT="target/bootstrap"
 put "$REPO/backends/arch/provision/provision.sh" "$BOOT/backends/arch/provision/provision.sh"
-for f in provision.sh first-boot-setup.sh stage-headless.sh; do put "$REPO/backends/cachyos/provision/$f" "$BOOT/backends/cachyos/provision/$f"; done
+for f in provision.sh first-boot-setup.sh stage-headless.sh progress-filter.sh; do put "$REPO/backends/cachyos/provision/$f" "$BOOT/backends/cachyos/provision/$f"; done
 for f in ci-hub.sh generate-tunnel-certs.sh gpu-detect.sh; do put "$REPO/core/lib/$f" "$BOOT/core/lib/$f"; done
 put "$REPO/core/manifest/ecosystem.yaml" "$BOOT/core/manifest/ecosystem.yaml"
 put "$REPO/core/manifest/role-map/pacman.yaml" "$BOOT/core/manifest/role-map/pacman.yaml"

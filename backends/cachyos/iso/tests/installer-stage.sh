@@ -102,10 +102,10 @@ if env -u CI_OS_STAGING_DIR bash "$INSTALLER/stage-installer.sh" >/dev/null 2>&1
 
 if command -v rsvg-convert >/dev/null 2>&1 || command -v magick >/dev/null 2>&1 || command -v convert >/dev/null 2>&1; then
   CI_OS_STAGING_DIR="$W/stage-r" CI_OS_VERSION=2026.10.15 bash "$INSTALLER/render-installer-assets.sh" > "$W/render.out" 2>&1 && rc=0 || rc=$?
-  DESC="render-installer-assets.sh renders logo.png, icon.png (128x128) and welcome.png (192x192) as 8-bit RGBA PNGs"
+  DESC="render-installer-assets.sh renders logo.png, icon.png (128x128), welcome.png (192x192) and bootloader.png (384x384) as 8-bit RGBA PNGs"
   B="$W/stage-r/airootfs/usr/share/ci-os/calamares/branding/companion"
   ok=1; [ "$rc" = 0 ] || ok=0
-  for spec in logo.png:128 icon.png:128 welcome.png:192; do
+  for spec in logo.png:128 icon.png:128 welcome.png:192 bootloader.png:384; do
     f="$B/${spec%%:*}"; px="${spec##*:}"
     [ -f "$f" ] || { ok=0; continue; }
     # IHDR: signature 8 bytes, length 4, "IHDR", width 4, height 4, depth 1, colour type 1
@@ -286,6 +286,8 @@ ok=0
 cmp -s "$PROV/systemd/ci-os-first-boot-setup.timer" "$T/usr/lib/systemd/system/ci-os-first-boot-setup.timer" || ok=1
 [ -n "$(find "$T/usr/lib/ci-os/bootstrap" -name provision.sh -perm 755)" ] || ok=1
 verdict "$ok"
+DESC="the bootstrap tree carries progress-filter.sh next to provision.sh, executable, identical to the repository's (first-boot-setup.sh looks for it there)"
+if [ -n "$(find "$T/usr/lib/ci-os/bootstrap/backends/cachyos/provision/progress-filter.sh" -perm 755 2>/dev/null)" ] && cmp -s "$PROV/progress-filter.sh" "$T/usr/lib/ci-os/bootstrap/backends/cachyos/provision/progress-filter.sh"; then verdict 0; else verdict 1; fi
 DESC="it stages the portal payload (same files as test B) and wires nginx"
 if [ -f "$T/etc/systemd/system/setup-network-monitor.service" ] && [ -f "$T/etc/nginx/conf.d/setup-portal.conf" ] && grep -q 'include /etc/nginx/conf.d' "$T/etc/nginx/nginx.conf"; then verdict 0; else verdict 1; fi
 DESC="the first-boot script in the target is the one in the repository"
@@ -328,11 +330,13 @@ echo "== D  ci-os-post-install-fixups.sh"
 FIX="$OV/scripts/ci-os-post-install-fixups.sh"
 mkdir -p "$W/fbin"
 stubf() { printf '#!/bin/bash\n%s\n' "$2" > "$W/fbin/$1"; chmod +x "$W/fbin/$1"; }
-stubf pacman 'echo "pacman $*" >> "$FAKE_FIX_LOG"; case "$1 $2" in "-Q cachyos-grub-theme") [ "${FAKE_HAS_GRUB_THEME:-1}" = 1 ]; exit $? ;; esac; case "$1" in -Rns) exit "${FAKE_RM_RC:-0}" ;; esac; exit 0'
+stubf pacman 'echo "pacman $*" >> "$FAKE_FIX_LOG"; case "$1 $2" in "-Q cachyos-grub-theme") [ "${FAKE_HAS_GRUB_THEME:-1}" = 1 ]; exit $? ;; "-Q cachy-update") [ "${FAKE_HAS_CACHY_UPDATE:-0}" = 1 ]; exit $? ;; esac; case "$1" in -Rns) case "$*" in *cachy-update*) exit "${FAKE_RM_CU_RC:-0}" ;; esac; exit "${FAKE_RM_RC:-0}" ;; esac; exit 0'
 stubf getent 'case "$1" in passwd) [ "$2" = alice ] || exit 2; echo "alice:x:1000:1000::/home/alice:/bin/bash" ;; group) [ "${FAKE_HAS_DOCKER_GROUP:-1}" = 1 ] && echo "docker:x:970:" || exit 2 ;; esac; exit 0'
 stubf id 'echo "${FAKE_GROUPS:-alice wheel docker}"'
 stubf usermod 'echo "usermod $*" >> "$FAKE_FIX_LOG"; exit "${FAKE_USERMOD_RC:-0}"'
-new_fix_root() { rm -rf "$1"; mkdir -p "$1/etc/default" "$1/usr/share/libalpm/scripts"
+new_fix_root() { rm -rf "$1"; mkdir -p "$1/etc/default" "$1/usr/share/libalpm/scripts" "$1/usr/share/applications" "$1/etc/xdg/autostart"
+  printf '[Desktop Entry]\nName=Cachy-Update\nComment=An interactive update notifier & applier for CachyOS\nNoDisplay=false\nExec=arch-update\n' > "$1/usr/share/applications/arch-update.desktop"
+  printf '[Desktop Entry]\nName=Cachy-Update Systray Applet\nExec=/bin/sh -c "sleep 3 && arch-update --tray"\nNoDisplay=true\n' > "$1/etc/xdg/autostart/arch-update-tray.desktop"
   printf 'GRUB_THEME="/usr/share/grub/themes/companion-os/theme.txt"\nGRUB_DISTRIBUTOR="Companion OS"\n' > "$1/etc/default/grub"
   echo 'NAME="Companion OS"' > "$1/etc/os-release"; }
 run_fix() { # root [env...] -> FIX_OUT FIX_RC
@@ -352,6 +356,25 @@ new_fix_root "$FR"
 run_fix "$FR" FAKE_RM_RC=1
 DESC="a package that cannot be removed (something depends on it) is a warning, never a failure"
 if [ "$FIX_RC" = 0 ] && printf '%s' "$FIX_OUT" | grep -q 'WARN: could not remove cachyos-grub-theme'; then verdict 0; else verdict 1; fi
+new_fix_root "$FR"
+run_fix "$FR"
+DESC="cachy-update is not installed (the normal case now: netinstall.yaml no longer lists it): nothing is removed, nothing is hidden, no warning"
+if ! grep -q 'Rns.*cachy-update' "$W/fix.log" && grep -q '^NoDisplay=false' "$FR/usr/share/applications/arch-update.desktop" && [ -f "$FR/etc/xdg/autostart/arch-update-tray.desktop" ] \
+   && ! printf '%s' "$FIX_OUT" | grep -q 'WARN:'; then verdict 0; else verdict 1; printf '%s\n' "$FIX_OUT" | sed 's/^/      /'; fi
+new_fix_root "$FR"
+run_fix "$FR" FAKE_HAS_CACHY_UPDATE=1
+DESC="cachy-update installed anyway (an older list, a dependency): it is removed with pacman -Rns --noconfirm, the run says so, no warning, exit 0"
+if [ "$FIX_RC" = 0 ] && grep -q '^pacman -Rns --noconfirm cachy-update$' "$W/fix.log" && printf '%s' "$FIX_OUT" | grep -q 'removed cachy-update' && ! printf '%s' "$FIX_OUT" | grep -q 'WARN:'; then verdict 0; else verdict 1; printf '%s\n' "$FIX_OUT" | sed 's/^/      /'; fi
+new_fix_root "$FR"
+run_fix "$FR" FAKE_HAS_CACHY_UPDATE=1 FAKE_RM_CU_RC=1
+DESC="cachy-update that cannot be removed (something depends on it): a warning, the package stays, its menu entry is NoDisplay=true (once, whatever it said before) and its tray applet is gone from the autostart; exit 0"
+if [ "$FIX_RC" = 0 ] && printf '%s' "$FIX_OUT" | grep -q 'WARN: could not remove cachy-update' && [ "$(grep -c '^NoDisplay=' "$FR/usr/share/applications/arch-update.desktop")" = 1 ] \
+   && grep -qx 'NoDisplay=true' "$FR/usr/share/applications/arch-update.desktop" && grep -qx 'Exec=arch-update' "$FR/usr/share/applications/arch-update.desktop" \
+   && [ "$(sed -n 1p "$FR/usr/share/applications/arch-update.desktop")" = '[Desktop Entry]' ] && [ ! -e "$FR/etc/xdg/autostart/arch-update-tray.desktop" ]; then verdict 0; else verdict 1; printf '%s\n' "$FIX_OUT" | sed 's/^/      /'; cat "$FR/usr/share/applications/arch-update.desktop" | sed 's/^/      /'; fi
+new_fix_root "$FR"; rm -f "$FR/usr/share/applications/arch-update.desktop" "$FR/etc/xdg/autostart/arch-update-tray.desktop"
+run_fix "$FR" FAKE_HAS_CACHY_UPDATE=1 FAKE_RM_CU_RC=1
+DESC="...and with those files already gone the hiding step does not fail (exit 0, no new file appears)"
+if [ "$FIX_RC" = 0 ] && [ ! -e "$FR/usr/share/applications/arch-update.desktop" ] && [ ! -e "$FR/usr/share/applications/arch-update.desktop.ci-os-new" ]; then verdict 0; else verdict 1; printf '%s\n' "$FIX_OUT" | sed 's/^/      /'; fi
 new_fix_root "$FR"
 run_fix "$FR" FAKE_GROUPS="alice wheel users"
 DESC="a user missing from docker is added with usermod -aG docker"
@@ -402,11 +425,13 @@ fb_settle() {  # DIR
 fb_run() { # NAME [VAR=value ...] -> FB_RC; state in $W/fb-NAME
   local n="$1"; shift
   local D="$W/fb-$n"; mkdir -p "$D/boot/backends/cachyos/provision" "$D/state"
-  cp "$W/fb/provision.sh" "$D/boot/backends/cachyos/provision/provision.sh"
+  cp "${FB_STUB:-$W/fb/provision.sh}" "$D/boot/backends/cachyos/provision/provision.sh"
+  # The real filter, as the installed system has it next to provision.sh (FB_NOFILTER=1: a bootstrap tree without it; FB_FILTER=file: another one).
+  if [ -z "${FB_NOFILTER:-}" ]; then cp "${FB_FILTER:-$PROV/progress-filter.sh}" "$D/boot/backends/cachyos/provision/progress-filter.sh"; fi
   : > "$D/provision.log"; [ -e "$D/cmdline" ] || echo "BOOT_IMAGE=/vmlinuz-linux-cachyos root=UUID=x rw" > "$D/cmdline"
   env -i PATH="$W/bin:/usr/bin:/bin:/usr/sbin:/sbin" FB_LOG="$D/provision.log" CI_OS_BOOTSTRAP_ROOT="$D/boot" CI_OS_STATE_DIR="$D/state" \
     CI_OS_LOG_FILE="$D/first-boot.log" CI_OS_LOCK_FILE="$D/lock" CI_OS_CMDLINE_FILE="$D/cmdline" CI_OS_RUN_ARCHISO="$D/no-archiso" \
-    CI_OS_NETWORK_PROBE="$W/fb/net-up" CI_OS_NETWORK_TRIES=2 CI_OS_NETWORK_SLEEP=0 "$@" bash "$FB" > "$D/out" 2>&1 && FB_RC=0 || FB_RC=$?
+    FB_FLOOD_AWK="$HERE/installer-fixtures/ollama-flood.awk" CI_OS_NETWORK_PROBE="$W/fb/net-up" CI_OS_NETWORK_TRIES=2 CI_OS_NETWORK_SLEEP=0 "$@" bash "$FB" > "$D/out" 2>&1 && FB_RC=0 || FB_RC=$?
   FB_DIR="$D"; fb_settle "$D"
 }
 mkdir -p "$W/fb-live"
@@ -500,6 +525,49 @@ if [ "$(id -u)" = 0 ]; then t_skip "$DESC (tests run as root)"
 elif bash "$PROV/ci-os-setup.sh" >/dev/null 2>&1; then verdict 1
 else verdict 0; fi
 
+# --- the output of the run (progress-filter.sh): ISO #4's log held 14,052 lines for three pulls ---
+cat > "$W/fb/flood-provision.sh" <<'EOF'
+#!/bin/bash
+# The provisioner as ISO #4 saw it: the Arch script's coloured log lines, an echo, then the redraws of an `ollama pull` (3000 frames).
+echo "provision $*" >> "$FB_LOG"
+E=$(printf '\033')
+printf '%s[0;34m[INFO]%s[0m Checking Ollama models...\n' "$E" "$E"
+echo "Pulling nomic-embed-text..."
+awk -v frames="${FB_FRAMES:-3000}" -f "$FB_FLOOD_AWK" /dev/null
+printf '\n%s[0;32m[SUCCESS]%s[0m Ollama models checked/pulled\n' "$E" "$E"
+exit "${FB_PROVISION_RC:-0}"
+EOF
+fb_settle_log() {  # DIR: the log of the interactive branch is written by a filter that outlives the script; wait until its size stops changing
+  local i=0 a b
+  a="$(wc -c < "$1/first-boot.log" 2>/dev/null || echo 0)"
+  while [ "$i" -lt 60 ]; do sleep 0.1; b="$(wc -c < "$1/first-boot.log" 2>/dev/null || echo 0)"; [ "$a" = "$b" ] && break; a="$b"; i=$((i + 1)); done
+}
+ESCC="$(printf '\033')"
+FB_STUB="$W/fb/flood-provision.sh" fb_run flood
+DESC="a run whose provisioner floods the output with 3000 redraws still completes (marker written, exit 0): the filter changes what is logged, not what is done"
+if [ "$FB_RC" = 0 ] && [ -f "$FB_DIR/state/.first-boot-setup-done" ] && grep -q 'First-boot setup completed' "$FB_DIR/first-boot.log"; then verdict 0; else verdict 1; tail -5 "$FB_DIR/out" | sed 's/^/      /'; fi
+DESC="...the LOG is readable and small: under 60 lines (not 9,000+), no escape sequence, the pull's milestones and success are in it, and the coloured [INFO] lines are plain"
+if [ "$(wc -l < "$FB_DIR/first-boot.log" | tr -d ' ')" -lt 60 ] && ! LC_ALL=C grep -q "$ESCC" "$FB_DIR/first-boot.log" \
+   && grep -qx 'success' "$FB_DIR/first-boot.log" && grep -q '^pulling 6a0746a1ec1a: 100% ' "$FB_DIR/first-boot.log" && grep -qx '\[INFO\] Checking Ollama models...' "$FB_DIR/first-boot.log" \
+   && grep -qx 'Pulling nomic-embed-text...' "$FB_DIR/first-boot.log"; then verdict 0; else verdict 1; wc -l "$FB_DIR/first-boot.log" | sed 's/^/      /'; head -5 "$FB_DIR/first-boot.log" | cat -v | sed 's/^/      /'; fi
+DESC="...and so is what the journal gets (the unit's stdout, here the captured output): the same lines, bounded"
+if [ "$(wc -l < "$FB_DIR/out" | tr -d ' ')" -lt 60 ] && ! LC_ALL=C grep -q "$ESCC" "$FB_DIR/out" && cmp -s "$FB_DIR/out" "$FB_DIR/first-boot.log"; then verdict 0; else verdict 1; wc -l "$FB_DIR/out" | sed 's/^/      /'; fi
+
+FB_NOFILTER=1 FB_STUB="$W/fb/flood-provision.sh" fb_run nofilter
+DESC="a bootstrap tree WITHOUT the filter (an older image) degrades to the raw stream, and the run still completes"
+if [ "$FB_RC" = 0 ] && [ -f "$FB_DIR/state/.first-boot-setup-done" ] && [ "$(wc -l < "$FB_DIR/first-boot.log" | tr -d ' ')" -gt 9000 ]; then verdict 0; else verdict 1; wc -l "$FB_DIR/first-boot.log" | sed 's/^/      /'; fi
+
+printf '#!/bin/bash\nIFS= read -r first; printf "%%s\\n" "$first"; exit 3\n' > "$W/fb/crashing-filter.sh"
+FB_FILTER="$W/fb/crashing-filter.sh" FB_STUB="$W/fb/flood-provision.sh" FB_FRAMES=200 fb_run crashfilter
+DESC="a filter that crashes after its first line hands the rest of the stream to cat: nothing is lost, the provisioning is not killed by SIGPIPE, the marker is written"
+if [ "$FB_RC" = 0 ] && [ -f "$FB_DIR/state/.first-boot-setup-done" ] && grep -q 'First-boot setup completed' "$FB_DIR/first-boot.log" && [ "$(wc -l < "$FB_DIR/first-boot.log" | tr -d ' ')" -gt 600 ]; then verdict 0; else verdict 1; wc -l "$FB_DIR/first-boot.log" | sed 's/^/      /'; fi
+
+FB_STUB="$W/fb/flood-provision.sh" fb_run tty CI_OS_FORCE_TTY=1
+fb_settle_log "$FB_DIR"
+DESC="at a terminal (the interactive branch) the screen keeps the RAW stream (colours, the live progress bar) and only the log copy is filtered"
+if [ "$FB_RC" = 0 ] && [ "$(wc -l < "$FB_DIR/out" | tr -d ' ')" -gt 9000 ] && LC_ALL=C grep -q "$ESCC" "$FB_DIR/out" \
+   && [ "$(wc -l < "$FB_DIR/first-boot.log" | tr -d ' ')" -lt 60 ] && ! LC_ALL=C grep -q "$ESCC" "$FB_DIR/first-boot.log" && grep -qx 'success' "$FB_DIR/first-boot.log"; then verdict 0; else verdict 1; wc -l "$FB_DIR/out" "$FB_DIR/first-boot.log" | sed 's/^/      /'; fi
+
 # =============================================================================================================================
 echo "== F  provision.sh wrapper"
 PW="$PROV/provision.sh"
@@ -515,10 +583,13 @@ mkdir -p "$W/pw/bin"
 cat > "$W/pw/bin/ollama" <<'EOF'
 #!/bin/bash
 # stand-in for the CLI: `ollama list` prints the models in $PW_OLLAMA_MODELS under the real header; it fails (server not up) for the
-# first $PW_OLLAMA_FAIL_FIRST calls, and always when PW_OLLAMA_DEAD is set.
+# first $PW_OLLAMA_FAIL_FIRST calls, and always when PW_OLLAMA_DEAD is set. Like the real one (0.40.6) it PANICS, exit 2, when $HOME is not
+# set -- the systemd unit has none -- and says so on stderr, which is what the wrapper used to throw away.
 [ "$1" = list ] || exit 2
+{ [ -n "${HOME:-}" ] && [ -z "${PW_OLLAMA_PANIC:-}" ]; } || { echo 'panic: $HOME is not defined' >&2; echo 'goroutine 1 [running]:' >&2; echo 'github.com/ollama/ollama/envconfig.Models()' >&2; exit 2; }
+[ -z "${PW_OLLAMA_HOME_LOG:-}" ] || echo "$HOME" >> "$PW_OLLAMA_HOME_LOG"
 n=0; [ -f "$PW_OLLAMA_COUNT" ] && n="$(cat "$PW_OLLAMA_COUNT")"; n=$((n + 1)); echo "$n" > "$PW_OLLAMA_COUNT"
-[ -z "${PW_OLLAMA_DEAD:-}" ] || exit 1
+[ -z "${PW_OLLAMA_DEAD:-}" ] || { echo "Error: could not connect to ollama server, run 'ollama serve' to start it" >&2; exit 1; }
 [ "$n" -gt "${PW_OLLAMA_FAIL_FIRST:-0}" ] || exit 1
 echo "NAME                      ID              SIZE      MODIFIED"
 for m in $PW_OLLAMA_MODELS; do echo "$m  0123456789ab  1.0 GB  2 minutes ago"; done
@@ -535,7 +606,7 @@ ghost:x:1003:1003::$W/pw/home/ghost:/bin/bash
 alice:x:1004:1004::$W/pw/home/alice:/bin/bash
 bob:x:1005:1005::$W/pw/home/bob:/bin/bash
 EOF
-pw_run() { : > "$W/pw/log"; env -i PATH="${PW_PATH:-$W/pw/bin:/usr/bin:/bin}" PW_OLLAMA_MODELS="$MANIFEST_MODELS" PW_OLLAMA_COUNT="$W/pw/ollama-count" PW_LOG="$W/pw/log" CI_OS_PASSWD_FILE="${PW_PASSWD:-$W/pw/passwd}" CI_OS_ARCH_PROVISION="${PW_ARCH:-$W/pw/arch-provision.sh}" "$@" > "$W/pw/out" 2>&1 && PW_RC=0 || PW_RC=$?; }
+pw_run() { : > "$W/pw/log"; env -i PATH="${PW_PATH:-$W/pw/bin:/usr/bin:/bin}" PW_OLLAMA_MODELS="$MANIFEST_MODELS" PW_OLLAMA_COUNT="$W/pw/ollama-count" PW_OLLAMA_HOME_LOG="$W/pw/ollama-home" PW_LOG="$W/pw/log" CI_OS_PASSWD_FILE="${PW_PASSWD:-$W/pw/passwd}" CI_OS_ARCH_PROVISION="${PW_ARCH:-$W/pw/arch-provision.sh}" "$@" > "$W/pw/out" 2>&1 && PW_RC=0 || PW_RC=$?; }
 pw_run bash "$PW"
 DESC="no SUDO_USER: the first real desktop account (not root, liveuser, ci, nobody, a nologin shell or a missing home) is chosen: alice"
 if [ "$PW_RC" = 0 ] && grep -q 'SUDO_USER=alice' "$W/pw/log"; then verdict 0; else verdict 1; sed 's/^/      /' "$W/pw/out"; fi
@@ -600,6 +671,26 @@ if [ "$PW_RC" = 74 ] && [ "$(cat "$W/pw/ollama-count")" = 4 ] && grep -q 'did no
 PW_PATH="/usr/bin:/bin" pw_run env SUDO_USER=bob CI_OS_OLLAMA_TRIES=2 CI_OS_OLLAMA_SLEEP=0 bash "$PW"
 DESC="no ollama command at all (its install failed): exit 74"
 if [ "$PW_RC" = 74 ] && grep -q 'Ollama is not installed' "$W/pw/out"; then verdict 0; else verdict 1; fi
+
+# --- HOME (the first-boot unit has none, and the real ollama panics without one): ISO #4 ended "degraded" every time because of it ---
+rm -f "$W/pw/ollama-home"
+pw_models PW_OLLAMA_MODELS="$MANIFEST_MODELS" CI_OS_FALLBACK_HOME="$W/pw/home/alice" bash "$PW"
+DESC="no HOME in the environment (a system unit has none): the wrapper gives the ollama CLI one, the models are found, exit 0 (not the 'degraded' of ISO #4)"
+if [ "$PW_RC" = 0 ] && grep -q 'Ollama models present' "$W/pw/out" && [ "$(sort -u "$W/pw/ollama-home")" = "$W/pw/home/alice" ]; then verdict 0; else verdict 1; sed 's/^/      /' "$W/pw/out"; fi
+rm -f "$W/pw/ollama-home"
+pw_models PW_OLLAMA_MODELS="$MANIFEST_MODELS" bash "$PW"
+DESC="the fallback HOME is /root (the Arch script and the unit run as root)"
+if [ "$PW_RC" = 0 ] && [ "$(sort -u "$W/pw/ollama-home")" = /root ]; then verdict 0; else verdict 1; sed 's/^/      /' "$W/pw/out"; fi
+rm -f "$W/pw/ollama-home"
+pw_models PW_OLLAMA_MODELS="$MANIFEST_MODELS" HOME="$W/pw/home/bob" CI_OS_FALLBACK_HOME="$W/pw/home/alice" bash "$PW"
+DESC="a HOME that is already set is left alone"
+if [ "$PW_RC" = 0 ] && [ "$(sort -u "$W/pw/ollama-home")" = "$W/pw/home/bob" ]; then verdict 0; else verdict 1; sed 's/^/      /' "$W/pw/out"; fi
+pw_models PW_OLLAMA_MODELS="$MANIFEST_MODELS" PW_OLLAMA_DEAD=1 bash "$PW"
+DESC="a server that never answers: the message shows the REAL last error of 'ollama list' (it used to go to /dev/null)"
+if [ "$PW_RC" = 74 ] && grep -q "Last error of 'ollama list': Error: could not connect to ollama server" "$W/pw/out"; then verdict 0; else verdict 1; sed 's/^/      /' "$W/pw/out"; fi
+pw_models PW_OLLAMA_MODELS="$MANIFEST_MODELS" PW_OLLAMA_PANIC=1 bash "$PW"
+DESC="a CLI that panics (the ISO #4 failure, whatever the cause) shows its panic text in the log instead of a bare 'did not answer'"
+if [ "$PW_RC" = 74 ] && grep -q 'panic: \$HOME is not defined' "$W/pw/out"; then verdict 0; else verdict 1; sed 's/^/      /' "$W/pw/out"; fi
 
 PW_PATH="/usr/bin:/bin" pw_run env SUDO_USER=bob bash "$PW" --tier=hardware
 DESC="a run without the core tier (nothing pulls models) makes no model check, even with no ollama installed"

@@ -2,9 +2,27 @@
  * SPDX-FileCopyrightText: no
  * SPDX-License-Identifier: CC0-1.0
  *
- * Stylesheet of the Companion OS installer branding. Kept to the Qt widget defaults of the installer plus the one thing the
- * installer's own stylesheet sets (a readable base font size): colours come from branding.desc (tokens), not from here, so there
- * is no hex value to keep in step with the brand canon.
+ * Stylesheet of the Companion OS installer branding. Colours are CTRL_* placeholders between at-signs that stage-installer.sh fills with the
+ * brand tokens (vendor/brand/tokens/tokens.sh, see the table in that script): the brand canon is the only place a hex value is typed
+ * (the style-canon lint reads this tree).
+ *
+ * Why there is more than a font size here. The installer takes its colours from the Plasma colour scheme of the live session,
+ * CI-OS-Dark, and that scheme (backends/_mixins/kde-plasma/CI-OS-Dark.colors) paints Window, View, Button AND Selection with the same
+ * brand teal (10,99,88). Everything Qt draws with the palette's Highlight is therefore invisible, which is what the ISO #4 frames showed:
+ *   - the progress bar of the installing page: its filled part had the window colour, only the unfilled track was lighter (inverted);
+ *   - the selected row of the keyboard layout / variant lists, the bootloader list, the package tree and the partition table;
+ *   - the Welcome page's help icon, a stock dark pictogram from Calamares' own resources (:/data/images/help.svg), unreadable on teal.
+ * The scheme is shared with the Ubuntu edition and not ours to change, so the installer sets its own colours here, for the widgets it
+ * actually uses. Verified against the pinned installer (3.4.2-13, the package the launcher keeps): the object names #supportButton,
+ * #donateButton, #releaseNotesButton and #knownIssuesButton are the ones its own stock stylesheet uses and are in the strings of its
+ * welcome module; the rest are Qt classes (QProgressBar, QAbstractItemView), which Calamares documents as styleable. The result was
+ * rendered offscreen with the Breeze style, the CI-OS-Dark palette and this sheet; the installer tests of this edition (installer-config.py)
+ * hold the contrast numbers.
+ *
+ * Contrast (WCAG 2.1, checked by iso/tests/installer-config.py from the resolved tokens, not by eye):
+ *   selected row     dark text on sage          13.98:1 (AAA), the row against the window 5.43:1 (needs 3:1 as a graphic)
+ *   progress text    light text on the fill      4.58:1 (AA, needs 4.5), on the track 16.16:1
+ *   progress fill    against the track           3.53:1 (needs 3:1), the track's outline against the window 3.52:1
  */
 
 QWidget {
@@ -13,4 +31,49 @@ QWidget {
 
 QDialogButtonBox {
     dialogbuttonbox-buttons-have-icons: 0;
+}
+
+/*** Installing page: the progress bar.
+ *
+ * A dark track with a light outline and a brand-teal fill, the percentage centred in it. The text is light on both (the fill is the
+ * brightest brand teal on which light text still reads: 4.58:1); a light fill would need dark text, which would not read on the track.
+ */
+QProgressBar {
+    background-color: @CTRL_TRACK@;
+    border: 1px solid @CTRL_TRACK_OUTLINE@;
+    border-radius: 4px;
+    color: @CTRL_FILL_TEXT@;
+    text-align: center;
+    min-height: 18px;
+    max-height: 18px;
+}
+
+QProgressBar::chunk {
+    background-color: @CTRL_FILL@;
+    border-radius: 3px;
+}
+
+/*** Selected rows of every list, tree and table (keyboard page, bootloader chooser, package groups, partitions, combo box popups).
+ *
+ * selection-background-color / selection-color set the palette's Highlight / HighlightedText for the view, which is what Breeze paints
+ * selected and hovered rows with. The sidebar of the main window has its own delegate and its own colours (branding.desc style:), so
+ * it is not touched.
+ */
+QAbstractItemView {
+    selection-background-color: @CTRL_SELECTION@;
+    selection-color: @CTRL_SELECTION_TEXT@;
+}
+
+/*** Welcome page: the four link buttons.
+ *
+ * Calamares puts a stock pictogram (dark on transparent) on each of them; on the teal window it is a dark smudge next to the text. The
+ * links keep their label and lose the icon. qproperty-iconSize as well as icon-size, because the first sets the widget's own property
+ * and wins even if the code of a later Calamares sets an icon size itself.
+ */
+#supportButton,
+#donateButton,
+#releaseNotesButton,
+#knownIssuesButton {
+    icon-size: 0px;
+    qproperty-iconSize: 0px 0px;
 }

@@ -16,6 +16,10 @@
 #  3. /etc/default/grub: the theme and the distributor are what the menu shows; if always_use_defaults did not take, say so.
 #  4. docker group: the users job was told to add the account (users.conf); verify, and add it if it is not a member.
 #     (provision.sh adds it again at first boot.)
+#  5. cachy-update: the one CachyOS-named application that reached the installed desktop of ISO #4 (a "Cachy-Update" menu entry and a
+#     teal "C" tray icon in every desktop frame). netinstall.yaml no longer lists it, so this is the net under that list: if it is
+#     installed anyway (an older ISO's list, a dependency added later), remove it; if pacman refuses (something depends on it), keep
+#     the package but hide its menu entry and take its tray applet out of the autostart. The live image never carried it.
 set -u
 umask 022   # Calamares may run with a stricter umask; the directories created here are read by nginx, dnsmasq, systemd, ...
 
@@ -67,6 +71,22 @@ if [ -n "$USER_NAME" ] && getent passwd "$USER_NAME" >/dev/null 2>&1; then
     fi
   else
     warn "no docker group in the installed system: the docker package is missing?"
+  fi
+fi
+
+# 5. cachy-update
+if command -v pacman >/dev/null 2>&1 && pacman -Q cachy-update >/dev/null 2>&1; then
+  if pacman -Rns --noconfirm cachy-update; then
+    say "removed cachy-update (a CachyOS-named update notifier: menu entry and tray icon; the product does not ship it)"
+  else
+    warn "could not remove cachy-update (something depends on it); hiding its menu entry and its tray applet instead"
+    launcher="$ROOT/usr/share/applications/arch-update.desktop"
+    if [ -f "$launcher" ]; then
+      awk '/^NoDisplay=/ { next } { print } /^\[Desktop Entry\]/ && !d { print "NoDisplay=true"; d = 1 }' "$launcher" > "$launcher.ci-os-new" \
+        && cat "$launcher.ci-os-new" > "$launcher"
+      rm -f "$launcher.ci-os-new"
+    fi
+    rm -f "$ROOT/etc/xdg/autostart/arch-update-tray.desktop"
   fi
 fi
 

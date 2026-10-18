@@ -9,7 +9,8 @@
 #   branding/companion/logo.png     128x128, the sidebar logo (Calamares draws it at 80x80)
 #   branding/companion/icon.png     128x128, the window icon
 #   branding/companion/welcome.png  192x192, the picture on the welcome page
-# All three are the colour logo mark (vendor/brand/logos/mark.svg), whose three teals read on the dark sidebar and on a light or
+#   branding/companion/bootloader.png  384x384, the picture of the bootloader chooser item (modules/packagechooser_bootloader.conf)
+# All four are the colour logo mark (vendor/brand/logos/mark.svg), whose three teals read on the dark sidebar and on a light or
 # dark welcome page alike. No CachyOS image is read or copied (decision D9).
 #
 # Called by the ISO build (iso/scripts/render-assets.sh or its caller) after the packages named in iso/render-deps.txt are
@@ -29,8 +30,8 @@ B="$OUT/airootfs/usr/share/ci-os/calamares/branding/companion"
 
 MARK="$REPO/core/render/render-mark-png.sh"
 [ -f "$MARK" ] || { printf 'render-installer-assets: %s not found\n' "$MARK" >&2; exit 1; }
-for spec in logo.png:128 icon.png:128 welcome.png:192; do
+for spec in logo.png:128 icon.png:128 welcome.png:192 bootloader.png:384; do
   bash "$MARK" "$B/${spec%%:*}" "${spec##*:}" > /dev/null
   chmod 644 "$B/${spec%%:*}"
 done
-printf 'render-installer-assets: rendered logo.png, icon.png and welcome.png into %s\n' "${B#"$OUT"/}"
+printf 'render-installer-assets: rendered logo.png, icon.png, welcome.png and bootloader.png into %s\n' "${B#"$OUT"/}"

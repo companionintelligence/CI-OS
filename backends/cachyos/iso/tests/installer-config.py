@@ -139,7 +139,8 @@ check("the slideshow is show.qml, API 2", branding.get("slideshow") == "show.qml
 placeholders = set()
 for v in btxt.values():
     placeholders |= set(re.findall(r"@[A-Z][A-Z_]*@", v))
-known = {"@CI_OS_VERSION@", "@SIDEBAR_BACKGROUND@", "@SIDEBAR_TEXT@", "@SIDEBAR_HIGHLIGHT@", "@SIDEBAR_HIGHLIGHT_TEXT@", "@SLIDE_BACKGROUND@", "@SLIDE_TEXT@"}
+# What stage-installer.sh fills: the `-e "s|@NAME@|...|g"` expressions of its subst(), read from the script itself.
+known = {"@%s@" % k for k in re.findall(r'-e "s\|@([A-Z][A-Z_]*)@\|', text(os.path.join(INST, "stage-installer.sh")))}
 check("every placeholder in the branding templates is one stage-installer.sh fills", placeholders <= known, placeholders - known)
 check("no hex colour is typed in the branding templates (the brand tokens are the only source)",
       not any(re.search(r"#[0-9a-fA-F]{6}\b", strip_comments(v)) for v in btxt.values()))
@@ -157,6 +158,11 @@ check("the bootloader chooser offers GRUB only, preselected",
       [i["id"] for i in chooser["items"]] == ["grub"] and chooser.get("default") == "grub" and chooser.get("mode") == "required")
 check("the chooser item has no CachyOS screenshot and no platform filter (a handheld would see an empty page)",
       "screenshot" in chooser["items"][0] and "cachy" not in chooser["items"][0]["screenshot"].lower() and "platform" not in chooser["items"][0])
+shot = str(chooser["items"][0].get("screenshot", ""))
+render_specs = re.search(r"^for spec in ([^;]+); do", text(os.path.join(INST, "render-installer-assets.sh")), re.M)
+rendered = {x.split(":")[0] for x in (render_specs.group(1).split() if render_specs else [])}
+check("the chooser's picture is the Companion mark rendered into the branding directory, NOT Calamares' built-in placeholder (a blue zip-archive icon in a white square on ISO #4)",
+      shot == "/usr/share/calamares/branding/companion/" + os.path.basename(shot) and os.path.basename(shot) in rendered and not shot.startswith(":/"), (shot, sorted(rendered)))
 check("the chooser instance is named 'bootloader' (global storage key packagechooser_bootloader)",
       any(i.get("id") == "bootloader" and i.get("module") == "packagechooser" and i.get("config") == "packagechooser_bootloader.conf" for i in settings["instances"]))
 g = docs["grubcfg.conf"]
@@ -281,9 +287,14 @@ check("the fixture has no name the overlay no longer uses (re-run check-packages
 all_names = (set(always) | set(optional) | set(ps["basePackages"])) - code_all
 check("no firewall package anywhere (ufw, ufw-extras, plasma-firewall): the edition ships no host firewall",
       not (all_names & {"ufw", "ufw-extras", "plasma-firewall", "firewalld"}))
-check("no CachyOS-branded application or artwork package (hello, wallpapers, themes, shell configs, kernel manager, installer GUIs)",
-      not [x for x in all_names if re.match(r"cachyos-(hello|wallpapers|plymouth|grub-theme|kernel-manager|packageinstaller|fish|zsh|emerald|iridescent|nord|micro)", x)],
-      sorted(x for x in all_names if x.startswith("cachyos-")))
+check("no CachyOS-branded application or artwork package (hello, wallpapers, themes, shell configs, kernel manager, installer GUIs, cachy-update)",
+      not [x for x in all_names if re.match(r"(cachyos-(hello|wallpapers|plymouth|grub-theme|kernel-manager|packageinstaller|fish|zsh|emerald|iridescent|nord|micro)|cachy-update$|arch-update$)", x)],
+      sorted(x for x in all_names if x.startswith(("cachyos-", "cachy-", "arch-update"))))
+check("cachy-update is not installed (ISO #4: a 'Cachy-Update' menu entry and a teal C tray icon in every desktop frame, the only CachyOS-named UI), and no 'arch-update' unit is enabled for it",
+      "cachy-update" not in names and not any("arch-update" in str(n) for n in units), [x for x in ("cachy-update",) if x in names] + [n for n in units if "arch-update" in str(n)])
+check("the post-install fix-up removes cachy-update if it arrives anyway, and hides it when pacman refuses",
+      "pacman -Rns --noconfirm cachy-update" in text(os.path.join(INST, "scripts", "ci-os-post-install-fixups.sh"))
+      and "arch-update-tray.desktop" in text(os.path.join(INST, "scripts", "ci-os-post-install-fixups.sh")))
 ops = set(pk.operations(INST))
 check("the core operations include the container stack (docker, docker-compose, docker-buildx) and the tools of ci-hub.sh (jq, curl, openssl)",
       {"docker", "docker-compose", "docker-buildx", "jq", "curl", "openssl"} <= ops, ops)
@@ -390,19 +401,166 @@ check("the launcher sets umask 077 only inside a subshell around the log (Calama
 check("the launcher prints no password or secret (no read -s, no passwd, no token)", not re.search(r"read\s+-s|passwd|\btoken\b|secret", code, re.I))
 
 # ---------------------------------------------------------------------------------------------------------------------------------
+print("== installer stylesheet (branding/companion/stylesheet.qss) and what the pages show")
+# ISO #4 frames: the progress bar's fill had the window colour, the selected rows of the keyboard / bootloader / package lists were
+# invisible, the Welcome help icon was a dark pictogram on teal, package descriptions were cut off. The cause of the first two is the
+# colour scheme CI-OS-Dark: Window, View, Button and Selection are all brand teal (10,99,88). The scheme is shared with the Ubuntu
+# edition, so the stylesheet sets the colours itself, from the brand tokens, and these checks hold it to WCAG 2.1.
+qss_src = text(os.path.join(INST, "branding", "companion", "stylesheet.qss"))
+qss_body = re.sub(r"/\*.*?\*/", "", qss_src, flags=re.S)
+tokens = dict(re.findall(r'^(CI_[A-Z0-9_]+)="(#[0-9a-fA-F]{6})"', text(os.path.join(REPO, "vendor", "brand", "tokens", "tokens.sh")), re.M))
+stager_src = text(os.path.join(INST, "stage-installer.sh"))
+ph_tokens = dict(re.findall(r'-e "s\|@([A-Z_]+)@\|\$(CI_[A-Z0-9_]+)\|g"', stager_src))
+ph_hex = {k: tokens.get(v) for k, v in ph_tokens.items()}
+used = sorted(set(re.findall(r"@([A-Z_]+)@", qss_body)))
+check("every placeholder of the stylesheet is filled by stage-installer.sh from a token that exists in vendor/brand/tokens/tokens.sh",
+      used and all(ph_hex.get(u) for u in used), [u for u in used if not ph_hex.get(u)])
+check("the stylesheet types no colour itself (no #rrggbb, no rgb()): the brand canon is the only place a hex value is written (style-canon lint)",
+      not re.search(r"#[0-9a-fA-F]{3,8}\b|rgba?\s*\(", qss_body), re.findall(r"#[0-9a-fA-F]{3,8}\b|rgba?\s*\([^)]*\)", qss_body))
+
+def qss_rules(body):
+    out = {}
+    for sel, decls in re.findall(r"([^{}]+)\{([^{}]*)\}", body):
+        props = {}
+        for d in decls.split(";"):
+            if ":" in d:
+                k, v = d.split(":", 1)
+                props[k.strip()] = v.strip()
+        for one_sel in sel.split(","):
+            out.setdefault(" ".join(one_sel.split()), {}).update(props)
+    return out
+rules = qss_rules(qss_body)
+def hexof(v):
+    m = re.search(r"@([A-Z_]+)@", v or "")
+    return ph_hex.get(m.group(1)) if m else None
+def lin(c):
+    c = c / 255.0
+    return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+def lum(h):
+    r, g, b = (int(h.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b)
+def contrast(a, b):
+    la, lb = sorted((lum(a), lum(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+scheme = {}
+sec = None
+for ln in text(os.path.join(REPO, "backends", "_mixins", "kde-plasma", "CI-OS-Dark.colors")).splitlines():
+    m_ = re.match(r"^\[(.+)\]$", ln.strip())
+    if m_:
+        sec = m_.group(1)
+    elif sec and "=" in ln:
+        scheme[(sec, ln.split("=", 1)[0])] = ln.split("=", 1)[1].strip()
+rgb_hex = lambda s_: "#%02x%02x%02x" % tuple(int(x) for x in s_.split(",")[:3])
+win_bg = rgb_hex(scheme[("Colors:Window", "BackgroundNormal")])
+sel_bg_scheme = rgb_hex(scheme[("Colors:Selection", "BackgroundNormal")])
+
+pb, chunk, view = rules.get("QProgressBar", {}), rules.get("QProgressBar::chunk", {}), rules.get("QAbstractItemView", {})
+track, fill, ptext = hexof(pb.get("background-color")), hexof(chunk.get("background-color")), hexof(pb.get("color"))
+outline = hexof(pb.get("border"))
+sel_bg, sel_fg = hexof(view.get("selection-background-color")), hexof(view.get("selection-color"))
+check("the progress bar has its own track, fill, text colour and outline (the scheme's Highlight, which the stock bar fills with, equals the window colour %s)" % win_bg,
+      all((track, fill, ptext, outline)), (track, fill, ptext, outline))
+check("progress bar: centred text, a fixed height, and the chunk is a different colour from the track and from the window",
+      pb.get("text-align") == "center" and pb.get("min-height") == pb.get("max-height") and fill not in (track, win_bg), (pb, chunk))
+check("progress bar text is AA on the fill (>= 4.5) and on the track (>= 4.5)",
+      bool(ptext and fill and track) and contrast(ptext, fill) >= 4.5 and contrast(ptext, track) >= 4.5,
+      "%.2f on the fill, %.2f on the track" % (contrast(ptext, fill), contrast(ptext, track)) if ptext and fill and track else "missing colours")
+check("progress bar: the fill stands out from the track and the track's outline from the window, both >= 3:1 (WCAG 1.4.11)",
+      bool(fill and track and outline) and contrast(fill, track) >= 3 and contrast(outline, win_bg) >= 3,
+      "fill/track %.2f, outline/window %.2f" % (contrast(fill, track), contrast(outline, win_bg)) if fill and track and outline else "missing colours")
+check("selected rows (QAbstractItemView selection colours): their own colours, dark text on a light row >= 7:1 (AAA), and the row against the window >= 3:1 (the scheme's selection is the window colour: invisible)",
+      bool(sel_bg and sel_fg) and sel_bg != win_bg and contrast(sel_fg, sel_bg) >= 7 and contrast(sel_bg, win_bg) >= 3,
+      "text/row %.2f, row/window %.2f" % (contrast(sel_fg, sel_bg), contrast(sel_bg, win_bg)) if sel_bg and sel_fg else "missing colours")
+check("the Welcome page link buttons (#supportButton, #donateButton, #releaseNotesButton, #knownIssuesButton, the stock names) lose their stock dark pictogram: icon-size 0px, and the widget property as well",
+      all(rules.get(n, {}).get("icon-size") == "0px" and rules.get(n, {}).get("qproperty-iconSize") == "0px 0px" for n in ("#supportButton", "#donateButton", "#releaseNotesButton", "#knownIssuesButton")),
+      {n: rules.get(n) for n in ("#supportButton", "#donateButton", "#releaseNotesButton", "#knownIssuesButton")})
+check("the stylesheet keeps what the stock one sets for the installer: the 13 px base font and no icons on the dialog button box",
+      rules.get("QWidget", {}).get("font") == "13px" and rules.get("QDialogButtonBox", {}).get("dialogbuttonbox-buttons-have-icons") == "0")
+check("the stylesheet parses as plain QSS: balanced braces, every declaration ends with a semicolon, no unknown @ left (QSS parse errors make Qt drop the whole sheet silently)",
+      qss_body.count("{") == qss_body.count("}") and not re.search(r"[^;{}\s][ \t]*\n\s*\}", qss_body) and "@" not in re.sub(r"@[A-Z_]+@", "", qss_body), qss_body.count("{"))
+
+def visible_groups(groups):
+    for g in groups or []:
+        if isinstance(g, dict) and not g.get("hidden"):
+            yield g
+            for sub in visible_groups(g.get("subgroups")):
+                yield sub
+na = load_yaml(os.path.join(INST, "modules", "netinstall.yaml"))
+long_ones = [(len(str(g.get("description", ""))), g["name"]) for g in visible_groups(na) if len(str(g.get("description", ""))) > 72]
+check("every package group the user sees has a description of at most 72 characters (ISO #4's 98-character ones were cut off with '...' at the window edge of the 1100 px installer)",
+      not long_ones and any(True for _ in visible_groups(na)), long_ones)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
 print("== first-boot units")
 svc = text(os.path.join(PROV, "systemd", "ci-os-first-boot-setup.service"))
 tmr = text(os.path.join(PROV, "systemd", "ci-os-first-boot-setup.timer"))
 check("the service never runs in the live session (ConditionKernelCommandLine=!archisobasedir) or after success (marker)",
       "ConditionKernelCommandLine=!archisobasedir" in svc and "ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done" in svc)
-check("the service is a oneshot that runs /usr/lib/ci-os/first-boot-setup.sh after the network, without RemainAfterExit",
-      "Type=oneshot" in svc and "ExecStart=/usr/lib/ci-os/first-boot-setup.sh" in svc and "After=network-online.target" in svc and "RemainAfterExit=no" in svc)
-m = re.search(r"^TimeoutStartSec=(\S+)\s*$", svc, re.M)
-tmo = m.group(1) if m else None
+def unit_sections(src):
+    """A systemd unit as {section: {key: [values...]}} (comments and blank lines dropped; no line continuations in these units)."""
+    out, sec = {}, None
+    for line in strip_comments(src).splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        m = re.match(r"^\[([A-Za-z]+)\]$", line)
+        if m:
+            sec = out.setdefault(m.group(1), {})
+        elif sec is not None and "=" in line:
+            k, v = line.split("=", 1)
+            sec.setdefault(k.strip(), []).append(v.strip())
+    return out
+
+BOOT_TARGETS = {"sysinit.target", "basic.target", "multi-user.target", "graphical.target", "default.target", "local-fs.target", "getty.target"}
+# Start types whose start JOB lasts as long as the process (or its fork parent, or its READY=1): a boot target that wants such a unit
+# waits for it (systemd.target(5): a target is ordered After= every unit it Wants= when both have DefaultDependencies=yes).
+BLOCKING_TYPES = {"oneshot", "forking", "notify", "notify-reload", "dbus", "idle"}
+
+def holds_boot(unit):
+    """Why a unit would hold up the boot targets, as a list of reasons (empty = it does not)."""
+    why = []
+    svc, inst, unit_sec = unit.get("Service", {}), unit.get("Install", {}), unit.get("Unit", {})
+    linked = {t for k in ("WantedBy", "RequiredBy", "UpheldBy") for v in inst.get(k, []) for t in v.split()}
+    boot_linked = sorted(linked & BOOT_TARGETS)
+    typ = (svc.get("Type") or ["simple"])[-1]
+    if boot_linked and typ in BLOCKING_TYPES:
+        why.append("Type=%s is linked into %s (its start job lasts as long as the script)" % (typ, ", ".join(boot_linked)))
+    ordered_net = [v for k in ("After", "Wants", "Requires") for val in unit_sec.get(k, []) for v in val.split() if v == "network-online.target"]
+    if boot_linked and ordered_net:
+        why.append("it is linked into %s and ordered after/wanting network-online.target (the wait-online timeout moves into the boot)" % ", ".join(boot_linked))
+    before = sorted(v for val in unit_sec.get("Before", []) for v in val.split() if v in BOOT_TARGETS)
+    if before:
+        why.append("Before=%s" % " ".join(before))
+    return why
+
+unit = unit_sections(svc)
+check("the service runs /usr/lib/ci-os/first-boot-setup.sh as an exec service (not a oneshot), without RemainAfterExit",
+      unit["Service"].get("Type") == ["exec"] and unit["Service"].get("ExecStart") == ["/usr/lib/ci-os/first-boot-setup.sh"]
+      and unit["Service"].get("RemainAfterExit") == ["no"], unit["Service"])
+check("the service does not hold up the boot targets (ISO #4: a oneshot linked into multi-user.target delayed graphical.target by the whole run, 16 min 27 s with a network)",
+      not holds_boot(unit), holds_boot(unit))
+check("holds_boot() can see the bug: the ISO #4 shape (oneshot + network-online.target + multi-user.target) is flagged twice, a Before= of a boot target once, and the fixed shapes not at all",
+      len(holds_boot(unit_sections("[Unit]\nAfter=network-online.target\nWants=network-online.target\n[Service]\nType=oneshot\n[Install]\nWantedBy=multi-user.target\n"))) == 2
+      and holds_boot(unit_sections("[Unit]\nBefore=graphical.target\n[Service]\nType=exec\n")) == ["Before=graphical.target"]
+      and not holds_boot(unit_sections("[Unit]\nAfter=network-online.target\n[Service]\nType=oneshot\n")))
+check("the service has no network-online ordering at all (the script polls for the network itself; ordering would put wait-online into every boot)",
+      "network-online.target" not in strip_comments(svc))
+check("the service sets HOME=/root (a system unit has none and ollama panics without one: ISO #4 ended 'degraded' with all models installed)",
+      unit["Service"].get("Environment") == ["HOME=/root"], unit["Service"].get("Environment"))
+check("the service runs at a lower priority than the desktop it starts beside (Nice > 0)",
+      unit["Service"].get("Nice", [""])[-1].isdigit() and int(unit["Service"]["Nice"][-1]) > 0, unit["Service"].get("Nice"))
+check("the service has no Restart= (retries are the timer's job; first-boot-setup.sh turns 74 and 75 into exit 0 plus a status file)",
+      "Restart" not in unit["Service"], unit["Service"].get("Restart"))
 # The run ends in the pull of the largest model of the manifest. At the size recorded in core/manifest/model-packs.yaml, 1800 s needs
-# 79 Mbit/s; whatever the unit says must not cut the download of the models short: no timeout, or at least a day.
-check("the service has no start timeout that can kill a model pull half way (TimeoutStartSec is infinity, 0, or at least a day)",
-      tmo in ("infinity", "0") or (tmo is not None and tmo.isdigit() and int(tmo) >= 86400), tmo)
+# 79 Mbit/s; nothing the unit says may cut the download short: no RuntimeMaxSec, and no small TimeoutStartSec on a type whose start job
+# lasts as long as the run.
+def secs(v):
+    return None if v in (None, "infinity", "0") else (int(v) if v.isdigit() else -1)
+rt = unit["Service"].get("RuntimeMaxSec", [None])[-1]
+tmo = unit["Service"].get("TimeoutStartSec", [None])[-1]
+typ = unit["Service"].get("Type", ["simple"])[-1]
+check("the service has nothing that can kill a model pull half way (RuntimeMaxSec unset, infinity or at least a day; TimeoutStartSec likewise unless the start job is short)",
+      (secs(rt) is None or secs(rt) >= 86400) and (secs(tmo) is None or secs(tmo) >= 86400 or typ in ("exec", "simple")), (rt, tmo, typ))
 check("the timer retries every 15 minutes while the marker is absent and is wanted by timers.target",
       "OnUnitInactiveSec=15min" in tmr and "ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done" in tmr and "WantedBy=timers.target" in tmr
       and "ConditionKernelCommandLine=!archisobasedir" in tmr)

@@ -1,26 +1,50 @@
 [Unit]
 Description=Companion OS first-boot setup (Docker, Ollama and the CI-Hub tools)
 Documentation=https://ci.computer
-After=network-online.target
-Wants=network-online.target
 # Runs until provisioning has succeeded once: the script writes this marker only on success, and
 # ci-os-first-boot-setup.timer retries while it is absent.
 ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
 # Never in the live session: archiso passes archisobasedir=... on the kernel command line.
 ConditionKernelCommandLine=!archisobasedir
+# Deliberately NO After=/Wants=network-online.target, and NO Type=oneshot: together they held the whole boot hostage on ISO #4
+# (measured in the guest: `systemd-analyze` said "graphical.target reached after 16 min 27 s" with a network and 3 min 54 s
+# without, and `systemctl is-system-running` said "starting" for the whole run). The mechanism is in systemd.target(5): a target
+# orders itself After= every unit it Wants= (when both have DefaultDependencies=yes), multi-user.target wants this unit through the
+# [Install] link below, and a oneshot's start job only finishes when the script exits. network-online.target in front of a unit that
+# multi-user.target waits for would put the wait-online timeout on every boot as well. The script waits for the network itself (ping,
+# then HTTPS, 30 tries) and exits 0 when there is none, so the ordering buys nothing; the retry timer does the rest.
 
 [Service]
-Type=oneshot
+# exec: the start job is done as soon as the script has been started, so multi-user.target and graphical.target never wait for the
+# provisioning, and `systemctl status` shows "active (running)" during the run. (Not simple, which would not report a script that
+# cannot be executed; not forking or notify, the script has no daemon half.)
+Type=exec
 ExecStart=/usr/lib/ci-os/first-boot-setup.sh
+# A system unit has no $HOME, and the ollama CLI panics without one ("panic: $HOME is not defined", exit 2): ISO #4 read that as a
+# dead server and finished "degraded" with all three models installed. provision.sh sets it as well (it is the one that calls
+# `ollama list` as root); this line covers everything else the run starts (the Arch provisioner, pnpm, corepack, npm).
+Environment=HOME=/root
 # No RemainAfterExit: an "active (exited)" unit would ignore the retry timer.
 RemainAfterExit=no
-# No start timeout. The run ends in a pull of the Ollama models, and the largest, qwen3.6:27b, is 17.8 GB (core/manifest/model-packs.yaml,
-# size_bytes 17769076933): 1800 s needs 79 Mbit/s sustained with nothing else running, and a systemd kill half way through the
-# download used up one of the three attempts. A finite value is a promise about somebody else's link speed. What bounds the run instead:
-# the script's lock (one run at a time), its attempt counter (three automatic runs), and `systemctl stop`, which the person at the
-# machine can always issue. (systemd.service(5): Type=oneshot has no start timeout by default either; the line makes the intent
-# explicit, and the tests fail if it becomes a small number again.)
-TimeoutStartSec=infinity
+# Retries are not systemd's business: first-boot-setup.sh turns "no network", "no desktop account yet" (75) and "a model is missing"
+# (74) into exit 0 plus a status file and an attempt counter, and ci-os-first-boot-setup.timer starts it again every 15 minutes
+# until .first-boot-setup-done exists. A Restart= here would loop on a machine without a network.
+#
+# The run is long (it ends in the pull of qwen3.6:27b, 17.8 GB: core/manifest/model-packs.yaml, size_bytes 17769076933) and nothing
+# may kill it half way: no RuntimeMaxSec (a kill used up one of the three attempts), and TimeoutStartSec only covers the start of an
+# exec service, not the run (cachyos-settings lowers DefaultTimeoutStartSec to 15 s system-wide: harmless for the instant start of
+# an exec service, and the reason the old oneshot had to say infinity). What bounds the run instead: the script's lock (one run at a
+# time), its attempt counter (three automatic runs), and `systemctl stop`, which the person at the machine can always issue.
+#
+# It starts while the desktop is still coming up and must not slow the login down (ISO #4: 93 s from login to a settled desktop
+# with the run beside it, 55 s on the offline boot; the host load differed, so that is a hint, not a measurement of this line).
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+# The script sends its output through progress-filter.sh first, so what arrives here is readable lines, not terminal redraws.
+# KillMode stays at its default (control-group): the filter and the tee run in a process substitution that systemd kills as soon as the
+# main process exits, so the script waits for them itself (its EXIT trap, at most 5 s) before it exits. KillMode=mixed would not help
+# (checked); first-boot-drain-container.sh fails if this unit starts to set KillMode without that test being adapted.
 StandardOutput=journal+console
 StandardError=journal+console
 

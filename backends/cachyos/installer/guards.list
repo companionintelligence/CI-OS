@@ -62,6 +62,7 @@ critical | oexists        | target/bootstrap/backends/arch/provision/provision.s
 critical | oexists        | target/bootstrap/backends/cachyos/provision/provision.sh |  | the thin wrapper that exports SUDO_USER
 critical | oexists        | target/bootstrap/backends/cachyos/provision/first-boot-setup.sh |  | the first-boot driver
 critical | oexists        | target/bootstrap/backends/cachyos/provision/stage-headless.sh |  | copies the payload into the target without pacman or systemctl
+cosmetic | oexists        | target/bootstrap/backends/cachyos/provision/progress-filter.sh |  | turns the provisioning output into log lines (Ollama's redraws made 14,052 lines of log on ISO #4); first-boot-setup.sh falls back to the raw stream without it
 critical | oexists        | target/bootstrap/core/lib/ci-hub.sh                     |  | deploy_ci_hub sources it
 critical | oexists        | target/units/ci-os-first-boot-setup.service             |  | first-boot unit
 critical | oexists        | target/units/ci-os-first-boot-setup.timer               |  | first-boot retry timer
@@ -83,6 +84,7 @@ cosmetic | lexists        | /usr/share/plymouth/themes/companion-os/companion-os
 cosmetic | contains       | /etc/calamares/modules/shellprocess.conf | cp -rf /etc/skel/. /home/${USER}/. | the user's home gets the (Companion OS) skel files from this step
 cosmetic | contains       | /usr/lib/calamares/modules/plymouthcfg/main.py | plymouth-set-default-theme | the installed boot splash is selected through it
 cosmetic | exists         | /usr/share/calamares/qml/calamares/slideshow/Presentation.qml |  | branding/companion/show.qml imports calamares.slideshow
+cosmetic | oexists        | branding/companion/stylesheet.qss                       |  | the brand colours of the progress bar, the selected rows and the welcome links (the installer's colour scheme paints Highlight like the window)
 cosmetic | keys           | grubcfg                   |  | upstream keys the overlay's copy would drop (pacstrap and bootloader are critical, above)
 cosmetic | keys           | plymouthcfg               |  |
 cosmetic | keys           | users                     |  |

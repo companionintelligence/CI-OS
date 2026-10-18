@@ -10,7 +10,7 @@
 # Covered: ISO file name, volume label, publisher / application, El Torito and MBR/GPT reports, size, the files an archiso
 # boot needs, the search uuid and the standalone GRUB, GRUB and syslinux menus (titles, default, background, kernel lines,
 # parity with the pinned upstream), artwork hashes, os-release (D4) and its pacman hook, lsb-release, sshd mask (D7), the
-# About-System file, the installer launcher and calamares-online.sh (D6), the cachyos-hello gate, the package list, file
+# About-System file, the installer launcher and calamares-online.sh (D6), the cachyos-hello gate, the cachy-update check, the package list, file
 # modes, the build record, sha256 / sha512 files, the squashfs listing parser, and the Calamares overlay analysis (a
 # fixture tree and thirteen mutations of it; needs python3 with PyYAML, otherwise listed as SKIPPED).
 #
@@ -590,6 +590,22 @@ cp "$WORK/hello/etc/skel/.config/autostart/cachyos-hello.desktop" "$WORK/hello/h
 printf '[Desktop Entry]\nExec=cachyos-hello\nNoDisplay=true\n' > "$WORK/hello/usr/share/applications/cachyos-hello.desktop"
 good "cachyos-hello is in the image but hidden everywhere" v_check_hello_gate "$WORK/Lh" "$WORK/pk.hello" "$WORK/hello"
 
+#=== cachy-update (the CachyOS-named update notifier of ISO #4's installed desktop) ============================================
+mkdir -p "$WORK/cu/etc/xdg/autostart" "$WORK/cu/usr/share/applications" "$WORK/cu/etc/skel/.config/autostart"
+good "cachy-update is not in the image" v_check_cachy_update "$WORK/pk.nohello" "$WORK/cu"
+printf 'cachy-update 4.4.3-1\nplasma-desktop 6.8.0-1\n' > "$WORK/pk.cu"
+printf '[Desktop Entry]\nName=Cachy-Update Systray Applet\nExec=/bin/sh -c "sleep 3 && arch-update --tray"\nNoDisplay=true\n' > "$WORK/cu/etc/xdg/autostart/arch-update-tray.desktop"
+printf '[Desktop Entry]\nName=Cachy-Update\nComment=An interactive update notifier & applier for CachyOS\nExec=arch-update\n' > "$WORK/cu/usr/share/applications/arch-update.desktop"
+bad "cachy-update is in the image and its tray applet autostarts (NoDisplay does not stop an autostart entry)" "tray applet autostarts" v_check_cachy_update "$WORK/pk.cu" "$WORK/cu"
+bad "cachy-update is in the image and its menu entry is shown" "menu entry is shown" v_check_cachy_update "$WORK/pk.cu" "$WORK/cu"
+printf '[Desktop Entry]\nName=Cachy-Update Systray Applet\nHidden=true\n' > "$WORK/cu/etc/xdg/autostart/arch-update-tray.desktop"
+printf '[Desktop Entry]\nName=Cachy-Update\nNoDisplay=true\nExec=arch-update\n' > "$WORK/cu/usr/share/applications/arch-update.desktop"
+good "cachy-update is in the image but neither autostarts nor shows" v_check_cachy_update "$WORK/pk.cu" "$WORK/cu"
+rm -f "$WORK/cu/etc/xdg/autostart/arch-update-tray.desktop"
+good "cachy-update is in the image, hidden, with no tray autostart file at all" v_check_cachy_update "$WORK/pk.cu" "$WORK/cu"
+printf '[Desktop Entry]\nName=Cachy-Update Systray Applet\nExec=arch-update --tray\n' > "$WORK/cu/etc/skel/.config/autostart/arch-update-tray.desktop"
+bad "an autostart entry in the user skeleton counts too" "tray applet autostarts" v_check_cachy_update "$WORK/pk.cu" "$WORK/cu"
+
 #=== package list ==================================================================================================
 : > "$WORK/pk.list"
 for p in $V_REQUIRED_PKGS docker docker-compose; do echo "$p 1.0-1" >> "$WORK/pk.list"; done
@@ -926,6 +942,7 @@ default: grub
 items:
     - id: grub
       name: "GRUB"
+      screenshot: "/usr/share/calamares/branding/companion/bootloader.png"
 EOF
     cat > "$d/modules/plymouthcfg.conf" <<'EOF'
 ---
@@ -968,6 +985,36 @@ EOF
     mk_png "$d/branding/companion/icon.png" 128 128
     mk_png "$d/branding/companion/welcome.png" 900 516
     printf 'import QtQuick 2.0\nText { text: "Welcome to Companion OS" }\n' > "$d/branding/companion/show.qml"
+    # the stylesheet as stage-installer.sh resolves it: the brand tokens in place of the CTRL_* placeholders
+    cat > "$d/branding/companion/stylesheet.qss" <<'EOF'
+QWidget { font: 13px; }
+QProgressBar { background-color: #041620; border: 1px solid #a3babf; border-radius: 4px; color: #e8f2f4; text-align: center; min-height: 18px; max-height: 18px; }
+QProgressBar::chunk { background-color: #0d7a6e; border-radius: 3px; }
+QAbstractItemView { selection-background-color: #c5e8dc; selection-color: #041620; }
+#supportButton,
+#donateButton,
+#releaseNotesButton,
+#knownIssuesButton { icon-size: 0px; qproperty-iconSize: 0px 0px; }
+EOF
+    mk_png "$d/branding/companion/bootloader.png" 384 384
+    # the provisioning tree staged for the installed system: the output filter of the first-boot driver
+    mkdir -p "$d/target/bootstrap/backends/cachyos/provision"
+    printf '#!/bin/bash\ncat\n' > "$d/target/bootstrap/backends/cachyos/provision/progress-filter.sh"
+    # the first-boot unit the installed system gets (target/units is data for the stager, not Calamares YAML)
+    mkdir -p "$d/target/units"
+    cat > "$d/target/units/ci-os-first-boot-setup.service" <<'EOF'
+[Unit]
+Description=Companion OS first-boot setup
+ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
+[Service]
+Type=exec
+ExecStart=/usr/lib/ci-os/first-boot-setup.sh
+Environment=HOME=/root
+RemainAfterExit=no
+Nice=10
+[Install]
+WantedBy=multi-user.target
+EOF
 }
 printf 'partition\nmount\npacstrap\nusers\npackages\nwelcome\nshellprocess\ngrubcfg\nbootloader\numount\nlocale\nkeyboard\nsummary\nfinished\nplymouthcfg\ninitcpio\npackagechooser\n' > "$WORK/stock-modules.txt"
 : > "$WORK/stock-confs.txt"
@@ -1016,6 +1063,69 @@ else
     cal_mut "no step runs the carry-over script the image ships" "no shellprocess step runs it" modules/shellprocess_ci_os_stage.conf '/installed\/carry-over/d'
     cal_mut "carry-over after the bootloader (it already read the themes)" "already read the themes" settings_companion.conf '/^  - shellprocess@ci_os_stage$/d; s/^  - umount$/  - shellprocess@ci_os_stage\n  - umount/'
     cal_mut "carry-over before the packages" "before the packages are installed" settings_companion.conf '/^  - shellprocess@ci_os_stage$/d; s/^  - packages@online$/  - shellprocess@ci_os_stage\n  - packages@online/'
+    # --- the first-boot unit must not hold the boot targets (ISO #4: graphical.target after 16 min 27 s) and must have HOME ---
+    U=target/units/ci-os-first-boot-setup.service
+    cal_mut "the ISO #4 first-boot unit: a oneshot linked into multi-user.target" "holds up the boot targets.*Type=oneshot" "$U" 's/^Type=exec/Type=oneshot/'
+    cal_mut "a first-boot unit ordered after network-online.target while linked into multi-user.target" "holds up the boot targets.*network-online" "$U" 's/^Description=.*/Description=x\nAfter=network-online.target/'
+    cal_mut "a first-boot unit with Wants=network-online.target while linked into multi-user.target" "holds up the boot targets.*network-online" "$U" 's/^Description=.*/Description=x\nWants=network-online.target/'
+    cal_mut "a first-boot unit that runs Before=graphical.target" "holds up the boot targets.*Before=graphical.target" "$U" 's/^Description=.*/Description=x\nBefore=graphical.target/'
+    cal_mut "a first-boot unit of Type=notify" "holds up the boot targets.*Type=notify" "$U" 's/^Type=exec/Type=notify/'
+    cal_mut "a first-boot unit without HOME" "does not set HOME" "$U" '/^Environment=HOME/d'
+    cal_mut "a first-boot unit with Restart=" "has Restart=" "$U" 's/^Nice=10/Nice=10\nRestart=on-failure/'
+    cal_mut "a first-boot unit that is killed after 5 minutes" "RuntimeMaxSec=300" "$U" 's/^Nice=10/Nice=10\nRuntimeMaxSec=300/'
+    rm -rf "$WORK/caltree.m"; cp -R "$WORK/caltree.good" "$WORK/caltree.m"; rm "$WORK/caltree.m/$U"
+    bad "calamares: no first-boot unit in the overlay" "no target/units/ci-os-first-boot-setup.service" calrun "$WORK/caltree.m"
+    rm -rf "$WORK/caltree.m"; cp -R "$WORK/caltree.good" "$WORK/caltree.m"
+    sed -i.bak 's/^Type=exec/Type=simple/' "$WORK/caltree.m/$U" && rm "$WORK/caltree.m/$U.bak"
+    good "calamares: Type=simple is fine too (the start job is done when the process has been forked)" calrun "$WORK/caltree.m"
+    rm -rf "$WORK/caltree.m"; cp -R "$WORK/caltree.good" "$WORK/caltree.m"
+    sed -i.bak 's/^Type=exec/Type=oneshot/; s/^WantedBy=.*/WantedBy=timers.target/' "$WORK/caltree.m/$U" && rm "$WORK/caltree.m/$U.bak"
+    good "calamares: a oneshot is fine when it is not linked into a boot target (timer-started)" calrun "$WORK/caltree.m"
+    rm -rf "$WORK/caltree.m"; cp -R "$WORK/caltree.good" "$WORK/caltree.m"; rm "$WORK/caltree.m/target/bootstrap/backends/cachyos/provision/progress-filter.sh"
+    bad "calamares: the provisioning tree without progress-filter.sh (the first-boot log floods with redraws again)" "progress-filter.sh is not in the overlay" calrun "$WORK/caltree.m"
+    # --- the installer's stylesheet: the colour scheme's Highlight equals the window colour, so the stock widgets are invisible ---
+    Q=branding/companion/stylesheet.qss
+    cal_mut "a stylesheet without the progress bar rules" "progress bar is not styled" "$Q" '/^QProgressBar/d'
+    cal_mut "a progress bar whose fill is the colour of its track" "progress bar is not styled" "$Q" 's/QProgressBar::chunk { background-color: #0d7a6e/QProgressBar::chunk { background-color: #041620/'
+    cal_mut "progress bar text that does not read on the fill (muted green on green)" "progress bar is not styled" "$Q" 's/color: #e8f2f4/color: #409b9b/'
+    cal_mut "a progress bar fill too close to its track (below 3:1)" "progress bar is not styled" "$Q" 's/QProgressBar::chunk { background-color: #0d7a6e/QProgressBar::chunk { background-color: #0a2e38/'
+    cal_mut "no selection colours for item views" "no selection colours" "$Q" '/^QAbstractItemView/d'
+    cal_mut "selection text that is not 7:1 on its row" "no selection colours" "$Q" 's/selection-color: #041620/selection-color: #0d7a6e/'
+    cal_mut "the Welcome link buttons keep their stock pictogram" "link buttons keep" "$Q" '/^#supportButton,$/,/^#knownIssuesButton/d'
+    cal_mut "a placeholder that stage-installer.sh did not fill" "unfilled placeholder" "$Q" 's/#041620; border/@CTRL_TRACK@; border/'
+    rm -rf "$WORK/caltree.m"; cp -R "$WORK/caltree.good" "$WORK/caltree.m"; rm "$WORK/caltree.m/$Q"
+    bad "calamares: no stylesheet at all" "no branding/companion/stylesheet.qss" calrun "$WORK/caltree.m"
+    # --- the bootloader chooser: a picture of ours, not Calamares' zip-archive placeholder ---
+    cal_mut "a chooser item with Calamares' built-in placeholder" "built-in picture" modules/packagechooser_bootloader.conf 's#screenshot: .*#screenshot: ":/images/no-selection.png"#'
+    cal_mut "a chooser item without a screenshot" "has no screenshot" modules/packagechooser_bootloader.conf '/screenshot:/d'
+    cal_mut "a chooser picture that is not in the overlay's branding directory" "not in the overlay's branding directory" modules/packagechooser_bootloader.conf 's#bootloader.png#gone.png#'
+    # --- what the installed system gets, and the package pages ---
+    rm -rf "$WORK/caltree.m"; cp -R "$WORK/caltree.good" "$WORK/caltree.m"
+    cat > "$WORK/caltree.m/modules/netinstall.yaml" <<'EOF'
+- name: "Plasma desktop (hidden)"
+  description: "KDE Plasma, the Companion OS desktop, with everything that a long hidden description may say, because nobody ever sees it on a page"
+  hidden: true
+  selected: true
+  critical: true
+  packages:
+    - plasma-desktop
+    - konsole
+- name: "Firefox and language package"
+  description: "Web browser for the Companion OS apps, in your language"
+  hidden: false
+  selected: true
+  packages:
+    - firefox
+EOF
+    good "calamares: a package page whose visible descriptions are short (a long hidden one is never shown)" calrun "$WORK/caltree.m"
+    sed -i.bak 's/^    - konsole/    - konsole\n    - cachy-update/' "$WORK/caltree.m/modules/netinstall.yaml" && rm "$WORK/caltree.m/modules/netinstall.yaml.bak"
+    bad "calamares: cachy-update in a selected package group (ISO #4: a Cachy-Update menu entry and a tray icon)" "does not get cachy-update|gets cachy-update" calrun "$WORK/caltree.m"
+    sed -i.bak '/cachy-update/d' "$WORK/caltree.m/modules/netinstall.yaml" && rm "$WORK/caltree.m/modules/netinstall.yaml.bak"
+    sed -i.bak 's/^  description: "Web browser for the Companion OS apps, in your language"/  description: "Web browser (the Companion OS apps are web based) with the language pack of the language you chose"/' "$WORK/caltree.m/modules/netinstall.yaml" && rm "$WORK/caltree.m/modules/netinstall.yaml.bak"
+    bad "calamares: a visible package group description of 98 characters (cut off at the window edge on ISO #4)" "cut off at the edge of the installer window" calrun "$WORK/caltree.m"
+    rm -rf "$WORK/caltree.m"; cp -R "$WORK/caltree.good" "$WORK/caltree.m"
+    printf -- '---\nunits:\n  - name: "docker"\n    action: "enable"\n    mandatory: false\n  - name: "arch-update.timer"\n    action: "enable"\n    mandatory: false\n    user: true\n' > "$WORK/caltree.m/modules/services-systemd.conf"
+    bad "calamares: services-systemd enables arch-update.timer (the user timer of cachy-update)" "enables arch-update.timer" calrun "$WORK/caltree.m"
     rm -rf "$WORK/caltree.m"; cp -R "$WORK/caltree.good" "$WORK/caltree.m"
     sed -i.bak 's/^efiBootLoader: "grub"/efiBootLoader: "grub"\nefiBootLoaderVar: "packagechooser_bootloader"/' "$WORK/caltree.m/modules/bootloader.conf" && rm "$WORK/caltree.m/modules/bootloader.conf.bak"
     good "calamares: efiBootLoaderVar is fine when the page offers only grub" calrun "$WORK/caltree.m"

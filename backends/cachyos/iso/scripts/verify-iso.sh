@@ -19,12 +19,17 @@
 #       image and its drop-ins forbid root and password logins (D7), the live user is still liveuser with passwordless sudo;
 #   3b. the installer entry point (D6): our launcher .desktop and /usr/local/bin/calamares-online.sh are there and
 #       executable, the script applies the Companion overlay AFTER it reinstalls cachyos-calamares-next, and the
-#       cachyos-hello install gate (cachyos.org/versions.json) cannot be reached from a default session;
+#       cachyos-hello install gate (cachyos.org/versions.json) cannot be reached from a default session; cachy-update
+#       (a CachyOS-named update notifier: menu entry and tray icon) is not in the image or nothing shows or starts it;
 #   4.  the package list contains what the live ISO needs and what overlay/packages.add adds, and none of what
 #       overlay/packages.remove removes, and it equals the image's own pacman database;
 #   5.  the Calamares overlay (/usr/share/ci-os/calamares) is consistent: YAML parses, branding says Companion OS,
 #       GRUB (not Limine), efiBootloaderId, hostname, docker group, packages, no CachyOS endpoint, no GitHub-raw
-#       dependency, no log upload, every instance has a config, every path it stages exists in the image;
+#       dependency, no log upload, every instance has a config, every path it stages exists in the image; the installed
+#       system does not get cachy-update; the first-boot unit does not hold up the boot targets and sets HOME; the
+#       installer's stylesheet gives the progress bar, the selected rows and the Welcome links colours that read
+#       (the colour scheme's Highlight equals the window colour); the bootloader chooser shows a picture of the overlay,
+#       not Calamares' placeholder; no package group description that the installer window would cut off;
 #   6.  file modes: mkarchiso drops modes, so every file with a #! line that is not owned by a package must be
 #       executable, sudoers drop-ins are 0440 and /etc/shadow is 0400; the slow-boot generator for virtual machines
 #       (companion-vm-timeouts) is there and executable;
@@ -686,6 +691,25 @@ v_check_hello_gate() {
     elif v_has "$f" '^(NoDisplay|Hidden)=true'; then pass "cachyos-hello is hidden from the application menu"
     else fail "cachyos-hello is still in the application menu (usr/share/applications/cachyos-hello.desktop is not NoDisplay/Hidden)"; fi
     v_lst_has "$l" /usr/local/bin/calamares-online.sh || fail "/usr/local/bin/calamares-online.sh is absent, so cachyos-hello's Install button has nothing to run"
+    return 0
+}
+
+# v_check_cachy_update PKGLIST ROOT: the installed system of ISO #4 showed a "Cachy-Update" menu entry and a teal C tray icon in every desktop
+# frame (the package came from the netinstall group of the Plasma desktop; the live image never had it: the Calamares overlay check
+# refuses it for the installed system). Either the package is not in the live image, or nothing shows or starts it.
+v_check_cachy_update() {
+    local pl="$1" r="$2" f offenders=""
+    if ! grep -q '^cachy-update ' "$pl" 2>/dev/null; then pass "cachy-update is not in the image (no CachyOS-named update notifier in the menu or the tray)"; return 0; fi
+    note "cachy-update is in the image: checking that nothing starts or shows it"
+    for f in "$r"/etc/xdg/autostart/arch-update-tray.desktop "$r"/etc/skel/.config/autostart/arch-update-tray.desktop "$r"/home/*/.config/autostart/arch-update-tray.desktop; do
+        [ -f "$f" ] || continue
+        if ! v_has "$f" '^Hidden=true'; then offenders="$offenders ${f#"$r"}"; fi
+    done
+    if [ -z "$offenders" ]; then pass "the cachy-update tray applet does not autostart (no autostart entry, or Hidden=true)"; else fail "the cachy-update tray applet autostarts (a teal C in the tray of every session):$offenders"; fi
+    f="$r/usr/share/applications/arch-update.desktop"
+    if [ ! -f "$f" ]; then pass "cachy-update has no application menu entry"
+    elif v_has "$f" '^(NoDisplay|Hidden)=true'; then pass "the cachy-update menu entry is hidden (NoDisplay/Hidden)"
+    else fail "the 'Cachy-Update - An interactive update notifier & applier for CachyOS' menu entry is shown (usr/share/applications/arch-update.desktop is not NoDisplay/Hidden)"; fi
     return 0
 }
 
@@ -1419,6 +1443,148 @@ if enable_docker:
 else:
     bad("no Calamares step enables docker (a shellprocess script with systemctl enable ... docker, or a services-systemd unit; D8)")
 
+# ── what the installed system must NOT get, the first-boot unit, the installer's look ─────────────────────────────────────
+# ISO #4 (installed system): a "Cachy-Update" menu entry and a teal C tray icon in every desktop frame, from the netinstall group of the
+# Plasma desktop. The live image never carried it.
+cachy_named_apps = sorted(x for x in target_packages if x in ("cachy-update", "arch-update"))
+if cachy_named_apps:
+    bad("the installed system gets %s (a CachyOS-named update notifier: a menu entry and a tray icon in every desktop frame; the product does not ship it)" % ", ".join(cachy_named_apps))
+else:
+    ok("the installed system does not get cachy-update (no CachyOS-named update notifier in its menu or tray)")
+for p, d in by_key("units"):
+    arch_units = [str(u.get("name")) for u in (d.get("units") or []) if isinstance(u, dict) and "arch-update" in str(u.get("name"))]
+    if arch_units:
+        bad("%s enables %s (the user timer of cachy-update, which is not installed)" % (rel(p), ", ".join(arch_units)))
+
+def ini_sections(src):
+    out, sec = {}, None
+    for line in src.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        m_ = re.match(r"^\[([A-Za-z]+)\]$", line)
+        if m_:
+            sec = out.setdefault(m_.group(1), {})
+        elif sec is not None and "=" in line:
+            k, v = line.split("=", 1)
+            sec.setdefault(k.strip(), []).append(v.strip())
+    return out
+
+BOOT_TARGETS = {"sysinit.target", "basic.target", "multi-user.target", "graphical.target", "default.target", "local-fs.target", "getty.target"}
+BLOCKING_TYPES = {"oneshot", "forking", "notify", "notify-reload", "dbus", "idle"}
+unit_file = os.path.join(tree, "target", "units", "ci-os-first-boot-setup.service")
+if not os.path.isfile(unit_file):
+    bad("the overlay has no target/units/ci-os-first-boot-setup.service: the installed system gets no first-boot provisioning")
+else:
+    u = ini_sections(text_of(unit_file))
+    svc, inst, usec = u.get("Service", {}), u.get("Install", {}), u.get("Unit", {})
+    typ = (svc.get("Type") or ["simple"])[-1]
+    linked = {t for k in ("WantedBy", "RequiredBy", "UpheldBy") for v in inst.get(k, []) for t in v.split()}
+    why = []
+    if linked & BOOT_TARGETS and typ in BLOCKING_TYPES:
+        why.append("Type=%s is linked into %s: its start job lasts as long as the script, and a target is ordered after what it wants (ISO #4: graphical.target after 16 min 27 s)" % (typ, ", ".join(sorted(linked & BOOT_TARGETS))))
+    if linked & BOOT_TARGETS and any("network-online.target" in v.split() for k in ("After", "Wants", "Requires") for v in usec.get(k, [])):
+        why.append("it is linked into a boot target and ordered after / wanting network-online.target (the wait-online timeout moves into the boot)")
+    before = sorted(t for v in usec.get("Before", []) for t in v.split() if t in BOOT_TARGETS)
+    if before:
+        why.append("Before=%s" % " ".join(before))
+    if why:
+        bad("target/units/ci-os-first-boot-setup.service holds up the boot targets: %s" % "; ".join(why))
+    else:
+        ok("the first-boot unit does not hold up the boot targets (Type=%s, no network-online ordering)" % typ)
+    if svc.get("Environment") and any(v.startswith("HOME=") for v in svc["Environment"]):
+        ok("the first-boot unit sets HOME (a system unit has none, and the ollama CLI panics without one)")
+    else:
+        bad("the first-boot unit does not set HOME: the ollama CLI panics ('$HOME is not defined') and the models are reported missing (ISO #4: 'degraded' with all three installed)")
+    if any(k in svc for k in ("Restart",)):
+        bad("the first-boot unit has Restart=: retries are the timer's job (a restart loop on a machine without a network)")
+    runtime = svc.get("RuntimeMaxSec", [None])[-1]
+    if runtime not in (None, "infinity", "0") and not (runtime.isdigit() and int(runtime) >= 86400):
+        bad("the first-boot unit has RuntimeMaxSec=%s: a slow model pull would be killed half way" % runtime)
+
+pf = os.path.join(tree, "target", "bootstrap", "backends", "cachyos", "provision", "progress-filter.sh")
+if os.path.isfile(pf):
+    ok("the provisioning tree staged for the installed system carries progress-filter.sh (the first-boot log stays readable)")
+else:
+    bad("target/bootstrap/backends/cachyos/provision/progress-filter.sh is not in the overlay: the first-boot log and the journal would fill with Ollama's progress redraws again (14,052 lines on ISO #4)")
+
+qss_path = os.path.join(tree, "branding", "companion", "stylesheet.qss")
+if os.path.isfile(qss_path):
+    qbody = re.sub(r"/\*.*?\*/", "", text_of(qss_path), flags=re.S)
+    qrules = {}
+    for qsel, qdecl in re.findall(r"([^{}]+)\{([^{}]*)\}", qbody):
+        props = {}
+        for dd in qdecl.split(";"):
+            if ":" in dd:
+                kk, vv = dd.split(":", 1)
+                props[kk.strip()] = vv.strip()
+        for one_sel in qsel.split(","):
+            qrules.setdefault(" ".join(one_sel.split()), {}).update(props)
+    def qhex(v):
+        m_ = re.search(r"#[0-9a-fA-F]{6}\b", v or "")
+        return m_.group(0).lower() if m_ else None
+    def qlin(c):
+        c = c / 255.0
+        return c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4
+    def qlum(h):
+        r_, g_, b_ = (int(h.lstrip("#")[i:i + 2], 16) for i in (0, 2, 4))
+        return 0.2126 * qlin(r_) + 0.7152 * qlin(g_) + 0.0722 * qlin(b_)
+    def qcr(a, b):
+        la, lb = sorted((qlum(a), qlum(b)), reverse=True)
+        return (la + 0.05) / (lb + 0.05)
+    if re.search(r"@[A-Z][A-Z_]*@", qbody):
+        bad("branding/companion/stylesheet.qss still holds an unfilled placeholder: %s (Qt drops a stylesheet it cannot parse, silently)" % sorted(set(re.findall(r"@[A-Z][A-Z_]*@", qbody))))
+    qp, qc, qv = qrules.get("QProgressBar", {}), qrules.get("QProgressBar::chunk", {}), qrules.get("QAbstractItemView", {})
+    track, fill, ptext = qhex(qp.get("background-color")), qhex(qc.get("background-color")), qhex(qp.get("color"))
+    if track and fill and ptext and track != fill and qcr(ptext, fill) >= 4.5 and qcr(ptext, track) >= 4.5 and qcr(fill, track) >= 3:
+        ok("the installer's progress bar has a track and a fill of its own (%s on %s), readable text (%.2f / %.2f:1) and a fill that stands out (%.2f:1); the colour scheme's Highlight equals the window colour" % (fill, track, qcr(ptext, fill), qcr(ptext, track), qcr(fill, track)))
+    else:
+        bad("the installer's progress bar is not styled with a visible fill and AA text (track=%s fill=%s text=%s): with the colour scheme's Highlight equal to the window colour the stock bar's fill is invisible (ISO #4)" % (track, fill, ptext))
+    sbg, sfg = qhex(qv.get("selection-background-color")), qhex(qv.get("selection-color"))
+    if sbg and sfg and qcr(sfg, sbg) >= 7:
+        ok("selected rows have their own colours (%s on %s, %.2f:1): the scheme's selection colour equals the window colour, which made them invisible on ISO #4" % (sfg, sbg, qcr(sfg, sbg)))
+    else:
+        bad("no selection colours for item views in the installer's stylesheet (selection-background-color / selection-color, text >= 7:1): selected rows are invisible on ISO #4")
+    welcome_ok = all(qrules.get(n_, {}).get("icon-size") == "0px" for n_ in ("#supportButton", "#donateButton", "#releaseNotesButton", "#knownIssuesButton"))
+    if welcome_ok:
+        ok("the Welcome page's link buttons lose Calamares' dark stock pictogram (icon-size 0px)")
+    else:
+        bad("the Welcome page's link buttons keep Calamares' dark pictogram on the teal window (no icon-size: 0px rule for #supportButton and the others)")
+else:
+    bad("the overlay has no branding/companion/stylesheet.qss")
+
+for p, d in docs.items():
+    if isinstance(d, dict) and isinstance(d.get("items"), list) and d.get("method") == "legacy":
+        for it in d["items"]:
+            shot = str(it.get("screenshot", "")) if isinstance(it, dict) else ""
+            nm = rel(p)
+            if not shot:
+                bad("%s: item %s has no screenshot (Calamares shows its zip-archive placeholder)" % (nm, it.get("id") if isinstance(it, dict) else it))
+            elif shot.startswith(":/"):
+                bad("%s: item %s uses Calamares' built-in picture %s (a blue zip-archive icon in a white square on ISO #4)" % (nm, it.get("id"), shot))
+            else:
+                prefix = "/usr/share/calamares/branding/"
+                local = os.path.join(tree, "branding", shot[len(prefix):]) if shot.startswith(prefix) else None
+                if local and os.path.isfile(local):
+                    ok("%s: item %s shows %s, which the overlay's branding directory carries" % (nm, it.get("id"), os.path.basename(shot)))
+                else:
+                    bad("%s: item %s points at %s, which is not in the overlay's branding directory (the page falls back to the placeholder)" % (nm, it.get("id"), shot))
+
+def visible_groups(groups):
+    for g in groups or []:
+        if isinstance(g, dict) and not g.get("hidden"):
+            yield g
+            for sub in visible_groups(g.get("subgroups")):
+                yield sub
+long_desc = []
+for p, d in docs.items():
+    if isinstance(d, list) and d and isinstance(d[0], dict) and ("packages" in d[0] or "subgroups" in d[0]):
+        long_desc += [(g.get("name"), len(str(g.get("description", "")))) for g in visible_groups(d) if len(str(g.get("description", ""))) > 72]
+if long_desc:
+    bad("package group descriptions longer than 72 characters are cut off at the edge of the installer window: %s" % ", ".join("%s (%d)" % x for x in long_desc))
+else:
+    ok("every package group the user sees has a description of at most 72 characters (nothing is cut off at the window edge)")
+
 # ── interface-visible text and endpoints ────────────────────────────────────
 def live_text(p):
     """The file without full-line comments (a comment may name a CachyOS host to explain what was replaced)."""
@@ -1824,6 +1990,7 @@ EOF
     else fail "/usr/local/bin/calamares-online.sh is missing"; fi
     v_mode_is_exec "$(v_lst_mode "$L" /usr/local/bin/pkexec-wrapper)" && pass "/usr/local/bin/pkexec-wrapper is executable" || fail "/usr/local/bin/pkexec-wrapper is missing or not executable"
     v_check_hello_gate "$L" "$ISOX/pkglist.txt" "$R"
+    v_check_cachy_update "$ISOX/pkglist.txt" "$R"
 
     section "3c. What the installed system gets from this image (carry-over)"
     v_check_release_stamp "$R/usr/share/ci-os/release" "$OSR"

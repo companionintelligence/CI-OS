@@ -21,6 +21,14 @@
 # reads the required models from core/manifest/ecosystem.yaml (llm.models), waits for the Ollama server to answer, and compares them
 # with `ollama list`. Any model missing: exit 74. backends/arch/** stays untouched (decision D8).
 #
+# HOME. A system unit without User= has no $HOME (systemd sets it only for a unit that names a user), and the ollama CLI panics without
+# one ("panic: $HOME is not defined", exit 2) even when it only talks to the server. The first-boot run of ISO #4 read that panic as
+# "the server never answered", treated all three installed models as missing and ended "degraded" (exit 74) every time. The unit
+# now sets HOME=/root, and this wrapper makes sure of it too (a person who runs `sudo -E` from a stripped environment, a test, or a
+# unit written by someone else). The Arch script's own ollama calls all run as `sudo -u "$ACTUAL_USER" bash`, and sudo sets HOME to
+# that user's home there (verified on Arch's sudo 1.9 with env_reset: HOME=/home/<user> although root's HOME was unset), so they need no
+# help; the only ollama call made as root is the check below.
+#
 # Exit status: the Arch script's, unless it succeeded and a required model is missing: 74 ("degraded": everything else is installed,
 # and first-boot-setup.sh does not write its done marker, so the timer retries and only the missing models are pulled again);
 # 75 (EX_TEMPFAIL) when no desktop user exists yet and nobody ran sudo, so the first-boot driver retries later instead of
@@ -28,7 +36,7 @@
 #
 # Environment (tests): CI_OS_PASSWD_FILE (default /etc/passwd), CI_OS_ARCH_PROVISION (default ../../arch/provision/provision.sh),
 # CI_OS_ECOSYSTEM_MANIFEST (default ../../../core/manifest/ecosystem.yaml, which the installer stages next to this tree),
-# CI_OS_OLLAMA_TRIES / CI_OS_OLLAMA_SLEEP (readiness poll: 30 x 2 s).
+# CI_OS_OLLAMA_TRIES / CI_OS_OLLAMA_SLEEP (readiness poll: 30 x 2 s), CI_OS_FALLBACK_HOME (default /root: the HOME used when none is set).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -37,6 +45,12 @@ PASSWD_FILE="${CI_OS_PASSWD_FILE:-/etc/passwd}"
 MANIFEST="${CI_OS_ECOSYSTEM_MANIFEST:-$SCRIPT_DIR/../../../core/manifest/ecosystem.yaml}"
 OLLAMA_TRIES="${CI_OS_OLLAMA_TRIES:-30}"
 OLLAMA_SLEEP="${CI_OS_OLLAMA_SLEEP:-2}"
+
+# See "HOME" in the header: the ollama CLI refuses to start without one.
+if [ -z "${HOME:-}" ]; then
+  HOME="${CI_OS_FALLBACK_HOME:-/root}"
+  export HOME
+fi
 
 detect_desktop_user() {
   local name uid home shell
@@ -103,9 +117,20 @@ llm_models() {
   ' "$MANIFEST"
 }
 
-# `ollama list`, bounded: a server that accepts the connection and never answers must not hang the first boot.
+# `ollama list`, bounded: a server that accepts the connection and never answers must not hang the first boot. Sets OLLAMA_LISTING
+# (stdout) and OLLAMA_ERR (the first lines of stderr, one line) instead of printing them: a command substitution would lose the
+# second one, and an error that is thrown away is how "the server did not answer" once hid a panic that had nothing to do with the
+# server (see "HOME" in the header).
+OLLAMA_LISTING=""
+OLLAMA_ERR=""
 ollama_list() {
-  if command -v timeout >/dev/null 2>&1; then timeout 30 ollama list 2>/dev/null; else ollama list 2>/dev/null; fi
+  local errf rc=0
+  errf="$(mktemp "${TMPDIR:-/tmp}/ci-os-ollama-list.XXXXXX" 2>/dev/null)" || errf=/dev/null
+  if command -v timeout >/dev/null 2>&1; then OLLAMA_LISTING="$(timeout 30 ollama list 2>"$errf")" || rc=$?; else OLLAMA_LISTING="$(ollama list 2>"$errf")" || rc=$?; fi
+  OLLAMA_ERR="$(sed -n '1,3p' "$errf" 2>/dev/null | cut -c1-200 | tr '\n' ' ' | sed 's/ *$//')"
+  [ "$errf" = /dev/null ] || rm -f "$errf"
+  [ "$rc" -ne 124 ] || OLLAMA_ERR="${OLLAMA_ERR:+$OLLAMA_ERR; }ollama list did not finish within 30 s"
+  return "$rc"
 }
 
 # 0 when every llm.models entry is installed. A model name without a tag means ":latest", as for `ollama pull`.
@@ -120,14 +145,16 @@ check_models() {
   fi
   # `ollama list` succeeds as soon as the server answers (an empty list is an answer): the server started by provision.sh may need a
   # while, and a fixed pause is not a readiness check.
-  until listing="$(ollama_list)"; do
+  until ollama_list; do
     i=$((i + 1))
     if [ "$i" -ge "$OLLAMA_TRIES" ]; then
       echo "[CI-OS] The Ollama server did not answer after $OLLAMA_TRIES tries: its models cannot be checked, so they are treated as missing: $(printf '%s' "$want" | tr '\n' ' ')" >&2
+      echo "[CI-OS] Last error of 'ollama list': ${OLLAMA_ERR:-(it printed nothing)}" >&2
       return 1
     fi
     sleep "$OLLAMA_SLEEP"
   done
+  listing="$OLLAMA_LISTING"
   have="$(printf '%s\n' "$listing" | awk 'NR > 1 { print $1 }')"
   # The same hardware-fit gate the Arch provisioner applies before it pulls (core/lib/gpu-detect.sh): a model the machine cannot
   # hold was skipped on purpose and is not "missing", otherwise a small machine would end "degraded" for good.
