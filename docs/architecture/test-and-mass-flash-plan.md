@@ -2,26 +2,37 @@
 
 > **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
-Date 2026-10-13. Status: **plan, not implementation.** It was produced by three independent
-designers (test ladder, IP-KVM bench, mass-flash rollout) and two red-team reviews (safety,
-feasibility); where they disagreed, this page takes the stricter or cheaper reading and says so.
-Facts marked **UNVERIFIED** were not confirmed from a primary source or a run. Companion
-documents: [companion-stick-128gb.md](companion-stick-128gb.md) (decisions),
+Date 2026-10-13; sections 1, 3, 5 and 8 re-checked 2026-10-18. Status: **plan, not implementation.**
+It was produced by three independent designers (test ladder, IP-KVM bench, mass-flash rollout)
+and two red-team reviews (safety, feasibility); where they disagreed, this page takes the
+stricter or cheaper reading and says so. Facts marked **UNVERIFIED** were not confirmed from a
+primary source or a run. Since 2026-10-17 the supported targets are Companion OS on Ubuntu
+26.04.1 and on CachyOS; evidence from the Ubuntu 24.04.5 image is labelled **retired baseline
+(24.04.5)** and is not evidence for the 26.04 image. Companion documents: [companion-stick-128gb.md](companion-stick-128gb.md) (decisions),
 [mass-flashing.md](mass-flashing.md) (hardware investigation),
 [docker-in-live-sessions.md](docker-in-live-sessions.md), [tier-b-tools.md](tier-b-tools.md),
 [model-packs-128gb.md](model-packs-128gb.md).
 
-## 1. Where we are (evidence, 2026-10-13)
+## 1. Where we are
+
+Rows 1 to 4 are the 2026-10-13 state on the **retired 24.04.5 base**; they show what the
+design was proven against and must be redone on 26.04. Rows 5 onward are the state on
+2026-10-18.
 
 | Claim | State | Evidence |
 |---|---|---|
-| Image has Docker, docker group, tailscale, cloudflared, gh, Ollama, Companion Launcher, pinned and verified | **Proven statically** | `verify-iso.sh`: 147 passed, 0 failed on ISO sha256 `0e8780a9…` (built from commit `3a3ead3`) |
-| Docker works offline as the unprivileged live user, plain live ISO, data root on tmpfs | **Proven in QEMU/TCG** | `stick/tests/qemu/docker-live.sh iso`: `RESULT: PASS` (groups incl. `docker`, daemon active, tmpfs backing, `hello-world` run offline) |
-| Same on a Stick live boot with persistence, surviving a reboot | **Running** | `docker-live.sh stick` on a 123,942,731,776-byte image with that ISO in slot A |
-| An installed system has our packages in dpkg/apt | **Fixed in code, not proven** | stock language layers carried a stock `dpkg/status` and `gschemas.compiled`; removed in commit `ef00bbb`; needs a v5 build and a real installer run |
+| Image has Docker, docker group, tailscale, cloudflared, gh, Ollama, Companion Launcher, pinned and verified | **Retired baseline (24.04.5): proven statically.** 26.04.1 build: **pending evidence** | `verify-iso.sh`: 147 passed, 0 failed on ISO sha256 `0e8780a9…` (built from commit `3a3ead3`). What confirms the 26.04 row: `verify-iso.sh` output on the 26.04.1 build (the build and capture were started on 2026-10-18 and have not finished) |
+| Docker works offline as the unprivileged live user, plain live ISO, data root on tmpfs | **Retired baseline (24.04.5): proven in QEMU/TCG.** 26.04: not re-run [N] | `stick/tests/qemu/docker-live.sh iso`: `RESULT: PASS` (groups incl. `docker`, daemon active, tmpfs backing, `hello-world` run offline) |
+| Same on a Stick live boot with persistence, surviving a reboot | **Never completed** | `docker-live.sh stick` on a 123,942,731,776-byte image was running on 2026-10-13; no result is recorded |
+| An installed system has our packages in dpkg/apt | **Fixed in code, not proven** | stock language layers carried a stock `dpkg/status` and `gschemas.compiled`; removed in commit `ef00bbb` (24.04 era); needs a build and a real installer run on 26.04 |
+| Secure Boot chain on 26.04 (shim 15.8, GRUB 2.14, Canonical-signed 7.0 kernel), signed/unsigned/off | **Proven in QEMU/OVMF (TCG)**, 8 checks | `run-on-mac.sh` A/B/C: `RESULT: PASS` ([companion-stick.md](companion-stick.md#secure-boot)) |
+| The stock Ubuntu 26.04.1 ISO boots from a flashed stick image, Secure Boot on | **Proven up to the live system's early systemd** (QEMU/TCG) | serial log: lockdown, `EXT4-fs (sda6): mounted ... r/w` (the `writable` partition), casper loop-mounted the three layers, systemd 259.5; GNOME and the installer not booted |
+| `stick/tests/qemu/run.sh` on 26.04 userland | **PASS**, 17 summary lines | privileged `ubuntu:26.04` container, kernel 7.0.0-38 |
+| A built Companion OS on Ubuntu 26.04.1 boots, installs, provisions | **Built and statically verified [V]; boots, installs and provisions pending** | done: a clean-checkout build and a `verify-iso.sh` pass (393 passed, 0 failed), and on a fix-pass image a harness-assembled disk that booted to the GDM greeter (230 s). Still to do, each with a log: a QEMU/OVMF boot to the live desktop, an install to a disk image (through the one-click helper or the stock installer), a boot of the installed disk and first boot ([test-evidence.md](test-evidence.md#pending-evidence-for-the-ubuntu-2604-image), U2 to U11) |
+| Companion OS on CachyOS: live boot, Calamares online install, installed boot, first-boot provisioning | **Proven end to end twice** in QEMU/OVMF (TCG): ISO #4 with defects that commit `552063f` fixes, and ISO #5, which shows those fixes working (its install needed three attempts, KI-20) | [cachyos-backend.md](cachyos-backend.md#test-status) |
 | `ci-stick flash --device` writes a physical stick | **Never run** | Linux-only; its identity re-check and `O_EXCL` path have only run in QEMU against image files |
 | The image boots on real hardware, Secure Boot on | **Never run** | the only evidence is QEMU/OVMF |
-| Models on `CI-CACHE` | **Not implemented** | `ci-stick models sync` does not exist; pack sizes are exact, nothing is populated |
+| Models on `CI-CACHE` | **Tool exists, no stick populated** | `ci-stick models fetch` (Ollama references) is tested against local listeners; the lock is committed; nothing was written to a stick or an exFAT volume ([models-tooling.md](models-tooling.md)) |
 
 Nothing has been written to any attached stick. The nine `13fe:6700` sticks still carry their
 vendor FAT32; the 503 GB NTFS `CI_SETUP` stick (serial `74573870`) is out of scope for every
@@ -50,9 +61,9 @@ step below.
 
 | Rung | Where | Proves | Time | State |
 |---|---|---|---|---|
-| **L0** static | anywhere | `check-repo.sh`, `cargo test` (84 tests), `verify-iso.sh` (now 3b Docker, 3c optional tools, 3d no language layers) | 4–8 min | green |
+| **L0** static | anywhere | `check-repo.sh` (about 6 min on a loaded host), `cargo test --locked` in `stick/` (the 2026-10-13 count of 84 is stale: the 26.04 port run reported 156 library tests and 82 in the integration test files), `verify-iso.sh` (Ubuntu: 3b Docker, 3c optional tools, 3d no language layers; CachyOS: its own `verify-iso.sh`) | 4–8 min | green on the last full run before the 26.04 port; the gate run after it is the orchestrator's |
 | **L1** container | Docker, linux/amd64 | geometry of `flash --image --size 123942731776` (`sgdisk -p`, fsck of all four filesystems), sparse-image-onto-used-media hazard, simulated installer layer stack (`dpkg-query` shows `ii` for docker-ce, tailscale, cloudflared, gh, companion-hub) | 5 min native, 20–40 min emulated | to write |
-| **L2** QEMU/TCG on the Mac | this Mac | Docker live (plain ISO: done; Stick + persistence: running); Secure Boot A/B/C with the test image (done earlier); macOS attach of the image | about 10 min per boot | partly done |
+| **L2** QEMU/TCG on the Mac | this Mac | Docker live (plain ISO: done on 24.04.5, not re-run on 26.04; Stick + persistence: never completed); Secure Boot A/B/C with the test image (done on 26.04); stock 26.04.1 ISO from a stick under Secure Boot (done to early systemd); CachyOS live, install and installed boot (done twice); macOS attach of the image | 4 min to a desktop (CachyOS, host load 2.5 to 9) to 10 min per boot | partly done |
 | **L3** QEMU/KVM on Linux | needs a Linux host with `/dev/kvm` (section 5) | the same at 2–3 min per boot; GRUB + shim + Secure Boot with the real ISO; **emulated-USB `flash --device`** (a QEMU `usb-storage` disk with a settable serial looks like a removable USB disk to `lsblk`); installer replay; Ollama on a second exFAT disk | smoke under 20 min, release about 5 h | blocked on a host |
 | **L4** real hardware | a human at a PC, or an IP-KVM (section 4) | the `13fe:6700` controller, firmware boot order, USB 2 hubs, Secure Boot on real firmware | about 30 min per machine | blocked on a flashed stick |
 | **M** manual | humans | macOS and Windows see `CI-SHARED`/`CI-CACHE` without a "format" prompt; unplug/replug; thermals | 15 min each | blocked on a stick |
@@ -78,7 +89,7 @@ power/reset, all over the tailnet.
 
 What that means:
 
-- A 7.9 GB ISO fits a NanoKVM virtual CD (the images live on its microSD, about 21 GB on the Full
+- A 7.9 GB ISO (the 24.04.5 size; the 26.04.1 stock ISO is 6.5 GB) fits a NanoKVM virtual CD (the images live on its microSD, about 21 GB on the Full
   model, UNVERIFIED for our units). A 115 GiB stick image does not. **The Stick itself is tested
   by a human plugging a physical stick the flash station wrote**; the IP-KVM supplies screen,
   keyboard and power. The USB gadget is USB 2, so a live boot from the virtual CD takes minutes.
@@ -106,7 +117,7 @@ The three needs are different and one purchase covers all of them:
 
 | Need | Today | Recommendation |
 |---|---|---|
-| (a) A Linux/KVM host for L3 and native ISO builds (about 10–15 min native vs 25 emulated) | none confirmed; tailnet `core-N` boxes are `tag:ci-server` | **Day 0:** run the existing hosted workflows (`stick-real-iso.yml` boots a real ISO under KVM on `ubuntu-24.04`; `pr-checks.yml` has the KVM udev step). First check `build-companion-os-iso.yml`: it failed in 0 s on every recent push and its `BASE_ISO_URL` still names 24.04.4, so treat it as unproven. **In parallel:** buy one x86_64 mini-PC (32 GB RAM, 1 TB NVMe, SHA-NI, `/dev/kvm`). A 60 GB disk is too small for a native ISO build (stock ISO 6 GB, chroot 15–20 GB, squashfs, 8 GB output, 115 GiB sparse images): size it at 150 GB or more |
+| (a) A Linux/KVM host for L3 and native ISO builds (about 10–15 min native vs 25 emulated) | none confirmed; tailnet `core-N` boxes are `tag:ci-server` | **Day 0:** run the existing hosted workflows (`stick-real-iso.yml` boots a real ISO under KVM; `pr-checks.yml` has the KVM udev step and runs `stick-qemu` in a privileged `ubuntu:26.04` container; the `ubuntu-24.04` in their `runs-on:` is only the label of the VM that hosts the container). `build-companion-os-iso.yml` was reworked for 26.04.1 (it now builds in a privileged `ubuntu:26.04` container and downloads and verifies the base ISO against the signed `SHA256SUMS` and a pinned sha256) but **no workflow has run on GitHub since the port** [N], and before the port it failed in 0 s on every push: treat it as unproven. **In parallel:** buy one x86_64 mini-PC (32 GB RAM, 1 TB NVMe, SHA-NI, `/dev/kvm`). A 60 GB disk is too small for a native ISO build (stock ISO 6 GB, chroot 15–20 GB, squashfs, 8 GB output, 115 GiB sparse images): size it at 150 GB or more |
 | (b) A flash station with physical USB | none | the same mini-PC plus powered hubs (section 8) |
 | (c) A bench with a human to boot sticks | none | any UEFI PC; IP-KVM as an optional second path |
 
@@ -140,8 +151,11 @@ Everything below goes into **one** commit and **one** build:
    2026-10-12 review, which must not print them; plus the absence list above).
 
 Also fix before relying on any geometry claim: `run-on-mac.sh` does not forward
-`CI_STICK_SB_SIZE`, so it builds 64 GB images; build natively on Docker via
-`build-in-container.sh` (as done for the 123.9 GB image) or add the `-e`.
+`CI_STICK_SB_SIZE`, so it builds 64 GB images (checked 2026-10-18: the `docker run` in
+`run-on-mac.sh` has no `-e CI_STICK_SB_SIZE`; `build-in-container.sh` honours it); build via
+`build-in-container.sh` directly (as done for the 123.9 GB image) or add the `-e`. On Docker
+Desktop for Apple silicon the amd64 `ubuntu:26.04` container failed the build half once
+(GNU tar fails under Rosetta; the trigger was not isolated); see [companion-stick.md](companion-stick.md#secure-boot).
 
 ## 7. Safety requirements before any physical write (P0)
 
@@ -160,7 +174,8 @@ Also fix before relying on any geometry claim: `run-on-mac.sh` does not forward
    Seal the bundle (copy to a root-owned 0444 content-addressed directory and verify the signature
    from that copy) and hash-as-streamed every artifact, including `bundle.json`.
 4. **Rotate the leaked credentials (RT-01) before Stage 1**, not before shipping, and run the
-   secrets scan. Do not deploy any collector under the old Cloudflare account until rotation is
+   secrets scan. As of 2026-10-18 the credentials found in the 2026-10-12 review are still
+   unrotated (the owner's record; this page did not re-check them and never copies a value). Do not deploy any collector under the old Cloudflare account until rotation is
    recorded.
 5. **Approvals are not self-issued.** The session that runs `--write` must not be able to create
    its own approval: a human creates it on the station (or signs it with a key/TOTP the session
@@ -175,7 +190,7 @@ Also fix before relying on any geometry claim: `run-on-mac.sh` does not forward
 
 ## 8. Mass flashing: staged, with gates
 
-Station: a dedicated headless x86_64 Linux mini-PC, Ubuntu 24.04, two **externally powered**
+Station: a dedicated headless x86_64 Linux mini-PC, Ubuntu 26.04, two **externally powered**
 7-port USB 3 hubs with per-port power switching that actually cuts VBUS (verify with
 `lsusb -v … | grep -i "Per-port power switching"` and a dead LED after `uhubctl … -a off`), each on
 its own SuperSpeed host port, **at most 5 sticks per upstream link**, short USB 3 cables,
@@ -215,7 +230,7 @@ loop-mounted exFAT image and written whole).
 | **G8** | before any stick leaves the building | `SHIP OK <batch>` | compliance checklist signed: Gemma and Llama licence terms travel with the models, Canonical's trademark/IP policy for a modified Ubuntu (an open finding), GPL source offer for Ubuntu components, dev-signed bundle vs release key |
 
 **Time for nine** (rates for this stick are UNVERIFIED; Stage 1 replaces them with measurements).
-OS-only writes about 8.0 GB per stick: 2 min / 4.5 min / 9 min at 60 / 30 / 15 MB/s, plus read-back and
+OS-only writes about 8.0 GB per stick (the 24.04.5-era figure; one 26.04.1 build measured 7.08 GB): 2 min / 4.5 min / 9 min at 60 / 30 / 15 MB/s, plus read-back and
 verify; the whole wave about 25 minutes. With models the write is about 86 GB per stick: 24 / 48 /
 96 minutes at 60 / 30 / 15 MB/s, about 80 minutes typical wall time for all nine in parallel. All
 writes are NAND-bound; the four sticks behind USB 2 hubs would share ~38 MB/s and are not used until moved.
@@ -254,7 +269,7 @@ hardware and approvals. Order of work:
 3. **Decisions:** Ollama in a Stick live boot (section 6, item 4); `stick-128` vs `stick-128-oci`;
    whether the first batch is dev-signed internal only; Canonical IP policy before any external hand-out.
 4. **A tenth stick** (or designate one of the nine as pilot) for Stage 1.
-5. **Rotation** of the credentials listed in the 2026-10-12 review.
+5. **Rotation** of the credentials listed in the 2026-10-12 review (still open on 2026-10-18).
 
 ## 11. Contradictions between the designs, resolved here
 

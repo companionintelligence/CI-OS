@@ -2,21 +2,30 @@
 
 > **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
-Companion Stick turns CI-OS into a product that fits in a pocket: one large USB stick
+Companion Stick turns Companion OS into a product that fits in a pocket: one large USB stick
 (target: 512 GB) that boots Companion OS, installs the Companion Intelligence stack onto
 a machine that is already running an OS, carries the curated models offline, and updates
 itself safely.
 
-`backends/` stays the place where OS images are built (one adapter per distro). The
-product itself is a Rust CLI, **`ci-stick`**, in [`stick/`](../../stick/README.md). It
-builds, verifies, flashes, installs from and updates sticks. It uses the image backends
-and the contracts that CI Hub and CI Memory publish; it does not reimplement them.
+`backends/` stays the place where OS images are built (one adapter per supported target:
+Ubuntu 26.04.1 and CachyOS). The product itself is a Rust CLI, **`ci-stick`**, in
+[`stick/`](../../stick/README.md). It builds, verifies, flashes, installs from and updates
+sticks. It uses the image backends and the contracts that CI Hub and CI Memory publish; it
+does not reimplement them.
+
+Status of the targets on the Stick (verified against the code and the logs named below, 2026-10-18):
+
+| Target | Boots from the Stick? | Evidence |
+|---|---|---|
+| Stock Ubuntu 26.04.1 Desktop ISO in a slot, Secure Boot on | **Yes, as far as the live system's early systemd** [V] | the `ci-stick flash` plan, the serial log and the key lines in the evidence of the 26.04 port run of the Stick (outside the repository, see [Evidence](#evidence-and-where-it-lives)): kernel line with `boot=casper live-media=/dev/disk/by-partlabel/CI-BOOT-A persistent`, "Secure boot enabled" and kernel lockdown, `EXT4-fs (sda6): mounted ... r/w` (the `writable` persistence partition), casper loop-mounted three layers, systemd 259.5 started. Stopped there (TCG). GNOME, the installer and an installed system were not booted |
+| Companion OS on Ubuntu 26.04.1 in a slot | **Not yet proven** [N] | pending evidence: see [Open items](#open-items). What confirms it: the serial log of a Secure Boot boot of the built ISO from a `ci-stick flash` image, reaching the casper live session |
+| Companion OS on CachyOS in a slot | **No**; a design exists, nothing is built [N] | the boot menu is casper-shaped and CachyOS has no signed chain: [cachyos-backend.md](cachyos-backend.md#secure-boot-and-the-companion-stick) |
 
 ## What the stick does
 
 | # | Function | How |
 |---|----------|-----|
-| 1 | **Boot Companion OS (live)** | UEFI boots an immutable image from the active A/B slot, with persistence. Companion Ubuntu first; Fedora, Arch and Debian follow later as separately tested images. |
+| 1 | **Boot Companion OS (live)** | UEFI boots an immutable image from the active A/B slot, with persistence. Companion OS on Ubuntu 26.04.1 is the only image the boot menu can start today (the menu is casper-shaped). The CachyOS edition cannot boot from the Stick yet. |
 | 2 | **Install onto a running host** (macOS / Windows / Linux) | The user runs the signed launcher on `CI-SHARED` themselves, and it asks for admin consent. It installs CI Hub, CI Memory and the chosen model packs. Nothing runs automatically. |
 | 3 | **Carry models offline** | Signed model packs sit in a content-addressed cache and import with no network. |
 | 4 | **Update itself** | Signed, resumable, atomic A/B updates with rollback, run by `ci-stick` on the stick. |
@@ -166,20 +175,23 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
   **provisional** and will be generated from CI Hub's curated catalog once that catalog is
   published. Every model that `ecosystem.yaml` pre-pulls must appear in some pack, and a
   test enforces this.
-- `digest` stays `null` until a `models lock` step resolves it from the registry. Digests
-  are never typed by hand. A release bundle will require every digest to be resolved. What the
-  registries said (manifest bytes, layer digests, sizes, Hugging Face commits) is recorded in the
-  generated `core/manifest/model-packs.lock.json` (to be committed); the YAML's `size_bytes` is a copy of it,
-  and a test fails on a one-byte difference once the lock exists
-  ([models-tooling.md](models-tooling.md), section 4).
+- `digest` stays `null` in the YAML; `ci-stick models lock` resolves it from the registry.
+  Digests are never typed by hand. A release bundle will require every digest to be resolved.
+  What the registries said (manifest bytes, layer digests, sizes) is recorded in the
+  generated and committed `core/manifest/model-packs.lock.json` (commit `89f7b27`, generated
+  2026-10-17T20:15:00Z, 36 distinct models, Ollama library only); the YAML's `size_bytes` is a
+  copy of it, and the test `catalog_sizes_match_the_lock_when_it_exists` fails on a one-byte
+  difference ([models-tooling.md](models-tooling.md), section 4). `ci-stick lock --packs` does
+  not copy the lock's digests into `bundle.json` yet.
 - `size_bytes` is the exact byte size the Ollama registry lists (config plus layers), read
   on a given date; registry tags are mutable, so the digest-pinning `models lock` step is
   what makes a bundle reproducible. `ci-stick models list --device 512GB` shows what fits.
-  Today, all packs together come to ≈ 320 GB, which fits the 512 GB layout's 304 GiB cache.
-- **128 GB sticks:** the `stick-128` pack (21 ranked models, 74.4 GB) fills the 73 GiB
-  cache of a 123.9 GB stick with 5 % to spare; `stick-128-oci` (19 models, 59.2 GB) keeps
-  15 GiB for OCI images. Why these models, the licences and the rejected list:
-  [model-packs-128gb.md](model-packs-128gb.md).
+  All packs together come to 320.3 GB (checked with `ci-stick models list`, 2026-10-18),
+  which fits the 512 GB layout's 304 GiB cache.
+- **128 GB sticks:** the `stick-128` pack (21 ranked models, 74.8 GB since `glm-ocr:latest`
+  grew on 2026-10-14) fills the 73 GiB cache of a 123.9 GB stick and leaves 3.34 GiB
+  (4.6 %); `stick-128-oci` (19 models, 59.7 GB) keeps 15 GiB for OCI images. Why these
+  models, the licences and the rejected list: [model-packs-128gb.md](model-packs-128gb.md).
 - **Cache layout and Ollama.** The cache is an Ollama model store rooted at
   `<CI-CACHE>/models/` (`blobs/sha256-<hex>`, `manifests/registry.ollama.ai/library/<name>/<tag>`),
   with OCI images under `<CI-CACHE>/oci/`. A booted Companion OS points Ollama at it
@@ -215,12 +227,14 @@ parallel implementation.
 
 ## Relationship to `backends/`
 
-`backends/<distro>/` keep building OS images (Ubuntu's `build-iso.sh` today). `ci-stick
-build` will call them, place their outputs under `boot/` in a staging tree, and `lock`
-and sign the result. `core/manifest/ecosystem.yaml` remains the source of truth for what
-a booted Companion OS provisions. The stick only adds packaging, trust and delivery.
-Rust is first-class inside `stick/` only, the same way Nix is inside `backends/nixos/`.
-`core/` and the shell backends must never require it.
+`backends/ubuntu/` and `backends/cachyos/` keep building OS images (each has its own
+`build-iso.sh`; the other distro backends were retired on 2026-10-17, see
+[multi-distro-design.md](multi-distro-design.md)).
+`ci-stick build` will call them, place their outputs under `boot/` in a staging tree, and
+`lock` and sign the result. `core/manifest/ecosystem.yaml` remains the source of truth for
+what a booted Companion OS provisions. The stick only adds packaging, trust and delivery.
+Rust is first-class inside `stick/` only. `core/` and the shell backends must never
+require it.
 
 ## Flashing (slice 3)
 
@@ -285,8 +299,8 @@ runs `load_env` on `ci-stick/grubenv`, and offers the active slot first and the 
 slot as a fallback:
 
 ```
-linux  ($disk,gpt3)/casper/vmlinuz boot=casper live-media=/dev/disk/by-partlabel/CI-BOOT-A persistent ci_stick.slot=A quiet splash $extra_cmdline ---
-initrd ($disk,gpt3)/casper/initrd
+linux  ($ci_disk,gpt3)/casper/vmlinuz boot=casper live-media=/dev/disk/by-partlabel/CI-BOOT-A persistent ci_stick.slot=A quiet splash $extra_cmdline ---
+initrd ($ci_disk,gpt3)/casper/initrd
 ```
 
 `grubenv` is GRUB's own 1024-byte environment block, generated in Rust. It holds
@@ -304,23 +318,52 @@ share it.
   a real `flash` plus `slot set` against a 64 GB sparse image. That last test is skipped,
   with a note, when the gdisk, dosfstools, exfatprogs, e2fsprogs or mtools tools are
   missing.
-- `stick/tests/qemu/run.sh` runs as the `stick-qemu` job in PR checks. It builds a tiny
-  casper-shaped test ISO: a real Ubuntu kernel plus a busybox initrd whose `/init`
-  reports its slot and `ci_stick.slot`, then increments `/boot-count` on the `writable`
-  filesystem. It flashes a sparse 64 GB image and boots it three times in QEMU as a USB
-  mass-storage device under OVMF. Boot 1 must report slot A with count 1, boot 2 must
-  report count 2, and after `slot set B`, boot 3 must report slot B with count 3. The
-  production grub.cfg is used unchanged. The same script checks that a tampered bundle,
-  `--allow-unsigned` with `--device`, a regular file and a non-removable disk are all
-  refused without writes.
-- `.github/workflows/stick-real-iso.yml` is manual. It checks the Ubuntu 24.04 desktop
-  ISO against SHA256SUMS, whose GPG signature must verify against Ubuntu's CD signing
-  key, then flashes and boots the ISO to casper.
+- `stick/tests/qemu/run.sh` runs as the `stick-qemu` job in PR checks, inside a privileged
+  `ubuntu:26.04` container (`.github/workflows/pr-checks.yml`), so QEMU, OVMF 2025.11, GRUB
+  2.14, the filesystem tools and the kernel it boots are the target release's. It builds a
+  tiny casper-shaped test ISO: a real Ubuntu kernel (from `linux-image-*-generic` of the
+  resolute archive; its `usb-storage` is a module under `usr/lib/modules`, which
+  `build-test-boot-image.sh` now looks in, and it stops if a USB driver is neither a module
+  nor in `modules.builtin`) plus a busybox initrd whose `/init` reports its slot and
+  `ci_stick.slot`, then increments `/boot-count` on the `writable` filesystem. It flashes a
+  sparse 64 GB image and boots it three times in QEMU as a USB mass-storage device under
+  OVMF. Boot 1 must report slot A with count 1, boot 2 must report count 2, and after
+  `slot set B`, boot 3 must report slot B with count 3. The production grub.cfg is used
+  unchanged. The same script checks that a tampered bundle, `--allow-unsigned` with
+  `--device`, a regular file and a non-removable disk are all refused without writes.
+  [V] Recorded run on the 26.04 userland (an arm64 `ubuntu:26.04` container on Apple silicon,
+  because an amd64 one failed there with a tar ENOSYS and the arm64 one is the proven route; gdisk 1.0.10, exfatprogs 1.3.2, e2fsprogs 1.47.2,
+  mtools 4.0.49, GRUB 2.14, OVMF 2025.11, kernel 7.0.0-38): `RESULT: PASS` with 17 PASS lines in its
+  summary (the evidence file `qemu-run-sh/run.log`; an earlier report counted 16, the log
+  has 17). The non-removable-disk case printed "lsblk listed /dev/vda but the device
+  node is absent; skipping that case" in that run, so it did not exercise the system-disk
+  refusal; CI sets `CI_STICK_TEST_SYSDISK_WRITE_REFUSAL=1` on a runner whose disk is real.
+- `.github/workflows/stick-real-iso.yml` is manual. It downloads the Ubuntu 26.04
+  desktop ISO of the release directory, checks it against SHA256SUMS, whose GPG signature
+  must verify against Ubuntu's CD signing key (fingerprint pinned in the workflow), then
+  flashes and boots the ISO to casper. It picks the ISO with `sort -V | tail -n1`, because
+  the 26.04 `SHA256SUMS` lists both `ubuntu-26.04-desktop-amd64.iso` and
+  `ubuntu-26.04.1-desktop-amd64.iso` and the first line is the older GA image. **No
+  workflow in this repository has run on GitHub since the 26.04 port** [N]; the pieces were
+  exercised in isolation (signature and pin logic on the real `SHA256SUMS`, loop mounts of
+  the real ISO in a privileged container).
 
 **Known limitations** (next slices):
 
 - Secure Boot works through shim for Ubuntu images; see its own limitations under
-  [Secure Boot](#secure-boot).
+  [Secure Boot](#secure-boot). CachyOS images cannot use this chain.
+- Slots are sized from the device (8 GiB each on a 64 GB stick, 11 GiB on a 123.9 GB
+  stick). `ci-stick flash` refuses an ISO that does not fit its slot ("boot image ... does
+  not fit"). The stock Ubuntu 26.04.1 Desktop ISO is 6,482,409,472 bytes (6.04 GiB) and
+  fits both. `verify-iso.sh` section 9 now fails an image larger than 8,589,934,592 bytes
+  (override: `VERIFY_MAX_ISO_BYTES`). A built Companion OS ISO on 26.04.1 measured
+  **7,076,577,280 bytes** (6.59 GiB; 1,513,357,312 bytes to spare) in that check [V for that
+  build: `real-image-verify-after-fix.log` of the port-fix-A run, outside the repository];
+  the 24.04.5 build was 7.9 GB (7.4 GiB; retired baseline). Growth past 8 GiB (Ollama's
+  CUDA libraries, a second language, the encryption variant's seed) would stop a 64 GB stick
+  carrying it; the options would be a smaller ISO, larger sticks or a change of the layout
+  policy (`ci-stick-layout/1`), an owner decision. The clean-checkout build of 2026-10-18 (commit `02c575e`) measures the same 7,076,577,280
+  bytes (`docs/evidence/2026-10-18-ubuntu-clean-02c575e/`).
 - `CI-SHARED` and `CI-CACHE` are formatted empty. Populating them (launchers, docs, OCI
   images and models) is slice 4; the model half has its tool now: the daemon-free
   `ci-stick models fetch` fetches manifests and blobs from the registry, verifies size and
@@ -328,15 +371,17 @@ share it.
   real exFAT volume or a real Ollama 0.40 daemon (a prototype was proven against the public
   registry and a 0.33 daemon; see [model-packs-128gb.md](model-packs-128gb.md), section 5.4,
   and [models-tooling.md](models-tooling.md)). exFAT can't be written without root or
-  mounting, so a host without that has to fill a directory and copy it, and there is no
-  README yet either.
+  mounting, so a host without that has to fill a directory and copy it. `stick/README.md`
+  documents the `models` commands.
 - Mass flashing (several sticks at once, intake capacity test, per-stick identity,
   independent verification) has no tooling yet: [mass-flashing.md](mass-flashing.md).
 - Device writes are Linux-only. On macOS and Windows, `flash --device` and `slot --device`
   say "not supported yet". To use another OS, write an image with `--image` and flash it
   with that OS's tools.
 - The real-ISO boot test is manual. It is not part of PR checks, and it has not yet been
-  run on real hardware.
+  run on real hardware. The stock 26.04.1 ISO was booted from a flashed image under
+  Secure Boot in QEMU/TCG up to the live system's early systemd; nothing later (GNOME, the
+  installer) was booted from a stick.
 - Replacing grubenv with mtools is not an atomic update. The signed A/B updater (slice 5)
   owns atomic pointer flips and rollback.
 
@@ -344,12 +389,13 @@ share it.
 
 Companion Stick boots on PCs with UEFI Secure Boot **enabled**, through the same signed
 chain Ubuntu's own install media uses. We add no keys of our own and need no MOK
-enrollment for Ubuntu images.
+enrollment for Ubuntu images. The chain below was re-derived from the Ubuntu 26.04
+(resolute) archive on 2026-10-17; the 24.04 chain it replaces is retired.
 
 ```
 firmware db (Microsoft Corporation UEFI CA 2011)
   -> EFI/BOOT/BOOTX64.EFI   shim 15.8, Microsoft-signed        (shim-signed)
-  -> EFI/BOOT/grubx64.efi   GRUB 2.12, Canonical-signed        (grub-efi-amd64-signed)
+  -> EFI/BOOT/grubx64.efi   GRUB 2.14, Canonical-signed        (grub-efi-amd64-signed)
   -> /casper/vmlinuz        Canonical-signed kernel, inside the boot slot's ISO
      EFI/BOOT/mmx64.efi     MokManager, Canonical-signed, for recovery only
 ```
@@ -361,8 +407,8 @@ lockdown (integrity) mode.
 
 **Where the binaries come from** (`stick/scripts/fetch-signed-boot.sh <out-dir>`):
 
-1. `apt-get download shim-signed grub-efi-amd64-signed` on Ubuntu 24.04 (in a container
-   elsewhere). apt accepts a `.deb` only if its hash matches the Packages index, which the
+1. `apt-get download shim-signed grub-efi-amd64-signed` on Ubuntu 26.04 (`SERIES=resolute`;
+   the script stops on any other release, and in a container elsewhere). apt accepts a `.deb` only if its hash matches the Packages index, which the
    archive's signed `InRelease` authenticates. Nothing is fetched outside apt.
 2. `dpkg-deb -x`, then:
    - `shimx64.efi` is `/usr/lib/shim/shimx64.efi.signed.latest`, shim 15.8 with SBAT
@@ -381,28 +427,63 @@ lockdown (integrity) mode.
    Canonical CA extracted from that shim's `.vendor_cert`, which is the check shim itself
    makes at boot. The CA is written out as `canonical-uefi-ca.pem`, and the Mac harness
    checks its test kernel against it the same way.
-5. `signed-boot.lock` records the package versions, the `.deb` sha256s, each binary's
-   sha256, source path and SBAT generation. `--expect <lock>` re-fetches the same versions
-   and fails on any hash difference.
+5. `grub-builtin-modules.py --require`: every GRUB module the stick's `grub.cfg` relies on
+   (the 14 names of `CANONICAL_GRUB_BUILTIN_MODULES` in `bootcfg.rs`, which the script reads
+   with `sed`: one `"name",` per line) must be built into `grubx64.efi`, or the script
+   refuses the image. Under Secure Boot shim refuses every module GRUB would load from disk,
+   and Canonical changes the built-in set between releases.
+6. `signed-boot.lock` records the series, the package versions, the `.deb` sha256s, each
+   binary's sha256, source path and SBAT generation. `--expect <lock>` re-fetches the same
+   versions and fails on any hash difference.
 
-As of this writing: `shim-signed 1.58+15.8-0ubuntu1` and
-`grub-efi-amd64-signed 1.202.5+2.12-1ubuntu7.3` (grub2 `2.12-1ubuntu7.3`, SBAT `grub,5`).
+As of 2026-10-17 (the resolute archive and the 26.04.1 ISO's `pool/` carry the same versions,
+there is no `-updates` build yet): `shim-signed 1.59+15.8-0ubuntu2` (shim 15.8, SBAT
+`shim,4`) and `grub-efi-amd64-signed 1.215+2.14-2ubuntu1` (GRUB 2.14, SBAT `grub,5`).
+[V] The real `fetch-signed-boot.sh` ran against the live resolute archive: exit 0, all
+`sbverify` checks, `--expect` of its own lock reproduced it byte for byte, a doctored lock
+exited 1, a `bootcfg.rs` that required `all_video` exited 1 naming the module. The lock it
+wrote is in the evidence directory (`fetch-signed-boot/resolute-signed-boot.lock`, outside the
+repository). The Canonical CA embedded in shim has the same sha256 (`98933813...`) as on 24.04.
+The Canonical-signed `linux-image-7.0.0-38-generic` of resolute-updates verifies against it
+(`sbverify --cert`).
 
 **How Canonical's signed GRUB finds its config.** We read this out of the image (its
 `mods` section) and confirmed it by booting under OVMF, rather than assuming it:
 
-- `grubx64.efi.signed` is monolithic. It has an embedded prefix of `/EFI/ubuntu`, **no**
-  embedded config, and a memdisk that holds only `fonts/unicode.pf2`. It contains 124
-  built-in modules, including everything our config uses: `part_gpt fat iso9660 ext2
-  regexp loadenv test echo linux search search_label configfile normal sleep`. Under
-  Secure Boot it cannot load modules from disk. The template's `insmod` lines are no-ops
-  for built-ins, and a unit test keeps them inside that list and inside
-  `build-grub-efi.sh`'s module list.
+- `grubx64.efi.signed` is monolithic. On the 24.04 image (GRUB 2.12) we read an embedded
+  prefix of `/EFI/ubuntu`, **no** embedded config, and a memdisk that holds only
+  `fonts/unicode.pf2`. The 26.04 disk image (GRUB 2.14, 2,828,168 bytes, sha256
+  `33e1d46c...`) was re-read for its module set only: it has **122** built-in modules, read
+  the way GRUB reads them (PE section `mods`, `grub_module_info64` entries, ELF `.modname`)
+  with `stick/scripts/grub-builtin-modules.py`, and the 122 names are the fixture
+  `stick/crates/ci-stick/tests/fixtures/grub/grubx64.efi.signed.builtin-modules.txt`. All 14
+  modules our config relies on are among them (`configfile echo ext2 fat iso9660 linux
+  loadenv normal part_gpt regexp search search_label sleep test`). Under Secure Boot it
+  cannot load modules from disk. The template's `insmod` lines are no-ops for built-ins.
+  Three unit tests in `bootcfg.rs` keep this honest:
+  `fixture_is_the_module_list_of_the_signed_grub_image`,
+  `pinned_list_is_inside_what_the_real_signed_grub_has` (the pinned list and every `insmod` of
+  the template must be among the 122) and `pinned_list_stays_readable_by_fetch_signed_boot_sh`.
+  Five more in `tests/grub_modules_tool.rs` run the Python reader against synthetic images
+  built byte by byte, including a feature-flag string that must not count as a module.
+- **What changed from 24.04 to 26.04, and why it matters.** The 24.04 disk image had 124
+  modules. 26.04's has **no `all_video`** (a string search finds only `feature_all_video_module`,
+  a feature flag; `all_video.mod` exists only as a loadable module in `grub-efi-amd64-bin`,
+  which Secure Boot refuses), and also dropped `efi_uga ntfs pgp video_bochs video_cirrus`;
+  it added `gcry_hwfeatures gcry_keccak key_protector pubkey`. A `grub.cfg` that does
+  `insmod all_video` therefore fails on 26.04 under Secure Boot; ours never did. The CD image
+  that the 26.04.1 ISO itself boots through shim (`gcdx64.efi.signed`, 2,398,088 bytes, also
+  `EFI/boot/grubx64.efi` on the ISO) has 95 modules, a strict subset of the disk image's 122,
+  and also lacks `all_video`. It is a different file from the one the stick ships.
 - Ubuntu's `normal` module loads `$fw_path/grub.cfg` first (the directory GRUB was loaded
   from, `EFI/BOOT/`), then `$prefix/grub.cfg` (`EFI/ubuntu/grub.cfg` on the same ESP), and
   otherwise drops to a `grub>` shell. Booting with different menu titles in each copy
   showed `EFI/BOOT` wins when both exist, `EFI/ubuntu` is used when it is the only copy,
-  and with neither the result is the shell.
+  and with neither the result is the shell. That experiment was done on the 24.04 image
+  (GRUB 2.12) and was **not repeated** on 26.04's GRUB 2.14 [N]. What the 26.04 runs show
+  is that the stick, which carries both copies, boots through this lookup under Secure Boot
+  (runs A and C below); the precedence and the memdisk content of the 26.04 disk image are
+  not re-measured.
 - The `/.disk/info` search belongs to `gcdx64.efi.signed`, the CD image, whose memdisk
   config is `search --file /.disk/info` and then `$prefix/grub.cfg`. Every boot slot's
   Ubuntu ISO contains `/.disk/info`, so that image could load an arbitrary slot's own
@@ -439,7 +520,7 @@ brew install qemu
 stick/tests/secureboot/run-on-mac.sh
 ```
 
-The build runs in `ubuntu:24.04` (linux/amd64) under Docker. It fetches the signed chain,
+The build runs in `ubuntu:26.04` (linux/amd64) under Docker. It fetches the signed chain,
 builds a test boot image with a Canonical-signed kernel and a busybox init that prints
 `CI-STICK-SB secureboot=<0|1> slot=A cmdline_slot=A`, and flashes a signed and an
 unsigned 64 GB stick. Only small qcow2 conversions leave the container. It also copies
@@ -453,10 +534,39 @@ Silicon), with the stick as a USB disk:
   reports `Access Denied`.
 - **C.** Secure Boot off, signed chain. It boots with `secureboot=0`.
 
-`--iso <ubuntu-or-CI-OS.iso>` builds a signed stick with that ISO in slot A and boots it
+`--iso <ubuntu-or-Companion-OS.iso>` builds a signed stick with that ISO in slot A and boots it
 in a window with Secure Boot on, so you can check `mokutil --sb-state` and casper
 persistence by hand. It needs about 8 GB free and is slow under TCG. The script also
-runs on Linux: on an Ubuntu 24.04 host it builds without Docker.
+runs on Linux: on an Ubuntu 26.04 host it builds without Docker. `--skip-build` refuses an
+`out/` whose `signed-boot.lock` is not `series=resolute` (the gitignored `out/` of a
+checkout that predates the port still holds a 24.04 build, and so does the Docker volume
+`ci-stick-sb-cache`).
+
+[V] Result on 26.04 (`run-on-mac.sh`, native Homebrew QEMU 11.1.2 in TCG mode on Apple
+silicon, OVMF `2025.11-3ubuntu7.3` from `ovmf-generic`, shim `1.59+15.8-0ubuntu2`, GRUB
+`1.215+2.14-2ubuntu1`, kernel `linux-image-7.0.0-38-generic` verified against the Canonical CA
+embedded in shim): **RESULT: PASS, 8 checks.** A boots with `secureboot=1`, slot A, boot count
+1 and, after a reboot, 2; B (unsigned chain) is refused with `Access Denied`; C (Secure Boot
+off) boots with `secureboot=0`, count 3. The harness output is the evidence file
+`secureboot-abc/results.txt` (outside the repository).
+
+**Docker Desktop on Apple silicon failed to run the build half as written** [V once; a limit of the
+host, not a repository bug; the trigger was not isolated, and another amd64 `ubuntu:26.04` container ran
+to the end on 2026-10-18]. Measured with Docker Desktop 29 on macOS 27: in a
+`linux/amd64` `ubuntu:26.04` container (Rosetta) GNU tar 1.35 failed to create anything inside
+a directory it has just created ("Cannot mkdir ... Function not implemented"), so
+`dpkg-deb -x` fails. The same tar in an amd64 `ubuntu:24.04` works; bsdtar and Python's
+`tarfile` work in 26.04; `--privileged` and `seccomp=unconfined` do not help.
+`build-in-container.sh` runs a nested create-and-extract check first and stops with this
+explanation instead of failing later. What works, and was used for the result above:
+`fetch-signed-boot.sh` alone, and then the rest of the build half, in an **arm64**
+`ubuntu:26.04` container whose apt is pointed at the amd64 archive through an `APT_CONFIG`
+file (`APT::Architecture "amd64"`, a separate `Dir::State`), because both only download and
+unpack; amd64 busybox and GRUB modules were then placed by hand, so that case is not
+scripted. The supported route is an x86_64 Ubuntu 26.04 machine. A related known
+defect: `run-on-mac.sh` does not forward `CI_STICK_SB_SIZE` into the container, so it
+always builds 64 GB images; `build-in-container.sh` honours it
+(`CI_STICK_SB_SIZE=123942731776` reproduces the 123.9 GB sticks) when called directly.
 
 **Limitations.**
 
@@ -468,7 +578,7 @@ runs on Linux: on an Ubuntu 24.04 host it builds without Docker.
   Secure Boot and boot the stick as they are.
 - **Apple Silicon Macs** can't boot x86_64 sticks at all. The Mac harness *emulates* a PC
   there.
-- **Kernels must be Canonical-signed.** Stock Ubuntu ISOs are fine. A future CI-OS image
+- **Kernels must be Canonical-signed.** Stock Ubuntu ISOs are fine. A Companion OS image
   with a custom or rebuilt kernel (or custom kernel modules) won't boot under Secure Boot
   through this shim. It will need a Canonical-signed kernel, our own MOK (a key enrolled
   by the user through MokManager on first boot), or our own shim through the shim-review
@@ -478,6 +588,9 @@ runs on Linux: on an Ubuntu 24.04 host it builds without Docker.
   shipped.
 - Only x86_64. arm64 sticks (`shimaa64.efi`) come later.
 - Tested under OVMF (QEMU) with Microsoft's keys, not yet on physical PCs.
+- **CachyOS cannot use this chain**: its GRUB is an unsigned standalone image and its
+  kernels are not Canonical-signed. A CachyOS stick would need the development chain with
+  Secure Boot off until the project runs its own MOK and shim.
 
 ## Delivery sequence
 
@@ -486,7 +599,7 @@ runs on Linux: on an Ubuntu 24.04 host it builds without Docker.
 3. **Safe Ubuntu x86_64 flashing, persistence and QEMU boot tests. ✅**
 4. Offline Hub/Memory payload install and model import.
 5. Signed A/B updater with rollback.
-6. Other distros (Fedora, Arch, Debian) and ARM64. The CachyOS ISO (backends/cachyos) is archiso-based; a Stick slot for it needs an archiso boot profile in bootcfg.rs, a boot_profile field in bundle.schema.json and an archiso-shaped QEMU boot image, and Secure Boot is unavailable for it. See docs/architecture/cachyos-backend.md#secure-boot-and-the-companion-stick.
+6. A CachyOS slot, and ARM64. The CachyOS ISO (`backends/cachyos`) is archiso-based; a Stick slot for it needs an archiso boot profile in `bootcfg.rs`, a `boot_profile` field in `bundle.schema.json` and an archiso-shaped QEMU boot image, and Secure Boot is unavailable for it. See [cachyos-backend.md](cachyos-backend.md#secure-boot-and-the-companion-stick).
 
 ### Still out of scope after slice 3
 
@@ -494,7 +607,44 @@ runs on Linux: on an Ubuntu 24.04 host it builds without Docker.
 - **No host install**, and no launcher yet.
 - **No updater** (manual `slot set` only) and no key rotation.
 - **No `build`.** Staging trees are assembled by hand or by scripts for now.
-- **No committed lock yet.** `ci-stick models lock` resolves digests, but
-  `core/manifest/model-packs.lock.json` is not in the repository, and `ci-stick lock --packs`
-  has no step yet that copies the lock's digests into `bundle.json`, which still carries
-  `digest: null`. There is also no Windows device listing (`doctor` says "not supported yet").
+- **The lock is committed, but not used by `lock --packs`.** `core/manifest/model-packs.lock.json`
+  is in the repository (commit `89f7b27`), and `ci-stick lock --packs` has no step yet that
+  copies the lock's digests into `bundle.json`, which still carries `digest: null`. There is
+  also no Windows device listing (`doctor` says "not supported yet").
+
+## Open items
+
+Each row says what is open and what closes it. Items about the Stick only; the CachyOS edition's
+own list is in [cachyos-backend.md](cachyos-backend.md#risk-register) and the models list in
+[models-tooling.md](models-tooling.md#14-open-items).
+
+| # | Open item | State | What closes it |
+|---|---|---|---|
+| S1 | A **built Companion OS on Ubuntu 26.04.1** booting from a Stick slot | Not proven [N]. The stock 26.04.1 ISO reaches the live system's early systemd from a flashed image under Secure Boot; a Companion OS ISO has not been put in a slot | The serial log of a Secure Boot boot of the built ISO from a `ci-stick flash` image that shows `boot=casper live-media=/dev/disk/by-partlabel/CI-BOOT-A persistent`, "Secure boot enabled" and the `writable` partition mounted, then the live session. Pending: the 26.04.1 build and capture in progress on 2026-10-18 will add the build and boot rows; this page makes no claim about it until a log shows it |
+| S2 | A built 26.04 ISO against the slot size | One build measured 7,076,577,280 bytes, inside 8 GiB [V]; the size can grow | `verify-iso.sh` section 9 on every release build (limit 8,589,934,592 bytes for 64 GB sticks; 11,811,160,064 for 123.9 GB sticks); owner decision if a build is larger (see Known limitations above) |
+| S3 | **CachyOS cannot boot from the Stick** and has no Secure Boot | By design today [N] | An archiso boot profile in `bootcfg.rs`, a `boot_profile` field in `bundle.schema.json` and an archiso-shaped QEMU boot image; for Secure Boot, a project-owned MOK and shim |
+| S4 | **Strix Halo GTT boot parameters** (`iommu=pt amdgpu.gttsize= ttm.pages_limit=`) exist only in the Ubuntu backend (`backends/ubuntu/lib/strix-halo-boot-params.sh`, hooked from `backends/ubuntu/provision/provision.sh`); `git grep` finds them nowhere else | Gap on CachyOS and on the Stick's grub.cfg | A decision where they belong for a Stick boot (`extra_cmdline` in `grubenv` is the existing hook) and for the CachyOS edition |
+| S5 | **Ollama in a Stick live boot**: `10-not-live.conf` keeps Ollama off in every Ubuntu live session, so the 73 GiB `CI-CACHE` serves installed machines only | Owner decision open (stick audit D5) | The decision, then a self-test assertion for whichever is chosen |
+| S6 | **Secure Boot requirement for the first batch** | Open. Sticks boot with Secure Boot on through the Canonical chain, [V] only in QEMU/OVMF; a real PC has not been tried | An owner statement whether the first batch must boot with Secure Boot on, and a boot on one real PC |
+| S7 | **Disk-space guard for model pulls**: the model set takes about 18.8 GB; the shared fit gate checks RAM and GPU memory, not disk | Open, see [models-tooling.md](models-tooling.md#14-open-items) | The guard in `ci_os_model_gate_allows` (`core/lib/gpu-detect.sh`) |
+| S8 | Hosted workflows have not run since the 26.04 port | Open [N] | One green run each of `pr-checks.yml` (including `stick-qemu`), `build-companion-os-iso.yml` and, manually, `stick-real-iso.yml` |
+
+## Evidence and where it lives
+
+Logs, serial output and screenshots of the runs named on this page are in the scratch
+directories of the sessions that ran them, **not in this repository** (the same convention as
+[cachyos-backend.md](cachyos-backend.md#test-status)). Names, so they can be asked for:
+
+| Claim | Evidence file (session scratch, `retire/port-C-evidence/`, the 26.04 port run of the Stick) |
+|---|---|
+| 122 and 95 GRUB modules, the diff to 24.04 | `grub-modules/` |
+| the resolute lock | `fetch-signed-boot/resolute-signed-boot.lock` |
+| Secure Boot A/B/C, 8 checks | `secureboot-abc/results.txt`, serial logs `A1 A2 B C` |
+| stock 26.04.1 ISO on a stick, Secure Boot on | `real-iso-secureboot/{flash-plan.txt,key-lines.txt,serial.log}` |
+| `run.sh` on the 26.04 userland | `qemu-run-sh/run.log` |
+| `check-repo.sh` at HEAD in an `ubuntu:26.04` container | `check-repo-at-HEAD-in-ubuntu-26.04-container.log` |
+
+Two repository facts are testable without them: `cargo test --locked` in `stick/` (the three
+`bootcfg.rs` tests and `tests/grub_modules_tool.rs` named above), and
+`python3 -I stick/scripts/grub-builtin-modules.py <grubx64.efi.signed>`, which regenerates the
+fixture.

@@ -1,0 +1,25 @@
+CI-PROBE: begin
+CI-PROBE: cmdline=BOOT_IMAGE=/boot/vmlinuz-7.0.0-30-generic root=UUID=f889e7d0-559b-47b3-a795-51de423345db ro console=tty0 console=ttyS0,115200 ci.bootprobe systemd.show_status=1 plymouth.ignore-serial-consoles quiet splash crashkernel=2G-4G:320M,4G-32G:512M,32G-64G:1024M,64G-128G:2048M,128G-:4096M
+CI-PROBE: root=/dev/nvme0n1p2 ext4 rw,relatime,errors=remount-ro
+CI-PROBE: kernel=7.0.0-30-generic
+CI-PROBE: efi=yes secureboot=unknown lockdown=[none] integrity confidentiality
+CI-PROBE: casper-package=
+CI-PROBE: display-manager=/usr/lib/systemd/system/gdm.service
+CI-PROBE: progress t=31s system=starting display-manager=active load=9.57 jobs=plymouth-quit-wait.service:start power-profiles-daemon.service:start getty.target:start snapd.seeded.service:start system-getty.slice:start serial-getty@ttyS0.service:start 
+CI-PROBE: system-state=starting
+CI-PROBE: display-manager-active=active
+CI-PROBE: failed-units=
+CI-PROBE: restarted-units=
+CI-PROBE: listening=0.0.0.0:22 [::]:22 
+CI-PROBE: cloud-init=status: disabled 
+CI-PROBE: users=citest(uid=1000,shell=/bin/bash) 
+CI-PROBE: password-state=citest:P 
+CI-PROBE: sudo-nopasswd-files=/etc/sudoers.d/zfs 
+CI-PROBE: masked-units=
+CI-PROBE: plymouth-running=no
+CI-PROBE: sessions= 1 60578 gdm-greeter - 1685 manager-early - no -;c1 60578 gdm-greeter seat0 1606 greeter tty1 no -;
+CI-PROBE: journal-err       1 setup-hotspot-start: [2026-10-18 14:43:44] ERROR: no Wi-Fi interface found
+CI-PROBE: journal-err       1 resolvconf: Failed to resolve interface "NetworkManager": No such device
+CI-PROBE: journal-err       1 kernel: KHO: Failed to reserve lowmem scratch buffer
+CI-PROBE-OK gdm greeter up after 53s (session c1 user=gdm-greeter uid=60578 type=wayland state=active)
+CI-PROBE: end

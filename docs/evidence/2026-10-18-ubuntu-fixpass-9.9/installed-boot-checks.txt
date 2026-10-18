@@ -1,0 +1,28 @@
+INFO source-layer the installer's layer 1: casper/minimal.squashfs
+INFO source ISO /in/base.iso, default install source: minimal.squashfs 
+PASS casper-package base layer: the package casper is not installed
+PASS casper-conf base layer: no /etc/casper.conf
+PASS casper-initramfs-conf base layer: no casper settings in /etc/initramfs-tools/conf.d
+PASS casper-initramfs-scripts base layer: no casper initramfs scripts
+PASS live-gschema base layer: no live-session gschema override
+PASS installer-snap base layer: no installer snap
+PASS installer-leftovers base layer: no installer/live-session files
+PASS initramfs-generator base layer: initramfs-tools 0.151ubuntu1 generates the initrd, dracut is not installed
+PASS dracut-pin base layer: /etc/apt/preferences.d/ci-os-no-dracut keeps apt from installing dracut
+PASS cloud-init-installer-user base layer: cloud.cfg does not name the live session's user
+INFO kernels kernels in the installed system: 7.0.0-30-generic
+PASS initrd-casper initrd.img-7.0.0-30-generic has no casper scripts or configuration (2456 entries)
+PASS grub-root-uuid grub.cfg boots with root=UUID=f889e7d0-559b-47b3-a795-51de423345db
+PASS grub-casper grub.cfg has no boot=casper
+PASS esp-files the ESP has the shim (EFI/companion/shimx64.efi and the removable-path fallback EFI/BOOT/BOOTX64.EFI)
+PASS casper-package installed system: the package casper is not installed
+PASS casper-conf installed system: no /etc/casper.conf
+PASS casper-initramfs-conf installed system: no casper settings in /etc/initramfs-tools/conf.d
+PASS casper-initramfs-scripts installed system: no casper initramfs scripts
+PASS live-gschema installed system: no live-session gschema override
+PASS installer-snap installed system: no installer snap
+PASS installer-leftovers installed system: no installer/live-session files
+PASS initramfs-generator installed system: initramfs-tools 0.151ubuntu1 generates the initrd, dracut is not installed
+PASS dracut-pin installed system: /etc/apt/preferences.d/ci-os-no-dracut keeps apt from installing dracut
+PASS cloud-init-installer-user installed system: cloud.cfg does not name the live session's user
+PASS fsck e2fsck: the installed root filesystem is clean

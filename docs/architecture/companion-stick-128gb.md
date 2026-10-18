@@ -2,15 +2,20 @@
 
 > **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
-Date 2026-10-13. This page is the index and the decision record for the work that makes the
-Companion OS image and the Companion Stick suitable for the nine "128 GB" USB 3.x sticks in
-the first batch (123,942,731,776 bytes each). The detail lives in four documents:
+Date 2026-10-13, state re-checked 2026-10-18. This page is the index and the decision record
+for the work that makes the Companion OS image and the Companion Stick suitable for the nine
+"128 GB" USB 3.x sticks in the first batch (123,942,731,776 bytes each). On 2026-10-17 the
+supported targets became Companion OS on Ubuntu 26.04.1 and on CachyOS; Ubuntu 24.04 is
+retired. Every measurement below that was taken on 24.04.5 is labelled **retired baseline
+(24.04.5)**; it explains a decision but is not evidence for the 26.04 image. The detail lives
+in five documents:
 
 | Document | What it covers | State |
 |---|---|---|
-| [docker-in-live-sessions.md](docker-in-live-sessions.md) | Docker and the `docker` group on the installed system, the plain live ISO and a Stick live boot | Implemented; **plain live ISO proven in QEMU** (`docker-live.sh iso`: PASS, `hello-world` offline as the unprivileged user); Stick + persistence and the installed system still to prove |
-| [tier-b-tools.md](tier-b-tools.md) | tailscale, cloudflared, gh, Ollama and the Companion Launcher baked into the ISO with pinned keys and hashes | Implemented; built into a 7.9 GB ISO that passes `verify-iso.sh` 147/147 and boots live |
-| [model-packs-128gb.md](model-packs-128gb.md) | Which models fill the 73 GiB `CI-CACHE`, their sizes, licences, and the Ollama store layout on exFAT | Catalog implemented; **populating a stick is not** (`ci-stick models sync` does not exist) |
+| [docker-in-live-sessions.md](docker-in-live-sessions.md) | Docker and the `docker` group on the installed system, the plain live ISO and a Stick live boot | Implemented. **Retired baseline (24.04.5):** the plain live ISO was proven in QEMU (`docker-live.sh iso`: PASS, `hello-world` offline as the unprivileged user). Not re-run on 26.04 [N]; Stick + persistence and the installed system still to prove |
+| [tier-b-tools.md](tier-b-tools.md) | tailscale, cloudflared, gh, Ollama and the Companion Launcher baked into the ISO with pinned keys and hashes | Implemented. **Retired baseline (24.04.5):** built into a 7.9 GB ISO that passed `verify-iso.sh` 147/147 and booted live. The 26.04.1 build is pending evidence (see [Open items](#open-decisions-for-the-owner)) |
+| [model-packs-128gb.md](model-packs-128gb.md) | Which models fill the 73 GiB `CI-CACHE`, their sizes, licences, and the Ollama store layout on exFAT | Catalog implemented and locked (`core/manifest/model-packs.lock.json`). `ci-stick models fetch` exists for Ollama references, tested against local listeners only; **no real stick has been populated** |
+| [models-tooling.md](models-tooling.md) | `ci-stick models`, the lock, the cache layout, the OS adapter, the hardware-fit gate | `lock`, `plan`, `fetch`, `cache-info` implemented; `verify`, `gc`, `export`, `import`, `view` not built in `ci-stick` |
 | [mass-flashing.md](mass-flashing.md) | Inventory of the attached sticks, how flashing works today, the recommended station, runbook, time estimates | Investigation only; **no batch tooling, nothing written to any stick** |
 | [test-and-mass-flash-plan.md](test-and-mass-flash-plan.md) | The test ladder (QEMU on the Mac, Linux/KVM, real hardware through the tailnet IP-KVMs), the staged mass-flash programme with approval gates, safety requirements and effort | Plan; reviewed by two red teams |
 
@@ -22,9 +27,9 @@ the first batch (123,942,731,776 bytes each). The detail lives in four documents
 |---|---|---|---|---|
 | 1 | `CI-EFI` | vfat | 1 GiB | bootloader, A/B pointer |
 | 2 | `CI-SHARED` | exFAT | 7 GiB | launchers, installers, docs (Windows and macOS see this one) |
-| 3 | `CI-BOOT-A` | raw | 11 GiB | Companion OS image (about 7.9 GB with every optional tool) |
+| 3 | `CI-BOOT-A` | raw | 11 GiB | Companion OS image (about 7.9 GB with every optional tool on the retired 24.04.5 base; one 26.04.1 build measured 7.08 GB) |
 | 4 | `CI-BOOT-B` | raw | 11 GiB | update slot |
-| 5 | `CI-CACHE` | exFAT | **73 GiB** | `models/` (Ollama store) and `oci/`; `stick-128` fills it to 74.4 GB of 78.4 GB |
+| 5 | `CI-CACHE` | exFAT | **73 GiB** | `models/` (Ollama store) and `oci/`; `stick-128` fills it to 74.8 GB of 78.4 GB |
 | 6 | `CI-PERSIST` | ext4 `writable` | 12.4 GiB | live persistence; Docker's data root in a Stick live boot |
 
 A stick of exactly 128e9 bytes would get 77 GiB; these sticks are 3 % smaller and get 73.
@@ -41,15 +46,15 @@ A stick of exactly 128e9 bytes would get 77 GiB; these sticks are 3 % smaller an
 
 - `build-iso.sh` gives the chroot a **private tmpfs `/run`** instead of binding the host's. With the host's `/run` the chroot sees `/run/systemd/system`, so a maintainer script believed systemd was running and could `systemctl start` / `pkill` on the **build host**. The setup-device `postinst`/`prerm` also check `ischroot` now.
 - The nginx `listen 5002` proxy block in the setup portal was removed: the Hub publishes host port 5002, so nginx and Docker could never both bind it.
-- **Launcher binary drift fixed:** the binary and package are `companion-hub` (since CI-Hub 2026-06-03), not `ci-os-hub-desktop`. The pairing gate (`setup_service.py`), the Ubuntu, Fedora and Arch provisioners and the dock pin looked for the old name and never matched. `provision.sh` also verifies the Launcher download's sha256 against the release manifest now.
+- **Launcher binary drift fixed:** the binary and package are `companion-hub` (since CI-Hub 2026-06-03), not `ci-os-hub-desktop`. The pairing gate (`setup_service.py`), the provisioners and the dock pin looked for the old name and never matched. `provision.sh` also verifies the Launcher download's sha256 against the release manifest now.
 - cloudflared's apt key file is `cloudflare-main.gpg` (the vendor rolled the key on 2025-10-30; the old URL still serves the same bytes).
 - `model-packs.yaml`: every existing size is now the exact registry size, and `qwen3.6:27b` is `Apache-2.0` instead of `unverified`.
 
 ## How to build and check
 
 ```bash
-# build (Ubuntu 24.04 host, root); every Tier B knob defaults to 1
-sudo ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso ./ubuntu-24.04.5.1-desktop-amd64.iso
+# build (Ubuntu 26.04 host, root; build-iso.sh stops on any other host); every Tier B knob defaults to 1
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso ./ubuntu-26.04.1-desktop-amd64.iso
 # a smaller image without Ollama's bundled CUDA libraries (-1.5 GB)
 sudo CI_OS_OLLAMA_CUDA=none ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso ...
 
@@ -77,4 +82,7 @@ stick/tests/qemu/docker-live.sh stick output/companion-os-*.iso path/to/stick.im
 8. **Pin freshness:** add a scheduled CI job that re-checks vendor keys and Ollama/Launcher releases (GitHub's key already rotated once).
 9. **Hot-plug:** restart Ollama automatically when `CI-CACHE` appears, or require a restart/reboot?
 10. **Layout:** a smaller `CI-PERSIST` would give the cache more room; it is also where Docker lives in a Stick live boot.
-11. **Not done, and not asked for yet:** populating a stick (`ci-stick models sync`), batch flashing tooling, the first real `flash --device` on Linux.
+11. **Not done, and not asked for yet:** populating a real stick (`ci-stick models fetch` exists and has not been pointed at an exFAT volume or a stick), batch flashing tooling, the first real `flash --device` on Linux.
+12. **Disk-space guard for model pulls.** The `stick-128` set is cache-sized, but on an installed machine the three `appliance-core` models take about 18.8 GB (nomic-embed-text 0.27 GB, gemma3:1b 0.81 GB, qwen3.6:27b 17.8 GB). On the CachyOS edition's 30 GiB test target they moved the disk from 7.8 GiB to 26 GiB used (88 %); a smaller disk would fail a pull for lack of space. The shared gate `ci_os_model_gate_allows` (`core/lib/gpu-detect.sh`) checks RAM and GPU memory only. Details and the proposed fix: [models-tooling.md](models-tooling.md#14-open-items).
+13. **Strix Halo GTT boot parameters** exist only in the Ubuntu backend (`backends/ubuntu/lib/strix-halo-boot-params.sh`); neither the CachyOS edition nor the Stick's `grub.cfg` sets them.
+14. **A built 26.04 Companion OS ISO against the slot size.** An 8 GiB slot (64 GB sticks) holds 8,589,934,592 bytes; the first 128 GB sticks have 11 GiB slots. One 26.04.1 build measured 7,076,577,280 bytes (`verify-iso.sh` section 9 now checks this on every build). See [companion-stick.md](companion-stick.md#open-items).

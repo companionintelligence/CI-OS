@@ -5,6 +5,11 @@ description: CI-OS conventions for driving a PR to mergeable — validation to r
 
 # CI-OS PR steward
 
+Two targets are supported: Companion OS on Ubuntu 26.04.1 and Companion OS on CachyOS (Plasma edition). The policy, the capability
+matrix with its evidence tags and the restore recipe for retired targets are in `docs/architecture/supported-targets.md`; adding or
+restoring a target is an owner decision, never a side effect of a PR. `CLAUDE.md` is the canonical guide; this skill covers PR
+mechanics.
+
 ## Before every push
 
 ```bash
@@ -33,6 +38,11 @@ in `build-companion-os-iso.yml`.
 
 Touching brand assets or the setup portal's logo/font → also run
 `core/lib/check-brand-mirrors.sh` and `core/lib/vendor-brand.sh --check`.
+
+Touching `docs/architecture/headless-setup.md` → also run `bash core/headless/tests/ci_setup/run.sh --quick` (a test reads that file:
+the generated policy table, the golden examples and the module and test names must still match). A document that stops naming a
+retired distro must also lose its line in the PENDING block of `core/lib/retired-names.allow`, or the stale-entry rule fails. A new
+file of any kind needs `git add` (or `git add -N`) before the gate means anything.
 
 ## Where things live (post Phase 1a, `11634eb`)
 

@@ -1,7 +1,12 @@
 # Companion OS on CachyOS: architecture of `backends/cachyos/`
 
-> Status: the build system, overlay, installer overlay, provisioning and verifier exist and are unit-tested on fixtures;
-> **a Companion OS ISO from this overlay has been built and statically verified, but no boot of it is recorded and it has not been installed** (see [Test status](#test-status)).
+> Status (re-written 2026-10-18): the build system, overlay, installer overlay, provisioning and verifier exist and are unit-tested on fixtures.
+> **Five Companion OS ISOs have been built from this overlay. ISO #4 and ISO #5 were each run end to end under QEMU/OVMF software emulation (TCG, no KVM): live boot to the Plasma
+> desktop (first graphical frame 4 min 10 s and 4 min 05 s after Enter in GRUB), the Calamares online install (47 jobs, 22 min 9 s on ISO #4, 23 min 20 s on ISO #5), the installed boot
+> and first-boot provisioning with three Ollama models pulled (16 min 4.6 s on ISO #4, which ended "degraded"; 21 min 49 s on ISO #5, which ended with status 0/SUCCESS and no "degraded")** [V].
+> The defects the ISO #4 run exposed were fixed in commit `552063f`, and ISO #5 shows the first-boot, boot-target, log-size, update-notifier and most of the installer-look fixes working on an
+> installed system [V]. Open on the ISO #5 record: the 30 second Calamares keyring limit that failed two of three install attempts (KI-20; a fix is in the working tree, [I], not yet run on a built ISO),
+> two Calamares highlight gaps (KI-09), and the missing `verify-iso.sh` log for ISO #4 and ISO #5. Nothing has run on KVM or on real hardware. See [Test status](#test-status).
 > Private & Confidential, Lifescope Inc. Entry points and commands: [`backends/cachyos/README.md`](../../backends/cachyos/README.md).
 > Provenance and licences: [`backends/cachyos/NOTICE`](../../backends/cachyos/NOTICE).
 
@@ -101,8 +106,8 @@ installed system by itself.** Companion OS therefore provisions in three places:
 | L2 Calamares | install time, network up | `packages_online.conf` `operations`, `users.conf`, `services-systemd.conf`, the `ci_os_stage` shellprocess (`dontChroot`), the `ci_os_fixups` shellprocess (chroot) | Docker, compose, buildx, `jq`, the wireless-setup stack and the other core packages; the `docker` group; the setup-portal payload (`stage-headless.sh`); the first-boot unit and the provisioning tree under `/usr/lib/ci-os/bootstrap`; the identity (`/usr/share/ci-os/installed/carry-over`); unit enabling (`docker`, `setup-backend`, `setup-network-monitor`; `nginx`, `hostapd-setup` and `dnsmasq-setup` are not enabled, see below); GRUB, the Companion GRUB and Plymouth themes, the hostname |
 | L3 first boot | first boot of the installed system, network up | `ci-os-first-boot-setup.service` and its timer, `first-boot-setup.sh`, `provision/provision.sh` | the Arch provisioner behind a wrapper: `ci` user, `uv`, Node.js through asdf, Ollama configuration and models, CI-Hub (needs registry credentials and pairing), at `--tier=core` by default |
 
-Wired and tested on fixtures, **not run end to end**: all of L2 and L3. The reasons the existing Arch scripts were not used as
-they are (decision D8: `backends/arch/**` is not edited):
+L2 and L3 were run end to end twice, on ISO #4 and ISO #5 in QEMU/TCG ([Test status](#test-status)): both installs succeeded and both first boots pulled the three models; ISO #4 showed the defects listed there,
+and ISO #5, built with the fixes of `552063f`, ended its first boot cleanly [V]. The reasons the existing Arch scripts were not used as they are (decision D8: `backends/arch/**` is not edited):
 
 * `backends/arch/headless-setup/install.sh` is not safe in an installer chroot: an unguarded `systemctl daemon-reload` aborts it
   under `set -e` when systemd is not PID 1, and it installs packages itself. `provision/stage-headless.sh` stages the same payload
@@ -114,8 +119,10 @@ they are (decision D8: `backends/arch/**` is not edited):
   the Ollama models either: that script can print "Setup completed successfully!" with no model on the machine, so the wrapper reads
   the required models from `core/manifest/ecosystem.yaml` (`llm.models`), waits for the Ollama server and compares them with
   `ollama list`; a missing model is exit 74 ("degraded"), on which `first-boot-setup.sh` writes no done marker, records
-  `first-boot-setup-status` and retries on the next boot or timer tick, up to three automatic attempts (`TimeoutStartSec=infinity`:
-  the largest model is 17.8 GB, so no finite limit is a promise anyone can keep). It also defaults to `--tier=core`: the Arch
+  `first-boot-setup-status` and retries on the next boot or timer tick, up to three automatic attempts (the unit is `Type=exec` and has no `RuntimeMaxSec`:
+  the largest model is 17.8 GB, so no finite limit is a promise anyone can keep, and the boot targets do not wait for the run; it was a `Type=oneshot` with
+  `TimeoutStartSec=infinity` until `552063f`, which held `graphical.target` for 16 min 27 s on ISO #4). Its output goes through `provision/progress-filter.sh`, which collapses the
+  redraws of `ollama pull` (14,052 log lines for three pulls on ISO #4; the filter's test collapses a 3000-redraw flood to 27 lines). It also defaults to `--tier=core`: the Arch
   provisioner's own default tier installs `rocm-hip-sdk` (several GB) and LACT whatever the GPU is.
 * The stock flow enables UFW with `default deny incoming`, which would block the setup portal (nginx, DNS and DHCP of the setup
   access point). This edition installs no host firewall and drops the `enable_ufw` step; the reasoning is in
@@ -126,6 +133,17 @@ they are (decision D8: `backends/arch/**` is not edited):
   boot (the payload's static config names one vendor board's wireless interface and carries a committed WPA2 passphrase) and open
   port 80, with the setup API behind it, on every network the machine joins. The reasoning and the open issue in the shared payload
   are in `backends/cachyos/installer/README.md` (and `installer/modules/services-systemd.conf`).
+
+**First boot as observed on ISO #4 and ISO #5** (installed system, QEMU/TCG; the last row is the unit as `552063f` changed it):
+
+| Condition | What happened | Where it is recorded |
+|---|---|---|
+| Boot with no route out (a NIC without a network) | `ci-os-first-boot-setup.service` waited 3 min 31 s for the network (30 tries of a ping to 1.1.1.1 and then an HTTPS probe of archlinux.org), printed one warning and exited 0; no attempt was counted; the timer (`OnBootSec=15min`, `OnUnitInactiveSec=15min`) was due again 15 minutes later | `provision/first-boot-setup.sh`, the unit and timer in `provision/systemd/`; guest journal |
+| Boot with NAT | The service started 46 s after power-on, `ollama pull` of `nomic-embed-text` and `gemma3:1b` took about a minute each, `qwen3.6:27b` (17.8 GB) about 10 minutes at 26 to 50 MB/s, then cloudflared, corepack/pnpm and tailscale; the CI-Hub deploy was skipped (it needs registry credentials or a pairing, see the endpoint table). The unit was `inactive (dead)` with status 0/SUCCESS after **16 min 4.6 s**; `/var/lib/ci-os/first-boot-setup-status` said `degraded: required Ollama models missing` although `ollama list` showed all three, `.first-boot-setup-done` was not written, and the next automatic run was scheduled (attempt 1 of 3 used). Cause and fix: finding 1 below | guest journal and `systemctl status`, capture notes |
+| After the run | `systemctl is-system-running` was `running` (no failed unit), Docker enabled and running, the display manager `plasmalogin` themed with the Companion wallpaper | capture notes |
+| ISO #5, boot with NAT (the fixes of `552063f`) | `ci-os-first-boot-setup.service` was `active (running)` from 09:17:42 to 09:39:31, **21 min 49 s**, then `code=exited, status=0/SUCCESS`; `.first-boot-setup-done` was written, there was no status file and no attempts file; `ollama list` showed all three models (the 17.8 GB pull took about 14 minutes at 20 to 29 MB/s plus about 3.5 minutes of digest check). The log has **367 lines** (ISO #4: 14,052) and the unit's journal 386 lines with no "blob data" entry; the closing lines are present. `graphical.target` was reached **37.8 s** after boot (ISO #4: 16 min 27 s) and `is-system-running` was `running` before, during and after the run | `shots/plasma-v5/CAPTURE.md` in the session scratch; [test-evidence.md](test-evidence.md#plasma-edition-iso-5-all-three-stages) |
+
+The Arch provisioner is run at `--tier=core`, so ROCm and LACT are not installed on first boot; `sudo ci-os-setup --tier=core,hardware` does that on a machine that needs it.
 
 Failure policy of the launcher (decision D6), because the installer package is whatever the repository holds on install day: the
 package list and the payload staging **fail closed** (a dialog, exit status 1, nothing is installed); cosmetic strings **fail open**
@@ -192,7 +210,9 @@ replaces the symlink, it does not write through it), which `verify-iso.sh` asser
 
 What can not be changed and is disclosed instead: kernel and package names (`linux-cachyos`, `uname -r` ends in `-cachyos`),
 the `[cachyos]` repository, Firefox's "for Arch Linux" distribution string (package-owned), the `cachyos-*` units and tools
-(`cachyos-rate-mirrors`, `cachy-update`, ...), and `ID=cachyos` itself.
+(`cachyos-rate-mirrors`, ...), and `ID=cachyos` itself. `cachy-update` was on this list until the ISO #4 run showed it was the only CachyOS-named
+entry in the installed desktop's menu and tray; since `552063f` it is not installed (`netinstall.yaml`), its user timer is not enabled, and
+`ci-os-post-install-fixups.sh` removes it if it arrives anyway (hiding it when pacman refuses).
 
 ## Online installer: known external endpoints (not exhaustive)
 
@@ -208,7 +228,8 @@ that nothing contacts. Do not use the table as a firewall allow-list or a privac
 | `mirror.cachyos.org/repo/$arch/$repo` | `[cachyos]` in the **build** `pacman.conf` only (`10-bootstrap.sh`) | build | by design; the live and installed systems do not use this single server |
 | Arch mirrors (`/etc/pacman.d/mirrorlist`: `archlinux.cachyos.org`, `geo.mirror.pkgbuild.com`, ...) | `core`, `extra`, `multilib` | build, live, install | kept |
 | `cachyos-rate-mirrors`: the script calls `geoip.kde.org/v1/ubiquity` for the country and then runs the `rate-mirrors` program (its sources: not read), and puts `archlinux.cachyos.org` first in the Arch mirrorlist | `update-mirrorlist` in the stock `initialize_pacman` step, and then the package's own `cachyos-rate-mirrors.timer` on the installed system: the 1st, 11th and 21st of a month plus a random delay of up to ten days, `Persistent=true` | install, then about every ten days | kept (stock). The timer is masked on the live medium (`20-build.sh`); this edition does not mask it on the installed system. From reading the package sources, not observed |
-| `archlinux-keyring`, `cachyos-keyring` from the repositories | `calamares-online.sh` (removes `/etc/pacman.d/gnupg` and re-initialises it, as upstream does) | every launcher start | kept |
+| `archlinux-keyring`, `cachyos-keyring` from the repositories | `calamares-online.sh` (keeps a working `/etc/pacman.d/gnupg` and populates it before the first sync; a missing one is created, an unusable one repaired in place and, as a last resort, emptied in place; upstream deleted it first: [incident F1](#f1-the-launcher-deleted-the-keyring-before-it-could-verify-anything)) | every launcher start | kept |
+| `archive.archlinux.org` (the canonical Arch Linux Archive path of `boost-libs-1.91.0-2`, plus its `.sig`) | `iso/scripts/in-container/stage-compat-libs.sh`, the only external download of that step; sha256 and package signature are checked against `compat-libs.lock` | **build time only**; the live and installed systems never contact it | by design ([F2](#f2-calamares-did-not-start-a-boost-soname-skew-between-two-repositories)) |
 | `https://cachyos.org` and `https://cachyos.org/versions.json` | `cachyos-hello`'s install gate (unreachable means the install is refused) | live | **removed**: `cachyos-hello` does not autostart and is hidden; the launcher does not call it |
 | `https://wiki.cachyos.org` | Calamares welcome page internet check; `internetCheckUrl` is a `required` check | install | **replaced** by `https://example.com` (`installer/modules/welcome_online.conf`): a neutral host, so no project learns who installs when |
 | `https://geoip.kde.org/v1/ubiquity` (the installer's own lookup also uses `/v1/calamares`, per `installer/README.md`; that path was not verified) | Calamares welcome page (time zone and locale guess) | install | kept |
@@ -218,7 +239,7 @@ that nothing contacts. Do not use the table as a firewall allow-list or a privac
 | `debuginfod.cachyos.org` | `cachyos-settings` (`/etc/debuginfod/cachyos.urls`) | on demand | kept (package-owned) |
 | NTP servers | `timedatectl set-ntp true` in the launcher | live | kept |
 | ICMP to `1.1.1.1`, then `https://archlinux.org/` | our own network probe, `provision/first-boot-setup.sh` | the installed system, on every boot and every 15 minutes until provisioning has succeeded or three automatic attempts have failed | ours (a connectivity test; some networks drop ping, hence the second probe) |
-| `astral.sh` (`uv`), `github.com` (asdf and its Node.js plugin), `ollama.com/install.sh`, the Ollama registry (models); `nodejs.org` and `registry.npmjs.org` for the Node.js build and corepack (inferred, not run) | `provision.sh` through the wrapper | first boot of the installed system | from reading `backends/arch/provision/provision.sh`; not run |
+| `astral.sh` (`uv`), `github.com` (asdf and its Node.js plugin), `ollama.com/install.sh`, the Ollama registry (models); `nodejs.org` and `registry.npmjs.org` for the Node.js build and corepack (inferred) | `provision.sh` through the wrapper | first boot of the installed system | from reading `backends/arch/provision/provision.sh`. The ISO #4 first-boot run (QEMU, NAT) reached the Ollama registry (three models pulled) and ran the cloudflared, corepack/pnpm and tailscale steps; which other hosts it contacted was not logged |
 | `portal.companionintelligence.com` (CI-Hub registry and cloud URLs) | `core/lib/ci-hub.sh` | only after pairing, or when `REGISTRY_USERNAME` and `REGISTRY_PASSWORD` are supplied: without them the step prints "CI-Hub not deployed" and exits before any network call | from reading; not run |
 | build: Docker Hub (`archlinux` base image), `github.com` (the upstream clone), `raw.githubusercontent.com` (the pinned mirrorlist), Arch and CachyOS mirrors, `keyserver.ubuntu.com` / `keys.openpgp.org` (fallback only: the CachyOS key is committed and its fingerprint checked) | `build-iso.sh` | build | by design |
 
@@ -234,10 +255,10 @@ not be reached. An offline Calamares edition (`unpackfs` of the live squashfs) i
 * **`ci-stick` can write this ISO but its boot menu can not start it.** `flash` streams the bundle's boot image byte for byte into
   `CI-BOOT-A`; an archiso hybrid ISO is only bytes to it. The generated menu, however, is built for casper:
   `linux .../casper/vmlinuz boot=casper live-media=... persistent` and `initrd /casper/initrd`
-  (`stick/crates/ci-stick/src/bootcfg.rs:44-45,182`), persistence is an ext4 filesystem labelled `writable` that casper finds by
-  label (`flash.rs:49,466-468`), and the signed chain is Microsoft shim, Canonical GRUB, a Canonical-signed kernel
-  (`docs/architecture/companion-stick.md:324-360,450-454`: a custom or rebuilt kernel "won't boot under Secure Boot through this
-  shim"). An archiso profile for the Stick would need a boot profile in `bootcfg.rs` with
+  (`DEFAULT_KERNEL`, `DEFAULT_INITRD` and the entry template in `stick/crates/ci-stick/src/bootcfg.rs`), persistence is an ext4 filesystem labelled `writable` that casper finds by
+  label (`PERSIST_FS_LABEL` in `stick/crates/ci-stick/src/flash.rs`), and the signed chain is Microsoft shim, Canonical GRUB 2.14, a Canonical-signed kernel
+  ([companion-stick.md](companion-stick.md#secure-boot): a custom or rebuilt kernel "won't boot under Secure Boot through this
+  shim"; its 14 pinned GRUB modules and the 122 of the signed image are listed there). An archiso profile for the Stick would need a boot profile in `bootcfg.rs` with
   `archisodevice=/dev/disk/by-partlabel/CI-BOOT-A`, `cow_label=` and `cow_persistent=`, a `boot_profile` field in
   `bundle.schema.json` and the example, and an archiso-shaped boot image for `stick/tests/qemu/`. That is a design from reading
   the archiso hook (`mkinitcpio-archiso`), not built or booted. A CachyOS stick would use the development chain (unsigned
@@ -304,9 +325,9 @@ repository can re-check. Times are seconds after QEMU start.
   reached a serial login prompt at 211 s and `u9` (UEFI, OVMF and GRUB) at 214 s; the screen was black in both, so **the desktop
   was not reached in BIOS or UEFI mode**. `nm1` (BIOS, stock image, nothing typed, no serial console) failed at its 100 s timeout,
   as expected. The UEFI path through OVMF is slow under TCG (the kernel started about 50 s after power-on).
-* **Not observed:** the desktop in `bios` or `uefi` mode; a boot of a Companion OS ISO (the first one is built, see
-  [Test status](#test-status)); the generator on a VM with KVM; anything on real hardware; Calamares, ever. The upstream CI uses
-  quickemu on KVM hosts.
+* **Not observed** (research demo): the desktop in `bios` or `uefi` mode. This changed for the Companion OS ISOs: ISO #4 and #5 were booted through **real UEFI** (OVMF without Secure Boot
+  and the ISO's GRUB, not direct-kernel mode) and reached the Plasma desktop, see [Test status](#test-status). **Still not observed:** BIOS (syslinux) mode for a Companion OS ISO, the generator on a VM with
+  KVM, Secure Boot (the `.secboot` OVMF variant was not tried; the refusal of an unsigned GRUB is expected, not observed) and anything on real hardware. The upstream CI uses quickemu on KVM hosts.
 
 ## Verification
 
@@ -325,6 +346,10 @@ to fail and a missing file that another part of the edition owns being a **failu
 | 6 modes | package-unowned `#!` scripts are executable (the installer overlay under `/usr/share/ci-os/calamares` is staged as data and started with `bash`); `/etc/shadow` and `/etc/gshadow` 0400; `/etc/sudoers.d` 0440; the VM slow-boot generator (`companion-vm-timeouts`) is in the image and executable; the scripts our hooks run exist |
 | 7 provenance | `upstream.lock` names the D1 edition; the build record inside the image (`/usr/share/ci-os/iso-build-info`) and the one next to the ISO name the pinned commit, builder image, mirrorlist and key, record overlay and staging hashes, agree with each other and with `os-release` |
 | 8 integrity | `<iso>.sha256` matches; `airootfs.sha512` matches the squashfs (what `checksum=y` verifies at boot) |
+
+Since `552063f` the verifier also fails an image whose live package list contains `cachy-update` (or shows or starts it), whose Calamares overlay would install it, whose first-boot unit holds up the
+boot targets (it must not be a `Type=oneshot` ordered ahead of them) or lacks `HOME`, whose installer stylesheet leaves the progress bar, the selected rows or the welcome links without a colour that reads, whose bootloader chooser
+shows Calamares' placeholder picture, or whose package group descriptions the installer window would cut off. These are checks of the ISO's files; none of them says the installed desktop looks right.
 
 Known residuals are printed, not failed: kernel, repository and package names, `/usr/lib/os-release` (Arch's), the `lsb-release`
 `DISTRIB_ID`, the start-menu icon of the stock Plasma layout and Firefox's distribution string.
@@ -348,7 +373,8 @@ as a brand leak). It has not been re-run since those fixes; the first full build
 
 Honest columns. "Built" means `mkarchiso` finished; "booted" means a kernel started the system and it reached the stated point;
 "installed" means Calamares ran to the end on a disk; "verified" means `verify-iso.sh` ran on the ISO. Logs and screenshots named
-here are in the research scratch directory of the session that produced them, not in the repository.
+here are in the research scratch directory of the session that produced them, not in the repository. The numbering of the Companion
+OS ISOs (#1 to #5) is the order of the builds below. Tags: **[V]** a log or capture record shows it, **[N]** not done.
 
 | Artifact | Built | Booted | Installed | Verified |
 |---|---|---|---|---|
@@ -356,11 +382,37 @@ here are in the research scratch directory of the session that produced them, no
 | Companion OS ISO from this overlay (`companion-os-plasma-2026.10.16-x86_64.iso`, 3,217,129,472 bytes, 1006 packages, sha256 `19f0583e3760a8cf911467aaa6fb71e6a7ca1af78650927d9215010d71a442bf`; first full build, pin `3215497d`) | yes, 2026-10-16 (container clock): `mkarchiso` 32 min 46 s, about 37 min from the start of `build-iso.sh` to the copied ISO, under Rosetta on a loaded host | yes, `qemu-boot.sh --mode direct --expect-plasma --expect-screen`, QEMU TCG without KVM, no `--vm-fixes` (the overlay carries the generator): PASS. Guest agent and serial login at 138-141 s, plasmashell and kwin_wayland running at 149 s, first rendered desktop at 266 s, 357 s with the 90 s settle (host load 25-90). It showed the stock KDE "Next" wallpaper, not ours: Plasma ignores the saved desktop containment because its activity id differs; `apply-wallpaper` (autostart, once per user) is the fix and has not been booted yet. BIOS and UEFI menus of this ISO were not booted | no | `verify-iso.sh` in the builder image, run 1 (the first verifier): 180 passed, 3 failed; run 2 (verifier fixed): **182 passed, 1 failed**. The remaining failure is real: CachyOS Hello's application-menu entry is still visible, because the hook that hides it did not take effect in this ISO (the hook's `sed` quoting was wrong under pacman's parser; it is fixed in the tree, see the header of `ci-os-neutralise-hello.hook`, and shows only in a rebuild). The two other failures of run 1 were the verifier's, not the ISO's (`cmp` is not in the builder image). Sections 2 (boot menus: every file the syslinux menu loads, the Memtest binary included, is on the medium) and 5 (the Calamares overlay) pass |
 | Companion OS ISO #2 (`companion-os-plasma-2026.10.16-x86_64.iso` rebuilt from the clean commit `16271e6`, 3,217,129,472 bytes, sha256 `9f0afab64be9cac10f199bffa9aa4851c33880623bf473838b4b137be60506d9`; includes every review fix, the Hello hook fix and `apply-wallpaper`) | yes, about 31 min under Rosetta on a loaded host; the build record says `REPO_TREE=clean`, `KERNEL_LINES_SHA256` as expected | yes, `qemu-boot.sh --mode direct --expect-plasma --expect-screen --settle 180`, QEMU TCG: PASS. plasmashell and kwin_wayland at 245 s, first drawn desktop at 421 s (host load 25-90). The desktop shows the Companion OS wallpaper and a teal panel; the stock "Next" wallpaper of ISO #1 is gone. BIOS and UEFI menus not booted | no | `verify-iso.sh` in the builder image: **187 passed, 0 failed** |
 | Miniature ISO from the real overlay and renderer (`verify-mini-iso.sh`: 15 MB, no packages, no `mkarchiso`; `xorriso` and `mksquashfs` only) | n/a | no | no | run of 2026-10-16 (container clock), about 2 minutes: `apply-overlay.sh` guards (a) to (e) pass on the pinned upstream; `verify-iso.sh`: 182 passed, 1 failed, the failure being the BIOS Memtest path that overlay patch 0002 fixes. No log of that run is kept in the repository and it has **not been re-run** since the fixes (re-run needed) |
-| Installer overlay (Calamares) | n/a | n/a | **not run** | `verify-iso.sh`'s static analysis of the overlay inside the built ISO passes (section 5 of runs 1 and 2); the installer tests run the guards and the launcher against stubs and a recorded copy of the pinned installer's shape. Calamares itself has never run |
-| `verify-selftest.sh` | n/a | n/a | n/a | 253 checks pass on bash 3.2.57 (macOS); the 242 checks that existed before the last additions also passed on bash 5.3.20 in the Arch builder container. About 20 seconds |
+| Installer overlay (Calamares) | n/a | n/a | **run on ISOs #4 and #5** (rows below); not run on #1 to #3 | `verify-iso.sh`'s static analysis of the overlay inside the built ISO passes (section 5 of runs 1 and 2); the installer tests run the guards and the launcher against stubs and a recorded copy of the pinned installer's shape. Before ISO #4, Calamares itself had never run: ISO #3 could not start it (incidents F1 and F2 below) |
+| Companion OS ISO #3 (`companion-os-plasma-2026.10.18-x86_64.iso`, sha256 `607d678e910c68c2d1237c7d6584109c4ecbc53a22362a9e328295011be5c9e1`, built from the clean commit `6e7b0b5`) | yes, 2026-10-18 | yes, QEMU/OVMF: live desktop reached; "Install Companion OS" could not start the installer | no | the result at the time is not recorded in the notes I could find; with the compat-library checks added afterwards it fails 8 (`verify-v3.log` of the fix run: 182 passed, 8 failed; the failures are the three missing boost libraries and five missing `COMPAT_*` build-record keys), as intended. Two defects, F1 and F2, below |
+| Companion OS ISO #4 (`companion-os-plasma-2026.10.18-x86_64.iso`, 3,217,129,472 bytes, sha256 `f5cda84f60b585e85895552c5738aaf2a3ddba381a838538ce5d58fe9cff8790`, clean commit `d7b3a7b`, upstream pin `3215497d`, 202 packages listed, `COMPAT_LIBS=3`) | yes; the installer gate passed inside `mkarchiso` (build log) | **yes, [V]**: real UEFI (OVMF, no Secure Boot), GRUB menu 2.2 s after power-on, first graphical frame 4 min 10 s after Enter in GRUB (4 min 35 s after power-on), desktop settled about 6 min 35 s, host load average 2.5 to 9 | **yes, [V]**: Calamares ran all 47 jobs to `completion: succeeded` on a 30 GiB NVMe disk (Erase disk, btrfs, GRUB); Install Now to finish 22 min 9 s (the whole stage with the page walk-through about 40 min); `pacstrap` 7 min 14 s, `packages` 8 min 16 s, `mkinitcpio` 1 min 50 s | `verify-iso.sh` result for #4: not in the capture notes [N]. **Installed boot [V]**: GRUB menu with the Companion theme, Plymouth, the Plasma Login Manager greeter at 113 s (offline boot), first login, desktop 55 s after login, `systemctl is-system-running` = `running` after provisioning; two boots, one offline (the unit waited 3 min 31 s, exited 0, no attempt counted) and one on NAT. **First boot with a network [V]**: 16 min 4.6 s, `ollama pull` of `nomic-embed-text`, `gemma3:1b` (about a minute each) and `qwen3.6:27b` (about 10 min at 26 to 50 MB/s), all three present in `ollama list`, but it ended **degraded (74)** because of a defect (below) |
+| Companion OS ISO #5 (`companion-os-plasma-2026.10.18-x86_64.iso`, 3,217,129,472 bytes, sha256 `2e254487ba6a24d1602e2b7ab9163468170cb83e55d60498f4f14623a19e0b5e`, clean commit `552063f`, `COMPAT_LIBS=3`) | yes, 25 min; installer gate passed | **live yes, [V]**: GRUB 2.7 s, first frame 4 min 5 s after Enter, desktop settled 5 min 8 s; Calamares started from the menu entry without hand work (194 required packages found, guards passed, 7 of 7 requirements); the welcome page no longer shows the dark pictogram. **Installed boot yes, [V]** (NAT): greeter at 107 s, `graphical.target` after 37.8 s (ISO #4: 16 min 27 s), `is-system-running` = `running`, `systemctl --failed` empty | **yes, [V], on the third attempt**: all 47 jobs, `completion: succeeded`, 23 min 20 s on a 64 GiB virtual NVMe. Attempts 1 and 2 failed at job 13 (2 percent) with `Command bash /etc/calamares/scripts/create-pacman-keyring failed to finish in 30 seconds` (08:07:42 and 08:24:55 PDT), see item 10 of [the findings below](#what-the-full-run-of-iso-4-found-and-where-each-item-stands) and KI-20 | `verify-iso.sh` for this ISO: no log kept [N]. **First boot [V]**: 21 min 49 s, status 0/SUCCESS, marker written, no "degraded", 367-line log (see the first-boot table above). The re-verification list of the fixes: Support link, bootloader page, package descriptions, no Cachy-Update, first-boot unit and log are seen working; the progress bar, keyboard rows and package rows are visible; combo-box popups and the partition-page selection still have no highlight (KI-09) |
+| `verify-selftest.sh` | n/a | n/a | n/a | **336 checks pass, 0 failed, 0 skipped** on bash 3.2.57 (macOS), run 2026-10-18 at HEAD `02c575e` (the earlier figure was 253 on bash 3.2.57; 242 of those also passed on bash 5.3.20 in the Arch builder container, not repeated). About 20 seconds |
 
-Nothing about the installed system (Docker working, the setup portal reachable, first-boot provisioning completing, the
-`os-release` after an update, the GRUB and Plymouth themes) has been observed on a running machine.
+Observed on the installed systems of ISO #4 and ISO #5 (QEMU/TCG): the `os-release` (`NAME="Companion OS"`, `ID=cachyos`, `VARIANT="Plasma (based on CachyOS)"`), the Companion GRUB theme and Plymouth lock-up, the Plasma Login
+Manager, Docker enabled and running (`docker --version` 29.9.1), Ollama (`ollama version is 0.40.6` once provisioning had enabled the service), and first-boot provisioning including the three models. **Not observed:** the setup portal reachable
+(no Wi-Fi interface in the VM), the `os-release` after a `pacman -Syu`, the setup portal's hotspot, BIOS (syslinux) boot, Secure Boot, KVM and real hardware.
+
+### What the full run of ISO #4 found, and where each item stands
+
+Source: the capture record of the ISO #4 run (live, install, installed boot A offline and B on NAT; `CAPTURE.md` and the guest logs, in the session scratch, not in the repository) and
+the commit message and tests of `552063f`. "Fixed" means the code and a test changed; items 1, 2, 3, 5 and, except for two highlight gaps, 6 are **shown working on the booted installed system of ISO #5** [V] (`shots/plasma-v5/CAPTURE.md`).
+
+| # | Finding (evidence) | Fix, or status |
+|---|---|---|
+| 1 | **First-boot provisioning ended "degraded" (exit 74) every time although all three models were installed.** `ollama list` ran as root under a system unit with no `$HOME`; the CLI panics ("panic: $HOME is not defined", exit 2) and the wrapper read that as "server never answered" after 30 tries | Fixed: the unit sets `Environment=HOME=/root`, `provision/provision.sh` sets it when unset, and the failure message shows the last stderr of `ollama list`. Test: a stand-in `ollama` that panics without `HOME` (`installer-stage.sh`). Seen failing on ISO #4 [V]; passing on ISO #5: status 0/SUCCESS, marker written, no "degraded" [V] |
+| 2 | **The oneshot held `graphical.target`:** `systemd-analyze` said "graphical.target reached after 16 min 27 s" with a network and 3 min 54 s without; `is-system-running` said `starting` for the whole run | Fixed: `Type=exec`, no `network-online.target` ordering (the script polls for the network itself: ping 1.1.1.1, then HTTPS to archlinux.org, 30 tries), `Nice=10`. The unit comment holds the mechanism (systemd.target(5)). Checked with `systemd-analyze verify` and a text test; **seen on ISO #5**: `graphical.target` after 37.8 s, `is-system-running` = `running` during the run [V] |
+| 3 | **`ollama pull` redraws flooded the journal and the log:** 14,052 lines / 1.9 MB for three pulls, each redraw a "[147B blob data]" journal entry | Fixed: `provision/progress-filter.sh` (one awk program, a high-water mark per layer, prints each layer every 5 % or 30 s); the driver drains its output in an EXIT trap because `KillMode=control-group` otherwise cut the closing lines (0 of 40 runs lost against a real systemd manager with the fix, 16 of 40 with the awk filter without it, 40 of 40 for the first bash filter). Tests: `progress-filter.sh`, `first-boot-drain-container.sh`. **Seen on ISO #5**: 367 log lines, 386 journal lines with no "blob data" entry, closing lines present [V] |
+| 4 | **Disk budget:** the model set took the 30 GiB target from 7.8 GiB (27 %) to 26 GiB (88 %) used | **Open [N].** The guard belongs in the shared gate `ci_os_model_gate_allows` (`core/lib/gpu-detect.sh`), which checks RAM and GPU memory only: [models-tooling.md](models-tooling.md#14-open-items), item 1 |
+| 5 | **Cachy-Update** (menu entry and teal "C" in the tray) was the only CachyOS-named UI on the installed desktop | Fixed: not installed, timer not enabled, removed by `ci-os-post-install-fixups.sh` if it arrives. Live medium never had it. **Seen on ISO #5**: no menu entry and no `arch-update-tray` autostart on the installed desktop [V] |
+| 6 | **Calamares looked unfinished:** the progress bar's fill had the window colour (inverted, low contrast), selected rows of the keyboard, bootloader, package and partition lists were invisible, dark pictograms on the teal welcome buttons, a zip-archive placeholder on the bootloader page, package descriptions cut off | Fixed in `branding/companion/stylesheet.qss` (colours from the brand tokens, contrast checked in `installer-config.py`), a Companion mark on the bootloader page, shorter descriptions. The stylesheet was rendered offscreen in Qt only. **Seen on ISO #5 [V]:** the Support link has no dark icon; progress bar, keyboard rows and package rows are visible; the bootloader page shows the Companion mark with the GRUB row highlighted; package descriptions are complete. **Not fixed:** combo-box popups and the partition-page selection show no highlight (KI-09) |
+| 7 | **GRUB menu of the installed system lists the VM's firmware leftovers** ("UEFI Firmware Settings", "UiApp", the install DVD, the NVMe, "EFI Internal Shell", a second `companion-os` entry) captured by `grub-mkconfig` | **Open, cosmetic [N].** Not looked into whether real hardware shows the same |
+| 8 | **Boot splash (Plymouth) shows the company lock-up** "COMPANION INTELLIGENCE", while the login screen, desktop, About page and `os-release` say "Companion OS" | **Open, wording [N]** (an owner decision whether the splash should carry the product name) |
+| 9 | **`ollama.service` is installed but disabled until the first-boot run enables it:** `ollama --version` prints two "no server" warnings in that window | **Open, by design for now [N];** `services-systemd.conf` deliberately leaves `ollama` and `tailscaled` to `provision.sh`, which configures them first |
+| 10 | **Calamares stopped at job 13 ("initialize pacman"): `Command bash /etc/calamares/scripts/create-pacman-keyring failed to finish in 30 seconds`**, on two of three install attempts of ISO #5 (08:07:42 and 08:24:55 PDT; the third reached job 47). The overlay uses the installer's own `shellprocess_initialize_pacman.conf`, whose command has no `timeout` key, so Calamares' default of 30 s applies; ISO #4 got through the same step. The cause of the failure is the missing `timeout` key (the step takes about 28 s under TCG, so it passes or fails by a margin of seconds); the log line is `Process "/bin/sh" timed out after 30000 ms` | **Fix in the working tree, [I], not yet run on a built ISO (KI-20).** Overlay copies of `shellprocess_initialize_pacman.conf`, `shellprocess_modify_mk_hook.conf` and `shellprocess_reset_mk_hook.conf` give every command an explicit `timeout`, and a new `shell-timeouts` guard (`installer/lib/ci-shellprocess.py`, a row in `installer/guards.list`) fails when any shellprocess command of the effective sequence has none. Test: `iso/tests/installer-launcher.sh` |
+| 11 | Non-fatal Calamares log lines on ISO #4: a sleep-inhibit error (no `PowerManagement.Inhibit` service on the live session), `chcon` not found (8 times), the GRUB pacman hook running `grub-mkconfig` in the chroot before `/boot/grub` exists, a mirror in DE refusing a connection and one answering 404 for two packages, 11 "Unit ... does not exist" lines from the stock `services-systemd` list (cups, vboxservice, vmtoolsd, firewalld, zfs-* ...) | Open, cosmetic [N]; all tolerated by the installer; `grubcfg` and `bootloader` later wrote a good `grub.cfg` (verified on the installed disk) |
+| 12 | Minor, guest logs only: `systemd-time-wait-sync.service` fails on the live medium (the VM has no synchronising clock; `is-system-running` is `degraded` there, `running` on the installed system); `setup-hotspot-start` logs "no Wi-Fi interface found" about every 10 minutes on a machine without Wi-Fi; the corepack/pnpm step prints a harmless Node `MODULE_NOT_FOUND` stack trace into the provisioning log; the live `/usr/local/bin` lists upstream CachyOS helper names (`choose-mirror`, `remove-nvidia`, ...) | Open, cosmetic [N] |
+
+Also seen: the session locks itself after about 13 idle minutes and the screen dims after about 5 (Plasma defaults); the stage-2 worry about `ly@tty2.service` was moot (the unit does not exist).
 
 ## Risk register
 
@@ -368,7 +420,7 @@ From the repo-reuse plan written before the build system existed, updated with w
 
 | # | Risk | Status |
 |---|---|---|
-| R1 | **Rolling-release drift.** Packages are current at build and again at install (`update_system: true`). Observed skew on 2026-10-15: `nvidia-utils` differed between `[cachyos]`, Arch and `cachyos-v3`; Plasma moved to 6.8.0 on the day. | Open. Mitigation in place: repository database hashes in `.build-info`. Not done: a canary rebuild, an Arch Linux Archive date. Keep ISOs short-lived. |
+| R1 | **Rolling-release drift.** Packages are current at build and again at install (`update_system: true`). Observed skew on 2026-10-15: `nvidia-utils` differed between `[cachyos]`, Arch and `cachyos-v3`; Plasma moved to 6.8.0 on the day. On 2026-10-18 it broke the installer itself ([incident F1/F2](#rolling-release-drift-incident-2026-10-18-f1-f2): a boost soname skew; and our launcher's keyring ordering). | Open. Mitigations in place: repository database hashes in `.build-info`; for the one known skew, `compat-libs.lock` plus the build-time installer gate (`gate-calamares.sh`) and the launcher's link check of a newer installer. **Evidence:** ISOs #4 and #5 started Calamares from the menu entry with no hand work [V]. Not done: a canary rebuild, an Arch Linux Archive date for the whole image, a check of every `[cachyos]` ELF. Keep ISOs short-lived. |
 | R2 | **Online installer dependency.** Needs fast, stable internet; re-fetches the installer, keyrings and mirror ranking; our overlay sits on whatever installer version is current. | Mitigated, not removed. Guards before the installer starts (`guards.list`), fail closed for package list and payload, neutral internet check, local package groups. No offline path. |
 | R3 | **Licensing and trademark.** Not legal advice: see `NOTICE`. No CachyOS artwork shipped; GPL source offer and NVIDIA userspace terms open. | Open; counsel and a written answer from CachyOS needed. |
 | R4 | **Secure Boot** unavailable for the live ISO and the Stick. | Open, by design for now. |
@@ -378,7 +430,7 @@ From the repo-reuse plan written before the build system existed, updated with w
 | R7b | **The shared setup portal API and Ollama are reachable on the LAN without a credential** once the portal's nginx has been started (it is not enabled at boot) and, for Ollama, after first boot. The cause is in `core/headless/payload` and `backends/arch/provision`, which every backend ships and this edition does not change. | Open; documented with a suggested fix in `backends/cachyos/installer/README.md`, "Known issue in the shared setup payload". Needs a human reviewer (steward skill: security-sensitive areas). |
 | R8 | **Upstream layout changes** (`grub.cfg` shape, hook names). | Mitigated: exact-context patches, guard (a), the pin, and the parity check in `verify-iso.sh`. |
 | R9 | **CachyOS repository trust in the live image**: upstream's live `pacman.conf` has `[cachyos] SigLevel = Optional TrustAll`. | Inherited, not changed. Replacing it with `Required` needs a test on the first `-Sy` of a live session. |
-| R10 | **Emulated build.** `archlinux` is amd64-only, so a Mac builds under Rosetta. | Proven for the demo. A proof build of the Companion ISO is still to be made; release builds belong on x86-64. |
+| R10 | **Emulated build.** `archlinux` is amd64-only, so a Mac builds under Rosetta. | Proven: five Companion ISOs were built that way (ISO #1 took about 37 minutes from the start of `build-iso.sh`, ISO #2 about 31, on a loaded host). Release builds belong on x86-64. |
 | Launcher | Upstream's `calamares-online.sh` re-installs the installer package every time and overwrites `/etc/calamares`. | Addressed: our launcher downloads the candidate package, checks it against `installer/guards.list`, installs it only if it passes (otherwise it keeps the ISO's installer) and then applies the overlay; `verify-iso.sh` checks the order (heuristic). |
 | Identity | `cachyos-hooks` rewrites `os-release` on every `filesystem` transaction. | Addressed: `zz-ci-os-os-release.hook`; verified on fixtures only. |
 | Arch stager | `backends/arch/headless-setup/install.sh` is not chroot-safe. | Addressed by `provision/stage-headless.sh`; `backends/arch/**` untouched. |
@@ -392,8 +444,7 @@ From the repo-reuse plan written before the build system existed, updated with w
 
 The third Companion OS ISO (`companion-os-plasma-2026.10.18-x86_64.iso`, built from the clean commit `6e7b0b5`) was booted under
 QEMU/OVMF and its live desktop reached; the installer could not be started from it. Two defects, both found by clicking "Install
-Companion OS", both of the ISO and not of the capture. F2 is risk R1 (rolling-release drift) happening three days after the first
-build; F1 is an ordering bug of ours that F2 would have hidden. The capture record (screenshots, logs) is not in the repository.
+Companion OS", both of the ISO and not of the capture. F2 is risk R1 (rolling-release drift), but the skew is older than every Companion OS ISO: the installer was built on 2026-08-13 and `boost-libs` 1.92 reached `[extra]` the same day (`compat-libs.lock`), two months before the first Companion OS ISO was built on 2026-10-16. Nothing exposed it until the installer was first launched on a booted ISO, which was ISO #3 on 2026-10-18 [I: ISOs #1 and #2 carried the same boost 1.92 and were never taken as far as the installer]; F1 is an ordering bug of ours that F2 would have hidden. The capture record (screenshots, logs) is not in the repository.
 
 #### F1: the launcher deleted the keyring before it could verify anything
 
@@ -496,8 +547,7 @@ the real stager fetched `boost-libs-1.91.0-2`, matched its sha256 and verified i
 `check-owned.sh` found no conflict among the 1006 packages the image installs, and stock `mkarchiso` accepted the profile with the shim first on PATH and stopped at the database sync. An offscreen start shows that Calamares starts and stays up; it does not drive its pages, and no Python job module is run.
 The gate and the proof ran under Rosetta, not on native x86-64. The keyring repair-in-place, clear-in-place and retry paths and the candidate link check are tested on stubs only (the mount point is modelled by stubs
 that answer EBUSY); the no-keyring path was also run against the real pacman. Only the installer is gated: other packages of `[cachyos]` built against older libraries would fail silently at their first use (a follow-up is to run `ldd -r` over every ELF of the `[cachyos]` packages in the
-image and warn). The compat libraries are not carried to the installed system (it has no Calamares). The endpoint table above still describes the launcher as removing the keyring (the row on `archlinux-keyring`) and
-lacks `archive.archlinux.org` (a build-time host, used only by `stage-compat-libs.sh`); both are for the docs phase. An "Install Companion OS" icon on the live desktop and panel (the capture found the entry only in the
+image and warn). The compat libraries are not carried to the installed system (it has no Calamares). The endpoint table above covers both: its `archlinux-keyring` row describes the launcher's repair-in-place and `archive.archlinux.org` is listed as a build-time host. An "Install Companion OS" icon on the live desktop and panel (the capture found the entry only in the
 application menu) was not added: decision D6 says no desktop shortcut, and pinning it to the panel means patching the Plasma layout of `cachyos-kde-settings`; it is a follow-up.
 
 #### Follow-up fixes to F1 and F2 (the verifier's non-blocking findings, same day)
@@ -520,11 +570,11 @@ lock with an image that has none. Not verified: no ISO was rebuilt or booted wit
 
 ## What is not done
 
-* A Companion OS ISO has been built from this overlay and inspected statically (see [Test status](#test-status)); it has not been
-  booted or installed. The installed path (Calamares, payload staging, first boot, the identity after an update) has never run.
-* No boot of a Companion OS ISO. Under QEMU/TCG the research demo reached its desktop in direct-kernel mode with the VM relief,
-  and BIOS and UEFI reached a login prompt only (see [Booting under QEMU](#booting-under-qemu)). Calamares, the installed path and
-  any claim about real hardware need a KVM host or real hardware.
+* The whole path (live boot, Calamares online install, installed boot, first-boot provisioning) ran twice, on ISO #4 and ISO #5 under QEMU/TCG; the fixes ISO #4 led to (`552063f`) are seen working in ISO #5
+  ([Test status](#test-status)). The identity after a `pacman -Syu` on an installed system, the setup portal's
+  hotspot, and anything on KVM, BIOS (syslinux) mode, Secure Boot or real hardware have not been observed.
+* Open defects and cosmetic items of the full run: [the findings table](#what-the-full-run-of-iso-4-found-and-where-each-item-stands): the disk-space guard for the model pulls (item 4), the 30-second Calamares timeout of
+  `create-pacman-keyring` (item 10; fix in the working tree, [I]), the GRUB menu clutter (item 7), the splash wording (item 8), `ollama.service` enablement (item 9) and the remaining Calamares styling to confirm (item 6).
 * `verify-mini-iso.sh` has not been re-run since the BIOS Memtest path (overlay patch 0002) and the installer staging
   (`20-build.sh` runs `installer/render-installer-assets.sh`) were fixed, and no log of its earlier "182 passed, 1 failed" run is
   kept. The first full build contains both fixes.
@@ -539,9 +589,10 @@ lock with an image that has none. Not verified: no ISO was rebuilt or booted wit
   the two pages do not exist yet.
 * The Companion Stick has no archiso boot profile; Secure Boot and `sbctl` are not wired.
 * The KDE mixin `backends/_mixins/kde-plasma/65-kde-theme.sh` still targets Plasma 5 tools (`kwriteconfig5`, `qdbus`); this edition
-  does not use it (the skel hook writes the files), and Bazzite's stale comment about it is not updated.
+  does not use it (the skel hook writes the files).
 * The package set is not reproducible (no Arch Linux Archive snapshot) and there is no scheduled canary rebuild.
 * A source offer for the GPL content of the ISO, the licence of the repository as a whole, the header of `show.qml` against
-  upstream's licence, and a written answer from CachyOS about the use of their name (`NOTICE` sections 2 and 6).
+  upstream's licence, and a written answer from CachyOS about the use of their name (`NOTICE` sections 2 and 6): whether "based on CachyOS" may appear in public
+  materials (decision D1) is open. Public hosting of the ISO and the holder of its signing key are not decided either; the build writes a `.sha256` and no signature.
 * This edition touches files outside `backends/cachyos/`: `docs/architecture/multi-distro-design.md`, `companion-stick.md`,
   `core/README.md`, `core/lib/check-repo.sh`, the root `README.md` and `CLAUDE.md`, and the steward skill's payload-dependency list.

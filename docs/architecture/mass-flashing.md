@@ -2,7 +2,7 @@
 
 > **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
-Status: investigation, 2026-10-13. This is a design and a runbook; **no batch tooling exists yet** and no stick was written, formatted, remounted read-write or partitioned while it was researched. Everything marked **UNVERIFIED** was not observed or could not be confirmed from a primary source.
+Status: investigation, 2026-10-13; re-checked against the code and the Ubuntu 26.04 archive on 2026-10-18 (what changed is in section 12). This is a design and a runbook; **no batch tooling exists yet** and no stick was written, formatted, remounted read-write or partitioned while it was researched. Everything marked **UNVERIFIED** was not observed or could not be confirmed from a primary source.
 
 Scope: flashing nine 123,942,731,776-byte (123.9 GB, 115.4 GiB) "USB DISK 3.0" sticks (USB 13fe:6700) with `ci-stick`, and what it takes to do that repeatedly. The tenth attached disk, the 503 GB NTFS stick `CI_SETUP` (disk23), is out of scope and must never be a target.
 
@@ -10,7 +10,7 @@ Scope: flashing nine 123,942,731,776-byte (123.9 GB, 115.4 GiB) "USB DISK 3.0" s
 
 ## 1. Summary
 
-1. **Today `ci-stick flash --device` writes one stick per invocation and only runs on Linux.** The Mac cannot flash these sticks with `ci-stick` at all (`stick/crates/ci-stick/src/target.rs:488-493`, `target.rs:575-578`, `docs/architecture/companion-stick.md:291-293`).
+1. **Today `ci-stick flash --device` writes one stick per invocation and only runs on Linux.** The Mac cannot flash these sticks with `ci-stick` at all (`stick/crates/ci-stick/src/target.rs:488-493`, `target.rs:575-578`, [companion-stick.md](companion-stick.md), Known limitations: "Device writes are Linux-only").
 2. **Running several `ci-stick` processes in parallel is structurally possible**, because each process owns one O_EXCL-opened device and builds its filesystems in its own temp dir. It has never been tried, and several things will hurt at scale: every process re-hashes the whole bundle (`flash.rs:295-300`), there is no timing or throughput output, and no per-stick identity beyond what the tools generate.
 3. **Write volume per stick is small today** (the ISO plus roughly 0.1 GiB of filesystem metadata) because `CI-SHARED`, `CI-CACHE` and `CI-BOOT-B` are not populated. It becomes large (about 79 GiB) as soon as the 73 GiB `CI-CACHE` is filled with models, which is not implemented yet (slice 4).
 4. **The bottleneck is the sticks' NAND, not USB**, except on this Mac's current hub tree where the four USB 2 sticks share a single 480 Mb/s link (about 9.5 MB/s each if all four write at once).
@@ -21,13 +21,13 @@ Scope: flashing nine 123,942,731,776-byte (123.9 GB, 115.4 GiB) "USB DISK 3.0" s
 
 ## 2. How `ci-stick flash` works today
 
-All citations are to this worktree (`branch clau/companion-os-preinstall-rebrand`, HEAD `7734ff5`). The stick code matches the 2026-10-12 review (the 2026-10-12 flash review, section 2).
+All `file:line` citations were made on branch `clau/companion-os-preinstall-rebrand`, HEAD `7734ff5`, and match the 2026-10-12 review (the 2026-10-12 flash review, section 2). Re-checked on 2026-10-18 (branch `liam/companion-os-single-click-install`): `flash.rs`, `target.rs`, `devices.rs`, `sparse.rs` and `gpt.rs` are byte-identical to `7734ff5` (`git diff --stat 7734ff5 HEAD` lists only `main.rs`), so their citations hold. `main.rs` gained the `models` subcommands (+16 lines), so its citations below were re-pinned to the current lines.
 
 ### 2.1 Sequence
 
 | Step | What happens | Evidence |
 |---|---|---|
-| Request check | `--allow-unsigned`, `--slot-b-from` and unsigned bootloader are refused with `--device`; `--confirm`/`--expect-serial` are refused with `--image` | `flash.rs:137-161`, `main.rs:363-380` |
+| Request check | `--allow-unsigned`, `--slot-b-from` and unsigned bootloader are refused with `--device`; `--confirm`/`--expect-serial` are refused with `--image` | `flash.rs:137-161`, `main.rs:390-395` |
 | Verify | Full verification of the whole bundle (`HashMode::Full`): signature first, then size + SHA-256 of every artifact. A failure exits 1 and writes nothing | `flash.rs:295-303`, `verify.rs:42-45` |
 | Re-read | `plan()` then re-reads `bundle.json` **without** a signature check; every digest used later comes from this second read (review finding F-1, high) | `flash.rs:304-305` |
 | Device facts | Resolve the path to a real node, read size/model/serial/sector size from sysfs and `lsblk`, `/proc/self/mountinfo`, `/proc/swaps` | `target.rs:305-319`, `383-431`, `487-514`, `603-619` |
@@ -38,7 +38,7 @@ All citations are to this worktree (`branch clau/companion-os-preinstall-rebrand
 | Filesystems | Copy only each image's **data extents** (SEEK_DATA/SEEK_HOLE). For devices every data byte is written, even zeros (`known_zero=false`) | `flash.rs:954-966`, `sparse.rs:95-128` |
 | Slots | Stream the boot ISO raw into `CI-BOOT-A`, hashing as it goes; `CI-BOOT-B` gets only a zeroed first MiB (devices) | `flash.rs:977-994` |
 | Read back | fsync, `posix_fadvise(DONTNEED)`, re-read GPT (must be byte-identical), SHA-256 of slot A against the manifest, header-zero check of slot B, byte compare of every filesystem data extent | `flash.rs:996-1050`, `target.rs:581-592` |
-| Success | "Flashed … (N written)" is printed only after read-back; any error exits non-zero | `main.rs:417-447` |
+| Success | "Flashed … (N written)" is printed only after read-back; any error exits non-zero | `main.rs:433-452` |
 
 Partition plan for these sticks (`ci-stick layout plan --size 123942731776`):
 
@@ -57,7 +57,7 @@ The usable size is 123,940,634,624 bytes. The layout leaves 1 MiB at each end fo
 
 - **One device per invocation.** `--device` takes one path (`main.rs:77-100`). There is no batch mode, no queue, and no inter-process locking beyond the kernel's O_EXCL.
 - **Linux only.** `LiveFacts::gather` bails on any other OS with "writing to devices on macos is not supported yet" (`target.rs:488-493`), and `open_exclusive` is `bail!` off Linux (`target.rs:575-578`).
-- **No timing.** `--json` disables progress (`main.rs:393-397`); `WriteReport` holds only `bytes_written` and a list of check strings (`flash.rs:235-239`); `step()` lines on stderr carry no timestamps (`flash.rs:676-678`). Throughput per stick cannot be recovered from `ci-stick` output.
+- **No timing.** `--json` disables progress (`main.rs:409-413`); `WriteReport` holds only `bytes_written` and a list of check strings (`flash.rs:235-239`); `step()` lines on stderr carry no timestamps (`flash.rs:676-678`). Throughput per stick cannot be recovered from `ci-stick` output.
 - **Progress is silent without a TTY.** `Progress::auto` draws only on a terminal (`progress.rs:17-23`), and the sparse filesystem copy passes a no-op callback (`flash.rs:958`).
 - **Bundle hashing is repeated per process.** `verify::verify(..., HashMode::Full)` is hard-coded. Nine parallel flashes read and hash the entire bundle nine times, including in `--dry-run`. For today's ~6 GB bundle that is cheap. For a bundle carrying 73 GiB of models it is a real cost (and a reason to add a verify-once path, section 9).
 - **No per-stick state is written.** The only mutable ESP content is `ci-stick/grubenv` with `active_slot=A` (+ optional `extra_cmdline`). No stick id, serial, flash time, host or key fingerprint is recorded on the stick (`flash.rs:418-423`, `grubenv.rs`).
@@ -181,7 +181,7 @@ There is no independent test of `13fe:6700` I could find. Public evidence for th
 
 | Option | Verdict | Why |
 |---|---|---|
-| **Bare-metal Linux station** (x86_64 mini-PC or small server, Ubuntu 24.04, headless) | **Recommended** | `ci-stick flash --device` is written for it and CI-tested only in QEMU. Direct xHCI, honest `sysfs`/udev serials, O_EXCL works as designed, no virtualization layer between `ci-stick` and the sticks. Needs sgdisk, mkfs.vfat/exfat/ext4, mtools (`tools.rs:12-19`) |
+| **Bare-metal Linux station** (x86_64 mini-PC or small server, Ubuntu 26.04, headless) | **Recommended** | `ci-stick flash --device` is written for it and CI-tested only in QEMU. Direct xHCI, honest `sysfs`/udev serials, O_EXCL works as designed, no virtualization layer between `ci-stick` and the sticks. Needs sgdisk, mkfs.vfat/exfat/ext4, mtools (`tools.rs:12-19`) |
 | **Raspberry Pi 5 + powered hubs** | Good, cheaper, **UNVERIFIED for ci-stick** | Two USB 3.0 ports at 5 Gb/s simultaneously and 5 V / 5 A supply (<https://www.raspberrypi.com/products/raspberry-pi-5/>) give two independent 5 Gb/s roots. `ci-stick` has not been built or run on aarch64 Linux by anyone here (UNVERIFIED); the flashed content is still x86_64 |
 | **Cloud-less dedicated station** | Same as the first row | There is no reason for network connectivity during flashing beyond fetching the bundle once |
 | **Mac + Linux VM with USB capture** | Experimental only | See below |
@@ -230,8 +230,8 @@ There is no independent test of `13fe:6700` I could find. Public evidence for th
 
 | Item | Bytes written | Evidence |
 |---|---|---|
-| Boot ISO into CI-BOOT-A | ISO size (slot cap 11 GiB). The Companion OS ISO is about 7.9 GB with every optional tool baked (docs/architecture/tier-b-tools.md, section 6); the 11 GiB slot holds it | `flash.rs:977` |
-| CI-PERSIST ext4 data extents | **68.5 MiB** (19 extents, journal 64 MiB). Measured on this Mac with e2fsprogs 1.47.4, `-t ext4 -F -q -L writable -E nodiscard,lazy_itable_init=1`, on a 13,345,226,752-byte scratch file, using SEEK_DATA. Ubuntu 24.04's e2fsprogs and `mke2fs.conf` may differ slightly | measured in scratch, file deleted |
+| Boot ISO into CI-BOOT-A | ISO size (slot cap 11 GiB). The Companion OS ISO was about 7.9 GB with every optional tool baked on the retired 24.04.5 base (docs/architecture/tier-b-tools.md, section 6); the stock Ubuntu 26.04.1 Desktop ISO is 6,482,409,472 bytes; one built 26.04.1 Companion OS image measured 7,076,577,280 bytes (`verify-iso.sh` section 9). The 11 GiB slot holds any of them | `flash.rs:977` |
+| CI-PERSIST ext4 data extents | **68.5 MiB** (19 extents, journal 64 MiB). Measured on this Mac with e2fsprogs 1.47.4, `-t ext4 -F -q -L writable -E nodiscard,lazy_itable_init=1`, on a 13,345,226,752-byte scratch file, using SEEK_DATA. Ubuntu 26.04's e2fsprogs (1.47.2) and `mke2fs.conf` may differ slightly | measured in scratch, file deleted |
 | CI-EFI FAT32, CI-SHARED / CI-CACHE exFAT metadata | Estimated a few MiB each plus about 8-10 MiB of bootloaders in the ESP. **Not measured**: no dosfstools/exfatprogs on this Mac. exFAT default cluster is 128 KiB above 32 GiB per the mkfs.exfat man page | UNVERIFIED |
 | CI-BOOT-B | 1 MiB of zeros | `flash.rs:988-992` |
 | Skipped (holes, never touched) | slot A remainder, slot B, SHARED, CACHE, most of PERSIST, ESP free space | `sparse.rs` |
@@ -301,7 +301,7 @@ Read-back adds roughly the same volume at the stick's read speed. At 100 MB/s th
 | Time for 9 sticks in parallel at 30 MB/s | 3m36s | 1h08m |
 | Fits the future model cache | No (slice 4 required) | Yes: build the cache once, copy it |
 
-**Recommendation:** per-stick flash for CI-EFI / CI-BOOT-A / CI-PERSIST, and later a **golden CI-CACHE exFAT image** copied into partition 5 by `ci-stick` (new `--cache-image`, section 9) with `tune.exfat -I`/`-U` applied per stick, because exFAT cannot be populated without root or mounting (`companion-stick.md:289-291`).
+**Recommendation:** per-stick flash for CI-EFI / CI-BOOT-A / CI-PERSIST, and later a **golden CI-CACHE exFAT image** copied into partition 5 by `ci-stick` (new `--cache-image`, section 9) with `tune.exfat -I`/`-U` applied per stick, because exFAT cannot be populated without root or mounting ([companion-stick.md](companion-stick.md), Known limitations).
 
 **What must be unique per stick:** disk GUID; the six partition GUIDs; ESP FAT volume ID; exFAT serial and GUID for CI-SHARED and CI-CACHE; ext4 UUID. **Recommended additions:** a per-stick identity record (USB serial, bundle id and version, key fingerprint, UTC time, flash host) written to the ESP (for example `ci-stick/stick.json`) as the **last** step, and the same record appended to a station log keyed by USB serial.
 
@@ -360,7 +360,7 @@ Abort or flag a stick whose average MB/s is below a floor (suggest less than hal
 
 ### 8.9 Runbook (destructive steps marked)
 
-1. **Prepare the station** (Ubuntu 24.04): `sudo apt-get install gdisk dosfstools exfatprogs e2fsprogs mtools f3 uhubctl usbutils jq` (package names for f3 and uhubctl UNVERIFIED), build `ci-stick` from `stick/` (`cargo build --release --locked`), configure the udev ignore rule and dirty-page limits.
+1. **Prepare the station** (Ubuntu 26.04, the supported release; the 24.04 station of the first draft is retired): `sudo apt-get install gdisk dosfstools exfatprogs e2fsprogs mtools f3 uhubctl usbutils jq` (every one of these names has a candidate in the resolute archive, checked 2026-10-18 in an `ubuntu:26.04` container: gdisk 1.0.10-2build1, dosfstools 4.2-1.2build1, exfatprogs 1.3.2-1, e2fsprogs 1.47.2-3ubuntu4, mtools 4.0.49-1, f3 9.0-1build1, uhubctl 2.6.0-3, usbutils 1:019-1, jq 1.8.1-4ubuntu2; only `apt-cache policy` was run, nothing was installed), build `ci-stick` from `stick/` (`cargo build --release --locked`), configure the udev ignore rule and dirty-page limits.
 2. **Stage and sign the bundle once** on a trusted machine: `stick/scripts/fetch-signed-boot.sh`, `ci-stick lock`, release signing. Copy the bundle to the station's local disk (not a network share; review F-1 TOCTOU).
 3. **Verify once:** `ci-stick verify <bundle> --pubkey <key>`.
 4. **Inventory and allow-list** (section 10, Linux half). Compare to the nine serials in 3.2; reject any extra device.
@@ -455,7 +455,23 @@ done < sticks.tsv
 
 ---
 
-## 12. Sources
+## 12. What changed on 2026-10-18
+
+| Topic | Then (2026-10-13) | Now | Evidence |
+|---|---|---|---|
+| Station OS | Ubuntu 24.04 | Ubuntu 26.04 (24.04 is retired). Tool packages exist in resolute | section 8.9 step 1 |
+| What a station flashes | a 24.04-based Companion OS image | a 26.04.1-based image; the Stick's Secure Boot chain was re-derived from the resolute archive (shim 15.8 `1.59+15.8-0ubuntu2`, GRUB 2.14 `1.215+2.14-2ubuntu1`) and checked with the A/B/C QEMU run (8 checks, PASS) | [companion-stick.md](companion-stick.md#secure-boot) |
+| ISO size | about 7.9 GB (24.04.5) | stock 26.04.1 ISO 6,482,409,472 bytes; one built image 7,076,577,280 bytes | [companion-stick.md](companion-stick.md#open-items), item S2 |
+| `flash.rs`, `target.rs`, `devices.rs`, `sparse.rs`, `gpt.rs` | as cited | unchanged | `git diff --stat 7734ff5 HEAD` |
+| Batch tooling, intake test, first real `flash --device` | none | **still none**; nothing was written to any of the nine sticks | [test-and-mass-flash-plan.md](test-and-mass-flash-plan.md) |
+| Model population (scenario S2 of section 7.1) | `ci-stick models sync`, not built | `ci-stick models fetch` exists for Ollama references (tested against local listeners); the golden-cache route of 8.2 is still the recommendation, and `fetch` has not been pointed at an exFAT volume | [models-tooling.md](models-tooling.md) |
+
+The 8 GiB slot of a 64 GB stick matters to a built 26.04 ISO that grows; it does not
+affect these 123.9 GB sticks (11 GiB slots), only a later batch of smaller ones.
+
+---
+
+## 13. Sources
 
 Repo: `stick/crates/ci-stick/src/{flash,target,devices,sparse,verify,layout,gpt,tools,main,progress}.rs`, `stick/tests/qemu/run.sh`, `stick/scripts/fetch-signed-boot.sh`, `docs/architecture/companion-stick.md`. The 2026-10-12 flash review (finding numbers `F-n` below) was delivered with that review and is not stored in the repo.
 

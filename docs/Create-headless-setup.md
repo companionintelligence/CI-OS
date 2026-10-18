@@ -1,3 +1,21 @@
+> **This file is the original task prompt for the headless setup package, not documentation.**
+> It is the specification an LLM was given to write the first version, kept as history. It does not describe what ships.
+> For the shipped system read [`docs/architecture/headless-setup.md`](architecture/headless-setup.md) (how it behaves, a 51-defect
+> audit, the redesign and the tested library) and the README section "First boot and hotspot setup". For how to use it as an owner,
+> see [the installation guide](guides/installation-guide.md#connecting-a-headless-machine-the-setup-hotspot).
+> Where the prompt and the code disagree, the code is right. Differences found by reading the code on 2026-10-18:
+>
+> | The prompt below says | The code does |
+> |---|---|
+> | "No files go into /usr/local" | the payload installs seven scripts under `/usr/local/bin` (`ci-os-hub-start.sh`, `ci-os-post-validation.sh`, `setup-device-hotspot-start.sh`, `setup-device-prescan.py`, `setup-hotspot-reset.sh`, `setup-network-monitor.sh`, `setup-wifi-recover`) |
+> | hotspot units are gated by `ConditionPathExists=!/var/lib/setup-device/setup-complete` | the units carry no such gate; the hotspot is started by the network monitor when connectivity is lost, and the stop-gap no longer enables `hostapd-setup` and `dnsmasq-setup` at boot |
+> | pairing code `XXX-XXX`, root-only, expires after 24 hours, validated | six characters (A-Z, 0-9) with no dash, never expires (`setup_service.py:997-1006`, `1085-1086`); `validate_pairing_code()` has no callers, so the local code authenticates nothing (audit item S1) |
+> | SSID `Setup-Device-XXXX` | `Companion-Setup-XXXX` with a random suffix drawn at every boot (`setup-device-hotspot-start.sh:495-499`) |
+> | "No JS reliance for submission" | the portal is JavaScript and fetches four `/api/` endpoints |
+> | "Fail-closed" with a self-protecting design | the API had no authentication and the hotspot passphrase is a constant shared by every unit (audit items S1 and S2, open: KI-02 in [known-issues-and-decisions.md](architecture/known-issues-and-decisions.md)) |
+>
+> The prompt follows unchanged.
+
 Apt-Installed, Daemonized Headless Setup System
 Role
 

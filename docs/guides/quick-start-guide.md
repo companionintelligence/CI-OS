@@ -1,463 +1,107 @@
-# CI-OS Quick Start Guide
+# Companion OS quick start
 
-Get up and running with CI-OS in minutes.
+Private & Confidential. Property of Lifescope Inc. Do not distribute.
 
-© Companion Intelligence — Lifescope Inc
+The shortest path from an ISO to a working machine. Every step links to the full text in the [installation guide](installation-guide.md). Supported targets: Companion OS on Ubuntu 26.04.1 LTS and Companion OS on CachyOS (the "Plasma" edition). Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from the tag `pre-retire-multidistro-2026-10-17`).
 
----
+Evidence tags: **[V]** verified in a run, **[I]** implemented and unit-tested, not proven end to end. Both editions were run under QEMU only; the Plasma install is verified, the Ubuntu install is pending (see [test evidence](../architecture/test-evidence.md)).
 
-## Installation (5 Steps)
+## Pick an edition
 
-### 1. Download
+| | Ubuntu 26.04.1 | Plasma (CachyOS-based) |
+|---|---|---|
+| Secure Boot | on is fine | turn it **off** |
+| Install network | not needed to copy; needed on first boot | **required** during the install |
+| Installer | Canonical's, plus a one-click automatic install | Calamares |
+| Boots from the Companion Stick | yes | no |
 
-Get CI-OS from: https://github.com/companionintelligence/CI-OS/releases
+## Install in five steps
 
-Download:
-- `companion-os-1.0-amd64.iso`
-- `SHA256SUMS`
+No Companion OS ISO has been published yet (KI-12). Build one with the [ISO build guide](iso-build-guide.md) or get one with its checksum file.
 
-### 2. Verify
+**1. Verify.**
 
 ```bash
-sha256sum -c SHA256SUMS
+sha256sum -c SHA256SUMS            # macOS: shasum -a 256 -c SHA256SUMS
+# Plasma: sha256sum -c companion-os-plasma-<YYYY.MM.DD>-x86_64.iso.sha256
 ```
 
-Should show: `companion-os-1.0-amd64.iso: OK`
+**2. Write the USB stick** (16 GB or larger; this erases it):
 
-### 3. Create Bootable USB
-
-**Linux/macOS:**
 ```bash
-sudo dd if=companion-os-1.0-amd64.iso of=/dev/sdX bs=4M status=progress
-# Replace /dev/sdX with your USB device
+sudo dd if=companion-os-1.0-amd64.iso of=/dev/sdX bs=4M status=progress conv=fsync    # Linux
+sudo dd if=companion-os-1.0-amd64.iso of=/dev/rdiskN bs=4m                            # macOS, after diskutil unmountDisk
 ```
 
-**Windows:** Use [Rufus](https://rufus.ie) or [Etcher](https://www.balena.io/etcher)
+On Windows use Rufus (DD Image mode) or balenaEtcher (not tested here).
 
-### 4. Boot and Install
+**3. Boot the stick in UEFI mode** from the firmware boot menu (F12, F2, F10, Esc or Del).
 
-1. Boot from USB
-2. Select "Install CI-OS"
-3. Follow installer (choose language, keyboard, disk)
-4. Create user account
-5. Wait for installation (15-25 min)
-6. Restart
+**4. Install.**
 
-### 5. First Boot Setup
+- Ubuntu edition: choose **Install Companion OS (automatic)**. The dialog names the disk and what is on it and shows a one-time password for the user `companion`. **Erase the disk and install** is the only action that writes anything; Enter never confirms. The machine turns itself off at the end: remove the stick, turn it on. Or choose **Try or Install Companion OS** for the interactive installer. [I]
+- Plasma edition: choose **Companion OS (Plasma)**, connect to the internet, open the application menu and start **Install Companion OS**, then follow Calamares: choose **Erase disk**, create your user, **Install**. It took 22 to 23 minutes on an emulated machine. [V]
+
+**5. First boot.** Sign in. With a network the machine provisions itself in the background (Docker, Ollama, the tools and about 18.8 GB of models; 16 to 22 minutes on a fast link). Check:
 
 ```bash
-# Update system
-sudo apt update && sudo apt upgrade -y
-
-# Check CI-OS info
-ci-os-info
-
-# Install AMD ROCm 7.2.4 (Strix Halo / gfx1151 uses --no-dkms)
-sudo ci-os-install-rocm
+ls /var/lib/ci-os/.first-boot-setup-done       # present when it has succeeded
+ollama list                                    # the models
 ```
 
-**Done!** You're running Companion Ubuntu (CI-OS provisioning on Ubuntu).
+Allow **64 GB or more** of disk: the system takes about 8 GiB and the default models about 18.8 GB, and nothing checks free space first (KI-01).
 
----
+## What you get
 
-## Key Features
+| | |
+|---|---|
+| Identity | Companion OS, the Companion Intelligence brand look |
+| Docker | Docker with Compose and Buildx; the first user is in the `docker` group |
+| Local AI | Ollama with `nomic-embed-text`, `gemma3:1b` and (on supported hardware, and on the Plasma edition) `qwen3.6:27b` |
+| Setup portal | A hotspot named `Companion-Setup-XXXX` that appears when the machine has no network, for onboarding a headless box |
+| Ubuntu edition extras | Tailscale, cloudflared and the GitHub CLI pre-installed; ROCm helper for Strix Halo-class machines; Strix Halo memory boot parameters |
+| Removed (Ubuntu edition) | `ubuntu-report`, `popularity-contest`, `apport`, `whoopsie`; metrics hosts blocked in `/etc/hosts`; the Snap Store |
 
-### What's Included
-
-✅ **Based on Ubuntu 24.04 LTS** - Solid, stable foundation  
-✅ **No Telemetry** - Privacy-first, no tracking  
-✅ **AMD GPU Support** - ROCm 7.2.4 ready (Strix Halo: inbox amdgpu / `--no-dkms`)  
-✅ **Developer Friendly** - Compatible with Docker, Node.js, VS Code, Ollama (install post-install)  
-✅ **Custom Branding** - Dark green CI theme  
-✅ **Secure Boot Compatible** - Works with modern systems
-
-### What's Removed
-
-❌ Ubuntu telemetry services  
-❌ Snap Store (use apt, flatpak, or snap CLI)  
-❌ Default games and bloatware  
-❌ Ads and tracking
-
----
-
-## Common Commands
-
-### System Info
+## Everyday commands
 
 ```bash
-# CI-OS version and GPU info
-ci-os-info
-
-# Detailed system info
-neofetch   # or: screenfetch
+cat /etc/os-release                     # which edition and version
+sudo ci-os-setup                        # run the first-boot setup again (both editions)
+ci-os-info                              # Ubuntu edition: version, kernel, GPU and ROCm status, groups
+sudo ci-os-install-rocm                 # Ubuntu edition, Strix Halo-class machines only
+sudo apt update && sudo apt upgrade     # Ubuntu edition updates
+sudo pacman -Syu                        # Plasma edition updates (rolling release)
 ```
 
-### Updates
+Logs: `/var/log/ci-os-first-boot-setup.log` and `sudo journalctl -u ci-os-first-boot-setup`.
+
+## Provision an existing machine
+
+An Ubuntu **26.04** machine you already have can be converted without the ISO. From a checkout of the repository:
 
 ```bash
-# Update package lists
-sudo apt update
-
-# Upgrade packages
-sudo apt upgrade
-
-# Clean up
-sudo apt autoremove
-```
-
-### AMD GPU
-
-```bash
-# Install ROCm 7.2.4 (Strix Halo / Ryzen AI Max: --no-dkms inbox driver)
-sudo ci-os-install-rocm
-
-# Check GPU
-lspci | grep -i vga
-
-# ROCm info (after install) — expect gfx1151 on Strix Halo
-rocminfo
-```
-
-### Package Management
-
-```bash
-# Install from apt
-sudo apt install package-name
-
-# Search for packages
-apt search keyword
-
-# Install snap
-sudo snap install package-name
-
-# Install flatpak
-flatpak install flathub com.example.App
-```
-
----
-
-## Quick Troubleshooting
-
-### Display Issues
-
-```bash
-# Install proprietary GPU drivers
-sudo ubuntu-drivers autoinstall
-sudo reboot
-```
-
-### WiFi Not Working
-
-```bash
-# Install firmware
-sudo apt install linux-firmware
-sudo reboot
-```
-
-### System Slow
-
-```bash
-# Check what's running
-htop   # Install with: sudo apt install htop
-
-# Check disk space
-df -h
-```
-
-### AMD GPU Not Working
-
-```bash
-# Check if driver loaded
-lsmod | grep amdgpu
-
-# Load driver
-sudo modprobe amdgpu
-
-# Install ROCm
-sudo ci-os-install-rocm
-```
-
----
-
-## Development Setup
-
-### Quick Dev Stack
-
-```bash
-# Run full setup script (from the repository root)
+# core and hardware tiers by default; add "extended" for VS Code, Chromium, Homebrew and the Launcher
 sudo ./backends/ubuntu/provision/provision.sh --tier=core,extended,hardware
+# or the one-command version with the headless setup package and the desktop branding
+sudo ./backends/ubuntu/provision/bootstrap-ci-os.sh --yes
 ```
 
-This installs (see `core/manifest/ecosystem.yaml` for the exact, current list):
-- Docker & Docker Compose
-- Node.js (via asdf)
-- Ollama (local AI, + default models)
-- GitHub CLI
-- VS Code, Chromium, Homebrew, Companion Launcher (`--tier=extended`)
-- CI Hub Service (the Docker backend, gated on registry credentials)
-- ROCm / LACT on AMD hardware (`--tier=hardware`, auto-detected)
+`provision.sh` installs what `core/manifest/ecosystem.yaml` lists (Docker and Compose, Node.js through asdf, Ollama and its models, the GitHub CLI, the CI-Hub service when registry credentials and pairing exist, ROCm and LACT on supported AMD hardware). It is idempotent, and on any other Ubuntu release the ROCm step stops with an error and installs nothing.
 
-Bun and PostgreSQL are not installed by this script — Bun isn't required by
-anything in this repo, and CI-Server (which would use PostgreSQL) lives in its
-own repo, not here.
+## Connect a headless machine
 
-### Manual Installs
+When a machine has no connectivity it starts a hotspot `Companion-Setup-XXXX` (random suffix per boot). Join it from a phone, open `http://192.168.99.1`, choose your Wi-Fi network and submit. The portal has **no real authentication yet**; do this on a network you trust (KI-02). Details and the hotspot passphrase: [installation guide](installation-guide.md#connecting-a-headless-machine-the-setup-hotspot).
 
-**Docker:**
-```bash
-sudo apt install docker.io
-sudo usermod -aG docker $USER
-# Log out and back in
-```
+## If something goes wrong
 
-**Node.js:**
-```bash
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
-source ~/.bashrc
-nvm install --lts
-```
+| Symptom | First thing to try |
+|---|---|
+| Plasma install fails at about 2 percent with "failed to finish in 30 seconds" | Close and start **Install Companion OS** again (known defect KI-20: a 30 second default on the keyring step; a fix is in the working tree [I], not in any ISO built so far) |
+| Plasma install: "The package signing keys ... could not be set up or verified" | Get online and retry; if it persists the ISO is too old, use a newer one |
+| Ubuntu one-click: "No internal disk of at least 25 GB was found." | Use the normal installer, or a bigger internal disk |
+| First-boot setup says "Network not available" | It retries by itself every 15 minutes; or `sudo ci-os-setup` once online |
+| Disk full after the model pulls | Free space, then `sudo ci-os-setup` to resume (a disk under 64 GB is too small for the default models) |
 
-**VS Code:**
-```bash
-sudo snap install code --classic
-```
+More in the [installation guide](installation-guide.md#troubleshooting). Report problems at https://github.com/companionintelligence/CI-OS/issues with the ISO file name and sha256, the edition and the output of `cat /etc/os-release` and `sudo journalctl -b --no-pager | tail -200`.
 
----
-
-## Keyboard Shortcuts
-
-### System
-
-- `Ctrl + Alt + T` - Open Terminal
-- `Super` (Windows key) - Activities Overview
-- `Super + L` - Lock Screen
-- `Alt + F2` - Run Command
-- `Super + A` - Show Applications
-- `Alt + Tab` - Switch Windows
-- `Super + Arrow Keys` - Tile Windows
-
-### Terminal
-
-- `Ctrl + Shift + T` - New Tab
-- `Ctrl + Shift + W` - Close Tab
-- `Ctrl + Shift + C` - Copy
-- `Ctrl + Shift + V` - Paste
-- `Ctrl + L` - Clear Screen
-- `Ctrl + C` - Cancel Command
-
----
-
-## Customization
-
-### Wallpaper
-
-System Settings → Appearance → Background
-
-### Themes
-
-```bash
-sudo apt install gnome-tweaks
-```
-
-Launch "Tweaks" for advanced customization.
-
-### Extensions
-
-Visit: https://extensions.gnome.org
-
-Recommended:
-- Dash to Dock
-- User Themes
-- Caffeine
-
----
-
-## System Requirements
-
-### Minimum
-
-- **CPU**: 64-bit x86
-- **RAM**: 4GB
-- **Storage**: 25GB
-- **Display**: 1024x768
-
-### Recommended (for AI)
-
-- **CPU**: AMD Ryzen 5 5600+
-- **RAM**: 16GB+
-- **Storage**: 100GB SSD
-- **GPU**: AMD Radeon RX 5000+
-
----
-
-## Getting Help
-
-**Documentation**: https://github.com/companionintelligence/CI-OS  
-**Issues**: https://github.com/companionintelligence/CI-OS/issues  
-**Website**: https://ci.computer
-
-### Useful Commands for Bug Reports
-
-```bash
-# OS version
-cat /etc/os-release
-
-# Kernel version
-uname -a
-
-# Hardware info
-lscpu
-lspci
-lsusb
-
-# System logs
-sudo journalctl -b > system-log.txt
-```
-
----
-
-## What's Next?
-
-### For Developers
-
-1. **Clone Your Projects**
-   ```bash
-   git clone https://github.com/username/repo.git
-   cd repo
-   ```
-
-2. **Set Up Your Tools**
-   ```bash
-   # Install language-specific tools
-   sudo apt install python3-pip python3-venv
-   pip3 install virtualenv
-   ```
-
-3. **Start Coding**
-   ```bash
-   code .   # Open VS Code in current directory
-   ```
-
-### For AI/ML Work
-
-1. **Verify GPU**
-   ```bash
-   ci-os-info
-   ```
-
-2. **Install ROCm**
-   ```bash
-   sudo ci-os-install-rocm
-   ```
-
-3. **Install ML Frameworks**
-   ```bash
-   pip3 install torch torchvision --index-url https://download.pytorch.org/whl/rocm5.7
-   ```
-
-4. **Try Local AI**
-   ```bash
-   ollama run llama2
-   ```
-
-### For General Use
-
-1. **Install Your Apps**
-   ```bash
-   # Examples
-   sudo apt install vlc gimp inkscape libreoffice
-   flatpak install flathub com.spotify.Client
-   ```
-
-2. **Configure Backups**
-   - Timeshift (system)
-   - Deja Dup (user files)
-
-3. **Enjoy Your Privacy-First OS!**
-
----
-
-## Tips & Tricks
-
-### Speed Up apt Updates
-
-```bash
-# Use fastest mirror
-sudo apt install apt-fast
-```
-
-### Better Terminal
-
-```bash
-# Install zsh + oh-my-zsh
-sudo apt install zsh
-sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-```
-
-### Disk Usage Analyzer
-
-```bash
-# Visual disk usage
-sudo apt install baobab
-baobab
-```
-
-### System Monitor
-
-```bash
-# Install better system monitor
-sudo apt install gnome-system-monitor
-```
-
-### Firewall
-
-```bash
-# Enable firewall
-sudo ufw enable
-
-# Allow specific ports
-sudo ufw allow 22/tcp
-sudo ufw allow 80/tcp
-sudo ufw allow 443/tcp
-
-# Check status
-sudo ufw status
-```
-
----
-
-## Security Best Practices
-
-1. **Keep System Updated**
-   ```bash
-   sudo apt update && sudo apt upgrade
-   ```
-
-2. **Enable Firewall**
-   ```bash
-   sudo ufw enable
-   ```
-
-3. **Use Strong Passwords**
-   - Min 12 characters
-   - Mix letters, numbers, symbols
-
-4. **Enable Automatic Security Updates**
-   ```bash
-   sudo apt install unattended-upgrades
-   sudo dpkg-reconfigure -plow unattended-upgrades
-   ```
-
-5. **Backup Regularly**
-   - Use Timeshift for system
-   - Use rsync or Deja Dup for files
-
----
-
-## Welcome to CI-OS!
-
-**No ads. No surveillance. Sovereign computing.**
-
-Enjoy your freedom. Build amazing things. 🚀
-
-© Companion Intelligence — Lifescope Inc
+© Companion Intelligence, Lifescope Inc

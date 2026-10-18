@@ -2,32 +2,49 @@
 
 > **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
-**`CLAUDE.md` is the canonical agent guide for this repo** — read it first. It covers the
-repo's purpose, the `core/` + `backends/<name>/` layout, the stack per backend, and the
-key commands. This file only restates the rules every agent tool must follow.
+**`CLAUDE.md` is the canonical agent guide for this repo**: read it first. It covers the
+two supported targets, what is frozen, where things live, the build and check commands (including the Mac container recipe)
+and the gates. This file only restates the rules every agent tool must follow.
 
-## What this repo is (one line)
+## What this repo is (in short)
 
-Builds, themes and provisions the Companion Intelligence appliance OS. Supported targets:
-Companion OS on Ubuntu 26.04 LTS (resolute) and Companion OS on CachyOS. Shared logic in `core/`,
-per-edition mechanics in `backends/ubuntu/` and `backends/cachyos/` (`backends/arch/` is the
-provisioning engine under CachyOS, not a target). Design: `docs/architecture/multi-distro-design.md`.
+Builds, themes and provisions **Companion OS**, the Companion Intelligence appliance OS, for exactly two supported targets:
+**Companion OS on Ubuntu 26.04.1 LTS (resolute)**, in `backends/ubuntu/`, and **Companion OS on CachyOS (Plasma edition)**, in
+`backends/cachyos/`. Shared logic is in `core/`; the Companion Stick CLI is in `stick/` (Rust, first-class inside `stick/` only).
+`backends/arch/` is **not a target**: it is the frozen pacman provisioning engine under CachyOS (change it only on an explicit
+decision). Policy, capability matrix and evidence tags: `docs/architecture/supported-targets.md`. Documentation index:
+`docs/README.md`. Design: `docs/architecture/multi-distro-design.md`.
 
-Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from tag `pre-retire-multidistro-2026-10-17`; do not re-add them as new files).
+**Retired 2026-10-17:** Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS. Restore from tag `pre-retire-multidistro-2026-10-17`
+(`git checkout pre-retire-multidistro-2026-10-17 -- backends/<name>`); do not re-add them as new files. The retired-name guard in
+`core/lib/check-repo.sh` rejects their names outside `core/lib/retired-names.allow`.
 
 ## Validate before every push
 
 ```bash
-./core/lib/check-repo.sh   # bash -n, shellcheck (errors), py_compile, yamllint, no build artifacts
+./core/lib/check-repo.sh   # bash -n, shellcheck (errors), py_compile, yamllint, retired-name guards, untracked-file guard, fast suites
+(cd stick && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)   # when you touched stick/
 ```
 
-The same script is the `PR checks` GitHub workflow.
+The same script is the `PR checks` GitHub workflow. A new file must be `git add`ed (or `git add -N`) before you trust the result:
+`core/lib/check-untracked-deps.sh` fails when a tracked file names an untracked one.
+
+## Build host rules
+
+- The Ubuntu ISO builds as root on **Ubuntu 26.04** only (`build-iso.sh` stops elsewhere). On Apple silicon use a privileged
+  **ARM64** `ubuntu:26.04` container, the route that built the verified image; an amd64 one may fail (tar "Function not implemented"
+  under Rosetta, cause not isolated). Recipe: `CLAUDE.md`.
+- The CachyOS ISO builds on any host with Docker.
+- Never run systemd as PID 1 in a privileged container, and never touch `/proc/sys/fs/binfmt_misc`: it wipes Docker Desktop's
+  Rosetta registrations.
 
 ## Git discipline
 
 - Never `git reset --hard`, `git clean -f`, or force-push someone else's branch without user
-  confirmation — multiple agents work this repo in parallel.
-- Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`); build them.
+  confirmation: multiple agents work this repo in parallel. Never use a bare `git stash`.
+- Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`); build them. Never commit secrets or copy a credential value anywhere.
+- Never write to a block device unless the user named it; `--dry-run` first.
+- Claims about behaviour carry an evidence tag: **[V]** verified, **[I]** implemented not proven, **[N]** not implemented.
 - Commit messages: imperative mood, ≤ 72 chars.
 - Reference CI-Engineering issues in PRs (e.g. `Closes companionintelligence/CI-Engineering#32`).
 

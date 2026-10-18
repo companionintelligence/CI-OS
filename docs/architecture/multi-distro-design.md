@@ -1,541 +1,321 @@
-# CI-OS multi-distro architecture
+# CI-OS design: a shared core and one backend per edition
 
-CI-OS is moving from Ubuntu-only rebrand scripts to a monorepo that builds a themed,
-ecosystem-provisioned Companion Intelligence appliance image across seven targets:
-Ubuntu, Linux Mint, Fedora Workstation, Arch Linux, Bazzite, NixOS, and a CachyOS-based live and installer ISO.
+> Private & Confidential. Property of Lifescope Inc. Do not distribute.
+> The file name is historical: scripts, comments and documents all over the tree cite `docs/architecture/multi-distro-design.md`
+> (`git grep multi-distro-design` lists them), so the path stays. The design it describes is no longer "multi-distro".
+> Last checked against the tree on 2026-10-18.
 
-This supersedes two statements that used to be true and are no longer the goal:
-`CI-OS/README.md`'s *"CI-OS is Companion Ubuntu... not a from-scratch or shipped OS"* and
-*"there is no Nix, no build system to learn."*
+CI-OS builds and provisions Companion OS, the Companion Intelligence appliance operating system, for exactly two supported targets:
+Companion OS on Ubuntu 26.04.1 LTS and Companion OS on CachyOS (Plasma edition). The policy, the capability matrix and the
+evidence tags are in [`supported-targets.md`](supported-targets.md); this page is about how the repository is built to serve them.
 
-## Why `core/` + `backends/<distro>/`, not six parallel copies
+Evidence tags are the ones defined there: **[V]** verified, **[I]** implemented, not proven end to end, **[N]** not implemented.
 
-Two layers of "theming a Linux appliance" behave very differently across distros:
+## 1. Retirement notice
 
-- **Theming primitives** — Plymouth's theme file format, GRUB2's `/etc/default/grub`, the
-  token→color math that turns brand tokens into rendered artifacts — are shared across every
-  traditional distro. These live in `core/render/`.
-- **The delivery mechanism** — apt+chroot, dnf+kickstart, pacman+archiso,
-  Containerfile+bootc image layering, declarative Nix modules — is fundamentally
-  distro-specific and cannot be unified into one script. These live in `backends/<distro>/`.
+On 2026-10-17 the owner decided to support only Ubuntu 26.04 and CachyOS. Linux Mint, Fedora, Bazzite and NixOS were retired and
+their backends removed (commit `6e7b0b5`; restore tag `pre-retire-multidistro-2026-10-17`); Ubuntu 24.04 was retired by the
+26.04.1 port. The earlier text of this page described seven targets; it is kept in git history under that tag. What is still
+true of it, and what frozen code comments cite by name, is kept below: the Ubuntu gresource mechanic (section 5), the CachyOS
+backend (section 6), the Arch provisioning engine with its findings (section 7), the ecosystem manifest (section 9) and the
+rollout history (section 11).
 
-Today's Ubuntu-only scripts already conflate the two (e.g. the old
-`build-gdm-branding-gresource.sh` mixed reusable gresource-hacking logic with Ubuntu-specific
-paths). The refactor separates them so the reusable half doesn't have to be reinvented per
-distro.
+Restore a retired backend with `git checkout pre-retire-multidistro-2026-10-17 -- backends/<name>`; the full recipe, including
+the case where the tag is not in your clone, is in [`supported-targets.md`](supported-targets.md#7-retired-targets-and-the-restore-recipe).
 
-This split has since been carried out for real for the GNOME Shell/GDM rebranding mechanic —
-see [GNOME Shell / GDM gresource rebranding](#gnome-shell--gdm-gresource-rebranding) below. It
-was built anticipating Fedora's Adwaita-based branding (Phase 3a) would reuse it with different
-data inputs; research for that phase found Fedora's GNOME Shell theme isn't structured the way
-Yaru is, so Fedora ended up using a different (and simpler) supported mechanism instead — see
-that section for what Fedora does and why.
+This page supersedes two statements that were true and are no longer the goal: the old README's claim that CI-OS is "Companion
+Ubuntu ... not a from-scratch or shipped OS", and its claim that "there is no Nix, no build system to learn". The repository now
+builds shipped images, and the build systems are `backends/ubuntu/iso/scripts/build-iso.sh` and
+`backends/cachyos/iso/scripts/build-iso.sh`.
 
-## Directory layout
+## 2. Why `core/` plus `backends/<name>/`
+
+Two layers of "theming and provisioning a Linux appliance" behave differently from one edition to the next:
+
+* **Primitives** are shared. Plymouth's theme file format, GRUB's `/etc/default/grub`, the token to colour math that turns the
+  brand tokens into rendered artefacts, the manifest of what gets installed, the headless setup payload, the CI-Hub deploy. These
+  live in `core/`. Theming is **colours-only**: a script reads `CI_*` token variables from `vendor/brand/tokens/tokens.sh` and
+  renders the same GRUB background, Plymouth palette and MOTD for every backend; a colour is never a literal in a backend.
+* **The delivery mechanism** is not shared. Ubuntu remasters the layers of the stock desktop ISO and customises them in a chroot
+  with apt. CachyOS applies an overlay to a pinned archiso profile in a container and provisions the installed system at install
+  time and on first boot. These live in `backends/<name>/` and cannot be unified into one script.
+
+## 3. Directory layout
 
 ```
 core/
-  manifest/      # ecosystem.yaml — single source of truth for "what gets installed"
-    role-map/    # apt.yaml, dnf.yaml, pacman.yaml, nix.yaml, bootc.yaml
-  render/        # tokens + assets -> portable rendered artifacts (Plymouth, GRUB bg, icons, ...)
-  lib/           # genuinely distro-portable bash helpers
-  validate/      # portable half of theme validation
-  headless/payload/   # captive-portal WiFi onboarding: Flask backend + static portal + hostapd/dnsmasq configs
+  manifest/        ecosystem.yaml (what gets installed), role-map/{apt,pacman}.yaml, model-packs.yaml (+ lock), tier-b-pins.env, licenses.yaml
+  render/          tokens + assets -> portable artefacts: GRUB background, Plymouth inputs, MOTD, mark PNGs, the GNOME Shell gresource
+  lib/             distro-portable bash: theme-lib.sh, grub-merge.sh, gpu-detect.sh, ci-os-models.sh, ci-hub.sh, vendor-brand.sh,
+                   check-brand-mirrors.sh, check-repo.sh, check-untracked-deps.sh, retired-names.allow
+  headless/        payload/ (setup backend, portal, hostapd/dnsmasq/nginx config, units), ci_setup/ (tested library), tests/
 
 backends/
-  _mixins/{gnome-dconf,kde-plasma}/    # shared building blocks (Ubuntu + Fedora, optionally Arch)
-  ubuntu/    {iso, chroot, provision, desktop-theme, lib, packages, headless-package}/
-  mint/      {provision, desktop-theme, headless-package}/            # no ISO-build mode — implemented (Phase 2)
-  fedora/    {provision, desktop-theme, headless-setup}/               # no ISO-build mode yet — implemented (Phase 3a);
-                                                                        # iso/ (kickstart/lorax) is Phase 3b, deferred
-  arch/      {provision, desktop-theme, headless-setup}/               # no ISO-build mode — implemented (Phase 4);
-                                                                        # archiso profile-building deferred (see below)
-  cachyos/   {iso, installer, provision}/                             # Phase 7: pinned CachyOS-Live-ISO profile + overlay; archiso ISO build,
-                                                                        # online Calamares installer; implemented, not yet booted or installed
-  bazzite/   {image/Containerfile, image/build.just, modules/}/       # OCI image, not chroot
-  nixos/     {flake.nix, modules/{branding.nix, ecosystem.nix, headless-setup.nix}}/
+  _mixins/{gnome-dconf,kde-plasma}/   shared building blocks; the GNOME dconf steps serve Ubuntu, the Plasma colour scheme serves CachyOS
+  ubuntu/    {iso, chroot, provision, desktop-theme, lib, packages, headless-package}/      Companion OS on Ubuntu 26.04.1
+  cachyos/   {iso, installer, provision}/ + upstream.lock, compat-libs.lock, NOTICE          Companion OS on CachyOS
+  arch/      {provision, desktop-theme, headless-setup}/                                     NOT a target: the engine under CachyOS, frozen
+
+stick/       Rust workspace: ci-stick (bundle lock, verify, flash, slots, model packs). Serves both editions; Ubuntu boots from it.
+vendor/brand/   the pinned brand bundle (ci-brand 1.0.0): tokens, logos, Manrope font
 ```
 
-### `backends/mint/` (Phase 2, implemented)
+`stick/` is deliberately not depended on by `core/` or by any shell backend. Rust is first-class inside `stick/` only.
 
-```
-backends/mint/
-  provision/
-    provision.sh                 # thin wrapper: exec's backends/ubuntu/provision/provision.sh
-                                  # unchanged (Mint 22.x shares Ubuntu Noble's apt role-map)
-  desktop-theme/
-    cinnamon-defaults.inc.sh     # shared Cinnamon values (theme/icon selection, favorites,
-                                  # panel, wallpaper) — the Mint analog of gnome-defaults.inc.sh;
-                                  # not shared with the GNOME mixin, deliberately
-    20-cinnamon-dconf.sh         # system dconf defaults + live gsettings apply (folded — see
-                                  # its header for why this isn't split into a 25- file like
-                                  # Ubuntu's), plus wallpaper install
-    30-slick-greeter.sh          # renders the CI mark as a transparent PNG, writes
-                                  # /etc/lightdm/slick-greeter.conf + a lightdm.conf.d drop-in
-    apply-ci-os-desktop.sh       # dispatcher: reuses Ubuntu's 10-plymouth.sh/15-grub-theme.sh
-                                  # and core/render/render-motd.sh directly by path; --only/
-                                  # --validate only, no --wizard yet
-    80-validate-ci-theme.sh      # Cinnamon/slick-greeter checks; Plymouth/GRUB/brand-asset
-                                  # checks kept identical to Ubuntu's
-  headless-package/
-    build.sh, DEBIAN/{control,postinst,prerm,postrm}   # same payload as Ubuntu's, no netplan
-                                                        # config (see build.sh's header)
-```
+## 4. The Ubuntu backend
 
-Deliberately NOT ported from Ubuntu in this phase (see `apply-ci-os-desktop.sh`'s header
-comment for the full reasoning on each): GNOME Terminal theming (lives under the excluded
-`backends/_mixins/gnome-dconf/`), the Yaru-specific start-icon swap, and the `os-release`
-`ID=ubuntu` rewrite (Mint keeps its own `ID=linuxmint` identity; its apt role-map resolution
-doesn't need the rewrite since Mint's stock `os-release` already carries `UBUNTU_CODENAME`).
+**Execution model.** Ubuntu is a remaster, not an install-time provision. `build-iso.sh` extracts the stock Ubuntu 26.04.1 Desktop
+ISO, merges its three squashfs layers into one rootfs, runs `backends/ubuntu/chroot/customize-chroot.sh` on it, splits the result
+back into an **installer base layer** (what the installer copies to the disk) and a **live-only layer**, brands the boot media and
+repacks a bootable ISO with xorriso, keeping BIOS, UEFI and Secure Boot from the base. It does not use debootstrap. The same
+theming runs on a machine you already have through `desktop-theme/apply-ci-os-desktop.sh`, and the same provisioning through
+`provision/provision.sh`; a clean ISO install ends up identical to running both by hand.
 
-### `backends/fedora/` (Phase 3a, implemented)
+| Part | Path | Notes |
+|---|---|---|
+| ISO build, verify, tests | `backends/ubuntu/iso/` | [`backends/ubuntu/iso/README.md`](../../backends/ubuntu/iso/README.md) is the script reference |
+| Customisation | `backends/ubuntu/chroot/` | identity, telemetry removal, branding, Docker, the optional tools (pinned), the one-click installer, first-boot units |
+| Provisioning | `backends/ubuntu/provision/` | `provision.sh --tier=core[,extended][,hardware]`, `bootstrap-ci-os.sh`, `install-models.sh` |
+| Desktop theme | `backends/ubuntu/desktop-theme/` | fixed order: plymouth, grub, dconf, terminal, wallpaper, session, start-icon, about-logo, os-release, names, motd |
+| Helpers | `backends/ubuntu/lib/` | os-release writer, ROCm and LACT installers, telemetry removal, Strix Halo boot parameters |
+| Packages | `backends/ubuntu/packages/ci-os-branding/` | the GNOME Shell theme `.deb` (see section 5) |
+| Headless package | `backends/ubuntu/headless-package/` | `build.sh` assembles the `setup-device` `.deb` from `core/headless/payload/` and the apt-specific control scripts and netplan file |
 
-```
-backends/fedora/
-  provision/
-    provision.sh                 # genuine dnf reimplementation of Ubuntu's provision.sh —
-                                  # NOT a thin wrapper (dnf syntax/package names differ too
-                                  # much from apt); same --tier=/--step=ci-hub flags, same
-                                  # tier_requested()/function-per-tool structure
-  desktop-theme/
-    gnome-defaults-fedora-overrides.inc.sh  # Adwaita theme/icon/cursor + accent-color/
-                                             # color-scheme selection (the Fedora analog of
-                                             # gnome-defaults.inc.sh — not sourced-after-mixin,
-                                             # see the header for why that approach doesn't
-                                             # work against 20-dconf-system.sh's own re-source)
-    28-gdm-accent-branding.sh    # sets org.gnome.desktop.interface accent-color for the live
-                                  # session + GDM's dconf profile — see the gresource-rebranding
-                                  # note below for why this isn't a gresource-based step
-    apply-ci-os-desktop.sh       # dispatcher: reuses Ubuntu's 10-plymouth.sh/15-grub-theme.sh/
-                                  # 30-wallpaper.sh, the gnome-dconf mixin, and
-                                  # core/render/render-motd.sh directly by path
-    80-validate-ci-theme.sh      # GNOME/GDM-accent checks; Plymouth/GRUB/brand-asset checks
-                                  # kept identical to Ubuntu's
-  headless-setup/
-    install.sh                   # plain, unpackaged installer for core/headless/payload/ —
-                                  # real RPM packaging (.spec, rpmbuild) is deferred, see its
-                                  # own header for the scriptlet-semantics risk that motivated
-                                  # deferring rather than guessing
-```
+Why the root filesystem is split, and which tests prove it: [`ubuntu-iso-layers.md`](ubuntu-iso-layers.md). What changed from
+24.04 to 26.04.1 and why: [`ubuntu-2604-port-notes.md`](ubuntu-2604-port-notes.md). One-click install: [`one-click-install.md`](one-click-install.md).
 
-Known gaps, disclosed in the code's own headers rather than silently assumed: whether Fedora's
-stock login shell actually renders `/etc/update-motd.d/*` (a Debian/PAM convention, unverified
-on Fedora); GDM dconf-profile existence assumed but not independently verified on a live box;
-SELinux (`restorecon`, `httpd_can_network_connect`) and firewalld handling in `install.sh` are
-best-effort and untested in enforcing mode; ROCm, LACT, and Companion Launcher are all
-intentionally stubbed (see `provision.sh`'s own header for why each was stubbed rather than
-guessed at) rather than silently broken.
+## 5. GNOME Shell and GDM gresource rebranding
 
-### `backends/arch/` (Phase 4, implemented)
+`core/render/render-gnome-shell-gresource.sh` is the generic mechanic behind rebranding a compiled GNOME Shell theme: extract a
+theme's `.gresource`, swap widget and logo SVG assets by resource file name, remap accent-colour hex literals through a
+caller-supplied Perl substitution file, optionally audit the recompiled CSS for regressions, then recompile with
+`glib-compile-resources`. It used to be Yaru-hardcoded logic inside `build-gdm-branding-gresource.sh`; that script is now a thin
+caller that exports the Yaru-specific data and `exec`s into the generic script:
 
-```
-backends/arch/
-  provision/
-    provision.sh                 # genuine pacman reimplementation, same tier-gating/
-                                  # function-per-tool shape as Ubuntu's/Fedora's — NOT a thin
-                                  # wrapper. Runs one `pacman -Syu` up front, then
-                                  # `pacman -S --needed` per tool (see its own header's
-                                  # "ROLLING-RELEASE CORRECTNESS NOTE" for why a scattered
-                                  # `pacman -Sy` the way apt/dnf refresh metadata would risk
-                                  # Arch's own documented "partial upgrade" failure mode).
-                                  # Every daemon-installing function calls an explicit
-                                  # `systemctl enable --now` — pacman packages never
-                                  # auto-start services the way Debian's postinst (and even
-                                  # Fedora's docker-ce.rpm) do.
-  desktop-theme/
-    gnome-defaults-arch-overrides.inc.sh  # Adwaita theme/icon/cursor + accent-color/
-                                           # color-scheme selection — near-identical to
-                                           # Fedora's override file; this backend's own
-                                           # research independently re-confirmed Arch's
-                                           # GNOME Shell theme is compiled in too, not a
-                                           # separate package, rather than assuming Fedora's
-                                           # finding transfers for free.
-    28-gdm-accent-branding.sh    # same accent-color + corrective-dconf-overlay mechanism
-                                  # as Fedora's step of the same name, for the same reason
-                                  # (20-dconf-system.sh's own internal re-source of
-                                  # gnome-defaults.inc.sh defeats a simple sourced-after
-                                  # override — see that script's header).
-    15-grub-theme.sh              # Arch-only: a detect-and-delegate wrapper, not a straight
-                                  # by-path reuse of Ubuntu's script. Arch has no installer
-                                  # flavor guaranteeing GRUB is present the way Ubuntu/Mint/
-                                  # Fedora do — a real fraction of Arch systems boot
-                                  # systemd-boot instead. This step detects which is in use
-                                  # (bootctl / /boot/loader/loader.conf for systemd-boot;
-                                  # /etc/default/grub + grub-mkconfig for GRUB) and either
-                                  # execs into Ubuntu's fully-portable GRUB2 logic or skips
-                                  # cleanly (exit 0, clear log message) rather than the hard
-                                  # failure Ubuntu's own script gives a missing
-                                  # /etc/default/grub.
-    apply-ci-os-desktop.sh       # dispatcher: reuses Ubuntu's 10-plymouth.sh/30-wallpaper.sh,
-                                  # the gnome-dconf mixin, and core/render/render-motd.sh
-                                  # directly by path, plus this backend's own 15-grub-theme.sh
-                                  # (not Ubuntu's directly, for the reason above)
-    80-validate-ci-theme.sh      # GNOME/GDM-accent checks identical in shape to Fedora's;
-                                  # the GRUB check branches on GRUB-vs-systemd-boot instead
-                                  # of assuming GRUB, treating systemd-boot as a pass, not a
-                                  # warning
-  headless-setup/
-    install.sh                   # plain, unpackaged installer for core/headless/payload/ —
-                                  # real Arch packaging (PKGBUILD + pkgname.install) is
-                                  # deferred; see its own header for why pacman's
-                                  # differently-named-function .install model is actually
-                                  # SAFER than RPM's numeric-$1 scriptlet overload in
-                                  # principle, but was still deferred for this pass (no live
-                                  # Arch box available to test install/upgrade/remove
-                                  # cycles against, mirroring Fedora's and the ISO passes'
-                                  # own deferrals)
-```
+* `THEME_NAME=Yaru`;
+* `COLOR_MAP_FILE` pointing at `yaru-color-map.pl`: a ~30-entry orange to teal **luminance ramp** between two anchor tokens
+  (`CI_DARK_PRIMARY` and `CI_LIGHT_PRIMARY`). The intermediate values are hand-tuned, not a 1:1 token mapping;
+* `AUDIT_PATTERNS_FILE` pointing at `yaru-audit-patterns.txt`: `grep -E` regression guards for pre-rebrand Yaru and Ubuntu colours
+  (comment lines use a `## ` prefix, because the patterns are hex colours that start with a bare `#`).
 
-`core/manifest/role-map/pacman.yaml` documents the package-level detail (same
-documentation-only, not-runtime-parsed status as `apt.yaml`/`dnf.yaml`). Notable findings from
-this backend's own packaging research, none inherited uncritically from Fedora's: `docker`,
-`github-cli`, `cloudflared`, `tailscale`, and `chromium` are all official `extra`-repo packages
-needing no third-party repo at all (simpler than both apt's and dnf's repo-add mechanics);
-`rocm-hip-sdk` and `lact` are ALSO official `extra` packages — genuine, non-stubbed
-implementations where Fedora's dnf.yaml had to stub both for lack of an official RPM; VS Code
-(the Microsoft-branded build) has no official package at all, only the AUR's
-`visual-studio-code-bin` — stubbed per the plan's AUR-helper-automation deferral, distinct from
-the native but different `code` (Code-OSS) package that does exist in `extra`; and `gunicorn`'s
-Arch package name is plainly `gunicorn`, NOT `python-gunicorn` — a correction to the
-"Arch always prefixes Python packages with `python-`" assumption that motivated checking it.
+**Ubuntu is this script's only caller**, and the generalisation is kept for a future backend whose distribution ships a separate,
+add-alongside GNOME Shell theme package, the way Yaru is one. It is not a building block for every GNOME-based backend: a
+distribution that compiles the shell theme into the `gnome-shell` package itself (Arch is one, see section 7) cannot use it,
+because overwriting the file is undone by the next package update.
 
-Known gaps, disclosed in the code's own headers rather than silently assumed: whether Arch's
-stock login shell renders `/etc/update-motd.d/*` (unverified here for the same reason it's
-unverified on Fedora); unlike Fedora, `28-gdm-accent-branding.sh` does not just check for
-`/etc/dconf/profile/gdm` — ArchWiki documents it as "no longer shipped upstream" on Arch, so the
-script creates it (when missing) with the ArchWiki-documented `user-db:user` / `system-db:gdm` /
-`file-db:/usr/share/gdm/greeter-dconf-defaults` content before writing the `gdm.d` override, but
-this was not independently verified against a live Arch box. A follow-up fix corrected a
-step-order bug an independent adversarial review caught in this same mechanism: the profile must
-exist *before* `apply-ci-os-desktop.sh`'s `dconf` step runs, not just before `accent`'s own later
-write — `backends/_mixins/gnome-dconf/20-dconf-system.sh` gates its own GDM fragment
-(background colors, remote-desktop/RDP-for-GDM keys) on the profile already existing, and on a
-first run it didn't yet, so that fragment was silently skipped even though `accent` created the
-profile moments later for its own narrower fragment. `apply-ci-os-desktop.sh` now invokes
-`28-gdm-accent-branding.sh --ensure-gdm-profile-only` before the `dconf` step specifically to
-close that gap. The same review also found `install_rocm_driver_arch()` never added the desktop
-or `ci` user to the `render`/`video` groups the way Ubuntu's working ROCm installer does — fixed
-by porting that installer's `ensure_video_groups()` logic. The nginx `default_server` collision fix and NetworkManager enable in
-`headless-setup/install.sh` are untested on a live install; Companion Launcher has no Arch build
-(official or AUR) and is intentionally stubbed; VS Code (Microsoft's build) is intentionally
-stubbed rather than AUR-installed or silently substituted with Code-OSS; and this backend
-assumes GNOME Shell + GDM and a bootloader are already present (Arch has no installer flavor
-guaranteeing either) — `provision.sh`'s `check_desktop_prereqs()` warns rather than fails when
-GNOME/GDM aren't detected, and `15-grub-theme.sh` is the one step that actively detects and
-branches on GRUB-vs-systemd-boot instead of assuming.
+**Provenance.** The tracked blob `backends/ubuntu/packages/ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource`
+is built from the Yaru theme of Ubuntu 26.04.1 (`yaru-theme-gnome-shell 26.04.5.1ubuntu`), not from whatever the build host has.
+The script refuses a source that is not Ubuntu 26.04 with a 26.04 Yaru package, prints a `[PROVENANCE]` block, and builds the same
+bytes every time; `backends/ubuntu/packages/PROVENANCE-gnome-shell-theme.txt` records the input and output hashes, and
+`core/render/tests/gresource-provenance.sh` (run by `check-repo.sh` where the glib tools exist) pins the behaviour **[V]**.
 
-### `backends/cachyos/` (Phase 7, ISO build implemented; not yet booted or installed)
+## 6. The CachyOS backend
 
 ```
 backends/cachyos/
-  upstream.lock   every pin: upstream commit and fallback, builder image digest, CachyOS key fingerprint, mirrorlist, edition identity
-  iso/            scripts/build-iso.sh (host: only Docker), in-container build and overlay engine, verify-iso.sh; docker/; overlay/; tests/
-  installer/      Calamares overlay: settings, module configs, branding, guards, scripts
-  provision/      first-boot wrapper around backends/arch/provision/provision.sh, systemd units, setup-portal stager
+  upstream.lock     every pin: upstream commit and fallback, builder image digest, CachyOS key fingerprint, mirrorlist, edition identity
+  compat-libs.lock  the older-generation libraries the installer still needs (Arch Linux Archive, sha256), with a review date
+  iso/              scripts/build-iso.sh (host: only Docker), in-container build and overlay engine, verify-iso.sh; docker/; overlay/; tests/
+  installer/        Calamares overlay: settings, module configs, branding, guards, scripts
+  provision/        first-boot wrapper around backends/arch/provision/provision.sh, systemd units, setup-portal stager
 ```
 
-A live and installer ISO of Companion OS based on CachyOS, and the first archiso-based backend. It does not write an Arch-native
-archiso profile (that stays deferred, below): it consumes a **pinned upstream profile** (CachyOS-Live-ISO: KDE Plasma,
-plasma-login-manager, the online Calamares installer), applies an **overlay** (`files/`, `patches/`, `packages.add|remove`,
-`profiledef.append.sh`) to a throw-away copy of it and runs the stock `mkarchiso` in a privileged amd64 container; the host needs
-only Docker. Upstream is never edited.
+A live and installer ISO of Companion OS based on CachyOS, and the only archiso-based backend. It does not write an Arch-native
+archiso profile (that stays deferred, section 11): it consumes a **pinned upstream profile** (CachyOS-Live-ISO: KDE Plasma,
+`plasma-login-manager`, the online Calamares installer), applies an **overlay** (`files/`, `patches/`, `packages.add|remove`,
+`profiledef.append.sh`) to a throw-away copy of it and runs the stock `mkarchiso` in a privileged amd64 container. The host
+needs only Docker. Upstream is never edited.
 
 * **Three layers**, because the CachyOS installer builds the target from the network and does not copy the live image: the live
   image (identity, menus, launcher), Calamares (package list, payload staging, unit enabling, identity carry-over) and first boot
   (`backends/arch/provision/provision.sh` behind a wrapper).
-* **Identity**: `NAME="Companion OS"`; `ID=cachyos` and `ID_LIKE=arch` stay (CI-Hub string-matches `ID_LIKE=arch`); a later-sorting
-  pacman hook rewrites the whole os-release after `cachyos-hooks`' own hook.
-* **Reuse**: the Arch `provision.sh` behind a thin wrapper (as Mint wraps Ubuntu's), `core/headless/payload`, `core/render/*`,
-  `vendor/brand`. Nothing in `backends/arch/` is edited.
-* **Limits**: online install only; rolling package set; no Secure Boot; the Companion Stick can not boot it (casper is hard-coded);
-  the live profile is baseline x86-64 (the `cachyos-v3` repositories fail under Rosetta).
-* **Status**: unit-tested on fixtures and on a miniature ISO; no Companion ISO has been built, booted or installed.
+* **Identity.** `NAME="Companion OS"`; `ID=cachyos` and `ID_LIKE=arch` stay, because CI-Hub string-matches `ID_LIKE=arch`; a
+  later-sorting pacman hook rewrites the whole `os-release` after `cachyos-hooks`' own hook.
+* **Reuse.** The Arch `provision.sh` behind a thin wrapper, `core/headless/payload` through its own stager, `core/render/*`,
+  `vendor/brand`. Nothing in `backends/arch/` is edited (decision D8).
+* **Rolling-release drift.** The package set is not pinned. A skew between two repositories (installer built against boost 1.91, `[extra]` at
+  1.92 since 2026-08-13) made the installer fail to start on the first booted ISO that launched it (2026-10-18); a pinned, signature-checked
+  compatibility library and a build-time gate now guard it.
+  See `backends/cachyos/README.md` and the incident write-up in [`cachyos-backend.md`](cachyos-backend.md).
+* **Limits.** Online install only; no Secure Boot; the Companion Stick cannot boot it (casper is hard-coded in
+  `stick/crates/ci-stick/src/bootcfg.rs:44-45,188`); the live profile is baseline x86-64 (the `cachyos-v3` repositories fail under
+  Rosetta).
+* **Status.** Built five times **[V]**; the static verifier passed on ISO #2 with 187 checks **[V]**. ISO #4 and ISO #5 each ran from a fresh boot
+  through the Calamares online install, the first boot of the installed system and first-boot provisioning in QEMU **[V]**; the defects the ISO #4
+  run found were fixed in `552063f` and are seen working on ISO #5 **[V]** (first boot 21 min 49 s, status 0, no "degraded"). Open: the keyring step's
+  30 second limit (KI-20, fix in the working tree **[I]**) and two installer highlight gaps (KI-09). No run on real hardware is recorded **[N]**.
+  [`test-evidence.md`](test-evidence.md) owns the status of every run.
 
-See [`cachyos-backend.md`](cachyos-backend.md) and `backends/cachyos/README.md`.
+## 7. The Arch provisioning engine (frozen, not a target)
 
-## GNOME Shell / GDM gresource rebranding
+`backends/arch/` is the pacman provisioning engine that the CachyOS edition runs on first boot. It offers users no entry point,
+and it is frozen: change it only on an explicit decision. Its code comments cite this page for the findings below, so they stay.
 
-`core/render/render-gnome-shell-gresource.sh` is the generic mechanic behind rebranding a
-compiled GNOME Shell theme: extract a theme's `.gresource` file, swap widget/logo SVG assets by
-resource filename, remap accent-color hex literals via a caller-supplied Perl substitution
-file, optionally audit the recompiled CSS for regressions, then recompile with
-`glib-compile-resources`. It used to be Ubuntu/Yaru-hardcoded logic living directly in
-`build-gdm-branding-gresource.sh`; that script is now a thin caller that exports Yaru-specific
-data — `THEME_NAME=Yaru`, `COLOR_MAP_FILE` pointing at `yaru-color-map.pl` (Yaru's ~30-entry
-orange→teal luminance ramp), `AUDIT_PATTERNS_FILE` pointing at `yaru-audit-patterns.txt`
-(regression-guard `grep -E` patterns for pre-rebrand Yaru/Ubuntu colors; comment lines use a
-`## ` prefix, since the patterns themselves are hex colors starting with a bare `#`) — and
-`exec`s into the generic script.
+**Shape.** `provision/provision.sh` is a genuine pacman implementation with the tier gating and function-per-tool structure of the
+Ubuntu script, not a wrapper. It runs one `pacman -Syu` up front and then `pacman -S --needed` per tool, because a scattered
+`pacman -Sy` is Arch's documented "partial upgrade" failure mode. Every daemon-installing function calls an explicit
+`systemctl enable --now`, since pacman packages never start services themselves. `headless-setup/install.sh` is a plain installer
+for `core/headless/payload/`; the CachyOS edition does not run it (it is not chroot-safe) but the payload tests and the CachyOS
+ISO verifier read its `ARCH_DEPS` as the dependency oracle.
 
-This generalization was built as the anticipated prerequisite for Fedora's GDM/GNOME-Shell
-branding (Phase 3a) — but Fedora research found the gresource-extraction approach doesn't
-actually apply there, so `backends/fedora/` never calls this script. **Ubuntu remains this
-script's only caller.** Backward compatibility with Ubuntu's existing caller (no-argument
-invocation from `build-packages.sh`, `SOURCE_GRESOURCE`/`SOURCE_XML` env var overrides
-propagating through `exec`) was verified when the split was made, and the generalization is
-kept — a future backend on a distro that *does* ship a separate, add-alongside GNOME Shell
-theme package (the way Yaru is one) can still reuse it — but it is no longer a promised
-building block for every GNOME-Shell-based backend.
+**Why a plain installer and not a PKGBUILD.** A real Arch package needs a PKGBUILD (`pkgname`, `pkgver`, `depends`, `source`,
+`sha256sums`, a `package()` function installing into `$pkgdir`) plus a `.install` file, and install, upgrade and remove cycles
+that could not be tested without a live Arch box when the backend was written. Pacman's differently-named-function `.install`
+model is safer than RPM's numeric-`$1` scriptlet overload in principle; it was still deferred.
 
-**Why Fedora doesn't use it**: unlike Yaru, Fedora Workstation ships no separate,
-add-alongside GNOME Shell theme package. The shell's default theme is compiled directly into
-the `gnome-shell` package's own build, landing flat at
-`/usr/share/gnome-shell/gnome-shell-theme.gresource` (no `theme/<name>/` subdirectory, no
-`gdm.css` — GDM is just gnome-shell running in `gdm` mode, styled by the same
-`gnome-shell-dark.css`/`gnome-shell-light.css`). Overwriting it would be silently clobbered by
-every `dnf update gnome-shell`. Fedora also has a real *supported* alternative that Ubuntu/Yaru
-predates: GNOME 47+'s `org.gnome.desktop.interface accent-color`, a locked 9-value named enum
-(blue/teal/green/yellow/orange/red/pink/purple/slate) that shell CSS and libadwaita apps derive
-their accent styling from, rather than the ~30 scattered hex literals Yaru's SCSS has. Fedora's
-`backends/fedora/desktop-theme/28-gdm-accent-branding.sh` sets the nearest named color (`teal`,
-to the CI canon primary) via `gsettings`/dconf for both the live user session and GDM's dconf
-profile — no gresource surgery, no recompile, and it survives package updates. The tradeoff:
-it's locked to those 9 named values, not an exact hex match, and there's no equivalent hook yet
-for swapping GDM's logo/icon assets (left as a known, deferred gap).
+**Package findings** (`core/manifest/role-map/pacman.yaml` is the data, documentation-only like `apt.yaml`):
 
-**Arch doesn't use it either, for the same reason — independently re-confirmed, not assumed**:
-this backend's own research (not a copy-paste of Fedora's) checked Arch's `gnome-shell` package
-directly and found the identical shape — the shell theme is compiled into
-`gnome-shell-theme.gresource` inside the `gnome-shell` package's own build, no separate
-add-alongside theme package, no distinct `gdm.css`. This is upstream GNOME's own packaging
-layout (the gresource is generated from `data/gnome-shell-theme.gresource.xml` in the
-`gnome-shell` source tree itself, unchanged since GNOME 3.16), not a Fedora-specific patch, so
-there was good reason to expect Arch — which tracks upstream even more closely than Fedora, with
-fewer distro patches — to match, and it does. `backends/arch/desktop-theme/28-gdm-accent-branding.sh`
-uses the same `org.gnome.desktop.interface accent-color` mechanism as Fedora's step of the same
-name.
+* `docker`, `github-cli`, `cloudflared`, `tailscale` and `chromium` are official `extra` packages needing no third-party repository;
+  `rocm-hip-sdk` and `lact` are also official `extra` packages.
+* `gunicorn` is `gunicorn`, **not** `python-gunicorn`: a correction to the assumption that Arch prefixes every Python package.
+* **Arch AUR-helper automation (manual/documented first)** is a deliberate deferral. VS Code (Microsoft's build) exists on Arch only
+  as the AUR package `visual-studio-code-bin`; Companion Launcher has no Arch build, official or AUR. `provision.sh` never invokes
+  an AUR helper (yay, paru) and never assumes one is installed: `install_vscode()` and `install_companion_launcher()` log a clear
+  message and return 0. The native `code` package (Code - OSS, no Microsoft branding or Marketplace) is a **different product** and
+  is not silently substituted. The role map marks such rows `aur_deferred`.
+* The hardware tier installs `rocm-hip-sdk` and LACT **without detecting a GPU**. That is why the CachyOS wrapper defaults to
+  `--tier=core` and a machine that needs the rest asks for it with `sudo ci-os-setup --tier=core,hardware`.
+* `install_rocm_driver_arch()` adds the desktop and `ci` users to the `render` and `video` groups, a step the Ubuntu installer had
+  and the first Arch pass missed.
 
-## Bazzite: an image-based backend, not a provisioning script
+**GNOME theming findings** (the Arch `desktop-theme/` is unused under CachyOS, which brands itself through its overlay; the
+findings stand because frozen scripts cite them):
 
-Every backend through Phase 4 shares one execution model: a script runs ON an
-already-installed, already-running system and imperatively installs packages / edits
-config files in place. Bazzite (Phase 5) breaks that model entirely — it's Fedora Atomic
-(bootc/rpm-ostree), where the OS root filesystem is built as an OCI container image via a
-`Containerfile`, then `bootc switch`ed onto hardware. `/usr` (and `/etc`'s *defaults*) is
-what a `podman build` durably produces; `/usr` is read-only at runtime; `/var` (and
-therefore `/home`, a symlink into `/var/home`) is excluded from the image commit
-entirely — it's machine-local state seeded at first boot, not something a shared,
-publicly-distributed image can contain.
+* Arch does not use the gresource mechanic of section 5. Its `gnome-shell` package compiles the theme into
+  `gnome-shell-theme.gresource` with no add-alongside theme package and no separate `gdm.css`; that is upstream GNOME's own
+  packaging since GNOME 3.16, not a distribution patch. Arch's step uses the GNOME 47+ `org.gnome.desktop.interface accent-color`
+  setting (a locked nine-value enum) for the session and for GDM's dconf profile instead. The trade-off: the nearest named colour,
+  not an exact hex match, and no hook for GDM's logo assets.
+* **The `/etc/dconf/profile/gdm` finding.** On some distributions that file ships with the `gdm` package and a guard that only
+  checks for it is sufficient. It does **not** hold on Arch: the ArchWiki states the file is "no longer shipped upstream" and "must
+  be created manually". `28-gdm-accent-branding.sh` therefore creates it, when missing, with the ArchWiki-documented
+  `user-db:user`, `system-db:gdm`, `file-db:/usr/share/gdm/greeter-dconf-defaults` content before writing the `gdm.d` override.
+  A step-order bug found in review: the profile must exist **before** the `dconf` step runs, because
+  `backends/_mixins/gnome-dconf/20-dconf-system.sh` gates its own GDM fragment (background colours, remote-desktop keys) on the
+  profile existing. `apply-ci-os-desktop.sh` now calls `28-gdm-accent-branding.sh --ensure-gdm-profile-only` first.
+* **GRUB or systemd-boot.** Arch has no installer flavour that guarantees GRUB, and a large and normal share of Arch systems boot
+  systemd-boot. `15-grub-theme.sh` is therefore a detect-and-delegate wrapper (`bootctl` and `/boot/loader/loader.conf`, or
+  `/etc/default/grub` and `grub-mkconfig`): it execs into Ubuntu's portable GRUB2 logic or skips cleanly with a log line, where the
+  Ubuntu script would fail hard on a missing `/etc/default/grub`. `80-validate-ci-theme.sh` treats systemd-boot as a pass.
+* The GNOME mixin steps are GNOME-Shell specific, which is what the Arch dispatcher targeted by design.
 
-That last fact shapes almost everything about `backends/bazzite/`:
+**Known gaps** stated in the code's own headers: whether Arch's login shell renders `/etc/update-motd.d/*`; the nginx
+`default_server` collision fix and NetworkManager enable in `install.sh`; Companion Launcher and Microsoft VS Code stubs.
 
-- **`backends/bazzite/image/{Containerfile,build.just,.env,files/}`** — the image
-  definition. `FROM ghcr.io/ublue-os/bazzite:stable@<pinned digest>` (KDE Plasma — Bazzite
-  ships ~10 variants across two DE families; the unqualified `bazzite` tag is unambiguously
-  the flagship, breaking the GNOME pattern every prior backend followed). Bakes: Plymouth
-  (token-derived colors, replicating — not sourcing — Ubuntu's 4-key sed transform, since
-  Ubuntu's script also does interactive-upgrade bookkeeping that makes no sense for a
-  from-scratch image build), GRUB background + `ci_grub_merge_key()`, MOTD
-  (`core/render/render-motd.sh`, unmodified), the KDE color-scheme file (reusing
-  `backends/_mixins/kde-plasma/CI-OS-Dark.colors` as-is — this is the first backend to
-  actually exercise that scaffolding, written in Phase 0/1a and unused until now), plus
-  `gh`/`cloudflared`/`chromium`/VS Code/Tailscale/LACT and the Ollama binary+unit via plain
-  `dnf5 install` RUN steps (Bazzite shares Fedora's RPM/repo universe). Token-derived PNGs
-  (GRUB background, Plymouth watermark) are rendered by `build.just`'s own `render` recipe
-  into a local staging directory *before* the image build starts, then `COPY`'d in — a
-  Containerfile build context needs files already present on disk, it can't invoke a repo
-  script mid-build the way every prior backend's live-system scripts can.
-- **Docker vs. Podman — resolved as Podman**, not Docker CE, even though layering Docker CE
-  is a proven pattern elsewhere in Universal Blue (ublue-os's own `bazzite-dx` variant does
-  exactly that with no reported conflict). Podman + Distrobox is Bazzite's own stock
-  default; fighting it purely for cross-backend naming consistency adds image weight the
-  bake-vs-first-boot discipline elsewhere argues against, and Podman exposes a
-  Docker-API-compatible socket that needs only a small, mechanical adapter, not a rewrite.
-  `backends/bazzite/modules/lib/podman-docker-compat.sh` implements that adapter — a
-  `docker() { podman "$@"; }` shell-function shim plus a persistent `/etc/tmpfiles.d/` rule
-  aliasing `/run/docker.sock` to Podman's socket — so `core/lib/ci-hub.sh` runs completely
-  unmodified. Unverified: whether `podman compose`'s fidelity to the specific Compose-v2
-  features ci-hub.sh's generated YAML uses (`depends_on: condition: service_healthy`,
-  `env_file`, Traefik forwardauth labels) actually holds — the shim mechanism itself is
-  sound, but nothing in this project's development so far has exercised it against a live
-  Podman host.
-- **`backends/bazzite/modules/`** — the first-boot half, for whatever genuinely can't be
-  baked: `ci-os-first-boot-ci-hub` (needs registry credentials/device pairing — secrets
-  never belong in a publicly-distributed image layer) and `ci-os-first-boot-ollama-models`
-  (the plan's own explicit first-boot decision, to avoid multi-GB image bloat) were part of
-  the original brief; `ci-os-first-boot-core-tools` (the `ci` system user, `uv`, asdf/Node —
-  all core-tier, all writing into `$HOME`) was added in a follow-up fix after an adversarial
-  review caught that the role-map documented these as first-boot but no script implemented
-  any of them — a real functional regression versus every prior backend. Each first-boot
-  unit uses `ConditionPathExists=!<marker>` so systemd skips it entirely (not "runs and
-  no-ops") on every later boot, reusing the exact marker-file convention
-  `backends/ubuntu/chroot/customize-chroot.sh`'s own first-boot service already established,
-  just split into independent per-concern units instead of Ubuntu's one. `ci-os-first-boot-
-  core-tools.sh` detects the real desktop user differently from every other backend too —
-  there's no `$SUDO_USER` in a systemd-unit context — by scanning `/etc/passwd` for the
-  first real (UID 1000-59999, real shell/home) account, and deliberately drops the
-  `usermod -aG docker ci` step every other backend's `create_ci_user()` has, since there's
-  no verified Podman-socket group-access equivalent to grant on this backend.
-- **Not baked at all** (a disclosed scope boundary, not an oversight): `core/headless/
-  payload/`'s captive-portal subsystem (hostapd/dnsmasq/nginx/Flask setup-backend) — never
-  in this phase's research or brief, would need several more unresearched package layers.
-  `ci-os-first-boot-setup-portal-gate` (a conditional-enablement decision for those units,
-  based on whether the device was already paired before this boot) is still staged and
-  enabled, forward-compatible with a later pass adding the subsystem for real; its own
-  presence-check degrades to a harmless no-op today, since none of the units it looks for
-  exist yet. Homebrew is also not implemented — but that's true on every backend (tier:
-  extended, always opt-in), so leaving it out here doesn't regress anything.
-- **ROCm** stays unresolved, inheriting Fedora's gap (no official Fedora ROCm repo), though
-  Bazzite's own base images bundle a meaningfully better Mesa/Vulkan baseline than stock
-  Fedora Workstation, partially offsetting it. **LACT**, by contrast, genuinely un-stubs
-  here — it publishes a real Fedora COPR, independently confirmed by this phase's research
-  (not inherited from Fedora's own unverified stub).
+**Evidence.** The provisioner ran on an installed CachyOS system in QEMU (ISO #4): it pulled the three models, ran its remaining
+core steps (cloudflared, corepack and pnpm, Tailscale), skipped the CI-Hub deploy for want of credentials, and ended "degraded"
+because of a defect in the CachyOS wrapper that `552063f` fixes **[V]**. On ISO #5, with that fix, the same run ended with status 0 and no
+"degraded" **[V]**. The hardware tier and `--step=ci-hub` with credentials
+were not exercised **[I]**.
 
-This backend cannot be build-tested in this environment (no bootc/podman build host
-available) — `build.just`'s header discloses this plainly rather than claiming a working
-build; what *was* verified: `docker build --check` against the complete Containerfile,
-`bash -n` on every RUN block individually, every `COPY` source path resolving on disk, the
-base image digest resolved live against GHCR, and the token-derived PNGs genuinely rendered
-and checked (not placeholders).
+## 8. Naming: three things called "Hub"
 
-## NixOS: a flake of reusable modules, not a script or an image
+Before the manifest existed, three things were called "Hub". User-facing text now uses:
 
-Phase 6 is a *second* fundamentally different execution model — distinct from both the
-traditional provisioning-script backends (Ubuntu/Mint/Fedora/Arch) and from Bazzite's
-Containerfile/bootc image build. NixOS's configuration model is declarative: this backend
-does not produce a script that runs on an already-installed system, and does not produce a
-bootable image either. It produces a Nix **flake** (`backends/nixos/flake.nix`) exposing
-**NixOS modules** — `nixosModules.default` (and the three underlying modules individually)
-— that a *consumer* imports into their *own* system configuration flake:
+| Name | What it is |
+|---|---|
+| **CI Hub Service** | the Docker backend (container `ci-os-hub`, port 5002), deployed by `core/lib/ci-hub.sh` and gated on registry credentials and device pairing |
+| **Companion Launcher** | the desktop GUI app (Debian package and binary `companion-hub`; formerly "Companion Hub Desktop"). `setup_service.py` detects it by process name to decide whether pairing is required |
+| **Companion Hub (browser)** | the desktop entry from the setup payload (`ci-os-hub.desktop`) that opens a browser tab to the service |
 
-```nix
-nixosSystem {
-  modules = [
-    ci-os-nixos.nixosModules.default
-    ./hardware-configuration.nix
-    { services.ci-os.ecosystem.enable = true; services.ci-os.headlessSetup.enable = true; }
-  ];
-}
-```
+`core/lib/ci-hub.sh` lives in `core/`, not in a backend, because once Docker is present everything in it is docker-compose with no
+package-manager assumption. The Ubuntu `deploy_ci_hub()` and the headless setup flow both call it. Its inputs, ports, security notes and the
+runbook are in [`../guides/ci-hub-deploy.md`](../guides/ci-hub-deploy.md).
 
-The deliverable is reusable Nix code, not an artifact built once and distributed — that
-distinction shapes almost everything about `backends/nixos/`:
+## 9. The ecosystem manifest
 
-- **`modules/branding.nix`** — Plymouth, GRUB background, GNOME/GDM accent-color, MOTD.
-  Split by what each artifact actually needs, not one uniform approach: PNG rendering
-  (the GRUB background, the Plymouth watermark) isn't expressible in pure Nix evaluation —
-  it genuinely needs `rsvg-convert`/ImageMagick — so those invoke
-  `core/render/render-grub-background.sh` **unmodified**, by path, inside a
-  `runCommand`-style derivation with the right build inputs declared; everything that's a
-  plain value lookup (the dconf accent-color string, MOTD text, Plymouth's four config
-  colors) is reimplemented **natively in Nix**, reading `vendor/brand/tokens/tokens.json`
-  directly via `builtins.fromJSON`, with `tokens.sh`'s `ci_rgb()`/`ci_hex0x()` ported as a
-  ~5-line Nix hex-digit lookup (exactly the size the plan anticipated). GDM's accent-color
-  default uses NixOS's genuine **system-level** `programs.dconf` module — confirmed
-  distinct from home-manager's per-user `dconf.settings`, which this backend does *not*
-  depend on — wiring a `system-db:gdm` profile/database declaratively, the same outcome
-  Fedora's and Arch's research had to hand-write a `/etc/dconf/profile/gdm` file to
-  achieve imperatively. GRUB theming is gated on `config.boot.loader.grub.enable` (visible
-  at evaluation time from the consumer's own declared config, not a runtime filesystem
-  probe the way Arch's `15-grub-theme.sh` needs) — NixOS itself defaults new installs to
-  systemd-boot, not GRUB, and nixpkgs exposes no themed-splash option for systemd-boot, so
-  a themed systemd-boot menu is a disclosed, out-of-scope gap rather than an oversight.
-- **`modules/ecosystem.nix` + `manifest/{ecosystem.generated.json,gen-ecosystem-json.sh}`**
-  — tier-gated (core/extended/hardware) ecosystem tools. Unlike every bash backend's
-  `role-map/<pkgmgr>.yaml`, this backend consumes a **committed, regeneratable JSON file**
-  (`gen-ecosystem-json.sh` regenerates it from `core/manifest/ecosystem.yaml` via `yq`,
-  same manual-regen contract as `tokens.sh`/`tokens.json`) read via `builtins.fromJSON` —
-  not an Import-From-Derivation build-time YAML→JSON step, which nixpkgs's own
-  contribution guidance treats as something to avoid at evaluation time. Most tools map to
-  real, current nixpkgs modules/packages: `virtualisation.docker`, `services.tailscale`,
-  `services.ollama` (with acceleration options — confirmed to actually resolve to the
-  genuine Microsoft-branded `pkgs.vscode`, not an unrelated OSS build, the same
-  distinction Arch's research had to draw for the AUR), `rocmPackages` and `services.lact`
-  for the hardware tier (both **real** here, unlike Fedora's stub — nixpkgs' ROCm package
-  set is substantial). `users.users.ci` bakes `render`/`video` group membership in from
-  the start — a fix that had to be *found twice* on the bash backends (Fedora's provision
-  script never needed it since ROCm was stubbed there; Arch's initial pass missed it and
-  needed a follow-up fix) ships correct from day one here, since there's no equivalent of
-  forgetting a step when the whole configuration is declared together. `core/lib/ci-hub.sh`
-  runs unmodified from a systemd oneshot; unlike Bazzite's first-boot-only marker file, this
-  unit deliberately re-runs every boot (ci-hub.sh is already idempotent by design), with a
-  `systemd.paths` watcher on the pairing-env file so a device paired later in its life gets
-  CI-Hub deployed within seconds, not on next reboot — a real advantage the declarative
-  model gets for free that Bazzite's imperative first-boot model doesn't.
-- **`modules/headless-setup.nix`** — the captive-portal WiFi onboarding payload, wired via
-  native `hostapd`/`dnsmasq`/`nginx` NixOS modules (raw `systemd.services`, not the
-  higher-level module wrappers, where the payload's own runtime interface-autodetection
-  would otherwise be lost) plus the existing Flask setup-backend reused by path. The
-  "already paired, don't enable the portal" decision uses systemd's own
-  `ConditionPathExists`, re-evaluated on every start attempt — the NixOS-idiomatic
-  replacement for Bazzite's one-time marker-file gate, since Nix modules re-evaluate
-  against declared configuration rather than tracking "first boot" as its own state.
-- **Companion Launcher** stays unavailable (no NixOS/Nix package anywhere, confirmed) —
-  represented by omitting the option entirely rather than defining a no-op `enable` flag,
-  since a Nix option a user can flip that silently does nothing has no equivalent of
-  bash's log-message stub and would be a real footgun. **Homebrew** and **Bun** are
-  likewise deliberately unwired (both extended-tier and unimplemented on every backend,
-  and philosophically redundant with Nix's own package management in Homebrew's case).
+`core/manifest/ecosystem.yaml` (schema: `ecosystem.schema.json`) is the single source of truth for what gets installed: dev tools,
+the fixed three-model Ollama set (`nomic-embed-text`, `gemma3:1b`, `qwen3.6:27b`) and the CI-Hub deploy. Each entry is tagged:
 
-This backend cannot be evaluated with a real Nix toolchain in this environment (no `nix`
-binary available, same constraint noted honestly rather than worked around) — verified
-instead via grammar-based Nix syntax parsing (0 errors across all four files) and manual
-line-by-line cross-referencing against fetched nixpkgs source for every module/option
-claimed, not guesswork. A genuine `nix flake check` against a real nixpkgs revision
-remains open follow-up work for whoever has a working Nix toolchain.
+| Tier | Meaning |
+|---|---|
+| `core` | runs on first boot and by default when a person runs `provision.sh` with no flags |
+| `extended` | opt-in developer and workstation tooling (Homebrew, VS Code, Chromium, Companion Launcher) |
+| `hardware` | auto-detected and never flag-gated (ROCm, LACT, Strix Halo tuning); gated by `core/lib/gpu-detect.sh` |
+| `reserved` | documented but not implemented here; today only CI-Server, which belongs to its own repository |
 
-This completes backends 1 to 6 of the rollout table; Phase 7 (CachyOS) is described after the Arch section.
+An investigation before the manifest found **six independently drifted Ubuntu provisioning entrypoints** doing overlapping versions
+of "install the ecosystem" (`setup-fresh-ubuntu.sh`, a first-boot heredoc in `customize-chroot.sh`, an undocumented
+`ci-os-setup.sh`, `bootstrap-ci-os.sh`, `pull-dev.sh`, an orphaned preseed `late_command`) and five of nine files in the old
+`scripts/lib/` with no caller. The manifest plus one `provision.sh --tier=core[,extended][,hardware]` replaced them. A backend
+resolves manifest roles through `core/manifest/role-map/<package manager>.yaml` (`apt.yaml`, `pacman.yaml`), documentation-only
+and not parsed at run time.
 
-## The ecosystem manifest
+Where a tool is baked into the Ubuntu image (`baked_in_iso: true`: Docker, `gh`, `cloudflared`, Tailscale, Ollama, the launcher),
+`provision.sh` finds it installed and skips it. Third-party keys and downloads are pinned in `core/manifest/tier-b-pins.env`
+([`tier-b-tools.md`](tier-b-tools.md)). The models are never baked; they are pulled at first boot, gated by the hardware-fit
+rule in `core/lib/gpu-detect.sh` (`ci_os_model_gate_allows`). There is no disk-space check in that gate yet
+([`known-issues-and-decisions.md`](known-issues-and-decisions.md)).
 
-`core/manifest/ecosystem.yaml` (schema: `ecosystem.schema.json`) is the single source of truth
-for what gets installed — dev tools, the fixed 3-model Ollama/LLM set
-(`nomic-embed-text`, `gemma3:1b`, `qwen3.6:27b`), and the CI-Hub deploy — tagged `core`
-(auto-run), `extended` (opt-in), `hardware` (auto-detected, never flag-gated), or `reserved`
-(documented but not implemented here — currently just CI-Server, which has no real
-implementation in CI-OS and belongs to its own repo).
+CI Hub Service is a first-class `core` step, gated on registry authentication and device pairing by design (a legitimate business
+requirement) and invoked from one fixed place instead of a disk search.
 
-Investigation before this design found **six independently-drifted Ubuntu provisioning
-entrypoints** doing overlapping-but-different versions of "install the ecosystem"
-(`setup-fresh-ubuntu.sh`, an embedded first-boot heredoc in `customize-chroot.sh`, an
-undocumented `ci-os-setup.sh`, `bootstrap-ci-os.sh`, `pull-dev.sh`, and an orphaned preseed
-`late_command`), plus 5 of 9 files in the old `scripts/lib/` with zero callers. The manifest
-plus one canonical `provision.sh` entrypoint (`--tier=core[,extended][,hardware]`) replaces all
-of them. Bash backends resolve manifest roles through their `role-map/<pkgmgr>.yaml`; NixOS
-consumes a `yq`-generated `ecosystem.generated.json` via `builtins.fromJSON` — the same
-json-alongside-yaml pattern `vendor/brand/tokens/` already uses for `tokens.sh`/`tokens.json`.
+## 10. Per-backend contract
 
-CI-Hub (the Docker/Runtipi backend, `ci-os-hub` container, port 5002) is a first-class `core`
-step, gated on registry auth + device pairing by design (a legitimate business requirement) but
-invoked from one fixed place instead of a fragile disk-search. It was renamed in docs/UX from
-being one of three things confusingly called "Hub" — the Electron GUI launcher app is now
-"Companion Launcher"; the backend itself is "CI Hub Service" in user-facing text.
+Every `backends/<name>/` that is a supported target implements the first six of these, which are the design of the repository, and the
+last four, which the two editions both needed and a new edition would otherwise find out about late. The steward skill treats item 7 as
+mandatory for any change of the shared payload.
 
-## Per-backend contract
+1. **A manifest consumer.** Resolves `core/manifest/ecosystem.yaml` through a role map.
+2. **A theme-render consumer.** Installs the `core/render/*` outputs through its native mechanism.
+3. **An identity writer.** `os-release` and the user-visible name "Companion OS".
+4. **A declared output mode.** A bootable image built from an upstream image, or an idempotent provisioning script, or a
+   theme-only script. Implementing only modes 2 and 3 is compliant.
+5. **A validation hook.** A `verify-iso.sh` or `80-validate-ci-theme.sh` whose checks can fail, with a self-test that feeds each check a
+   good and a broken fixture.
+6. **A lint or smoke test** wired into `core/lib/check-repo.sh`.
+7. **The headless setup payload, wrapped for this target.** `core/headless/payload/` is shared; the packaging is not. Ubuntu wraps it as the
+   `setup-device` `.deb` (`backends/ubuntu/headless-package/`: `DEBIAN/control` for runtime dependencies, `build.sh` with `REQUIRED_FILES` for
+   every payload file); CachyOS installs the packages through `installer/modules/packages_online.conf` and copies the files with
+   `provision/stage-headless.sh`, which needs a placement rule for every payload file (an uncovered file stops it). A new target registers its
+   installer in `core/headless/tests/payload/test_static.py` (`BootEnablingTests.installers()`, the dependency and executable-bit tests) and in
+   the mutation check (`core/headless/tests/payload/mutation-check.py`); the tests assert that no installer enables the access-point stack at
+   boot and that the dependencies `iw`, `iproute2` and `rfkill` are declared. A payload change ships on every target.
+8. **First-boot provisioning.** A unit that runs the provisioner until it has succeeded once (at every boot and on a timer while pending, with
+   a bounded number of failed automatic runs), a done marker written only on success (on the Plasma edition only when the models are on the machine), a status file for "degraded", and a
+   re-run command (`sudo ci-os-setup`). The unit must not hold the boot targets (the ISO #4 defect: `Type=oneshot` held `graphical.target` for
+   16 min 27 s). See [`cachyos-backend.md`](cachyos-backend.md#the-three-provisioning-layers) and
+   [`one-click-install.md`](one-click-install.md) for the two shapes.
+9. **The model gate.** Models are never baked into an image. A target pulls them through the shared gate `ci_os_model_gate_allows`
+   (`core/lib/gpu-detect.sh`), which needs `core/manifest/model-packs.yaml` on the installed machine to have data: stage it (KI-01, where the
+   CachyOS edition does not), and know that the gate checks RAM and GPU memory and **not disk space**.
+10. **A Stick and Secure Boot stance, written down.** Whether the image can be carried by `ci-stick` (Ubuntu: yes, casper and Canonical's signed
+    chain; CachyOS: no, the boot menu is built for casper, `stick/crates/ci-stick/src/bootcfg.rs`) and whether it boots with Secure Boot on
+    (Ubuntu: inherited, `verify-iso.sh` compares the binaries; CachyOS: no, unsigned GRUB and kernels). A target that says yes to the Stick adds a
+    boot profile to `bootcfg.rs` and a `boot_profile` field to the bundle schema, and an archiso-shaped boot image for `stick/tests/qemu/`.
 
-Every `backends/<distro>/` implements: **(1)** manifest-consumer, **(2)** theme-render-consumer
-(installs `core/render/*` outputs via its native mechanism), **(3)** identity-writer,
-**(4)** a declared output mode (bootable image / idempotent provisioning script / theme-only
-script / OCI image / Nix flake — not every backend needs every mode), **(5)** a validation
-hook, **(6)** a CI lint/smoke test. Implementing only modes 2-3 (no image build) is fully
-compliant, not a shortcut — CI-OS's own README already treats the Ubuntu ISO path as
-"secondary, not the product path."
+Evidence for a new target goes into [`test-evidence.md`](test-evidence.md) with the tags, its text records into
+[`../evidence/`](../evidence/README.md), and the new rows into the capability matrix of [`supported-targets.md`](supported-targets.md).
 
-## Rollout
+## 11. Rollout history
 
-| Phase | Backend | Effort | Notes |
-|---|---|---|---|
-| 1 | Ubuntu | L (baseline) | Reference implementation; full refactor + close theming gaps + provisioning consolidation |
-| 2 | Mint | S | **Implemented.** Reuses Ubuntu's apt role-map (`provision.sh` is a thin wrapper) and Ubuntu's Plymouth/GRUB/MOTD steps by path; new work is Cinnamon dconf/session theming + Slick-Greeter login branding. No ISO mode. Known gap: no Mint-specific terminal theming or start-icon/os-release branding yet — see `backends/mint/desktop-theme/apply-ci-os-desktop.sh`'s header. |
-| 3a | Fedora (provisioning+theming) | M | **Implemented.** `provision.sh` is a genuine dnf reimplementation (dnf syntax/package names differ too much from apt for a thin wrapper). GDM/GNOME-Shell branding does *not* use the gresource pattern after all — see the note below. |
-| 3b | Fedora ISO (kickstart/lorax) | L | Zero reuse from debootstrap/squashfs/xorriso; can slip independently |
-| 4 | Arch | M | **Implemented.** `provision.sh` is a genuine pacman reimplementation (rolling-release partial-upgrade and no-autostart conventions have no apt/dnf analog — see its own header). GNOME Shell/GDM branding reuses the same accent-color mechanism Fedora uses (independently re-confirmed for Arch, not assumed). `15-grub-theme.sh` is the one new structural piece: a GRUB-vs-systemd-boot detect-and-delegate wrapper, since Arch has no installer flavor guaranteeing GRUB is present. |
-| 5 | Bazzite | L/XL | **Implemented.** Fundamentally different execution model — see the section below. Targets KDE Plasma (Bazzite's flagship variant), adapts to Podman rather than Docker CE, bakes theming + most ecosystem tools into the image, defers $HOME-writing tools (uv/asdf/Node/the `ci` user) and credential-gated deploys (CI-Hub, Ollama models) to first-boot systemd units. |
-| 6 | NixOS | L | **Implemented.** A second fundamentally different execution model — see the section below. A Nix flake exposing importable `nixosModules`, not a provisioning script or an image build. Requires reversing CI-OS's former "no Nix" rule (scoped to this one backend). |
-| 7 | CachyOS ISO | L | **ISO build implemented; not yet booted or installed.** A pinned CachyOS-Live-ISO profile plus a Companion OS overlay, built with the stock `mkarchiso` in a container; the online Calamares installer with a Companion overlay; first-boot provisioning reuses the Arch `provision.sh` behind a wrapper. No Secure Boot, and the Companion Stick can not boot it; see `docs/architecture/cachyos-backend.md`. |
+| Phase | Backend | Outcome |
+|---|---|---|
+| 1 | Ubuntu | Reference implementation; refactor, provisioning consolidation. **Supported**, ported to 26.04.1 on 2026-10-17 and 2026-10-18. |
+| 2 | Linux Mint | Thin wrapper over the Ubuntu backend. Retired (tag `pre-retire-multidistro-2026-10-17`). |
+| 3a | Fedora provisioning and theming | dnf reimplementation; showed that the gresource mechanic does not apply to a distribution that compiles the shell theme in. Retired (tag `pre-retire-multidistro-2026-10-17`). |
+| 3b | Fedora ISO | Never built. |
+| 4 | Arch | pacman reimplementation. **Kept as the frozen engine under CachyOS**, not a target. |
+| 5 | Bazzite | OCI image layering with bootc. Retired (tag `pre-retire-multidistro-2026-10-17`). |
+| 6 | NixOS | A flake of importable modules; never evaluated with a real Nix toolchain. Retired (tag `pre-retire-multidistro-2026-10-17`). |
+| 7 | CachyOS | Pinned CachyOS-Live-ISO profile plus a Companion overlay. **Supported.** |
+| 8 | Consolidation (2026-10-17) | Owner decision: only Ubuntu 26.04 and CachyOS; four backends removed; Ubuntu 24.04 retired. |
 
-Deferred, tracked but not committed: Mint ISO-building, Arch archiso profile-building (explicitly
-out of scope for Phase 4 — no default DE, no shared code with kickstart/debootstrap, low payoff
-relative to effort; Phase 7 builds an ISO from a pinned CachyOS profile instead, not an Arch-native one), Fedora kickstart/lorax (can slip past 3a), Bazzite model-baking into the
-image (default: pull at first boot, not baked in), Arch AUR-helper automation (Phase 4's
-`install_vscode()`/`install_companion_launcher()` stub rather than invoke yay/paru, per this
-deferral).
+**Deferred, tracked, not committed:**
 
-## Security note
+* Arch archiso profile-building (out of scope for phase 4: no default desktop, no shared code with the Ubuntu remaster, low payoff;
+  phase 7 builds from a pinned CachyOS profile instead).
+* **Arch AUR-helper automation (manual/documented first).** `install_vscode()` and `install_companion_launcher()` stay stubs
+  rather than invoke yay or paru.
+* An offline CachyOS installer (`unpackfs` of the live squashfs), a GNOME edition of CachyOS, and an archiso boot profile for the
+  Companion Stick.
+* Secure Boot for the CachyOS edition (`sbctl` user keys on the installed system).
 
-An earlier audit of the provisioning scripts found and removed three checked-in credential
-leaks (a live Cloudflare API token, a shared tunnel token, and a dev registry credential
-fallback) — see the repo's commit history for the fix. `core/manifest/ecosystem.yaml`'s
-`requires_secrets`/`requires_pairing` fields exist specifically so CI-Hub's credential
-requirements stay documented and explicit rather than defaulting to something checked into
-source again.
+## 12. Security note
+
+An earlier audit of the provisioning scripts found and removed three checked-in credential leaks (a live Cloudflare API token, a
+shared tunnel token and a development registry credential fallback); see the commit history. `core/manifest/ecosystem.yaml`'s
+`requires_secrets` and `requires_pairing` fields exist so that CI-Hub's credential requirements stay documented and explicit
+rather than defaulting to something checked into source again. Credentials named by the repository review of 2026-10-12 are still
+to be rotated; that is tracked in [`known-issues-and-decisions.md`](known-issues-and-decisions.md), and no document in this
+repository copies a credential value.

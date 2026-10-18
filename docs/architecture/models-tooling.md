@@ -14,24 +14,27 @@ that day. Where something was not executed, the text says so ([Not verified](#no
 
 ## 1. Status
 
-Read from the repository on 2026-10-17. The download code and the OS adapter were still being finished by other
-work packages when this was written, so re-check the files named here before relying on a row.
+First written 2026-10-17 while the download code and the OS adapter were still being finished; this table was
+re-read against the repository on 2026-10-18 (HEAD `02c575e`). Evidence tags: **[V]** verified by running or
+reading the file named, **[I]** implemented and tested on fixtures, not proven end to end, **[N]** not implemented.
 
 | Piece | State | Where |
 |---|---|---|
 | Pack catalog: `appliance-core`, reference spelling, cross-pack consistency, Hugging Face spelling | **done**, tested | `core/manifest/model-packs.yaml`, `manifest.rs`, `packs.rs` |
 | Licence table and release gate (`LicenseTable`, `release_blockers`, `acceptance_required`) | **done**, tested. `fetch` does **not** use it yet: it gates only the licence string `unverified` (`fetch/plan.rs`, `license_needs_acceptance`), so Gemma and Llama terms are not yet asked for | `core/manifest/licenses.yaml`, `packs.rs` |
 | Schema validator, mutation tests, example with a Hugging Face model | **done**, tested | `tests/schema.rs`, `tests/support/minischema.rs`, `schema/examples/` |
-| Catalog-versus-lock comparison and the "resolved" accessor | **done**, tested. The repository lock does not exist yet, so the live comparison skips and says so | `packs.rs` (`LockView`, `lock_drift`, `resolve_packs`) |
+| Catalog-versus-lock comparison and the "resolved" accessor | **done**, tested. The repository lock exists now, so `catalog_sizes_match_the_lock_when_it_exists` compares for real (it no longer prints `SKIPPED`) | `packs.rs` (`LockView`, `lock_drift`, `resolve_packs`) |
 | Lock format, writer and checks | **implemented** | `lockfile.rs`, `registry/` |
 | `ci-stick models lock` | **implemented** for Ollama-library models (manifest lists resolved to the llama.cpp/GGUF child). `hf.co/...` references are skipped with a message. `--check` exits 3 on drift. A dry run into a scratch file on 2026-10-17 resolved all 36 distinct catalog models in 19 s; the only size difference from the catalog was `glm-ocr:latest` | `cmd_models.rs` |
-| The generated lock `core/manifest/model-packs.lock.json` | **not in the repository yet** | |
+| The generated lock `core/manifest/model-packs.lock.json` | **committed** in `89f7b27` [V]: schema 1, generated 2026-10-17T20:15:00Z, registry `https://registry.ollama.ai`, 36 models, all eight packs, 406,877 bytes. Its sizes sum (shared models counted once) to 320,261,934,062 bytes, the 320.3 GB `ci-stick models list` prints. Ollama references only | `core/manifest/model-packs.lock.json` |
 | `models plan`, `models fetch`, `models cache-info` | **implemented** for Ollama references: ranged, resumable, SHA-256-verified downloads, manifest written last, `--offline`, `--max-bytes-per-sec`, `--concurrency` (default 1), `--events`, `status.json`, SIGINT/SIGTERM handling. Tested against local listeners, no real registry | `cmd_models.rs`, `fetch/`, `cache/`, `net.rs`, `events.rs`, `tests/models_*.rs` |
 | `models verify`, `gc`, `export`, `import`, `view` | **not built** in `ci-stick` | |
 | Hugging Face download (lock, fetch, view) | **not built**; references are recognised and set aside | |
-| OS adapter, hardware gate, Hugging Face symlink view, prefetch units | **in progress in a separate work package** (work package 6); not reviewed by this document's author | `core/lib/ci-os-models.sh`, `core/lib/gpu-detect.sh`, `backends/ubuntu/chroot/payload/models/` |
+| OS adapter, hardware gate, Hugging Face symlink view, prefetch units | **implemented** [I] in `df4ed3f` (work package 6): five test files plus a 110-mutant suite; the payload README records them passing on a stock Mac (bash 3.2, BSD awk) and, after the move to 26.04, in an `ubuntu:26.04` container (bash 5.3.9, uutils coreutils 0.10, mawk and gawk; `models-all.sh --mutation` 114 checks, 0 mutants survived). `check-repo.sh` runs the suites. **Nothing has run on a booted image, with real systemd, a real exFAT volume, a real GPU or a real `ci-stick`** | `core/lib/ci-os-models.sh`, `core/lib/gpu-detect.sh`, `backends/ubuntu/chroot/payload/models/`, `backends/ubuntu/chroot/tests/models-*.sh` |
+| Hardware gate called by the provisioners | **wired** [V by reading]: Ubuntu (`backends/ubuntu/provision/provision.sh`, before `qwen3.6:27b`), the Arch engine (`backends/arch/provision/provision.sh`, so CachyOS too) and the CachyOS wrapper (`backends/cachyos/provision/provision.sh`, which skips a model the gate refuses instead of counting it missing). It checks **RAM and GPU memory only** | `core/lib/gpu-detect.sh` (`ci_os_model_fits`, `ci_os_model_gate_allows`) |
+| Disk-space guard before a pull | **not built** [N]. Open item, section 14 | |
 | Binary distribution into the images (work package 7), `serve-cache`, schema version 2 | **not built** | |
-| Rust 1.75 compile of the whole tree | **not run here**: there is no 1.75 toolchain and no `rust` container image on this host. The `stick` job in PR checks runs `cargo +1.75 check --locked --all-targets`. The additions of this document's author use no API newer than 1.75 (read through, not compiled) | |
+| Rust 1.75 compile of the whole tree | **not run here** [N]: there is no 1.75 toolchain on the host that ran the 26.04 port either. The `stick` job in PR checks runs `cargo +1.75 check --locked --all-targets` and has not run on GitHub since | |
 
 ## 2. Summary
 
@@ -79,7 +82,7 @@ bundle.json (signed)  --->  stick
 - **`ci-stick` (Rust)** owns all network protocol logic, hashing, resume, the store writer, verification, gc,
   export/import, the HF view builder and progress events. It is the only component that talks to registries.
   It runs on macOS, Windows and Linux hosts (to populate a mounted stick) and on the booted OS.
-- **A thin shell adapter** (`core/lib/ci-os-models.sh`, being written by another work package) picks the cache directory, calls `ci-stick models fetch` if the binary exists and
+- **A thin shell adapter** (`core/lib/ci-os-models.sh`, `df4ed3f`) picks the cache directory, calls `ci-stick models fetch` if the binary exists and
   otherwise falls back to today's `ollama pull` for Ollama references only, and applies the hardware gate. It must not require Rust: `core/` and the shell backends never depend
   on `stick/`.
 - **CI Hub** owns the catalog and the online UX. `cihub models install` (which is `docker exec ollama pull`)
@@ -104,8 +107,8 @@ that `bundle.json` carries; the Rust types in `manifest.rs` are the source of tr
 | `appliance-core` | 3 | exactly what `core/manifest/ecosystem.yaml` `llm.models` pre-pulls: `nomic-embed-text:latest`, `gemma3:1b`, `qwen3.6:27b` (18.85 GB) |
 
 `appliance-core` exists because three places need "the models a provisioned machine must have" as a *pack*: the
-hardware gate for the 17.8 GB model on the backends that pull it unconditionally (Arch, Fedora, NixOS, CachyOS),
-a background prefetch (off by default) and the model-fit check. It aliases the first three `stick-128` entries,
+hardware gate for the 17.8 GB model on the backends that pull it (the Ubuntu provisioner and the Arch engine under
+CachyOS), a background prefetch (off by default) and the model-fit check. It aliases the first three `stick-128` entries,
 so one model has one set of facts, and a test keeps it equal to `ecosystem.yaml` in both directions.
 
 Rules the loader and the tests enforce:
@@ -169,9 +172,10 @@ number of bytes, or a catalog digest the lock does not pin. `packs::resolve_pack
 packs with the lock's size and digest applied, so `fit_report(&resolve_packs(..), capacity)` sizes a cache from the
 registry's numbers instead of a 2026-10-13 snapshot; `ResolvedModel` records where each value came from.
 
-The unit test `catalog_sizes_match_the_lock_when_it_exists` fails on drift once the lock file exists. Until then
-it prints `SKIPPED (this is not a pass)` on stderr (visible without `--nocapture`). Known drift at the time of
-writing:
+The unit test `catalog_sizes_match_the_lock_when_it_exists` fails on drift once the lock file exists, and it
+exists now (when it is absent the test prints `SKIPPED (this is not a pass)` on stderr). The drift below was found
+on 2026-10-17 and **is resolved**: the YAML now carries 2,655,025,740 for `glm-ocr:latest`, copied from the lock
+(with a comment in `model-packs.yaml` that says never to edit it by hand). It is kept as the worked example:
 
 | Model | Catalog (read 2026-10-13) | Registry (2026-10-17) | Cause |
 |---|--:|--:|---|
@@ -404,8 +408,9 @@ Face, `ggml-org/models-moved` `tinyllamas/stories260K.gguf` (1,185,376 bytes, no
 
 ## 10. Runtime integration on a booted stick or installed OS
 
-Work package 6 in the plan, written by a different group; this section is the design it was given, and the code is in `core/lib/ci-os-models.sh`, `core/lib/gpu-detect.sh` and
-`backends/ubuntu/chroot/payload/models/` (see its README). Read those, not this paragraph, for what they do today.
+Work package 6 in the plan, written by a different group and committed in `df4ed3f`. This section is the design it was given; the code is in `core/lib/ci-os-models.sh`, `core/lib/gpu-detect.sh` and
+`backends/ubuntu/chroot/payload/models/` (see its README, which also lists what is not verified), and the CachyOS overlay carries copies of the units under
+`backends/cachyos/iso/overlay/files/airootfs/usr/share/ci-os/models/`. Read those, not this paragraph, for what they do today.
 
 - **Environment.** `ollama-models-env` writes `OLLAMA_MODELS` and `OLLAMA_NOPRUNE=1`. The design adds `CI_STICK_CACHE=<mnt>`, `HF_HUB_CACHE` and `LLAMA_CACHE` pointing at the view
   directory (llama.cpp reads `LLAMA_CACHE` first and uses it as the hub directory itself). `HF_HUB_OFFLINE=1` only inside the units that run models, not globally; do not set `HF_HOME`
@@ -414,14 +419,21 @@ Work package 6 in the plan, written by a different group; this section is the de
 - **Prefetch.** A timer plus service, enabled only by a flag file, throttled, idle I/O class, an `ExecCondition=` that checks NetworkManager's `Metered` property; default off. systemd
   has no per-unit bandwidth cap, so the limit is the tool's token bucket (`--max-bytes-per-sec`).
 - **Where it may write.** On a Stick live boot the only valid targets are `CI-CACHE` and the persistence volume; on an installed system, the Ollama store. Never RAM.
-- **Hardware gate.** Before this work only Ubuntu gated the 17.8 GB model, and by a vendor rule (Strix Halo with at least 30,000 MiB). The design replaces it with data: RAM, VRAM and
-  disk against each model's `min_ram_gb` and `min_vram_gb`, counting unified-memory machines as having their GPU-addressable share (CI Hub's `computeInferenceBudget` fractions are the ones
-  to copy). The adapter reads those numbers from `model-packs.yaml`; `appliance-core` is the pack that carries the 17.8 GB model on Arch, Fedora, NixOS and CachyOS.
+- **Hardware gate.** Before this work only Ubuntu gated the 17.8 GB model, and by a vendor rule (Strix Halo with at least 30,000 MiB). The design replaces it with data: RAM and GPU
+  memory against each model's `min_ram_gb` and `min_vram_gb`, counting unified-memory machines as having their GPU-addressable share (CI Hub's `computeInferenceBudget` fractions were the ones
+  to copy; the code applies the practical minimums without a second fraction, see the header of `core/lib/gpu-detect.sh`). The rule, from that header: RAM needs at least `min_ram_gb` GiB x 91 %;
+  a numeric `min_vram_gb` needs GPU memory of at least that many GiB x 95 % (a CPU-only machine does not fit such a model unless `CI_OS_FIT_CPU_OK=1`); a unified-memory machine needs
+  `MemTotal` plus the BIOS carve-out to cover `max(min_ram_gb, min_vram_gb)` at the RAM percentage. The first draft of this paragraph said "RAM, VRAM and disk": **the code does not check
+  disk** (section 14, item 1). The adapter reads the numbers from `model-packs.yaml`; `appliance-core` is the pack that carries the 17.8 GB model on the Ubuntu and CachyOS editions.
+  **Operator overrides** (all read in `core/lib/gpu-detect.sh`): `CI_OS_MODEL_FIT_OVERRIDE=allow|deny` forces the answer of `ci_os_model_fits` before any data is read (`allow` pulls a model the machine does not fit, `deny` skips every model);
+  `CI_OS_MODEL_RAM_PCT` (default 91) and `CI_OS_MODEL_VRAM_PCT` (default 95) move the percentages; `CI_OS_FIT_CPU_OK=1`, `CI_OS_FIT_RAM_MIB`, `CI_OS_FIT_VRAM_MIB`, `CI_OS_FIT_UNIFIED` and `CI_OS_MODEL_PACKS_FILE` are for support and tests. Without a `model-packs.yaml` the gate has no data and
+  does not block (the CachyOS edition's situation, KI-01). The table of these variables is in the [environment reference](../guides/environment-reference.md#models-and-the-hardware-fit-gate).
 - **Getting `ci-stick` into the OS** is unsolved: no backend ships it. Options: the bundle's `tools/linux-x86_64/ci-stick` on `CI-SHARED` (exFAT is mounted `noexec`, so copy to tmpfs first); bake
   it into the base layer with a pinned sha256 in `tier-b-pins.env`; a static musl build. New payload files belong in the **base** layer so they exist on the installed system too
   ([ubuntu-iso-layers.md](ubuntu-iso-layers.md)).
-- **Live sessions.** `ollama.service` is disabled in Stick live sessions today. Until that is decided (stick audit decision D5, open), the cache is only reachable through `ci-stick` and
-  `llama-server -m`.
+- **Live sessions.** `ollama.service` is disabled in Stick live sessions today (the Ubuntu `10-not-live.conf` drop-in). Until that is decided (stick audit decision D5, open), the cache is only reachable through `ci-stick` and
+  `llama-server -m`. On the CachyOS edition `ollama.service` is installed by Calamares but left disabled; the first-boot provisioning enables it, so `ollama --version` prints two "no server" warnings between the install and the end of the first
+  boot (seen on ISO #4, [cachyos-backend.md](cachyos-backend.md#test-status)).
 
 ## 11. Decisions
 
@@ -431,7 +443,7 @@ The numbering is this document's own. "Audit D5" below is decision D5 of the sti
 |---|---|---|---|
 | D1 | HTTP and TLS stack | `ureq` **3.2.1**, `default-features = false`, `rustls` (ring), pinned with `=`, behind `net::Transport` (`UreqTransport`). A `curl` implementation can replace it; it cannot enforce public-IP checks or token scoping beyond curl's defaults, so it is the OS-adapter fallback, not the primary. Under MSRV-aware resolution the dependency adds 26 lock entries (17 on non-Windows) and no ICU or `url` stack; ureq 3.4.2 and reqwest 0.13.5 declare Rust 1.85, which is why the pin and `stick/.cargo/config.toml` matter. *Implemented.* | A compile with Rust 1.75 was not run here (section 1); release-binary size; a TLS-intercepting proxy needs `rustls-native-certs` behind a CA-bundle option; `ureq::unversioned` is an unstable API, hence the exact pin |
 | D2 | Schema and spelling | `Model` and `schema_version` unchanged. A Hugging Face model is `name: hf.co/<org>/<repo>`, `tag: <quant>`. The bundle schema is not tightened. *Implemented and tested.* | First-class `source`, `runtime` and `hf` fields arrive with `schema_version: 2` only when a non-GGUF consumer needs them; a writer emits 2 only when it uses one, and a reader should peek the version before the full parse so a v3 says "needs a newer ci-stick" |
-| D3 | Lock | Separate canonical JSON `core/manifest/model-packs.lock.json`, generated, committed; manifest bytes and small blobs inline; list digest and child digest both pinned; the catalog's sizes are a copy of it. *Format and `models lock` implemented; the file is not committed yet.* | Who runs `models lock` and when (a scheduled `--check` job is suggested); the lock's own `schema_version` policy |
+| D3 | Lock | Separate canonical JSON `core/manifest/model-packs.lock.json`, generated, committed; manifest bytes and small blobs inline; list digest and child digest both pinned; the catalog's sizes are a copy of it. *Format and `models lock` implemented; the file is committed (`89f7b27`, 2026-10-17).* | Who runs `models lock` and when (a scheduled `--check` job is suggested); the lock's own `schema_version` policy |
 | D4 | Cache layout | One content-addressed store: Ollama's `models/{blobs,manifests}` plus `ci-models/` for files Ollama must not see; partials outside `models/blobs`; written by `ci-stick` with no daemon; manifest last. *Implemented for Ollama references.* | Ollama 0.40.x reading a legacy-only seed, and writing to a real exFAT volume, were not executed |
 | D5 | Hugging Face-layout consumers | A symlink *view* built at boot on a Linux-native filesystem, zero duplicate bytes; a copy only with an explicit `--allow-duplicate`. *Built in the shell adapter, not in `ci-stick`.* | Whether the view lives on the host root, `CI-PERSIST` or tmpfs; hot-plug of `CI-CACHE` is not handled (Ollama picks the volume at start) |
 | D6 | Hugging Face scope, v1 | Single-file, ungated GGUF. Shards, safetensors, pickle-family files and gated repos are refused. *Not built: references are set aside.* | Sharded GGUF (Ollama's registry answers 400 for them; whether a hand-written manifest with N model layers loads is untested), safetensors for non-Ollama runtimes |
@@ -450,18 +462,18 @@ Effort: S up to a day, M two to four days, L five to eight.
 
 | # | Package | Effort | State |
 |---|---|---|---|
-| WP1 | Protocol clients and lock (`registry/`, `lockfile.rs`, `net.rs`, `cmd_models.rs`, `ureq` dependency, `.cargo/config.toml`) | L | Ollama half implemented; Hugging Face half not built; the lock file is not committed |
+| WP1 | Protocol clients and lock (`registry/`, `lockfile.rs`, `net.rs`, `cmd_models.rs`, `ureq` dependency, `.cargo/config.toml`) | L | Ollama half implemented; Hugging Face half not built; the lock file is committed (`89f7b27`) |
 | WP2 | Cache store and fetch engine (`cache/`, `fetch/`, `events.rs`; `plan`, `fetch`, `cache-info`) | L | implemented for Ollama references |
 | WP3 | `verify`, `gc`, `export`, `import`, licence gating | M | not built; the licence table exists (WP4) |
 | WP4 | Schema tie and catalog (this document's owner) | M | **done** |
 | WP5 | Hugging Face view and consumer environment | S-M | the view is built in the shell adapter (WP6), not in `ci-stick` |
-| WP6 | OS adapter, units, hardware gate (`core/lib/ci-os-models.sh`, `gpu-detect.sh`, backend payloads) | M | in progress, separate group |
+| WP6 | OS adapter, units, hardware gate (`core/lib/ci-os-models.sh`, `gpu-detect.sh`, backend payloads) | M | implemented and tested on fixtures (`df4ed3f`); never run on a booted image |
 | WP7 | Binary distribution into the images | M | not built |
 | WP8 | Progress contract and portal glue (`status.json` writer is in WP2; optional socket; portal side belongs to the hotspot work) | S-M | status file implemented; socket not built |
-| WP9 | This document and the edits to companion-stick.md, model-packs-128gb.md, tier-b-tools.md | S | **done** (this commit) |
+| WP9 | This document and the edits to companion-stick.md, model-packs-128gb.md, tier-b-tools.md | S | **done** (`8a1763a`); re-read and updated 2026-10-18 |
 
 Phases. **Phase 1** (shippable alone): Ollama half of WP1 and WP2, and WP4: `models lock` fills digests, `models fetch` seeds a store that a real daemon lists, a drift check; the code
-for this exists, and what remains is committing the lock and running the daemon check. **Phase 2:** Hugging Face single-file GGUF in WP1 and WP2, WP3, WP5, WP6, WP7. **Phase 3:**
+for this exists and the lock is committed; what remains is running the daemon check against a seeded store. **Phase 2:** Hugging Face single-file GGUF in WP1 and WP2, WP3, WP5, WP6, WP7. **Phase 3:**
 schema version 2 (non-GGUF consumers), sharded GGUF, WP8's socket, the hardware gate on every provisioner. **Phase 4:** `serve-cache`, the ext4-cache variant, mirror support.
 
 ## 13. Registry and filesystem facts the design relies on
@@ -480,9 +492,28 @@ Measured on 2026-10-17 unless noted.
   is a Xet hash, not the sha256; a plain ranged `GET` works. Unauthenticated limits: 500 API calls and 3000 `resolve` calls per 300 s. A gated repo's
   metadata is public but `resolve` is `401 GatedRepo`; a private or missing repo is also 401, told apart by `x-error-code`. `https://hf.co/v2/...` redirects
   to `huggingface.co`. A sharded GGUF's Ollama manifest request answers `400`.
-- **exFAT.** No symlinks, no hard links. Permissions come from mount options and `chmod` is silently ignored. Case-insensitive, case-preserving; names up to
+- **exFAT.** (Read from Linux v6.8 sources, the 24.04 GA kernel. Ubuntu 26.04 ships kernel 7.0 (`7.0.0-30` on the 26.04.1 ISO, `7.0.0-38` in `-updates`); `fs/exfat` of 7.0 was **not** re-read [N].) No symlinks, no hard links. Permissions come from mount options and `chmod` is silently ignored. Case-insensitive, case-preserving; names up to
   255 UTF-16 units; 128 KiB clusters above 32 GiB with `mkfs.exfat`. No 4 GiB file limit (inherited, not tested on a real write). Linux does not fsck an
   unclean unplug.
+
+## 14. Open items
+
+Each says what is open and what closes it. Numbering is this document's own.
+
+1. **Disk-space guard for model pulls** [N]. The model set of a provisioned machine (`appliance-core`: `nomic-embed-text` 0.27 GB, `gemma3:1b` 0.81 GB, `qwen3.6:27b` 17.8 GB, 18.85 GB in all)
+   took the 30 GiB target of the CachyOS ISO #4 run from 7.8 GiB (27 %) to 26 GiB (88 %) used, with 3.7 GiB left; a smaller disk would fail a pull for lack of space. Neither the shared gate
+   (`ci_os_model_fits`, RAM and GPU memory only) nor the Arch script checks free space, and `ollama pull` does not refuse early. The right place is `ci_os_model_gate_allows` in
+   `core/lib/gpu-detect.sh`, which the Ubuntu provisioner, the Arch engine and the CachyOS wrapper all call: skip a model when the free space of the model directory is below its `size_bytes` plus a
+   margin, and have the CachyOS wrapper not count a skipped model as missing (it already does this for a model the RAM/GPU gate refuses). It cannot be done in the CachyOS wrapper alone without editing
+   `backends/arch/**` (decision D8). Close with: the guard, a table test beside `backends/ubuntu/chroot/tests/models-gate.sh`, and one provisioning run on a small disk image.
+2. **Hugging Face half** of `lock`, `fetch` and `view` in `ci-stick` [N]; the OS adapter builds the symlink view in shell from a lock that has no Hugging Face entry yet.
+3. **`models verify`, `gc`, `export`, `import`** [N].
+4. **Licence gating in `fetch`** [N]: it asks for acceptance only when the licence string is `unverified`; Gemma and Llama terms (`gate: accept` in `licenses.yaml`) are not asked for. Legal review of those terms is also open.
+5. **Ollama 0.40.x reading a legacy-only seeded store, and writing to a real exFAT volume** [N]: proven on 0.33.3 on APFS only.
+6. **`ci-stick` inside the images** (WP7) [N]: no backend ships it, so on an image the adapter falls back to `ollama pull` for Ollama references and refuses Hugging Face ones.
+7. **Rust 1.75 compile** [N] (section 1).
+8. **Hot-plug of `CI-CACHE`** [N]: Ollama picks the volume at start.
+9. **Ollama in a Stick live boot** (audit D5): see section 10.
 
 ## Not verified
 
@@ -500,7 +531,7 @@ Measured on 2026-10-17 unless noted.
 |---|---|
 | Pack catalog | `core/manifest/model-packs.yaml` |
 | Licence table | `core/manifest/licenses.yaml` |
-| Lock (generated; not committed yet) | `core/manifest/model-packs.lock.json` |
+| Lock (generated, committed in `89f7b27`) | `core/manifest/model-packs.lock.json` |
 | Catalog, lock reader, drift, licence table, release gate | `stick/crates/ci-stick/src/packs.rs` |
 | `Model`, reference grammar, `ModelSource` | `stick/crates/ci-stick/src/manifest.rs` |
 | Bundle schema and examples | `stick/schema/bundle.schema.json`, `stick/schema/examples/` |
@@ -510,4 +541,4 @@ Measured on 2026-10-17 unless noted.
 | `models plan`, `lock`, `fetch`, `cache-info` | `stick/crates/ci-stick/src/cmd_models.rs`, `fetch/`, `registry/`, `cache/`, `events.rs` |
 | HTTP transport and redirect policy | `stick/crates/ci-stick/src/net.rs` |
 | Tests of the download code and golden manifests | `stick/crates/ci-stick/tests/models_*.rs`, `tests/models_support/`, `tests/fixtures/models/` |
-| OS adapter, hardware gate, view, prefetch (separate work package) | `core/lib/ci-os-models.sh`, `core/lib/gpu-detect.sh`, `backends/ubuntu/chroot/payload/models/` |
+| OS adapter, hardware gate, view, prefetch (`df4ed3f`) | `core/lib/ci-os-models.sh`, `core/lib/gpu-detect.sh`, `backends/ubuntu/chroot/payload/models/`, tests in `backends/ubuntu/chroot/tests/models-*.sh` |

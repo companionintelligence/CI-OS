@@ -8,7 +8,7 @@ The Companion Intelligence brand is defined once, in **CI-Common**:
 (`styles/tokens/src/tokens.json`, the one hand-edited token file). This repo does
 not restate it. Every colour the OS theming scripts use is a `CI_*` variable from
 `vendor/brand/tokens/tokens.sh`, vendored from CI-Common's brand bundle by
-`setup/scripts/vendor-brand.sh` and verified by `80-validate-ci-theme.sh`.
+`core/lib/vendor-brand.sh` and verified by `backends/ubuntu/desktop-theme/80-validate-ci-theme.sh`.
 
 | Role | Token | Value (canon 1.0) | Used by |
 | --- | --- | --- | --- |
@@ -23,5 +23,6 @@ The logo's own ramp (`#066c80` / `#00a9a7` / `#72ddd4`) is part of the mark artw
 desktop theme and this document used to be painted in it. Typography: Manrope
 (`vendor/brand/fonts/`) on branded surfaces; the desktop keeps the distro's system fonts.
 
-Refresh: `setup/scripts/vendor-brand.sh <version>` after a `@companionintelligence/tokens`
-release; see CI-Common `CONSUMING.md`, Route B.
+Refresh: `core/lib/vendor-brand.sh <version>` after a `@companionintelligence/tokens`
+release; see CI-Common `CONSUMING.md`, Route B. The follow-up steps (mirrors, the GNOME Shell gresource, its provenance file, the GRUB
+colours) are in [`core/README.md`](../../core/README.md#bumping-the-brand-bundle).

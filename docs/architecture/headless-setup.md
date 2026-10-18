@@ -17,8 +17,8 @@ code that is being landed in parallel (section 2.7).
 
 | Phase | Work package | State |
 |---|---|---|
-| P0 | **WP-A** stop-gap fixes on the current payload | Written in the working tree, **not committed** (another agent owns it). Section 2.7 lists what it changes and what it leaves. |
-| P0 | **WP-B** backend enablement (dependency lists, units not enabled at boot) | Edits to the Ubuntu, Mint, Fedora, Arch, CachyOS and NixOS packaging are in the working tree, **not committed**; not re-verified here. |
+| P0 | **WP-A** stop-gap fixes on the current payload | Written in the working tree, **not committed** when this was written (another agent owned it); landed in `b882e00`. Section 2.7 lists what it changes and what it leaves. |
+| P0 | **WP-B** backend enablement (dependency lists, units not enabled at boot) | Edits to the Ubuntu, Arch (the provisioning engine under CachyOS) and CachyOS packaging were in the working tree, **not committed**, when this was written, and landed in `b882e00` with WP-A; not re-verified here. The Mint, Fedora and NixOS copies of those edits went with their backends on 2026-10-17 (restore: tag `pre-retire-multidistro-2026-10-17`). |
 | P1 | **WP-C** core library | **Done** as a library: `core/headless/ci_setup/`, 26 modules, no service wiring. Section 6. |
 | P1 | **WP-G** hwsim test infrastructure | A QEMU-based harness exists in `stick/tests/qemu/` (another agent, in progress); section 9.5. |
 | P2 | WP-D agent and AP runtime, WP-E portal v2, WP-F console and names | Not started. They consume the library. |
@@ -33,9 +33,9 @@ code that is being landed in parallel (section 2.7).
 |---|---|---|---|---|
 | Network monitor | `usr/local/bin/setup-network-monitor.sh`, unit `systemd/system/setup-network-monitor.service` | root | boot | polls every 3 s: `ip route`, `ping 8.8.8.8`, `nmcli`; starts the AP after 2 failed checks past a 45 s grace |
 | AP start script | `usr/local/bin/setup-device-hotspot-start.sh` (`set -e`) | root | the monitor; `start_hotspot_services()` in the backend on any exception; the reset script | `docker stop traefik`, `systemctl start nginx`, writes `/etc/hostapd/hostapd-setup.conf` and `/etc/dnsmasq.d/setup-portal.conf`, `nmcli device set <if> managed no`, flushes and re-adds `192.168.99.1/24`, runs the pre-scan, starts `hostapd-setup` then `dnsmasq-setup` |
-| hostapd | `systemd/system/hostapd-setup.service`, `hostapd/hostapd-setup.conf` | root | the start script; also at boot on Ubuntu, Mint, Fedora and Arch (section 1.5) | nl80211, interface from the generated config |
+| hostapd | `systemd/system/hostapd-setup.service`, `hostapd/hostapd-setup.conf` | root | the start script; also at boot in the Ubuntu and Arch packages (section 1.5) | nl80211, interface from the generated config |
 | dnsmasq | `systemd/system/dnsmasq-setup.service` (`Requires=hostapd-setup`), `dnsmasq.d/setup-portal.conf` | root (drops to `nobody`) | same as hostapd | DHCP and a catch-all DNS on the AP interface |
-| nginx | `nginx/sites-available/setup-portal` | root master, `www-data` workers | start script; enabled at boot on 4 backends; always on in NixOS | `listen 80 default_server` and `[::]:80`, static portal, `/api/` proxied to `127.0.0.1:5000` |
+| nginx | `nginx/sites-available/setup-portal` | root master, `www-data` workers | start script; enabled at boot in the Ubuntu and Arch packages | `listen 80 default_server` and `[::]:80`, static portal, `/api/` proxied to `127.0.0.1:5000` |
 | Backend | `opt/setup-backend/setup_service.py`, unit `setup-backend.service` | **root**, `gunicorn --bind 127.0.0.1:5000 --workers 1 --threads 2` | boot | everything the API does: `nmcli`, `systemctl`, `ip`, `rfkill`, `netplan apply`, cloud HTTPS, writes under `/etc/setup-device` and `/var/lib/setup-device` |
 | Pre-scan | `usr/local/bin/setup-device-prescan.py` | root | start script, once, before the AP exists | `iw dev <if> scan`, writes `/var/lib/setup-device/last-scan.json` |
 | Hub hand-off | `usr/local/bin/ci-os-hub-start.sh`, `ci-os-post-validation.sh` | root | backend after pairing | sources `hub.env`, `provision.sh --step=ci-hub`, ROCm and Ollama pulls |
@@ -99,11 +99,11 @@ code that is being landed in parallel (section 2.7).
 
 | Backend | Boot-enabled units | Live-session behaviour | Notes |
 |---|---|---|---|
-| Ubuntu, Mint (`DEBIAN/postinst`) | hostapd-setup, dnsmasq-setup, nginx, setup-backend, setup-network-monitor | Ubuntu ISO: `10-not-live.conf` drop-ins keep those units off (`customize-chroot.sh`, asserted by `verify-iso.sh`) | `Depends` lacked `iw`; the ISO build installs it separately |
-| Fedora, Arch | same five | n/a | both print "only start once the monitor detects no connectivity", which was false; neither list had `iw` |
+| Ubuntu (`DEBIAN/postinst`) | hostapd-setup, dnsmasq-setup, nginx, setup-backend, setup-network-monitor | Ubuntu ISO: `10-not-live.conf` drop-ins keep those units off (`customize-chroot.sh`, asserted by `verify-iso.sh`) | `Depends` lacked `iw`; the ISO build installs it separately |
+| Arch (`install.sh`, the engine under CachyOS) | same five | n/a | prints "only start once the monitor detects no connectivity", which was false; the list had no `iw` |
 | CachyOS | setup-backend, setup-network-monitor | the live ISO has no hostapd, nginx, gunicorn or flask; the payload is staged on the target only | README: "runs only when it is needed" |
-| NixOS | the four units gated by `ConditionPathExists=!<hub.env>`; **nginx always on** | n/a | a stale `:5002` nginx proxy block that the payload removed |
-| Bazzite | none | n/a | deliberately no portal |
+
+Retired on 2026-10-17 (restore from the tag `pre-retire-multidistro-2026-10-17`): the Mint, Fedora, NixOS and Bazzite packaging. The audit's findings on them went with them: the same five units enabled at boot by two of them, a stale `:5002` nginx proxy block and an always-on nginx in a third, and no portal at all in the fourth.
 
 Doc drift: `docs/Create-headless-setup.md` (the original spec) says the pairing code is `XXX-XXX`, root-only, expires in 24 h and is
 validated, that the hotspot units are gated on `setup-complete`, that the SSID is `Setup-Device-XXXX`, and that the page needs no
@@ -128,7 +128,7 @@ Severity: **Critical** = a stranger in radio range or on the LAN changes the dev
 |---|---|---|---|---|---|
 | S1 | Critical | `/api/configure` needs no credential. With `require_pairing` it only checks "6 characters were typed" before creating the profile and queuing the join; the local `validate_pairing_code` has no callers. With no Launcher process (every Stick, every CachyOS box) there is no check at all. | V | no | per-session AP key + PIN + token (4.1), `auth.py` |
 | S2 | Critical | The AP passphrase `SetupDevice123` is a public constant committed in four places; the portal is plain HTTP, so the Wi-Fi password and pairing code cross a link whose key everyone has. | V (constant), I (decryption: a WPA2-PSK property) | partly: the generated configuration is private, the committed default stays | per-session random key (4.1) |
-| S3 | High | Anyone who can reach port 80 can use the API (`listen 80 default_server`, no `allow`/`deny`); nginx enabled at boot on 4 backends. | V | **yes**: `allow` for the AP subnet and loopback, `deny all` on `/api/` | portal on the AP address only (4.0) |
+| S3 | High | Anyone who can reach port 80 can use the API (`listen 80 default_server`, no `allow`/`deny`); nginx enabled at boot on four backends at the audit (two of them since retired). | V | **yes**: `allow` for the AP subnet and loopback, `deny all` on `/api/` | portal on the AP address only (4.0) |
 | S4 | High | An unauthenticated caller can make the device delete NetworkManager profiles of **any** type whose name equals the posted SSID or "SSID N" (wired, VPN, Wi-Fi). | V | **yes**: only Wi-Fi profiles with this service's name prefix | `con-name = ci-setup-<uuid>` (4.7) |
 | S5 | High | The CI Hub on host port 5002 is meant to be reachable from the AP; its unauthenticated `GET /api/registration/device-id` mints the callback nonce and `POST /registration/callback` accepts the Hub's identity. An AP client can register an unclaimed Hub onto its own tunnel. | V (code), I (exploit not run) | no | nft drop at prerouting/raw (4.4); a Hub-side fix is a CI-Hub task |
 | S6 | High | No firewall for the AP subnet; Docker-published ports are NAT'd before the filter chains ufw manages, so a ufw INPUT rule would not protect 5002; Ollama on `0.0.0.0:11434` is open to the AP. | V (docs), I (reachability) | no | `fw.py` ruleset (4.4); packet test, section 9.3 |
@@ -173,7 +173,7 @@ and HTML responses where they are escaped. The hostapd and dnsmasq files were ge
 | ID | Sev | Defect | Tag | Stop-gap | Closed by |
 |---|---|---|---|---|---|
 | L1 | High | The radio is set `managed no` at AP start and back to `yes` only inside a successful portal run. A machine that boots a minute before its router becomes an AP and stays one. | V (code), I (scenario) | no (the monitor still never stops the AP) | idle duty cycle (4.4), `jobs.py` timeouts |
-| L2 | High | `hostapd-setup`, `dnsmasq-setup` and `nginx` enabled at boot on four backends with a static config naming `wlp192s0`: on any other machine hostapd restarts every 5 s forever. | V (units), I (runtime) | **yes**: not enabled at boot (WP-B) | agent starts the AP target on demand |
+| L2 | High | `hostapd-setup`, `dnsmasq-setup` and `nginx` enabled at boot on four backends (two since retired) with a static config naming `wlp192s0`: on any other machine hostapd restarts every 5 s forever. | V (units), I (runtime) | **yes**: not enabled at boot (WP-B) | agent starts the AP target on demand |
 | L3 | High | `docker stop traefik` at every AP start, guarded by `docker ps \| grep -q traefik`; nothing ever starts it again. | V | **yes** (per the working tree) | redirect 80 to 8080 instead (4.4) |
 | L4 | High | No cleanup: the `192.168.99.1/24` address, nginx, the DNS log and the unmanaged flag stay; `set -e` with no trap leaves NM unmanaged on a failure. | V | **yes**: trap and cleanup | `ExecStopPost` + reconcile pass (4.4) |
 | L5 | Medium | `wifi_link_active_or_connecting` matches only a bare `connected`, but `nmcli` prints `connecting (getting IP configuration)`, `connected (externally)` ... | V | **yes**: matches `connecting*` and `connected*` | `parse_device_state` (keeps the detail apart) |
@@ -199,8 +199,8 @@ and HTML responses where they are escaped. The hostapd and dnsmasq files were ge
 
 | ID | Sev | Defect | Tag | Stop-gap | Closed by |
 |---|---|---|---|---|---|
-| K1 | Medium | Arch and Fedora print that the AP units "only start once the monitor detects no connectivity" right after enabling them at boot. | V | **yes**: the units are no longer enabled and the message is true | n/a |
-| K2 | Medium | Undeclared runtime dependencies: `iw` missing from the deb `Depends`, `ARCH_DEPS` and `FEDORA_DEPS`; `ip`, `rfkill`, `ping`, `nslookup`, `systemd-cat`, `stat -c` assumed. | V | **yes** for `iw`, `iproute`, `util-linux` in the lists read | the lists of 4.8 |
+| K1 | Medium | Arch printed that the AP units "only start once the monitor detects no connectivity" right after enabling them at boot (a second backend, since retired, printed the same). | V | **yes**: the units are no longer enabled and the message is true | n/a |
+| K2 | Medium | Undeclared runtime dependencies: `iw` missing from the deb `Depends` and from `ARCH_DEPS` (and from the list of a third backend, since retired); `ip`, `rfkill`, `ping`, `nslookup`, `systemd-cat`, `stat -c` assumed. | V | **yes** for `iw`, `iproute`, `util-linux` in the lists read | the lists of 4.8 |
 | K3 | Medium | No test exercises any payload code. | V | **yes**: payload tests under `core/headless/tests/payload` (another agent's) | the `ci_setup` suites, section 9 |
 | U1 | Low | The portal polls `/api/health` (404) every 5 s. | V | **yes**: the route exists | n/a |
 | U2 | Low | `runLegacyCaptivePortalDismissal()` navigates to `captive.apple.com/hotspot-detect.html`, which dnsmasq resolves to the portal and nginx redirects straight back, so it can never produce the "Success" page. | I | no | `captive.py` answers it in the done state |
@@ -324,7 +324,7 @@ constant is gone.
 
 The static guards (`ConditionPathExists=!/cdrom/casper/vmlinuz` on five units) are replaced by **one decision function**: the agent
 always runs; policy decides whether it opens an AP. Inputs: the kernel command line (`ci.headless=0|1|auto`, `ci_stick.slot=`,
-`boot=casper`, `archisobasedir`, `rd.live.image`), connected DRM connectors, the claim state (`hub.env` or `cloud_credentials.json`),
+`boot=casper`, `archisobasedir`, and `rd.live.image`, a dracut live image that no supported edition uses; `is_live_boot` in `core/headless/ci_setup/sysinfo.py` still tests for it and this list is kept in step with it), connected DRM connectors, the claim state (`hub.env` or `cloud_credentials.json`),
 network state, the provisioning file, the radio probe, the credential channel. The table below is generated by
 `python3 -m ci_setup policy --matrix --table` and pinned by a golden-file test (with a printed setup key present):
 
@@ -479,18 +479,17 @@ names never collide with other profiles (closes S4 and I5).
 
 Code stays in `core/headless/payload/` (shared by every backend; security-sensitive). Today `ci_setup/` sits next to it, as a package
 with no dependency on the payload; the later layout puts it at `opt/setup-backend/ci_setup/`, with the templates at
-`ci_setup/templates/`. A new payload file needs an entry in each backend's explicit file list (`REQUIRED_FILES` in the Ubuntu and Mint
-`build.sh`, the required list in the Fedora and Arch `install.sh`, the `install` lines of the NixOS module, a `rule()` line in the CachyOS
+`ci_setup/templates/`. A new payload file needs an entry in each backend's explicit file list (`REQUIRED_FILES` in the Ubuntu
+`build.sh`, the required list in the Arch `install.sh`, a `rule()` line in the CachyOS
 `stage-headless.sh` and its parity test). Python 3.8 or newer is required (the Ubuntu 20.04 floor); no third-party package.
 
 | Backend | Changes for the redesign (steward rule: explicit file lists) |
 |---|---|
-| Ubuntu `.deb`, Mint | `Depends`: drop `nginx-light` and `dnsmasq`, add `iw, nftables, iproute2, rfkill`, `Recommends: qrencode, avahi-daemon`; `postinst` enables only `ci-setup-agent`, no `/etc/hosts` edit; `build.sh` file lists |
+| Ubuntu `.deb` | `Depends`: drop `nginx-light` and `dnsmasq`, add `iw, nftables, iproute2, rfkill`, `Recommends: qrencode, avahi-daemon`; `postinst` enables only `ci-setup-agent`, no `/etc/hosts` edit; `build.sh` file lists |
 | Ubuntu ISO | replace the five `10-not-live.conf` drop-ins by the policy file; `verify-iso.sh` section 3 must change in the same commit (the layer-split work owns that file now) |
-| Fedora, Arch | `install.sh`: dependency lists add `iw nftables iproute rfkill` (and `qrencode`), drop `nginx`; stop enabling the AP units; fix the misleading log lines |
+| Arch | `install.sh`: dependency list adds `iw nftables iproute rfkill` (and `qrencode`), drops `nginx`; stop enabling the AP units; fix the misleading log lines |
 | CachyOS | `packages_online.conf`: remove `nginx`, add `nftables`, `qrencode`; `stage-headless.sh` rules for the new paths; the live ISO needs `hostapd`, `python-flask`, `gunicorn` for headless live mode |
-| NixOS | `headless-setup.nix`: drop the nginx virtual hosts, add the units and the nft table, keep the `ConditionPathExists=!hub.env` claim gate |
-| Bazzite | none (no portal) |
+| Retired backends | none: removed 2026-10-17, restore from the tag `pre-retire-multidistro-2026-10-17` |
 | Stick | `grub.cfg.in` + `bootcfg.rs` entry `Companion OS (headless setup)` with `ci.headless=1`; optional `ci-stick wifi add`; a per-stick setup key written at flash time |
 
 ## 5. Decisions
@@ -666,7 +665,7 @@ Effort in engineer-days (S <= 1, M 2-4, L 5+); estimates, not measurements.
 | Phase | Work package | Owns (disjoint paths) | Tests | Needs first | Effort | State |
 |---|---|---|---|---|---|---|
 | P0 | WP-A stop-gap | `setup_service.py`, start script, monitor, reset, nginx file, pre-scan, `systemd/system/*.service` | the payload tests of that work | nothing | M (3) | working tree |
-| P0 | WP-B backend enablement | `backends/*/headless-*`, `DEBIAN/*`, `install.sh`, `stage-headless.sh`, `headless-setup.nix`, Ubuntu `customize-chroot.sh` and `verify-iso.sh` section 3 | `installer-stage.sh`, `verify-iso.sh`, installed-boot probe | the layer-split commit of `verify-iso.sh` | S-M (2) | partly in the working tree |
+| P0 | WP-B backend enablement | `backends/*/headless-*`, `DEBIAN/*`, `install.sh`, `stage-headless.sh`, Ubuntu `customize-chroot.sh` and `verify-iso.sh` section 3 | `installer-stage.sh`, `verify-iso.sh`, installed-boot probe | the layer-split commit of `verify-iso.sh` | S-M (2) | partly in the working tree |
 | P1 | WP-C core library | `ci_setup/**`, templates, fixtures | section 9 | nothing | L (6) | **done** |
 | P1 | WP-G test infrastructure | `core/headless/tests/{stubs,hwsim}/`, a manual-only workflow | L1, L4 scaffold | a 1-day spike: does the CI host kernel have the module | M (4) | section 9.5 |
 | P2 | WP-D AP runtime | `agent`, units, target, `ci-setup`, sandbox settings | L1, L3, L4 | WP-C | L (7) | not started |
