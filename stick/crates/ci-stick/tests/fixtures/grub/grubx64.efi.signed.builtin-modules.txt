@@ -1,0 +1,134 @@
+# GRUB modules built into Canonical's signed monolithic GRUB, the disk image the stick ships as
+# EFI/BOOT/grubx64.efi: /usr/lib/grub/x86_64-efi-signed/grubx64.efi.signed from
+# grub-efi-amd64-signed 1.215+2.14-2ubuntu1 (GRUB 2.14, Ubuntu 26.04.1 resolute; the version
+# on the 26.04.1 desktop ISO and in the archive on 2026-10-17).
+# image: 2828168 bytes, sha256 33e1d46cb68e41a293c767750078bbdb857ad7c1197a2206dea737bc9ccb8dbf
+# 26.04.1's ISO boots the CD image of the same package (gcdx64.efi.signed, 2,398,088 bytes,
+# also EFI/boot/grubx64.efi on the ISO): its 95 modules are a subset of these 122.
+# Compared with the same file of the previous LTS (grub-efi-amd64-signed 1.202.5+2.12-1ubuntu7.3,
+# GRUB 2.12): dropped all_video efi_uga ntfs pgp video_bochs video_cirrus; added gcry_hwfeatures
+# gcry_keccak key_protector pubkey. Under Secure Boot shim refuses modules loaded from disk,
+# so a grub.cfg that insmods a dropped one fails.
+# Regenerate: python3 -I stick/scripts/grub-builtin-modules.py <image>   (one name per line)
+acpi
+afsplitter
+archelp
+bitmap
+bitmap_scale
+boot
+btrfs
+bufio
+cat
+chain
+configfile
+cpuid
+crypto
+cryptodisk
+datetime
+disk
+diskfilter
+echo
+efi_gop
+efifwsetup
+efinet
+ext2
+extcmd
+fat
+font
+fshelp
+gcry_arcfour
+gcry_blowfish
+gcry_camellia
+gcry_cast5
+gcry_crc
+gcry_des
+gcry_dsa
+gcry_hwfeatures
+gcry_idea
+gcry_keccak
+gcry_md4
+gcry_md5
+gcry_rfc2268
+gcry_rijndael
+gcry_rmd160
+gcry_rsa
+gcry_seed
+gcry_serpent
+gcry_sha1
+gcry_sha256
+gcry_sha512
+gcry_tiger
+gcry_twofish
+gcry_whirlpool
+gettext
+gfxmenu
+gfxterm
+gfxterm_background
+gzio
+halt
+help
+hfsplus
+iso9660
+jpeg
+key_protector
+keystatus
+linux
+loadenv
+loopback
+ls
+lsefi
+lsefimmap
+lsefisystab
+lssal
+luks
+lvm
+lzopio
+mdraid09
+mdraid1x
+memdisk
+minicmd
+mmap
+mpi
+net
+normal
+part_apple
+part_gpt
+part_msdos
+password_pbkdf2
+pbkdf2
+peimage
+play
+png
+priority_queue
+probe
+procfs
+pubkey
+raid5rec
+raid6rec
+reboot
+regexp
+relocator
+search
+search_fs_file
+search_fs_uuid
+search_label
+serial
+setjmp
+sleep
+smbios
+squash4
+terminal
+terminfo
+test
+tpm
+trig
+true
+video
+video_colors
+video_fb
+xfs
+xzio
+zfs
+zfscrypt
+zfsinfo
+zstd

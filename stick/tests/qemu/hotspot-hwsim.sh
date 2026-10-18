@@ -164,7 +164,8 @@ if [ "$TRIM" = 1 ]; then
            ua-timer.timer esm-cache.service unattended-upgrades.service whoopsie.service apport.service packagekit.service \
            cups.service cups.socket cups-browsed.service bluetooth.service docker.service docker.socket containerd.service \
            ci-os-live-container-storage.service ollama.service ci-os-first-boot-setup.service casper-md5check.service \
-           cloud-init-local.service cloud-init.service cloud-config.service cloud-final.service kerneloops.service \
+           cloud-init-local.service cloud-init.service cloud-init-main.service cloud-init-network.service cloud-config.service \
+           cloud-final.service kerneloops.service \
            ubuntu-advantage.service plymouth-quit.service plymouth-quit-wait.service setvtrgb.service; do
     MASK="$MASK systemd.mask=$u"
   done

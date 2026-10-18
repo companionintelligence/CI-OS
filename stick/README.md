@@ -137,12 +137,16 @@ models; Hugging Face entries in the catalog are skipped by `lock` with a warning
 The stick boots with **Secure Boot enabled** when the bundle carries the signed chain
 (shim → Canonical GRUB → Canonical-signed kernel), taken from Ubuntu's archive through
 apt. The plan, `verify` and `doctor --bundle` all say which chain a bundle has.
+`fetch-signed-boot.sh` also checks that the GRUB it fetched has every module the stick's
+`grub.cfg` relies on built in (`CANONICAL_GRUB_BUILTIN_MODULES` in `bootcfg.rs`): under
+Secure Boot GRUB loads nothing from disk, and the built-in set differs between Ubuntu
+releases (26.04's has no `all_video` module, for instance).
 
 ```bash
 # Tools (Debian/Ubuntu); no root needed for image files
 sudo apt-get install gdisk dosfstools exfatprogs e2fsprogs mtools grub-efi-amd64-bin sbsigntool
 
-# Bootloader, production: the Secure Boot chain (on Ubuntu 24.04; apt + sbverify checked)
+# Bootloader, production: the Secure Boot chain (on Ubuntu 26.04; apt + sbverify checked)
 stick/scripts/fetch-signed-boot.sh ./signed-boot      # + signed-boot.lock (versions, sha256)
 cp ./signed-boot/{shimx64,grubx64,mmx64}.efi ./staging/efi/
 
@@ -212,7 +216,7 @@ stick/tests/secureboot/run-on-mac.sh --skip-build    # boot again without rebuil
 
 # a real Ubuntu (or CI-OS) ISO in slot A, Secure Boot on, in a window (~8 GB free, slow
 # under TCG): check `mokutil --sb-state` says enabled, and that files survive a reboot
-stick/tests/secureboot/run-on-mac.sh --iso ~/Downloads/ubuntu-24.04.4-desktop-amd64.iso
+stick/tests/secureboot/run-on-mac.sh --iso ~/Downloads/ubuntu-26.04.1-desktop-amd64.iso
 ```
 
 It checks **A** Secure Boot on + signed chain boots (`secureboot=1`, slot A, then boot
@@ -220,8 +224,20 @@ count 2 after a reboot), **B** Secure Boot on + unsigned chain is refused by the
 before any kernel runs, and **C** Secure Boot off + signed chain still boots
 (`secureboot=0`). Then it prints a PASS/FAIL table. Serial logs and results go to
 `stick/tests/secureboot/out/run/`, which is gitignored. On Linux the same script works;
-an Ubuntu 24.04 host builds without Docker. Behind a TLS-intercepting proxy, add
-`--ca-bundle <pem>`.
+an Ubuntu 26.04 host builds without Docker. Behind a TLS-intercepting proxy, add
+`--ca-bundle <pem>`. `--skip-build` refuses an `out/` that was built for another Ubuntu
+series.
+
+The build runs in a `linux/amd64` `ubuntu:26.04` container. Known limit: on Docker
+Desktop for Apple Silicon with Rosetta emulation (seen with Docker Desktop 29 on macOS 27),
+Ubuntu 26.04's GNU `tar` cannot create files inside a directory it has just created
+("Function not implemented"; bsdtar and Python's `tarfile` work there), so `dpkg-deb -x`
+fails. `build-in-container.sh` checks this first and stops with a message instead of
+failing later. Until that is fixed, run the build half on an x86_64 Ubuntu 26.04 machine.
+`fetch-signed-boot.sh` alone also runs in an arm64 `ubuntu:26.04` container whose apt is
+pointed at the amd64 archive through an `APT_CONFIG` file (`APT::Architecture "amd64"`, the
+archive's own sources, a separate `Dir::State`), because it only downloads and unpacks; the
+rest of the build half (amd64 busybox, GRUB modules and kernel) is not scripted for that case.
 
 ### Staging layout
 
@@ -270,6 +286,7 @@ stick/
   crates/ci-stick/templates/    grub.cfg template
   crates/ci-stick/tests/        CLI end-to-end, flash-to-image, schema drift tests
   scripts/fetch-signed-boot.sh  Secure Boot chain (shim, Canonical GRUB, MokManager) via apt
+  scripts/grub-builtin-modules.py  modules built into a signed GRUB image (fetch-signed-boot.sh checks them)
   scripts/build-grub-efi.sh     standalone GRUB EFI (development chain, not signed)
   tests/qemu/                   QEMU boot harness + casper-shaped test boot image
   tests/secureboot/             local Secure Boot harness (run-on-mac.sh; not in CI)

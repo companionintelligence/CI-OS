@@ -1,6 +1,6 @@
 name: Companion Stick real-ISO smoke test
 
-# Manual only. Flashes a real Ubuntu 24.04 desktop ISO (or a CI-OS ISO built by
+# Manual only. Flashes a real Ubuntu 26.04 desktop ISO (or a CI-OS ISO built by
 # build-companion-os-iso.yml) into a sparse 64 GB stick image with the production
 # grub.cfg, then boots it in QEMU as a USB stick under UEFI until casper has started.
 # The ISO is only used after its SHA256SUMS signature verifies against Ubuntu's CD image
@@ -11,7 +11,7 @@ on:
       ubuntu_release_dir:
         description: 'releases.ubuntu.com directory holding the desktop ISO + SHA256SUMS'
         required: true
-        default: '24.04'
+        default: '26.04'
       ci_os_run_id:
         description: 'Optional: run id of build-companion-os-iso.yml whose ISO artifact to use instead'
         required: false
@@ -31,6 +31,7 @@ env:
 
 jobs:
   real-iso:
+    # The runner image is only the QEMU/KVM host; the image that boots in QEMU is the Ubuntu 26.04 ISO.
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -78,8 +79,12 @@ jobs:
           gpg --batch --status-fd 1 --verify SHA256SUMS.gpg SHA256SUMS \
             | tee gpg.status | grep -q "^\[GNUPG:\] VALIDSIG $UBUNTU_CD_KEY_FPR " \
             || { echo "SHA256SUMS signature is not from $UBUNTU_CD_KEY_FPR"; cat gpg.status; exit 1; }
-          iso="$(grep -oE '[^ *]+desktop-amd64\.iso$' SHA256SUMS | head -n1)"
+          # The directory lists every point release (26.04's SHA256SUMS has both
+          # ubuntu-26.04-desktop-amd64.iso and ubuntu-26.04.1-desktop-amd64.iso, the older first):
+          # take the newest by version, not the first line.
+          iso="$(grep -oE '[^ *]+desktop-amd64\.iso$' SHA256SUMS | sort -V | tail -n1)"
           [ -n "$iso" ] || { echo "no desktop-amd64 ISO in SHA256SUMS"; exit 1; }
+          echo "using $iso"
           curl -fSL --retry 3 -o "$iso" "$base/$iso"
           grep " \*\?$iso\$" SHA256SUMS | sha256sum -c -
           mkdir -p ci-os-iso && mv "$iso" ci-os-iso/

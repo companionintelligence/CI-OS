@@ -3,8 +3,17 @@
 `hotspot-hwsim.sh` boots a Companion OS ISO in QEMU and runs the **real** `hostapd`, `wpa_supplicant`, `dnsmasq`, `nginx` and the
 setup portal (`core/headless/payload/opt/setup-backend/setup_service.py` under `gunicorn`) against virtual Wi-Fi radios, with no
 Wi-Fi hardware. It is the "L4/L5" layer (work package G) of the hotspot test plan: everything above the radio is the code that
-ships, the kernel is the ISO's own 7.0 HWE kernel, and `cfg80211`, `mac80211` and `mac80211_hwsim` come from the ISO's own
+ships, the kernel is the ISO's own kernel, and `cfg80211`, `mac80211` and `mac80211_hwsim` come from the ISO's own
 `linux-modules` package.
+
+> **Baseline numbers below are from the retired Ubuntu 24.04 base (the "v7" ISO, 2026-10-12 to 2026-10-17).** The method, the
+> scenarios and the findings about the payload scripts hold; the package versions and boot times do not, and have **not** been
+> re-measured on Ubuntu 26.04.1. The stock 26.04.1 image has kernel 7.0.0-30, NetworkManager 1.54.3, systemd 259.5 and Python
+> 3.14, and no `hostapd`, `dnsmasq`, `nginx`, `gunicorn` or Flask; those come from the 26.04 archive when Companion OS is built
+> (archive candidates on 2026-10-17: `hostapd` and `wpasupplicant` 2.11, `dnsmasq` 2.92, `nginx` 1.28.3, `gunicorn` 25.1.0,
+> `python3-flask` 3.1.3, `iw` 6.17). Two systemd units that the trimmed boot masks changed name in 26.04's cloud-init
+> (`cloud-init.service` is now `cloud-init-main.service` and `cloud-init-network.service`; the harness masks both) and
+> `kerneloops.service` is not in the stock image. Re-run the harness on a 26.04-based Companion OS ISO before quoting a number.
 
 ```bash
 # needs qemu-system-x86_64, tar, dd and bsdtar (or xorriso); no root, no network; nothing outside --work is written

@@ -5,7 +5,7 @@
   "created_at": "2026-09-28T12:00:00Z",
   "artifacts": [
     {
-      "path": "boot/companion-ubuntu-24.04-x86_64.img",
+      "path": "boot/companion-ubuntu-26.04-x86_64.img",
       "kind": "boot-image",
       "sha256": "deb055d836e44a1dcf0317b0cacac2dbdd36301f82abf787f7849d3f5b916750",
       "size": 5

@@ -40,7 +40,7 @@ use crate::manifest::{BootChain, BootloaderRole};
 
 const TEMPLATE: &str = include_str!("../templates/grub.cfg.in");
 
-/// Ubuntu 24.04 live ISO paths.
+/// Ubuntu 26.04 live ISO paths (`casper/vmlinuz`, `casper/initrd` on the 26.04.1 desktop ISO).
 pub const DEFAULT_KERNEL: &str = "/casper/vmlinuz";
 pub const DEFAULT_INITRD: &str = "/casper/initrd";
 
@@ -55,9 +55,15 @@ pub const ESP_MOK_MANAGER: &str = "EFI/BOOT/mmx64.efi";
 pub const ESP_GRUB_CFG_FW_PATH: &str = "EFI/BOOT/grub.cfg";
 pub const ESP_GRUB_CFG_PREFIX: &str = "EFI/ubuntu/grub.cfg";
 
-/// Modules built into Canonical's signed `grubx64.efi` (grub2 2.12-1ubuntu7.x) that our
-/// config relies on, read out of the image's `mods` section. Under Secure Boot nothing
-/// else can be loaded, so a test keeps every `insmod` in the template inside this list.
+/// Modules built into Canonical's signed `grubx64.efi` (grub-efi-amd64-signed
+/// 1.215+2.14-2ubuntu1, GRUB 2.14, the 26.04.1 version) that our config relies on, read out
+/// of the image's `mods` section. Under Secure Boot nothing else can be loaded, so a test
+/// keeps every `insmod` in the template inside this list, and another keeps this list inside
+/// the module set read from the real image (`tests/fixtures/grub/`). The set changes between
+/// Ubuntu releases (the previous LTS's image had `all_video`, `efi_uga`, `ntfs`, `pgp`,
+/// `video_bochs` and `video_cirrus`; 26.04's has none of them). `scripts/fetch-signed-boot.sh`
+/// checks every fetched image against this list, and reads it from here with `sed`: keep one
+/// `"name",` per line.
 pub const CANONICAL_GRUB_BUILTIN_MODULES: &[&str] = &[
     "configfile",
     "echo",
@@ -237,6 +243,83 @@ mod tests {
             .filter_map(|l| l.trim().strip_prefix("insmod "))
             .map(|m| m.trim().to_string())
             .collect()
+    }
+
+    /// Module names of the real signed GRUB 2.14 image (comment lines start with `#`).
+    const SIGNED_GRUB_MODULES: &str =
+        include_str!("../tests/fixtures/grub/grubx64.efi.signed.builtin-modules.txt");
+
+    fn signed_grub_modules() -> Vec<&'static str> {
+        SIGNED_GRUB_MODULES
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect()
+    }
+
+    #[test]
+    fn fixture_is_the_module_list_of_the_signed_grub_image() {
+        let real = signed_grub_modules();
+        assert_eq!(real.len(), 122, "grubx64.efi.signed of 1.215+2.14-2ubuntu1");
+        assert!(
+            real.windows(2).all(|w| w[0] < w[1]),
+            "sorted and unique, as grub-builtin-modules.py prints them"
+        );
+        // The modules the comment on CANONICAL_GRUB_BUILTIN_MODULES says are gone, and some that matter.
+        for gone in [
+            "all_video",
+            "efi_uga",
+            "ntfs",
+            "video_bochs",
+            "video_cirrus",
+        ] {
+            assert!(
+                !real.contains(&gone),
+                "{gone} is not built into 26.04's signed GRUB"
+            );
+        }
+        for present in ["efi_gop", "gfxterm", "png", "video", "video_fb", "loadenv"] {
+            assert!(real.contains(&present), "{present}");
+        }
+    }
+
+    #[test]
+    fn pinned_list_is_inside_what_the_real_signed_grub_has() {
+        let real = signed_grub_modules();
+        let mut sorted = CANONICAL_GRUB_BUILTIN_MODULES.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            CANONICAL_GRUB_BUILTIN_MODULES.len(),
+            "no duplicates"
+        );
+        for m in CANONICAL_GRUB_BUILTIN_MODULES {
+            assert!(
+                real.contains(m),
+                "{m} is not built into Canonical's signed grubx64.efi (tests/fixtures/grub/): \
+                 under Secure Boot GRUB could not load it"
+            );
+        }
+        for m in insmods(TEMPLATE) {
+            assert!(real.contains(&m.as_str()), "grub.cfg.in loads {m}");
+        }
+    }
+
+    #[test]
+    fn pinned_list_stays_readable_by_fetch_signed_boot_sh() {
+        // fetch-signed-boot.sh reads the array out of this file with sed, one `"name",` per
+        // line between the const and its closing `];`; a reformat must not blind it.
+        let src = include_str!("bootcfg.rs");
+        let start = src
+            .find("pub const CANONICAL_GRUB_BUILTIN_MODULES")
+            .expect("const");
+        let body = &src[start..start + src[start..].find("\n];").expect("end of array")];
+        let lines: Vec<&str> = body.lines().skip(1).collect();
+        assert_eq!(lines.len(), CANONICAL_GRUB_BUILTIN_MODULES.len());
+        for (line, m) in lines.iter().zip(CANONICAL_GRUB_BUILTIN_MODULES) {
+            assert_eq!(*line, format!("    \"{m}\","));
+        }
     }
 
     #[test]

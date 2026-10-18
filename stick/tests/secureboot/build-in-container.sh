@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Companion Stick Secure Boot test — build half. Runs inside Ubuntu 24.04 (the
-# `ubuntu:24.04` container that run-on-mac.sh starts, or an Ubuntu 24.04 host directly).
+# Companion Stick Secure Boot test — build half. Runs inside Ubuntu 26.04 (the
+# `ubuntu:26.04` container that run-on-mac.sh starts, or an Ubuntu 26.04 host directly).
 #
 #   stick/tests/secureboot/build-in-container.sh [--out DIR] [--iso PATH]
 #
@@ -9,7 +9,7 @@
 #   unsigned.qcow2   64 GB stick, development chain (unsigned standalone GRUB), same slot A
 #   firmware/        OVMF_CODE_4M.secboot.fd + OVMF_VARS_4M.ms.fd (Microsoft keys enrolled)
 #                    and the non-Secure-Boot OVMF_CODE_4M.fd + OVMF_VARS_4M.fd, with
-#                    firmware.lock (ovmf package version + sha256)
+#                    firmware.lock (ovmf-generic package version + sha256)
 #   signed-boot/     shimx64.efi grubx64.efi mmx64.efi + signed-boot.lock (fetch-signed-boot.sh)
 #   build-info.txt   package versions, kernel and its signature check, plans
 #
@@ -20,7 +20,7 @@
 # persistence partition.
 #
 # --iso PATH writes iso-signed.qcow2 instead: a Secure Boot chain stick with that ISO
-# (Ubuntu 24.04 desktop or a CI-OS build) in slot A, for a manual boot on the Mac.
+# (Ubuntu 26.04 desktop or a CI-OS build) in slot A, for a manual boot on the Mac.
 #
 # The raw 64 GB images are sparse and built in $CI_STICK_SB_WORK (default DIR/work); only
 # the qcow2 conversions are meant to leave a container (sparse files do not survive
@@ -55,18 +55,31 @@ log() { echo; echo "=== $*"; }
 die() { echo "build-in-container.sh: $*" >&2; exit 1; }
 
 codename="$(. /etc/os-release 2>/dev/null && echo "${VERSION_CODENAME:-}")"
-[ "$codename" = noble ] || die "needs Ubuntu 24.04 (noble); this is '${codename:-unknown}'. Use run-on-mac.sh, which runs this in ubuntu:24.04."
+[ "$codename" = resolute ] || die "needs Ubuntu 26.04 (resolute); this is '${codename:-unknown}'. Use run-on-mac.sh, which runs this in ubuntu:26.04."
+
+# Docker Desktop on Apple Silicon starts this container with --platform linux/amd64, i.e. under
+# Rosetta. Seen with Docker Desktop 29 on macOS 27: Ubuntu 26.04's GNU tar then fails to create
+# anything inside a directory it has just created ("Cannot mkdir/Cannot open: Function not
+# implemented"; bsdtar and Python's tarfile work there), and `dpkg-deb -x` runs tar, so
+# everything below would fail with confusing errors.
+pf="$(mktemp -d)"
+if ! { mkdir -p "$pf/a/d" "$pf/b" && echo x > "$pf/a/d/f" && tar -cf "$pf/t.tar" -C "$pf/a" . \
+       && tar -xf "$pf/t.tar" -C "$pf/b" && [ -f "$pf/b/d/f" ]; } 2> "$pf/err"; then
+  cat "$pf/err" >&2; rm -rf "$pf"
+  die "tar cannot extract files in this container (see above). If this is Docker Desktop on Apple Silicon, the amd64 emulation (Rosetta) lacks a syscall Ubuntu 26.04 needs: try turning off 'Use Rosetta for x86_64/amd64 emulation' in Docker Desktop's settings (untested), or build on an x86_64 machine running Ubuntu 26.04."
+fi
+rm -rf "$pf"
 
 # --- dependencies ---------------------------------------------------------------------
-PKGS=(ca-certificates curl build-essential qemu-utils ovmf grub-efi-amd64-bin grub-common
+PKGS=(ca-certificates curl build-essential qemu-utils ovmf-generic grub-efi-amd64-bin grub-common
       gdisk dosfstools mtools exfatprogs e2fsprogs xorriso busybox-static cpio zstd
-      sbsigntool binutils openssl)
+      sbsigntool binutils openssl python3)
 need=()
 for t in qemu-img sgdisk mkfs.vfat mkfs.exfat mkfs.ext4 mcopy xorriso cpio zstd sbverify \
-         objcopy openssl grub-mkstandalone curl cc; do
+         objcopy openssl grub-mkstandalone curl cc python3; do
   command -v "$t" >/dev/null 2>&1 || [ -x "/usr/sbin/$t" ] || [ -x "/sbin/$t" ] || need+=("$t")
 done
-[ -f /usr/share/OVMF/OVMF_VARS_4M.ms.fd ] || need+=(ovmf)
+[ -f /usr/share/OVMF/OVMF_VARS_4M.ms.fd ] || need+=(ovmf-generic)
 { command -v busybox >/dev/null && ! ldd "$(command -v busybox)" >/dev/null 2>&1; } || need+=(busybox-static)
 if [ "$(id -u)" = 0 ]; then
   # Package lists are needed anyway (apt-get download of shim/grub/kernel).
@@ -117,10 +130,11 @@ log "fetching the signed boot chain (apt)"
 
 log "copying OVMF firmware"
 mkdir -p "$OUT/firmware"
-ovmf_ver="$(dpkg-query -W -f='${Version}' ovmf)"
+# 26.04's `ovmf` is a metapackage; the firmware files are in ovmf-generic.
+ovmf_ver="$(dpkg-query -W -f='${Version}' ovmf-generic)"
 {
-  echo "# OVMF firmware copied from Ubuntu 24.04's ovmf package by build-in-container.sh."
-  echo "ovmf=$ovmf_ver"
+  echo "# OVMF firmware copied from Ubuntu 26.04's ovmf-generic package by build-in-container.sh."
+  echo "ovmf-generic=$ovmf_ver"
   for f in OVMF_CODE_4M.secboot.fd OVMF_VARS_4M.ms.fd OVMF_CODE_4M.fd OVMF_VARS_4M.fd; do
     cp "/usr/share/OVMF/$f" "$OUT/firmware/$f"
     echo "$f.sha256=$(sha256sum < "$OUT/firmware/$f" | cut -d' ' -f1)"
