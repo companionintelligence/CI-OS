@@ -261,8 +261,8 @@ install_tailscale() {
     else
         log_warning "snap not available; installing Tailscale via apt..."
         # Use the same /etc/os-release-based codename resolution install_docker
-        # uses above, not `lsb_release -cs`: on a derivative distro (e.g. Mint,
-        # whose stock os-release carries UBUNTU_CODENAME alongside its own
+        # uses above, not `lsb_release -cs`: on a derivative distro (whose
+        # stock os-release carries UBUNTU_CODENAME alongside its own
         # VERSION_CODENAME/ID) lsb_release returns the derivative's own
         # codename, which 404s against pkgs.tailscale.com's Ubuntu-only repo.
         local ubuntu_codename

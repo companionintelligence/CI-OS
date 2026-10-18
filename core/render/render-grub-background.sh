@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Render a GRUB boot-menu background from the canon logo mark on a
 # CI_DARK_BACKGROUND-colored canvas. Distro-portable: every backend that
-# themes GRUB (Ubuntu/Mint today; Fedora/Arch later) calls this and installs
+# themes GRUB (Ubuntu, CachyOS) calls this and installs
 # the resulting PNG via its own mechanism — this script only renders it.
 #
 # The output is always a plain 8-bit RGB PNG (no alpha), in every branch that renders one (the last

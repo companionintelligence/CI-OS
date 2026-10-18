@@ -127,7 +127,7 @@ print_comfyui_strix_halo_hint() {
 # found here. The Strix Halo rule above (ci_os_hardware_supported) stays what it was: the vendor/class gate for
 # the headless GPU install. This is the data-driven gate every provisioner can ask about any model, so a 16 GB
 # laptop booted from a Companion Stick is not offered a 70B model, and Arch gets the protection that only
-# Ubuntu's qwen3.6:27b pull had (Fedora and NixOS can call the same function).
+# Ubuntu's qwen3.6:27b pull had.
 #
 #   ci_os_model_fits <name[:tag]>        0 fits, 1 does not fit, 2 no data (unknown model, no model-packs.yaml)
 #   ci_os_model_gate_allows <name[:tag]> for provisioners: 0 = go ahead, 1 = skip. "No data" never blocks a pull

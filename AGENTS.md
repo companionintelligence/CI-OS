@@ -3,15 +3,17 @@
 > **Private & Confidential — Property of Lifescope Inc. Do not distribute.**
 
 **`CLAUDE.md` is the canonical agent guide for this repo** — read it first. It covers the
-repo's purpose, the `core/` + `backends/<distro>/` layout, the stack per backend, and the
+repo's purpose, the `core/` + `backends/<name>/` layout, the stack per backend, and the
 key commands. This file only restates the rules every agent tool must follow.
 
 ## What this repo is (one line)
 
-Builds, themes and provisions the Companion Intelligence appliance OS across multiple Linux
-distros (Ubuntu reference backend, plus Mint, Fedora, Arch, Bazzite, NixOS). Shared logic in
-`core/`, per-distro mechanics in `backends/<distro>/`. Design:
-`docs/architecture/multi-distro-design.md`.
+Builds, themes and provisions the Companion Intelligence appliance OS. Supported targets:
+Companion OS on Ubuntu 26.04 LTS (resolute) and Companion OS on CachyOS. Shared logic in `core/`,
+per-edition mechanics in `backends/ubuntu/` and `backends/cachyos/` (`backends/arch/` is the
+provisioning engine under CachyOS, not a target). Design: `docs/architecture/multi-distro-design.md`.
+
+Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from tag `pre-retire-multidistro-2026-10-17`; do not re-add them as new files).
 
 ## Validate before every push
 

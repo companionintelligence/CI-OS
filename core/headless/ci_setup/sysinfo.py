@@ -64,7 +64,7 @@ def headless_param(params: Dict[str, str]) -> str:
 
 
 def is_live_boot(params: Dict[str, str]) -> bool:
-    """Booted from live media: casper (Ubuntu, Mint), archiso (Arch, CachyOS) or dracut live (Fedora, Bazzite)."""
+    """Booted from live media: casper (Ubuntu), archiso (CachyOS) or a dracut live image (``rd.live.image``; no supported edition uses it)."""
     return params.get("boot") == "casper" or "archisobasedir" in params or "rd.live.image" in params
 
 

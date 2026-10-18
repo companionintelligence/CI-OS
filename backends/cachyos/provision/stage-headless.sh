@@ -64,7 +64,7 @@ fi
 ROOT="$(cd "$ROOT" && pwd)"
 [ "$ROOT" = / ] && ROOT=""   # "/x" below, not "//x"
 
-# --- 1. the same required-file gate as backends/{arch,fedora}/headless-setup/install.sh ---------------------------------------
+# --- 1. the same required-file gate as backends/arch/headless-setup/install.sh ----------------------------------------------
 REQUIRED_FILES="
 hostapd/hostapd-setup.conf
 dnsmasq.d/setup-portal.conf

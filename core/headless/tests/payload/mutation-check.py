@@ -245,22 +245,12 @@ MUTATIONS = [
     ('H4-startlimit', 'H4 hostapd has a start limit', 'payload/systemd/system/hostapd-setup.service', "StartLimitBurst=5\n", "", PY_STATIC),
     ('L2-ubuntu-enable', 'L2 the deb does not enable nginx at boot', 'backends/ubuntu/headless-package/DEBIAN/postinst',
      "systemctl enable setup-backend.service 2>/dev/null || true\n", "systemctl enable setup-backend.service 2>/dev/null || true\nsystemctl enable nginx.service 2>/dev/null || true\n", PY_STATIC),
-    ('L2-mint-enable', 'L2 the mint deb does not enable hostapd at boot', 'backends/mint/headless-package/DEBIAN/postinst',
-     "systemctl enable setup-backend.service 2>/dev/null || true\n", "systemctl enable setup-backend.service 2>/dev/null || true\nsystemctl enable hostapd-setup.service 2>/dev/null || true\n", PY_STATIC),
-    ('L2-fedora-enable', 'L2 the fedora installer does not enable dnsmasq-setup at boot', 'backends/fedora/headless-setup/install.sh',
-     "systemctl enable setup-backend.service 2>/dev/null || true\n", "systemctl enable setup-backend.service 2>/dev/null || true\nsystemctl enable dnsmasq-setup.service 2>/dev/null || true\n", PY_STATIC),
     ('L2-arch-startnginx', 'L2 the arch installer does not start nginx', 'backends/arch/headless-setup/install.sh',
      "log_info \"Validating nginx configuration (nginx itself is started on demand by the hotspot script)...\"",
      "systemctl start nginx.service\nlog_info \"Validating nginx configuration (nginx itself is started on demand by the hotspot script)...\"", PY_STATIC),
     ('L2-disable', 'L2 an older install\'s boot-enabling is turned off', 'backends/arch/headless-setup/install.sh',
      "systemctl disable hostapd-setup.service 2>/dev/null || true\n", "", PY_STATIC),
-    ('L2-nix', 'L2 NixOS does not start nginx at boot', 'backends/nixos/modules/headless-setup.nix',
-     "    systemd.services.nginx.wantedBy = lib.mkIf cfg.portalOnDemand (lib.mkForce [ ]);\n", "", PY_STATIC),
-    ('L3-nix-docker', 'L3 the NixOS monitor has no docker', 'backends/nixos/modules/headless-setup.nix',
-     "        util-linux\n        systemd\n        coreutils\n        gnugrep\n        gnused", "        util-linux\n        docker\n        systemd\n        coreutils\n        gnugrep\n        gnused", PY_STATIC),
     ('K2-deb', 'K2 the deb depends on iw', 'backends/ubuntu/headless-package/DEBIAN/control', "network-manager, iw, iproute2, rfkill", "network-manager, iproute2, rfkill", PY_STATIC),
-    ('K2-mint', 'K2 the mint deb depends on rfkill', 'backends/mint/headless-package/DEBIAN/control', "iw, iproute2, rfkill", "iw, iproute2", PY_STATIC),
-    ('K2-fedora', 'K2 fedora installs iw', 'backends/fedora/headless-setup/install.sh', "NetworkManager iw iproute util-linux)", "NetworkManager iproute util-linux)", PY_STATIC),
     ('K2-arch', 'K2 arch installs util-linux', 'backends/arch/headless-setup/install.sh', "networkmanager iw iproute2 util-linux)", "networkmanager iw iproute2)", PY_STATIC),
 ]
 
@@ -268,8 +258,7 @@ MUTATIONS = [
 def copy_tree(dest: Path):
     ignore = shutil.ignore_patterns('__pycache__', '*.pyc', '.DS_Store')
     shutil.copytree(REPO / 'core' / 'headless' / 'payload', dest / 'payload', symlinks=True, ignore=ignore)
-    for sub in ('ubuntu/headless-package', 'mint/headless-package', 'fedora/headless-setup', 'arch/headless-setup',
-                'nixos/modules', 'cachyos/installer/modules'):
+    for sub in ('ubuntu/headless-package', 'arch/headless-setup', 'cachyos/installer/modules'):
         shutil.copytree(REPO / 'backends' / sub, dest / 'backends' / sub, symlinks=True, ignore=ignore)
 
 

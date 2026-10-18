@@ -1,5 +1,5 @@
 ## Companion OS
-### UnCloud Linux · a multi-distro Companion Intelligence appliance builder
+### UnCloud Linux · the Companion Intelligence appliance OS, for Ubuntu 26.04 LTS and CachyOS
 
 ![Companion OS logo](assets/logos/2024_CI__LogoMark_Color_med.svg)
 
@@ -147,17 +147,18 @@ portal surfaces an inline error and re-enables the form for another attempt.
 
 ## What this repo is
 
-CI-OS builds and themes the Companion Intelligence appliance **across multiple Linux
-distros** — Ubuntu (the reference implementation today), Linux Mint, Fedora, Arch, Bazzite,
-NixOS, and a CachyOS-based live and installer ISO — and provisions the CI ecosystem (Docker, dev tooling, local LLMs, CI-Hub) on top
-of each. Shared theming/provisioning logic lives in `core/`; each distro's actual
-build/install mechanism lives in `backends/<distro>/`. See
+CI-OS builds and themes the Companion Intelligence appliance and provisions the CI ecosystem
+(Docker, dev tooling, local LLMs, CI-Hub) on top of it. Shared theming/provisioning logic lives
+in `core/`; each edition's actual build/install mechanism lives in `backends/<name>/`. See
 [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for the
-full design and rollout plan.
+design and rollout plan.
 
-An earlier version of this repo described itself as "Companion Ubuntu" — provisioning and
-branding scripts that only ran on stock Ubuntu 24.04 LTS. That framing is superseded: Ubuntu
-is still the most mature, reference backend, but it's one of seven, not the whole project.
+**Supported targets: Companion OS on Ubuntu 26.04 LTS (resolute) and Companion OS on CachyOS.**
+
+Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from tag `pre-retire-multidistro-2026-10-17`, e.g. `git checkout pre-retire-multidistro-2026-10-17 -- backends/<name>`).
+
+`backends/arch/` is **not** a supported target: it is the provisioning engine under CachyOS (see
+[Arch provisioning engine](#arch-provisioning-engine-under-cachyos-not-a-supported-target)).
 
 Scripts typically apply:
 
@@ -169,19 +170,17 @@ Scripts typically apply:
   shared manifest (`core/manifest/ecosystem.yaml`) instead of per-distro hardcoded tool lists.
 
 `core/` and the manifest are plain Bash + YAML with no distro assumptions. Individual
-backends use their native tooling — **`backends/nixos/` is Nix by design**; the rest are not.
+backends use their native tooling (apt/dpkg on Ubuntu, pacman on CachyOS).
 See the Stack section of `CLAUDE.md` for exactly which backend uses what.
 
 ---
 
 ## Four ways to customize Ubuntu
 
-> The table below describes the **Ubuntu backend** specifically — still the most complete
-> today. As other backends (`backends/mint/`, `backends/fedora/`, ...) land, each gets its own
-> equivalent table in its own README; see
-> [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for
-> the full per-backend rollout status. These paths are pre-refactor and still accurate; they
-> are moving into `backends/ubuntu/` as that work lands.
+> The table below describes the **Ubuntu edition** (Companion OS on Ubuntu 26.04 LTS). The
+> CachyOS edition has its own table in its own section further down; see
+> [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for the
+> per-edition rollout status.
 
 | Goal | Entry point | Run on |
 |------|-------------|--------|
@@ -201,125 +200,23 @@ on first boot:
 So a clean ISO install ends up identical to running B + C by hand. Use B/C directly
 when you want to convert a machine you already have without reimaging it.
 
-### Mint backend (Phase 2, implemented)
+### Arch provisioning engine (under CachyOS, not a supported target)
 
-Linux Mint (Cinnamon edition) is the second backend — provisioning + desktop/login-screen
-theming only, no ISO-build mode. It reuses B and D from the table above unchanged/near-verbatim
-and has its own equivalents of C:
+`backends/arch/` is not an edition of Companion OS and offers users no entry points of its own. It is
+the pacman provisioning engine that the CachyOS edition reuses unchanged:
 
-| Goal | Entry point | Run on |
-|------|-------------|--------|
-| **B. Provision the ecosystem** | [`backends/mint/provision/provision.sh`](backends/mint/provision/provision.sh) (wraps Ubuntu's `provision.sh` — same apt role-map) | The *target* machine, as root |
-| **C. Re-skin a running Mint desktop** (Cinnamon + Slick-Greeter branding) | [`backends/mint/desktop-theme/apply-ci-os-desktop.sh`](backends/mint/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
-| **D. First-time headless WiFi onboarding** | [`backends/mint/headless-package/build.sh`](backends/mint/headless-package/build.sh) → `.deb` | The *target* device |
+| What | Path | Used by |
+|------|------|---------|
+| **Provision the ecosystem** (pacman-native; same `--tier=`/`--step=ci-hub` flags as Ubuntu's) | [`backends/arch/provision/provision.sh`](backends/arch/provision/provision.sh) | Run at first boot by [`backends/cachyos/provision/provision.sh`](backends/cachyos/provision/provision.sh), a thin wrapper |
+| **Headless WiFi dependency oracle** | [`backends/arch/headless-setup/install.sh`](backends/arch/headless-setup/install.sh) | Read, not run, by the setup-portal payload tests and the CachyOS ISO verifier; CachyOS installs the payload through `backends/cachyos/provision/stage-headless.sh` |
 
-See [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md#backendsmint-phase-2-implemented)
-for what's reused from the Ubuntu backend by path (Plymouth, GRUB, MOTD) versus written fresh
-for Cinnamon/Slick-Greeter, and the known gaps left for a follow-up pass.
+Package names live in [`core/manifest/role-map/pacman.yaml`](core/manifest/role-map/pacman.yaml). Only VS Code
+(Microsoft's build is AUR-only) and Companion Launcher (no Arch build at all) stay stubbed, per the
+platform's AUR-helper-automation deferral. `backends/arch/desktop-theme/` is unused: CachyOS is KDE Plasma
+and brands itself through its own overlay (`backends/cachyos/iso/overlay`), so it is not an entry point.
+The whole `backends/arch/` tree is frozen; change it only on an explicit decision.
 
-### Fedora backend (Phase 3a, implemented)
-
-Fedora Workstation (GNOME Shell) is the third backend — provisioning + desktop/login-screen
-theming only, no ISO-build mode (kickstart/lorax ISO building is deferred as Phase 3b). Unlike
-Mint, Fedora's `provision.sh` is a **genuine dnf reimplementation**, not a thin wrapper — dnf
-syntax and most package names differ too much from apt to share a script.
-
-| Goal | Entry point | Run on |
-|------|-------------|--------|
-| **B. Provision the ecosystem** | [`backends/fedora/provision/provision.sh`](backends/fedora/provision/provision.sh) (dnf-native; same `--tier=`/`--step=ci-hub` flags as Ubuntu's) | The *target* machine, as root |
-| **C. Re-skin a running Fedora desktop** (GNOME accent-color + GDM branding) | [`backends/fedora/desktop-theme/apply-ci-os-desktop.sh`](backends/fedora/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
-| **D. First-time headless WiFi onboarding** | [`backends/fedora/headless-setup/install.sh`](backends/fedora/headless-setup/install.sh) (plain installer, not RPM-packaged) | The *target* device |
-
-GDM/GNOME Shell branding does **not** use the gresource-extraction mechanic Ubuntu/Yaru uses:
-research found Fedora ships no separate, add-alongside theme package the way Yaru is — GNOME
-Shell's own default theme is compiled straight into the `gnome-shell` package, so overwriting
-its gresource would be silently clobbered by the next `dnf update`. Instead, Fedora branding
-sets GNOME 47+'s supported `org.gnome.desktop.interface accent-color` (a 9-value named enum,
-nearest match to the CI canon primary) for both the live session and GDM's dconf profile — see
-[`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md#gnome-shell--gdm-gresource-rebranding)
-for the full reasoning and known gaps (no logo/icon swap on GDM yet, ROCm/LACT/Companion
-Launcher all stubbed pending Fedora-native builds).
-
-### Arch backend (Phase 4, implemented)
-
-Arch Linux (GNOME Shell — the plan's recommended DE for this backend, to maximize reuse) is the
-fourth backend — provisioning + desktop/login-screen theming only, no archiso mode (archiso
-profile-building is explicitly deferred). Like Fedora, `provision.sh` is a **genuine pacman
-reimplementation**, not a thin wrapper.
-
-| Goal | Entry point | Run on |
-|------|-------------|--------|
-| **B. Provision the ecosystem** | [`backends/arch/provision/provision.sh`](backends/arch/provision/provision.sh) (pacman-native; same `--tier=`/`--step=ci-hub` flags as Ubuntu's/Fedora's) | The *target* machine, as root |
-| **C. Re-skin a running Arch desktop** (GNOME accent-color + GDM branding) | [`backends/arch/desktop-theme/apply-ci-os-desktop.sh`](backends/arch/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
-| **D. First-time headless WiFi onboarding** | [`backends/arch/headless-setup/install.sh`](backends/arch/headless-setup/install.sh) (plain installer, not pacman-packaged) | The *target* device |
-
-GDM/GNOME Shell branding reuses the same accent-color mechanism Fedora's does — independently
-re-confirmed for Arch's own `gnome-shell` package, not assumed to transfer for free. Arch has no
-installer flavor guaranteeing GRUB is present (many installs use systemd-boot instead), so
-`15-grub-theme.sh` detects the bootloader and skips cleanly rather than failing hard on
-systemd-boot systems. Unlike Fedora, Arch's official repos carry real `rocm-hip-sdk` and `lact`
-packages — both get full installs instead of stubs; only VS Code (Microsoft's build is AUR-only)
-and Companion Launcher (no Arch build at all) remain stubbed, per the platform's AUR-helper-
-automation deferral.
-
-### Bazzite backend (Phase 5, implemented)
-
-Bazzite (KDE Plasma — Bazzite's flagship variant, breaking the GNOME pattern every prior backend
-followed) is the fifth backend, and a **fundamentally different execution model**: it's an
-image-based distro (bootc/rpm-ostree, Fedora Atomic), so there is no provisioning script that
-runs on an already-installed system — instead, the OS root is built as an OCI image.
-
-| Goal | Entry point | Run on |
-|------|-------------|--------|
-| **Build the image** | [`backends/bazzite/image/Containerfile`](backends/bazzite/image/Containerfile) + [`build.just`](backends/bazzite/image/build.just) (`just build`) | A build host with Podman/Docker |
-| **First-boot deploy + model pull** | [`backends/bazzite/modules/`](backends/bazzite/modules) — systemd units, run automatically once | The *target* device, on first boot |
-
-Theming (Plymouth, GRUB, MOTD, KDE color scheme) and most ecosystem tools (`gh`, `cloudflared`,
-`chromium`, VS Code, Tailscale, LACT, the Ollama binary) are baked directly into the image at
-build time. Whatever genuinely can't be baked — CI-Hub's deploy (needs registry credentials),
-Ollama's model weights (avoids multi-GB image bloat), and anything writing into `$HOME` (the
-`ci` system user, `uv`, asdf/Node.js — `$HOME` is excluded from the image commit on ostree) —
-runs once, idempotently, from first-boot systemd units instead. This backend adapts to **Podman**
-rather than layering Docker CE, matching Bazzite's own stock default; see
-[`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md#bazzite-an-image-based-backend-not-a-provisioning-script)
-for the full reasoning, including why `core/render/render-gnome-shell-gresource.sh` isn't
-involved here either (KDE, not GNOME) and what's still deferred (`core/headless/payload`'s
-captive-portal subsystem is not yet baked into the image; ROCm inherits Fedora's repo gap).
-This backend cannot be build-tested in this environment — no bootc/Podman build host is
-available — see `build.just`'s header for exactly what *was* verified statically.
-
-### NixOS backend (Phase 6, implemented — the last of the six)
-
-NixOS is the sixth and final backend, and a **second** fundamentally different execution
-model: it's declarative, not a provisioning script and not an image build. This backend
-doesn't produce an artifact you run or boot — it produces a Nix **flake** exposing reusable
-`nixosModules` that a consumer imports into their *own* system configuration.
-
-| Goal | Entry point | Used from |
-|------|-------------|-----------|
-| **Import as a module** | [`backends/nixos/flake.nix`](backends/nixos/flake.nix) exposes `nixosModules.default` | Your own `flake.nix`'s `nixosSystem { modules = [...]; }` |
-| **Theming** | [`backends/nixos/modules/branding.nix`](backends/nixos/modules/branding.nix) — Plymouth, GRUB, GNOME/GDM accent-color, MOTD | `services.ci-os.branding.enable = true;` |
-| **Ecosystem tools** | [`backends/nixos/modules/ecosystem.nix`](backends/nixos/modules/ecosystem.nix) — tier-gated core/extended/hardware | `services.ci-os.ecosystem.enable = true;` |
-| **Headless WiFi onboarding** | [`backends/nixos/modules/headless-setup.nix`](backends/nixos/modules/headless-setup.nix) | `services.ci-os.headlessSetup.enable = true;` |
-
-PNG rendering (the GRUB background, Plymouth's watermark) reuses `core/render/render-grub-
-background.sh` unmodified inside a Nix derivation — genuinely not pure-Nix-expressible —
-while plain value lookups (accent color, MOTD text) are reimplemented natively in Nix,
-reading `vendor/brand/tokens/tokens.json` directly. GDM branding uses NixOS's real
-system-level `programs.dconf` module (confirmed distinct from home-manager's per-user
-config, which this backend does not depend on). `rocmPackages`/`services.lact` are real
-here too, like Arch — nixpkgs' hardware-acceleration package set is substantial, unlike
-Fedora's repo gap. See
-[`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md#nixos-a-flake-of-reusable-modules-not-a-script-or-an-image)
-for the full reasoning, including why GDM/dconf wiring is more direct here than on any bash
-backend and what's still a disclosed gap (no themed systemd-boot splash — nixpkgs exposes no
-such option; Companion Launcher and Homebrew/Bun stay unimplemented, same as every backend).
-Like Bazzite, this cannot be evaluated with a real Nix toolchain in this environment — verified
-via grammar-based syntax parsing and manual nixpkgs-source cross-referencing instead.
-
-This completes all six backends in the rebuild plan.
-
-### CachyOS backend (Phase 7, ISO build implemented; not yet booted or installed)
+### CachyOS edition (second supported target)
 
 A live and installer ISO of Companion OS based on CachyOS: the pinned CachyOS-Live-ISO profile (archiso, KDE Plasma, online Calamares) plus a Companion OS overlay, built with the stock `mkarchiso` in a container. The installed system is built from the repositories at install time, so provisioning has three layers (live image, Calamares, first boot).
 
@@ -633,10 +530,10 @@ implications and is deliberately **not** made here.
 
 ## Repo layout
 
-`core/` is distro-portable; each backend's actual build/install mechanism lives under
-`backends/<distro>/`. See
+`core/` is distro-portable; each edition's actual build/install mechanism lives under
+`backends/<name>/`. See
 [`docs/architecture/multi-distro-design.md`](docs/architecture/multi-distro-design.md) for
-the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
+the full rationale.
 
 ```
 ├── .github/workflows/          # CI/CD: build-companion-os-iso.yml, style-canon-lint.yml
@@ -644,7 +541,7 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 ├── vendor/brand/                # Vendored CI-Common brand bundle: tokens, fonts, logos
 ├── core/                       # Distro-portable — no apt/dpkg (or any package manager) assumptions
 │   ├── manifest/                # ecosystem.yaml: single source of truth for what gets installed
-│   │   └── role-map/            # per-package-manager translations (apt.yaml, dnf.yaml)
+│   │   └── role-map/            # per-package-manager translations (apt.yaml, pacman.yaml)
 │   ├── render/                  # tokens + assets -> rendered artifacts (Plymouth, GRUB bg, ...)
 │   │   └── inputs/               # raw PNG/SVG inputs the render scripts consume
 │   ├── lib/                     # theme-lib.sh, vendor-brand.sh, check-brand-mirrors.sh, ...
@@ -652,9 +549,9 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   └── headless/payload/         # captive-portal Flask backend, static portal, hostapd/dnsmasq configs
 ├── backends/
 │   ├── _mixins/                  # Shared building blocks
-│   │   ├── gnome-dconf/           # GNOME dconf/session/terminal theming (ubuntu, fedora, arch)
-│   │   └── kde-plasma/            # KDE Plasma color scheme (bazzite)
-│   ├── ubuntu/                   # The reference backend — apt/dpkg + Bash
+│   │   ├── gnome-dconf/           # GNOME dconf/session/terminal theming (ubuntu)
+│   │   └── kde-plasma/            # KDE Plasma color scheme (cachyos, ubuntu)
+│   ├── ubuntu/                   # Companion OS on Ubuntu 26.04 LTS — apt/dpkg + Bash
 │   │   ├── iso/scripts/           # A: build-iso.sh, build-packages.sh, gresource + repo helpers
 │   │   ├── chroot/                # customize-chroot.sh — called by the ISO builder against the rootfs
 │   │   ├── provision/             # B: provision.sh, bootstrap-ci-os.sh, install-models.sh
@@ -662,34 +559,16 @@ the full rationale and the planned Mint/Fedora/Arch/Bazzite/NixOS backends.
 │   │   ├── lib/                   # apt-specific helpers (os-release, ROCm, telemetry removal, ...)
 │   │   ├── packages/              # .deb sources: ci-os-branding (GNOME Shell branding)
 │   │   └── headless-package/      # D: build.sh, DEBIAN/ control scripts, netplan (apt packaging only)
-│   ├── mint/                     # Phase 2 — apt/dpkg + Bash, no ISO mode
-│   │   ├── provision/             # B: thin wrapper around backends/ubuntu/provision/provision.sh
-│   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + Cinnamon dconf/session + Slick-Greeter
-│   │   └── headless-package/      # D: build.sh, DEBIAN/ control scripts (no netplan config)
-│   ├── fedora/                   # Phase 3a — dnf/rpm + Bash, no ISO mode (kickstart/lorax = Phase 3b)
-│   │   ├── provision/             # B: provision.sh — genuine dnf reimplementation, not a wrapper
-│   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + GNOME accent-color/GDM branding
-│   │   └── headless-setup/        # D: install.sh — plain installer, RPM packaging deferred
-│   ├── arch/                     # Phase 4 — pacman + Bash, no archiso mode (deferred)
-│   │   ├── provision/             # B: provision.sh — genuine pacman reimplementation
-│   │   ├── desktop-theme/         # C: apply-ci-os-desktop.sh + GNOME accent-color/GDM branding +
-│   │   │                          #    15-grub-theme.sh's GRUB-vs-systemd-boot detection
-│   │   └── headless-setup/        # D: install.sh — plain installer, pacman packaging deferred
-│   ├── bazzite/                   # Phase 5 — image-based (bootc/rpm-ostree), NOT a provisioning script
-│   │   ├── image/                  # Containerfile + build.just — the OCI image definition (KDE Plasma)
-│   │   └── modules/                # First-boot systemd units: CI-Hub deploy, Ollama models,
-│   │                               #   ci user/uv/asdf/Node, captive-portal conditional gate
-│   ├── cachyos/                  # Phase 7 — pinned CachyOS-Live-ISO profile + overlay, built with mkarchiso in a container
-│   │   ├── iso/                   # scripts/build-iso.sh, overlay/, verify-iso.sh, tests/
-│   │   ├── installer/             # Calamares overlay (settings, modules, branding, guards)
-│   │   └── provision/             # first-boot wrapper around backends/arch/provision/provision.sh
-│   └── nixos/                    # Phase 6 — declarative flake + modules, NOT a script or image build
-│       ├── flake.nix              # Entry point: exposes nixosModules for a consumer to import
-│       ├── manifest/              # ecosystem.generated.json (yq-regenerated from ecosystem.yaml) +
-│       │                          #   gen-ecosystem-json.sh
-│       └── modules/               # branding.nix, ecosystem.nix, headless-setup.nix
+│   ├── arch/                     # NOT a target: the pacman provisioning engine under CachyOS (frozen)
+│   │   ├── provision/             # provision.sh — run by backends/cachyos/provision/provision.sh
+│   │   ├── desktop-theme/         # unused (CachyOS themes through its own overlay); not an entry point
+│   │   └── headless-setup/        # install.sh — dependency oracle read by the tests and the CachyOS ISO verifier
+│   └── cachyos/                  # Companion OS on CachyOS — pinned CachyOS-Live-ISO profile + overlay, built with mkarchiso in a container
+│       ├── iso/                   # scripts/build-iso.sh, overlay/, verify-iso.sh, tests/
+│       ├── installer/             # Calamares overlay (settings, modules, branding, guards)
+│       └── provision/             # first-boot wrapper around backends/arch/provision/provision.sh
 └── docs/
-    ├── architecture/             # multi-distro-design.md
+    ├── architecture/             # design docs, incl. multi-distro-design.md (the core/ + backends/ layout)
     └── guides/                   # ISO build, installation, quick start, repo setup, GDM branding
 ```
 
@@ -714,7 +593,7 @@ extracted out, since only one backend exists to validate against so far.
 
 ### Branding & theming
 - **[Brand Guidelines](assets/branding/brand-guidelines.md)** — canon token table, pointer to CI-Common
-- **[Multi-Distro Design](docs/architecture/multi-distro-design.md)** — the core/ + backends/ architecture, token→artifact rendering
+- **[Core and backends design](docs/architecture/multi-distro-design.md)** — the core/ + backends/ architecture, token→artifact rendering
 - **[GDM Branding Package](docs/guides/gdm-branding-package.md)** — how the gresource is built
 
 ### Devices & packages

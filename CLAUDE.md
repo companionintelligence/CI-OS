@@ -12,15 +12,17 @@ Issues: <https://github.com/companionintelligence/CI-Engineering/issues>
 
 ## What this repo does
 
-Builds and themes the Companion Intelligence appliance base OS **across multiple Linux
-distros** — Ubuntu (reference implementation), Linux Mint, Fedora, Arch, Bazzite, NixOS, and a CachyOS-based live and installer ISO —
-and provisions the CI ecosystem (Docker, dev tooling, local LLMs via Ollama, CI-Hub) on top of
-each. See `docs/architecture/multi-distro-design.md` for the full design and rollout plan.
+Builds and themes the Companion Intelligence appliance base OS and provisions the CI ecosystem
+(Docker, dev tooling, local LLMs via Ollama, CI-Hub) on top of it. See
+`docs/architecture/multi-distro-design.md` for the design and rollout plan.
+
+**Supported targets: Companion OS on Ubuntu 26.04 LTS (resolute) and Companion OS on CachyOS.**
+Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from tag `pre-retire-multidistro-2026-10-17`, e.g. `git checkout pre-retire-multidistro-2026-10-17 -- backends/<name>`; do not re-add them as new files).
+`backends/arch/` is **not** a target: it is the provisioning engine under CachyOS (frozen; change it only on an explicit decision).
 
 Architecture: shared brand-theming and ecosystem-provisioning logic lives in `core/`
-(distro-portable); each distro's actual build/install mechanism lives in
-`backends/<distro>/`. **Ubuntu is the most mature backend today, not the only target** — an
-earlier version of this repo was Ubuntu-only ("Companion Ubuntu"); that framing is superseded.
+(distro-portable); each edition's actual build/install mechanism lives in
+`backends/ubuntu/` or `backends/cachyos/`.
 
 **Companion Stick** (`stick/`): a Rust CLI, `ci-stick`, that turns CI-OS into a
 multi-function USB stick. The stick boots Companion OS, installs Hub/Memory/models onto a
@@ -35,20 +37,14 @@ and `stick/README.md`.
 
 - **Shared** (`core/`): plain Bash + a declarative `core/manifest/ecosystem.yaml` (the single
   source of truth for what gets installed — see its own comments) — no distro assumptions here.
-- **`backends/ubuntu/`, `backends/mint/`**: apt/dpkg + Bash. `debootstrap`, `squashfs-tools`,
+- **`backends/ubuntu/`**: apt/dpkg + Bash. `debootstrap`, `squashfs-tools`,
   `xorriso` for ISO building; `.deb` packaging; systemd first-boot services.
-- **`backends/fedora/`**: dnf/rpm + Bash; kickstart/lorax for ISO building.
-- **`backends/arch/`**: pacman + Bash.
-- **`backends/bazzite/`**: OCI image layering via `Containerfile` + `bootc`/`rpm-ostree` — not
-  chroot/package-install; the live-filesystem-editing model of the other backends doesn't apply.
-- **`backends/nixos/`**: declarative Nix flake/modules. **Nix is first-class inside this one
-  backend** — the previous repo-wide "no Nix" rule was scoped to when CI-OS was Ubuntu-only and
-  no longer applies; don't introduce Nix into `core/` or the other backends, since those must
-  stay usable without it.
+- **`backends/arch/`**: pacman + Bash. The provisioning engine under CachyOS, not a target:
+  `backends/cachyos/provision/provision.sh` wraps its `provision/provision.sh`, and
+  `headless-setup/install.sh` is the dependency oracle the payload tests and the CachyOS ISO verifier read.
 - Docker Compose for service bootstrap (CI-Hub), distro-agnostic once Docker itself is present.
 - **`stick/`**: Rust (Cargo workspace, MSRV 1.75, `Cargo.lock` committed). **Rust is
-  first-class inside `stick/` only**, the same way Nix is inside `backends/nixos/`. Don't
-  introduce it into `core/` or the backends.
+  first-class inside `stick/` only**. Don't introduce it into `core/` or the backends.
 - **`backends/cachyos/`**: bash + Docker (host) and bash 5 (container); a pinned upstream archiso profile plus an overlay. archiso gives files modes only from `file_permissions` (mkarchiso drops modes), so every executable the overlay adds needs an entry in `overlay/profiledef.append.sh`.
 
 ## Key commands
@@ -84,16 +80,18 @@ sudo ./backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh
 
 ## Package manager
 
-No single one — package management is backend-specific (see Stack above). `core/` itself has
-no package-manager assumptions; each `backends/<distro>/` uses that distro's native tooling.
+No single one — package management is backend-specific (see Stack above): apt/dpkg on Ubuntu,
+pacman on CachyOS (through `backends/arch/`). `core/` itself has no package-manager assumptions;
+each `backends/<name>/` uses its distro's native tooling.
 
 ## Cross-repo connections
 
 - Hosts: CI-Hub (local TLS/routing is the Hub-managed Traefik stack; the former CI-Gateway repo
   was retired). **CI-Server has no implementation in this repo** — it's tracked only as a
   `reserved` entry in `core/manifest/ecosystem.yaml`, pointing at its own repo.
-- Desktop and boot theming lives in `backends/<distro>/desktop-theme/` (the legacy `configs/`
-  Cubic/preseed customization tree was removed as dead code)
+- Desktop and boot theming lives in `backends/ubuntu/desktop-theme/`; CachyOS themes through its
+  overlay (`backends/cachyos/iso/overlay`). The legacy `configs/` Cubic/preseed customization tree
+  was removed as dead code.
 - Assets in assets/
 
 

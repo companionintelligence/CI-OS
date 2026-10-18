@@ -21,16 +21,13 @@ BACKENDS = Path(os.environ.get('BACKENDS_DIR') or (REPO / 'backends'))
 BIN = PAYLOAD / 'usr' / 'local' / 'bin'
 HOSTAPD_CONFS = [PAYLOAD / 'hostapd' / 'hostapd-setup.conf', PAYLOAD / 'usr' / 'share' / 'setup-device' / 'defaults' / 'hostapd-setup.conf']
 UBUNTU_POSTINST = BACKENDS / 'ubuntu' / 'headless-package' / 'DEBIAN' / 'postinst'
-MINT_POSTINST = BACKENDS / 'mint' / 'headless-package' / 'DEBIAN' / 'postinst'
-FEDORA_INSTALL = BACKENDS / 'fedora' / 'headless-setup' / 'install.sh'
 ARCH_INSTALL = BACKENDS / 'arch' / 'headless-setup' / 'install.sh'
-NIXOS_MODULE = BACKENDS / 'nixos' / 'modules' / 'headless-setup.nix'
 CACHYOS_SERVICES = BACKENDS / 'cachyos' / 'installer' / 'modules' / 'services-systemd.conf'
 CACHYOS_PACKAGES = BACKENDS / 'cachyos' / 'installer' / 'modules' / 'packages_online.conf'
 
 
 def code_lines(path):
-    """The non-comment, non-blank lines of a shell/nix/conf file."""
+    """The non-comment, non-blank lines of a shell or conf file."""
     out = []
     for raw in Path(path).read_text().splitlines():
         s = raw.strip()
@@ -113,12 +110,6 @@ class NoDockerOrTraefikTests(unittest.TestCase):
                 self.assertNotRegex(code_text(BIN / name), r'(?i)docker|traefik')
         self.assertNotRegex(code_text(PAYLOAD / 'opt' / 'setup-backend' / 'setup_service.py').replace('docker/', ''), r'(?i)traefik')
 
-    def test_nixos_monitor_path_has_no_docker(self):
-        text = NIXOS_MODULE.read_text()
-        m = re.search(r'systemd\.services\.setup-network-monitor = \{.*?path = with pkgs; \[(.*?)\];', text, re.S)
-        self.assertIsNotNone(m)
-        self.assertNotIn('docker', m.group(1))
-
 
 class UnitFileTests(unittest.TestCase):
     """H4: a daemon that cannot start must not restart for ever."""
@@ -137,7 +128,7 @@ class BootEnablingTests(unittest.TestCase):
     ENABLE = re.compile(r'systemctl\s+(?:enable|reenable)\s+(?:--now\s+)?[^\n]*?(hostapd-setup|dnsmasq-setup|nginx)')
 
     def installers(self):
-        return {'ubuntu postinst': UBUNTU_POSTINST, 'mint postinst': MINT_POSTINST, 'fedora install.sh': FEDORA_INSTALL, 'arch install.sh': ARCH_INSTALL}
+        return {'ubuntu postinst': UBUNTU_POSTINST, 'arch install.sh': ARCH_INSTALL}
 
     def test_no_installer_enables_the_access_point_stack(self):
         for label, path in self.installers().items():
@@ -164,14 +155,6 @@ class BootEnablingTests(unittest.TestCase):
                 self.assertRegex(text, r'systemctl disable dnsmasq-setup\.service')
                 self.assertRegex(text, r'systemctl disable nginx\.service')
 
-    def test_nixos_does_not_start_nginx_or_the_access_point_at_boot(self):
-        text = NIXOS_MODULE.read_text()
-        self.assertRegex(text, r'systemd\.services\.nginx\.wantedBy\s*=\s*lib\.mkIf cfg\.portalOnDemand \(lib\.mkForce \[ \]\)')
-        for unit in ('hostapd-setup', 'dnsmasq-setup'):
-            block = re.search(rf'systemd\.services\.{unit} = \{{(.*?)\n    \}};', text, re.S)
-            self.assertIsNotNone(block, unit)
-            self.assertNotIn('wantedBy', block.group(1), unit)
-
     def test_cachyos_enables_exactly_the_boot_units(self):
         enabled = set()
         name = None
@@ -189,25 +172,16 @@ class DependencyTests(unittest.TestCase):
     """K2: iw, iproute2 and rfkill/util-linux are used by the payload and were declared nowhere."""
 
     def test_deb_depends(self):
-        for control in (BACKENDS / 'ubuntu' / 'headless-package' / 'DEBIAN' / 'control', BACKENDS / 'mint' / 'headless-package' / 'DEBIAN' / 'control'):
+        for control in (BACKENDS / 'ubuntu' / 'headless-package' / 'DEBIAN' / 'control',):
             depends = re.search(r'(?m)^Depends:\s*(.*)$', control.read_text()).group(1)
             names = {d.strip().split()[0] for d in depends.split(',')}
             with self.subTest(control=str(control.relative_to(BACKENDS))):
                 self.assertLessEqual({'iw', 'iproute2', 'rfkill'}, names)
                 self.assertLessEqual({'hostapd', 'dnsmasq', 'nginx-light', 'network-manager'}, names)
 
-    def test_fedora_and_arch_dependency_lists(self):
-        fedora = re.search(r'FEDORA_DEPS=\((.*?)\)', FEDORA_INSTALL.read_text()).group(1).split()
+    def test_arch_dependency_list(self):
         arch = re.search(r'ARCH_DEPS=\((.*?)\)', ARCH_INSTALL.read_text()).group(1).split()
-        self.assertLessEqual({'iw', 'iproute', 'util-linux'}, set(fedora))      # util-linux: flock, rfkill
-        self.assertLessEqual({'iw', 'iproute2', 'util-linux'}, set(arch))
-
-    def test_nixos_paths(self):
-        text = NIXOS_MODULE.read_text()
-        monitor = re.search(r'systemd\.services\.setup-network-monitor = \{.*?path = with pkgs; \[(.*?)\];', text, re.S).group(1).split()
-        backend = re.search(r'systemd\.services\.setup-backend = \{.*?path = with pkgs; \[(.*?)\];', text, re.S).group(1).split()
-        self.assertLessEqual({'iw', 'iproute2', 'rfkill', 'util-linux', 'networkmanager'}, set(monitor))
-        self.assertLessEqual({'iproute2', 'util-linux', 'procps', 'networkmanager', 'iw', 'gawk'}, set(backend))
+        self.assertLessEqual({'iw', 'iproute2', 'util-linux'}, set(arch))      # util-linux: flock, rfkill
 
     def test_cachyos_installs_iw(self):
         names = set(re.findall(r'(?m)^\s*-\s+([A-Za-z0-9._+-]+)\s*$', CACHYOS_PACKAGES.read_text()))
@@ -231,8 +205,7 @@ class ExecutableBitTests(unittest.TestCase):
     def test_payload_bin_scripts_and_maintainer_scripts(self):
         paths = list(BIN.iterdir())
         paths += [BACKENDS / 'ubuntu' / 'headless-package' / 'DEBIAN' / n for n in ('postinst', 'prerm', 'postrm')]
-        paths += [BACKENDS / 'mint' / 'headless-package' / 'DEBIAN' / n for n in ('postinst', 'prerm', 'postrm')]
-        paths += [FEDORA_INSTALL, ARCH_INSTALL]
+        paths += [ARCH_INSTALL]
         for path in paths:
             if path.is_file() and path.read_bytes()[:2] == b'#!':
                 with self.subTest(path=str(path)):
@@ -243,7 +216,7 @@ class PostinstBehaviourTests(unittest.TestCase):
     """The postinst only stops nginx when the portal is the only site it serves."""
 
     def test_the_only_site_check_exists_and_guards_the_disable(self):
-        for postinst in (UBUNTU_POSTINST, MINT_POSTINST):
+        for postinst in (UBUNTU_POSTINST,):
             text = postinst.read_text()
             self.assertIn('nginx_serves_only_the_portal', text)
             guarded = re.search(r'if nginx_serves_only_the_portal; then(.*?)\nelse', text, re.S)

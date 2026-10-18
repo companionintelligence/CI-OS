@@ -139,8 +139,8 @@ YAML parser on the checked-in file (every pack, every alias).
 
 The provisioners: Ubuntu keeps `ci_os_hardware_supported` (Strix Halo class, 30,000 MiB) and adds the fit gate on top; Arch
 had no gate and now has the fit gate for `qwen3.6:27b`. `backends/ubuntu/provision/install-models.sh` (the headless
-post-validation step), Fedora and NixOS pull the same model with the old rule or none: a three-line change each, not
-made here (files outside this change).
+post-validation step) still pulls the same model with the old rule or none: a three-line change, not
+made here (a file outside this change).
 
 ## Fallbacks when ci-stick is not installed
 
@@ -226,8 +226,7 @@ release key is still undecided), the step could check a detached signature as we
    purpose: $CI_OS_MODEL_FIT_REASON" >&2; continue; fi`.
 2. `customize-chroot.sh`: the install lines above, and stage `core/manifest/model-packs.yaml` (and the lock, once there is one)
    into `/usr/lib/ci-os/bootstrap/core/manifest/` next to `ecosystem.yaml`, or the gate has no data on an installed machine.
-3. The same three-line gate (`ci_os_model_gate_allows qwen3.6:27b`) in `backends/ubuntu/provision/install-models.sh`,
-   `backends/fedora/provision/provision.sh` and `backends/nixos/modules/ecosystem.nix`.
+3. The same three-line gate (`ci_os_model_gate_allows qwen3.6:27b`) in `backends/ubuntu/provision/install-models.sh`.
 4. `verify-iso.sh`: the files above exist with the modes in the table; `ci-os-models help` runs in the chroot; the units pass
    `systemd-analyze verify`; `/etc/ci-os/models-prefetch` does not exist; `ci-os-hf-view.service` and
    `ci-os-models-prefetch.path` are enabled and the timer is not.

@@ -5,10 +5,9 @@
 #
 # What the wrapper adds is the one thing the Arch script cannot do when it is started by systemd instead of by a person with
 # sudo: know who the desktop user is. provision.sh's detect_user() reads $SUDO_USER and, without it, falls back to the
-# current user -- root, under a first-boot unit -- and would then install uv, asdf and Node into /root. Bazzite hit the same
-# wall and scans /etc/passwd (backends/bazzite/modules/ci-os-first-boot-core-tools.sh); the same scan is used here: the first
-# account with UID 1000-59999, a real shell and an existing home that is not `ci`, `liveuser` or `nobody`. A SUDO_USER that is
-# already set (a person ran `sudo`) is respected.
+# current user -- root, under a first-boot unit -- and would then install uv, asdf and Node into /root. So the wrapper scans
+# /etc/passwd for the desktop user: the first account with UID 1000-59999, a real shell and an existing home that is not `ci`,
+# `liveuser` or `nobody`. A SUDO_USER that is already set (a person ran `sudo`) is respected.
 #
 # Default tier. Started without --tier=, this passes --tier=core, as the Ubuntu first-boot service does -- NOT the Arch
 # script's own default (core,hardware): the Arch hardware tier installs rocm-hip-sdk (several GB) and LACT unconditionally,

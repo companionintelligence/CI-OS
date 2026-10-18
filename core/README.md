@@ -11,12 +11,15 @@ Companion Intelligence appliance image is built on.
   (a Plymouth theme, a GRUB background image, app icons, a wallpaper, a GNOME-Shell-style
   gresource) that any backend can install via its own native mechanism. This is where the
   token→color math lives, once, instead of being reimplemented per distro.
-- **`lib/`** — genuinely distro-portable bash helpers (nothing here assumes apt/dnf/pacman).
+- **`lib/`** — genuinely distro-portable bash helpers (nothing here assumes apt or pacman).
 - **`validate/`** — the portable half of theme validation; backend-specific checks
   (e.g. "does this file exist at this Ubuntu-specific path") stay in `backends/<distro>/`.
 - **`headless/payload/`** — the captive-portal WiFi-onboarding Flask backend, static portal,
   and hostapd/dnsmasq configs. The payload itself is distro-portable; only the packaging
-  wrapper (`.deb`, `.rpm`, `PKGBUILD`, ...) is backend-specific.
+  wrapper (the Ubuntu `.deb`, the CachyOS stager `backends/cachyos/provision/stage-headless.sh`) is backend-specific.
 
-See `docs/architecture/multi-distro-design.md` for the full target layout across all seven target
-backends (Ubuntu, Mint, Fedora, Arch, Bazzite, NixOS) and the rollout plan.
+Supported targets: Companion OS on Ubuntu 26.04 LTS (resolute) and Companion OS on CachyOS.
+Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from tag pre-retire-multidistro-2026-10-17).
+`backends/arch` is not a target: it is the provisioning engine under CachyOS.
+
+See `docs/architecture/multi-distro-design.md` for the target layout of the two editions and the rollout plan.

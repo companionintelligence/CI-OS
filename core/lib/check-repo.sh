@@ -58,6 +58,56 @@ if [ -n "$old_names" ]; then
   echo "✖ a retired product name is back; the name is \"Companion OS\":"; echo "$old_names"; rc=1
 fi
 
+echo "── no retired distro names outside core/lib/retired-names.allow"
+# Supported targets: Companion OS on Ubuntu 26.04 LTS and Companion OS on CachyOS. Linux Mint, Fedora, Bazzite and NixOS were
+# retired on 2026-10-17 and their backends removed; the tag pre-retire-multidistro-2026-10-17 keeps them (restore with
+# `git checkout <tag> -- backends/<name>`). So that they do not creep back in by copy-paste, a mention of one of them, or of its
+# tooling (dnf, bootc, rpm-ostree, kickstart, lorax, Cinnamon, nixpkgs, flake.nix), is rejected anywhere in the tracked tree
+# unless the path is listed in core/lib/retired-names.allow (deliberate history: the frozen backends/arch, the design doc, docs
+# still to be rewritten) or the line itself cites the restore tag. A stale allow-list entry (no retired name left in that path)
+# also fails, so the list shrinks as documents are cleaned. This file and the allow-list are not scanned (they spell the names).
+# "mint" is also an English verb (setup_service.py mints nonces), so the distro is matched only as the capitalised word Mint or
+# MINT; \b is avoided on purpose, because BSD regex (macOS git) silently ignores it, so boundaries are spelled out.
+# Ubuntu 24.04 wording is a separate port and is not matched here.
+RETIRED_TAG='pre-retire-multidistro-2026-10-17'
+RETIRED_ALLOW='core/lib/retired-names.allow'
+RETIRED_RE_I='fedora|linux ?mint|linuxmint|backends/\{?[a-z,]*mint|mint-y|cinnamon|bazzite|nixos|nixpkgs|flake\.nix|(^|[^A-Za-z0-9_])dnf5?([^A-Za-z0-9_]|$)|(^|[^A-Za-z])bootc([^A-Za-z]|$)|rpm-ostree|kickstart|lorax'
+RETIRED_RE_S='(^|[^A-Za-z])(Mint|MINT)([^A-Za-z]|$)'
+if [ ! -f "$RETIRED_ALLOW" ]; then
+  echo "✖ missing: $RETIRED_ALLOW"; rc=1
+else
+  retired_report="$(
+    { git grep -n -I -i -E "$RETIRED_RE_I" -- . ":(exclude)$RETIRED_ALLOW" ':(exclude)core/lib/check-repo.sh' 2>/dev/null || true
+      git grep -n -I -E "$RETIRED_RE_S" -- . ":(exclude)$RETIRED_ALLOW" ':(exclude)core/lib/check-repo.sh' 2>/dev/null || true
+    } | sort -u | awk -v tag="$RETIRED_TAG" -v allow="$RETIRED_ALLOW" '
+      BEGIN {
+        while ((getline line < allow) > 0) {
+          sub(/#.*/, "", line); gsub(/^[ \t]+/, "", line); gsub(/[ \t]+$/, "", line)
+          if (line != "") { n++; entry[n] = line }
+        }
+      }
+      NF == 0 { next }
+      {
+        path = $0; sub(/:.*/, "", path)
+        listed = 0
+        for (i = 1; i <= n; i++) if (substr(path, 1, length(entry[i])) == entry[i]) { used[i] = 1; listed = 1 }
+        if (listed || index($0, tag)) next
+        print "HIT " $0
+      }
+      END { for (i = 1; i <= n; i++) if (!used[i]) print "STALE " entry[i] }')"
+  retired_hits="$(printf '%s\n' "$retired_report" | sed -n 's/^HIT //p')"
+  retired_stale="$(printf '%s\n' "$retired_report" | sed -n 's/^STALE //p')"
+  if [ -n "$retired_hits" ]; then
+    echo "✖ a retired distro name is back (supported: Companion OS on Ubuntu 26.04 LTS and on CachyOS). If this is a deliberate note about the"
+    echo "  retirement, put the restore tag $RETIRED_TAG on the same line, or list the file in $RETIRED_ALLOW:"
+    echo "$retired_hits"; rc=1
+  fi
+  if [ -n "$retired_stale" ]; then
+    echo "✖ $RETIRED_ALLOW has entries that no longer match any retired name; delete these lines:"
+    echo "$retired_stale"; rc=1
+  fi
+fi
+
 echo "── no block-letter banner art in backends/, core/ and .github/"
 # A grep for the retired names reads text, not pictures: the MOTD banner drew the letters C, I, O, S in full-block
 # characters, which spelled "CI OS" and passed every check above. Draw no names; write them.

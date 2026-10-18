@@ -1,8 +1,9 @@
 # apt/dpkg role-map — translates core/manifest/ecosystem.yaml's generic dev_tools
-# ids into native apt packages and repo setup. Shared by the ubuntu and mint
-# backends (Mint is apt-based, same package names for everything except its
-# desktop-environment-specific pieces, which live in backends/mint/desktop-theme/
-# rather than here).
+# ids into native apt packages and repo setup. Used by the ubuntu backend
+# (Companion OS on Ubuntu 26.04 LTS).
+#
+# The only other role-map is pacman.yaml (CachyOS, through the backends/arch engine).
+# Retired 2026-10-17: dnf.yaml and bootc.yaml (restore: git checkout pre-retire-multidistro-2026-10-17 -- core/manifest/role-map/dnf.yaml)
 #
 # install_method:
 #   apt_repo    — add a third-party apt repo (see `repo`), then apt-get install `packages`

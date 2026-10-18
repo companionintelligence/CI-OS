@@ -202,8 +202,8 @@ a different fix.
    hotspot flow keeps working and the LAN reach goes.
 2. Stop the portal once it has done its job: `systemctl stop nginx` next to the two `systemctl stop` calls of
    `stop_hotspot_services()`, or `ConditionPathExists=!<paired marker>` drop-ins on `nginx`, `setup-backend`, `hostapd-setup`,
-   `dnsmasq-setup` (the NixOS backend already does this, `ConditionPathExists=!<hub.env>` on the four portal units in
-   `modules/headless-setup.nix`; Bazzite has a first-boot gate, `ci-os-first-boot-setup-portal-gate.sh`).
+   `dnsmasq-setup` (the same idea as the gates that two retired backends shipped; recover them with
+   `git show pre-retire-multidistro-2026-10-17:backends/nixos/modules/headless-setup.nix` and `...:backends/bazzite/modules/ci-os-first-boot-setup-portal-gate.sh`).
 3. A per-device access point passphrase instead of the committed constant.
 4. Ollama: bind the docker bridge address (for example `OLLAMA_HOST=172.17.0.1:11434`) or accept port 11434 only from `docker0`
    (`backends/arch/provision/provision.sh`, so a follow-up for all editions).

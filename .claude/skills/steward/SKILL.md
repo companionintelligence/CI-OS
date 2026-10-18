@@ -13,7 +13,7 @@ description: CI-OS conventions for driving a PR to mergeable — validation to r
 
 It is exactly what the `PR checks` workflow runs (bash -n, `shellcheck -S error`,
 `py_compile`, yamllint, no tracked build artifacts, no retired product name such as "CI OS" or
-"Companion Ubuntu" back in `backends/`, `core/` or `.github/`: the name is "Companion OS"; and no block-letter banner art, which can spell one in a way a text grep cannot read). If it fails locally, don't push. The
+"Companion Ubuntu" back in `backends/`, `core/` or `.github/`: the name is "Companion OS"; no retired distro name back outside `core/lib/retired-names.allow`: a retired target is restored from tag `pre-retire-multidistro-2026-10-17`, not re-described; and no block-letter banner art, which can spell one in a way a text grep cannot read). If it fails locally, don't push. The
 other workflows (`build-companion-os-iso.yml`, `style-canon-lint.yml`) are manual-only
 (`ci-local:gated` markers) — don't restore their triggers in a PR; that's a maintainer call.
 
@@ -34,8 +34,8 @@ Branches cut before the reorganization use the old paths. Map them:
 
 | Old path | Now |
 |---|---|
-| `setup/headless/setup-device/opt/setup-backend/`, `usr/local/bin/`, `var/www/setup-portal/`, `etc/systemd/system/`, `etc/dnsmasq.d/` | `core/headless/payload/…` (shared by every backend) |
-| `setup/headless/setup-device/DEBIAN/`, `setup/headless/build.sh` | `backends/ubuntu/headless-package/` (and `backends/mint/headless-package/`) |
+| `setup/headless/setup-device/opt/setup-backend/`, `usr/local/bin/`, `var/www/setup-portal/`, `etc/systemd/system/`, `etc/dnsmasq.d/` | `core/headless/payload/…` (shared by both editions) |
+| `setup/headless/setup-device/DEBIAN/`, `setup/headless/build.sh` | `backends/ubuntu/headless-package/` |
 | `setup/headless/setup-device/etc/netplan/` | `backends/ubuntu/headless-package/netplan/` |
 | `pull-dev.sh`, CI-Hub install helpers | `core/lib/ci-hub.sh` |
 | `scripts/*.sh`, `setup-fresh-ubuntu.sh`, `bootstrap-ci-os.sh` | `backends/ubuntu/provision/provision.sh` (tier-gated) + `backends/ubuntu/lib/` |
@@ -45,7 +45,7 @@ Touching `backends/cachyos/`: run the no-Docker tests in `backends/cachyos/iso/t
 
 **Companion Stick** lives in `stick/`, a Rust Cargo workspace whose binary crate is
 `crates/ci-stick`; see `docs/architecture/companion-stick.md`. Rust is first-class inside
-`stick/` only, the same way Nix is inside `backends/nixos/`. Never make `core/` or the
+`stick/` only. Never make `core/` or the
 shell backends depend on it. Touching `stick/` → run
 `(cd stick && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)`,
 which is the `stick` job in PR checks. Touching `flash`/`slot`/`target`/`bootcfg`/`grubenv`,
@@ -56,17 +56,15 @@ you change `manifest.rs` or `layout.rs`, update `stick/schema/bundle.schema.json
 example too; a test enforces this. `core/manifest/model-packs.yaml` is provisional, and its
 `digest` fields stay `null` until they are resolved by tooling. Never hand-write digests.
 
-A change to `core/headless/payload/` ships on **every** backend. When it adds a runtime
-dependency (a new binary, e.g. `iptables`), add it to each backend that installs the payload:
-`backends/{ubuntu,mint}/headless-package/DEBIAN/control`, `backends/fedora/headless-setup/install.sh`,
-`backends/arch/headless-setup/install.sh`, `backends/cachyos/installer/modules/packages_online.conf` (Calamares installs the packages; `provision/stage-headless.sh` only copies files), `backends/nixos/modules/headless-setup.nix`.
-Package names per distro: `core/manifest/role-map/*.yaml`. (Bazzite deliberately doesn't ship
-the captive portal — see the end of its `Containerfile`.)
+A change to `core/headless/payload/` ships on **both** editions. When it adds a runtime
+dependency (a new binary, e.g. `iptables`), add it to each place that installs the payload:
+`backends/ubuntu/headless-package/DEBIAN/control`, `backends/cachyos/installer/modules/packages_online.conf` (Calamares installs the packages; `provision/stage-headless.sh` only copies files),
+and `backends/arch/headless-setup/install.sh` (not a target and frozen, but the payload tests and the CachyOS ISO verifier read its `ARCH_DEPS` as the dependency oracle, so it needs an explicit decision).
+Package names per distro: `core/manifest/role-map/apt.yaml` and `pacman.yaml`.
 
-Adding a **new payload file**: the backends don't all copy the payload wholesale. Check each
-one's explicit file lists — `REQUIRED_FILES` in `backends/ubuntu/headless-package/build.sh`,
-the required-file list in the Fedora/Arch `install.sh`, and the per-file `install` lines in
-the NixOS module (`ciOsHeadlessBin`) — and add it wherever it has to be present. Also `backends/cachyos/provision/stage-headless.sh`: every payload file needs a placement rule there (an uncovered file stops it); `backends/cachyos/iso/tests/installer-stage.sh` is the parity test.
+Adding a **new payload file**: the editions don't all copy the payload wholesale. Check each
+one's explicit file lists — `REQUIRED_FILES` in `backends/ubuntu/headless-package/build.sh` and
+the required-file list in the Arch `install.sh` (the oracle) — and add it wherever it has to be present. Also `backends/cachyos/provision/stage-headless.sh`: every payload file needs a placement rule there (an uncovered file stops it); `backends/cachyos/iso/tests/installer-stage.sh` is the parity test.
 
 ## Never commit
 

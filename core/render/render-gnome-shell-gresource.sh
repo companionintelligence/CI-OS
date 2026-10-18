@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # Rebrand a GNOME Shell theme's compiled gresource: extract, swap widget/logo
 # SVGs, recolor accent hexes via a caller-supplied Perl substitution file, and
-# recompile. Distro-portable mechanic — the source theme (Yaru on Ubuntu/Mint,
-# Adwaita on Fedora, ...) and its color-remap table are caller-supplied data,
-# not hardcoded here. See docs/architecture/multi-distro-design.md.
+# recompile. Distro-portable mechanic — the source theme (Yaru on Ubuntu)
+# and its color-remap table are caller-supplied data, not hardcoded here. See docs/architecture/multi-distro-design.md.
 #
 # Promoted from backends/ubuntu/iso/scripts/build-gdm-branding-gresource.sh,
 # which originally hardcoded "Yaru" and a Yaru-specific color table together
 # in one script. Ubuntu's script is now a thin caller passing THEME_NAME=Yaru
-# and its own color-map file; Fedora's does the same with THEME_NAME=Adwaita.
+# and its own color-map file (it is the only caller today).
 #
 # Usage (all via env vars, matching the original script's convention):
 #   THEME_NAME=Yaru \

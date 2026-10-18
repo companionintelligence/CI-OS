@@ -7,8 +7,10 @@ by Lifescope Inc.
 **Read `CLAUDE.md` at the repo root** — it is the canonical guide (layout, stack, commands).
 `AGENTS.md` restates the rules below.
 
-- CI-OS builds and provisions the appliance OS across multiple distros: shared logic in
-  `core/`, per-distro mechanics in `backends/<distro>/` (Ubuntu is the reference backend).
+- CI-OS builds and provisions the appliance OS (Companion OS) for two supported targets, Ubuntu 26.04 LTS
+  and CachyOS: shared logic in `core/`, per-edition mechanics in `backends/ubuntu/` and `backends/cachyos/`
+  (`backends/arch/` is the provisioning engine under CachyOS, not a target).
+- Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from tag `pre-retire-multidistro-2026-10-17`; do not re-add them as new files).
 - Package management is per-backend; `core/` has no package-manager assumptions.
 - Validate with `./core/lib/check-repo.sh` (same as the `PR checks` workflow).
 - Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`).

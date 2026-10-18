@@ -1,0 +1,38 @@
+# core/lib/retired-names.allow
+#
+# Where a retired distro name may still appear. Read by core/lib/check-repo.sh ("no retired distro names").
+#
+# Supported targets: Companion OS on Ubuntu 26.04 LTS (resolute) and Companion OS on CachyOS.
+# Retired 2026-10-17 (backends removed, restore from the tag pre-retire-multidistro-2026-10-17):
+# Linux Mint, Fedora, Bazzite, NixOS (and Ubuntu 24.04; the Ubuntu 24.04 wording is a separate port and is not checked here).
+#
+# Rules (the guard itself is in check-repo.sh, with the exact patterns):
+#   - one path prefix per line: a file, or a directory ending in "/". Blank lines and "#" comments are ignored.
+#   - a tracked line that names the restore tag is always allowed (a deliberate "was removed, restore from ..." note).
+#     Everything else that names a retired distro or its tooling (dnf, bootc, rpm-ostree, kickstart, lorax, Cinnamon, Nix flakes)
+#     must be a path listed here, or it fails the check.
+#   - an entry that no longer matches any retired name is STALE and fails the check: delete the line when its file is clean.
+#   - "mint" is also an English verb (setup_service.py mints nonces); only the capitalised distro name Mint is matched.
+#
+# Add only deliberate history. Do not add a file to silence the check on new prose: reword it, or cite the tag.
+
+# --- deliberate history: kept on purpose -------------------------------------------------------------------------------------
+
+# backends/arch is the provisioning engine under CachyOS, not a target, and frozen (it is never edited). Its comments compare
+# it to the Fedora, Mint and NixOS backends it was written next to.
+backends/arch/
+
+# The design document explains the retirement and keeps the Arch findings that frozen comments in backends/arch cite by name.
+# (Add docs/retired/ here when that directory exists.)
+docs/architecture/multi-distro-design.md
+
+# --- PENDING: documents the docs phase rewrites. Delete each line when its file is clean (a stale line fails the check) -----
+
+docs/architecture/headless-setup.md
+docs/architecture/tier-b-tools.md
+docs/architecture/companion-stick.md
+docs/architecture/companion-stick-128gb.md
+docs/architecture/models-tooling.md
+docs/architecture/ubuntu-iso-layers.md
+docs/architecture/docker-in-live-sessions.md
+docs/architecture/cachyos-backend.md
