@@ -12,7 +12,8 @@
 # parity with the pinned upstream), artwork hashes, os-release (D4) and its pacman hook, lsb-release, sshd mask (D7), the
 # About-System file, the installer launcher and calamares-online.sh (D6), the cachyos-hello gate, the cachy-update check, the package list, file
 # modes, the build record, sha256 / sha512 files, the squashfs listing parser, and the Calamares overlay analysis (a
-# fixture tree and thirteen mutations of it; needs python3 with PyYAML, otherwise listed as SKIPPED).
+# fixture tree and its mutations, with an image-files root for the shellprocess time limits, the install page labels and the grub
+# switch; needs python3 with PyYAML, otherwise listed as SKIPPED).
 #
 # No Docker, no root, no network, no xorriso: awk, sed, grep, od, a hash tool and bash 3.2 are enough, so core/lib/check-repo.sh
 # can run it on a stock macOS. A real ISO is the job of verify-iso.sh itself (backends/cachyos/README.md).
@@ -915,6 +916,7 @@ EOF
     cat > "$d/modules/shellprocess_ci_os_stage.conf" <<'EOF'
 ---
 dontChroot: true
+timeout: 1800
 script:
     - command: "cp -a /usr/lib/ci-os/target-payload/. ${ROOT}/"
     - command: "/usr/share/ci-os/installed/carry-over ${ROOT}"
@@ -932,6 +934,8 @@ overwrite: false
 keep_distributor: false
 defaults:
     GRUB_THEME: "/usr/share/grub/themes/companion-os/theme.txt"
+    GRUB_DISABLE_OS_PROBER: true
+    GRUB_DISABLE_BOOTNEXT: true
 always_use_defaults: true
 EOF
     cat > "$d/modules/packagechooser_bootloader.conf" <<'EOF'
@@ -991,6 +995,12 @@ QWidget { font: 13px; }
 QProgressBar { background-color: #041620; border: 1px solid #a3babf; border-radius: 4px; color: #e8f2f4; text-align: center; min-height: 18px; max-height: 18px; }
 QProgressBar::chunk { background-color: #0d7a6e; border-radius: 3px; }
 QAbstractItemView { selection-background-color: #c5e8dc; selection-color: #041620; }
+QComboBox { combobox-popup: 1; }
+QComboBox::item { background-color: transparent; }
+QComboBox::item:selected { background-color: #c5e8dc; color: #041620; }
+QRadioButton::indicator { width: 12px; height: 12px; border: 2px solid #a3babf; border-radius: 8px; background-color: transparent; }
+QRadioButton::indicator:hover { border-color: #c5e8dc; }
+QRadioButton::indicator:checked { border: 2px solid #c5e8dc; background-color: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5, fx: 0.5, fy: 0.5, stop: 0 #c5e8dc, stop: 0.5 #c5e8dc, stop: 0.62 transparent, stop: 1 transparent); }
 #supportButton,
 #donateButton,
 #releaseNotesButton,
@@ -1044,6 +1054,12 @@ else
     cal_mut "GRUB_THEME of CachyOS" "GRUB_THEME" modules/grubcfg.conf 's#companion-os#cachyos#'
     cal_mut "Plymouth animation of CachyOS" "plymouth_theme" modules/plymouthcfg.conf 's/companion-os/cachyos-bootanimation/'
     cal_mut "docker-buildx not installed" "does not get: docker-buildx" modules/packages_online.conf '/docker-buildx/d'
+    # --- the installed system's boot menu (ISO #5: UiApp, a gone DVD drive, the NVMe disk, EFI Shell, a second companion-os in GRUB) ---
+    cal_mut "grubcfg without GRUB_DISABLE_BOOTNEXT (the firmware's boot variables become menu entries)" "GRUB_DISABLE_BOOTNEXT is None, not true" modules/grubcfg.conf '/GRUB_DISABLE_BOOTNEXT/d'
+    cal_mut "GRUB_DISABLE_BOOTNEXT false" "GRUB_DISABLE_BOOTNEXT is False, not true" modules/grubcfg.conf 's/GRUB_DISABLE_BOOTNEXT: true/GRUB_DISABLE_BOOTNEXT: false/'
+    cal_mut "GRUB_DISABLE_OS_PROBER false (the pre-fix grubcfg.conf)" "GRUB_DISABLE_OS_PROBER is False, not true" modules/grubcfg.conf 's/GRUB_DISABLE_OS_PROBER: true/GRUB_DISABLE_OS_PROBER: false/'
+    cal_mut "the string 'true' instead of the boolean (the job would write 'true' quoted too, but a typo like 'ture' passes it: only the boolean is accepted)" "GRUB_DISABLE_BOOTNEXT is 'true', not true" modules/grubcfg.conf "s/GRUB_DISABLE_BOOTNEXT: true/GRUB_DISABLE_BOOTNEXT: 'true'/"
+    cal_mut "always_use_defaults off (an existing /etc/default/grub would keep its own values)" "always_use_defaults is not true" modules/grubcfg.conf 's/^always_use_defaults: true/always_use_defaults: false/'
     cal_mut "a required ARCH_DEPS package (dnsmasq) not installed" "does not get: dnsmasq" modules/packages_online.conf '/dnsmasq/d'
     cal_mut "a module the package is built without" "built without" settings_companion.conf 's/  - summary/  - summary\n  - contextualprocess/'
     cal_mut "an instance without its config" "needs .*which neither" settings_companion.conf 's/config: welcome_online.conf/config: welcome_gone.conf/'
@@ -1092,6 +1108,16 @@ else
     cal_mut "no selection colours for item views" "no selection colours" "$Q" '/^QAbstractItemView/d'
     cal_mut "selection text that is not 7:1 on its row" "no selection colours" "$Q" 's/selection-color: #041620/selection-color: #0d7a6e/'
     cal_mut "the Welcome link buttons keep their stock pictogram" "link buttons keep" "$Q" '/^#supportButton,$/,/^#knownIssuesButton/d'
+    # --- ISO #5, install frames 02b and 05b: the zone list's popup and the partition page's radio buttons ---
+    cal_mut "ISO #5: a zone list popup that stays list-style (no combobox-popup: the delegate ignores the sheet, no entry is highlighted)" "combo box popups are not styled" "$Q" '/^QComboBox { combobox-popup/d'
+    cal_mut "a menu-style popup without the transparent base rule (Breeze draws an empty check box on every other row)" "combo box popups are not styled" "$Q" '/^QComboBox::item { background-color: transparent/d'
+    cal_mut "a selected popup entry with no colours of its own" "combo box popups are not styled" "$Q" '/^QComboBox::item:selected/d'
+    cal_mut "a selected popup entry whose text is not 7:1 on its row (sage on sage-ish teal)" "combo box popups are not styled" "$Q" 's/QComboBox::item:selected { background-color: #c5e8dc; color: #041620; }/QComboBox::item:selected { background-color: #c5e8dc; color: #409b9b; }/'
+    cal_mut "ISO #5: no radio indicator rules (Breeze's bare white dot with no ring)" "radio buttons' indicator is not drawn" "$Q" '/^QRadioButton::indicator/d'
+    cal_mut "a radio indicator that is a square (no border-radius)" "radio buttons' indicator is not drawn" "$Q" 's/ border-radius: 8px; background-color: transparent; }/ background-color: transparent; }/'
+    cal_mut "a radio indicator whose radius is not half its outer diameter (a rounded square)" "radio buttons' indicator is not drawn" "$Q" 's/border-radius: 8px/border-radius: 3px/'
+    cal_mut "a checked radio without a ring colour of its own" "radio buttons' indicator is not drawn" "$Q" 's/QRadioButton::indicator:checked { border: 2px solid #c5e8dc; /QRadioButton::indicator:checked { /'
+    cal_mut "a checked radio whose dot is solid (no gap, no gradient: a disc)" "radio buttons' indicator is not drawn" "$Q" 's/background-color: qradialgradient([^;]*);/background-color: #c5e8dc;/'
     cal_mut "a placeholder that stage-installer.sh did not fill" "unfilled placeholder" "$Q" 's/#041620; border/@CTRL_TRACK@; border/'
     rm -rf "$WORK/caltree.m"; cp -R "$WORK/caltree.good" "$WORK/caltree.m"; rm "$WORK/caltree.m/$Q"
     bad "calamares: no stylesheet at all" "no branding/companion/stylesheet.qss" calrun "$WORK/caltree.m"
@@ -1158,17 +1184,116 @@ EOF
     good "calamares: the provisioning tree copied to the target (target/) is data, not Calamares YAML" calrun "$WORK/caltree.m"
     # the step runs a script of the overlay, and that script runs carry-over (how stage-installer.sh arranges it)
     printf '#!/bin/bash\n/usr/share/ci-os/installed/carry-over "$1"\ncp -a /usr/lib/ci-os/target-payload/. "$1"/\nchroot "$1" systemctl enable docker.service\n' > "$WORK/caltree.m/scripts/ci-os-stage-target.sh"
-    printf -- '---\ndontChroot: true\nscript:\n    - command: "bash /usr/share/ci-os/calamares/scripts/ci-os-stage-target.sh ${ROOT}"\n' > "$WORK/caltree.m/modules/shellprocess_ci_os_stage.conf"
+    printf -- '---\ndontChroot: true\ntimeout: 1800\nscript:\n    - command: "bash /usr/share/ci-os/calamares/scripts/ci-os-stage-target.sh ${ROOT}"\n' > "$WORK/caltree.m/modules/shellprocess_ci_os_stage.conf"
     printf '/usr/share/ci-os/calamares/scripts/ci-os-stage-target.sh\n' >> "$WORK/image-paths.txt"
     good "calamares: a step that reaches carry-over and the payload through a script of the overlay" calrun "$WORK/caltree.m"
     # a chroot step names paths of the target, which are not in the live image
-    printf -- '---\ndontChroot: false\nscript:\n    - command: "/usr/lib/ci-os/ci-os-post-install-fixups.sh ${USER}"\n' > "$WORK/caltree.m/modules/shellprocess_ci_os_fixups.conf"
+    printf -- '---\ndontChroot: false\ntimeout: 900\nscript:\n    - command: "/usr/lib/ci-os/ci-os-post-install-fixups.sh ${USER}"\n' > "$WORK/caltree.m/modules/shellprocess_ci_os_fixups.conf"
     sed -i.bak 's/^  module: shellprocess\n  config: shellprocess_ci_os_stage.conf//' "$WORK/caltree.m/settings_companion.conf" && rm -f "$WORK/caltree.m/settings_companion.conf.bak"
     good "calamares: a chroot step may name paths that only the target has" calrun "$WORK/caltree.m"
     rm -rf "$WORK/caltree.m"
     bad "calamares: a tree that does not exist" "does not exist" calrun "$WORK/no-such-tree"
     mkdir "$WORK/caltree.empty"
     bad "calamares: an empty tree" "is empty" calrun "$WORK/caltree.empty"
+    # --- the installer's own files of the image (--stock-root): time limits, install page labels, the grub switch ---
+    # ISO #5: shellprocess_initialize_pacman.conf gave the keyring command Calamares' default of 30 s and the install died at 2 percent.
+    SR="$WORK/stockroot"
+    mk_stock_root() { # the installer's files as ISO #5 had them (the shapes recorded in installer-fixtures/upstream-3.4.2-13.facts)
+        rm -rf "$SR"; mkdir -p "$SR/etc/calamares/modules" "$SR/etc/calamares/scripts" "$SR/usr/lib/calamares/modules/chwd" "$SR/usr/lib/calamares/modules/pacstrap" "$SR/etc/grub.d"
+        cat > "$SR/etc/calamares/modules/shellprocess_initialize_pacman.conf" <<'EOF'
+---
+dontChroot: true
+script:
+ - command: "bash /etc/calamares/scripts/update-mirrorlist"
+   timeout: 3600
+   verbose: true
+ - command: "bash /etc/calamares/scripts/create-pacman-keyring"
+   verbose: true
+ - "mkdir -p ${ROOT}/etc/pacman.d/"
+ - "cp -a /etc/pacman.d/gnupg ${ROOT}/etc/pacman.d/"
+i18n:
+ name: "initialize pacman ... ranking mirrors ..."
+EOF
+        printf '#!/usr/bin/env bash\nexec 2>&1\npacman-key --init\nfor ((i=0; i<5; i++)); do pacman -Sy --noconfirm --needed cachyos-keyring && break; done\npacman-key --populate\n' > "$SR/etc/calamares/scripts/create-pacman-keyring"
+        printf '#!/usr/bin/env bash\nsudo pacman -Sy --noconfirm --needed cachyos-rate-mirrors rate-mirrors\nsudo cachyos-rate-mirrors\n' > "$SR/etc/calamares/scripts/update-mirrorlist"
+        printf 'import libcalamares\n\n\ndef pretty_name():\n    return _("Installing needed drivers for CachyOS...")\n\n\ndef run():\n    return None\n' > "$SR/usr/lib/calamares/modules/chwd/main.py"
+        printf 'def pretty_name():\n    return _("Installing packages with pacstrap")\n' > "$SR/usr/lib/calamares/modules/pacstrap/main.py"
+        printf '#! /bin/sh\nif [ "${GRUB_DISABLE_BOOTNEXT}" = "true" ]; then\n    exit 0\nfi\nefibootmgr -v\n' > "$SR/etc/grub.d/31_efi_bootnext"
+    }
+    # a Calamares tree whose sequence runs the three configs and carries the repository's own copies and patches.list (the real files)
+    mk_sp_tree() { # DIR
+        mk_cal_tree "$1"
+        cp "$ROOT_CACHYOS/installer/modules/shellprocess_initialize_pacman.conf" "$ROOT_CACHYOS/installer/modules/shellprocess_modify_mk_hook.conf" "$1/modules/"
+        cp "$ROOT_CACHYOS/installer/patches.list" "$1/patches.list"
+        mkdir -p "$1/scripts"
+        sed -i.bak -e 's/^- id: ci_os_stage$/- id: initialize_pacman\n  module: shellprocess\n  config: shellprocess_initialize_pacman.conf\n- id: chwd_dummy_unused\n  module: shellprocess\n  config: shellprocess_modify_mk_hook.conf\n- id: ci_os_stage/' \
+                   -e 's/^  - mount$/  - mount\n  - shellprocess@initialize_pacman\n  - shellprocess@chwd_dummy_unused/' "$1/settings_companion.conf" && rm -f "$1/settings_companion.conf.bak"
+    }
+    ROOT_CACHYOS="$(cd "$HERE/../.." && pwd)/"
+    ROOT_CACHYOS="${ROOT_CACHYOS%/}"
+    calrun_stock() { v_run_calamares_py "$1" --stock-modules "$WORK/stock-modules.txt" --stock-confs "$WORK/stock-confs.txt" --image-paths "$WORK/image-paths.txt" --extra-packages "hostapd dnsmasq" --stock-root "$SR"; }
+    printf 'shellprocess\n' >> "$WORK/stock-modules.txt"
+    mk_stock_root; mk_sp_tree "$WORK/sp.good"
+    good "calamares + image files: the overlay's copies of the three stock configs (the repository's real ones), its patches.list and an image with ISO #5's shapes pass" calrun_stock "$WORK/sp.good"
+    ok_out "the report says what was read: the copies from the overlay, with the limits and the floors" "shellprocess configs of the install sequence .*shellprocess_initialize_pacman.conf from the overlay.*>= 600 s network"
+    ok_out "the report says the install page labels were read from the image with the patches applied" "no job label of the install page names CachyOS: 2 Python module pretty_name"
+    ok_out "the report says the image's grub reads GRUB_DISABLE_BOOTNEXT" "31_efi_bootnext of the image reads GRUB_DISABLE_BOOTNEXT"
+    sp_mut() { # LABEL REGEX FILE SED-EXPR
+        rm -rf "$WORK/sp.m"; cp -R "$WORK/sp.good" "$WORK/sp.m"; mut "$WORK/sp.m/$3" "$4"
+        bad "calamares + image files: $1" "$2" calrun_stock "$WORK/sp.m"
+    }
+    rm -rf "$WORK/sp.m"; cp -R "$WORK/sp.good" "$WORK/sp.m"; rm "$WORK/sp.m/modules/shellprocess_initialize_pacman.conf"
+    bad "calamares + image files: MUTANT ISO #5: no overlay copy, so the image's own initialize_pacman (keyring command on the 30 s default) runs" "shellprocess time limits: shellprocess_initialize_pacman.conf: command 2 .*create-pacman-keyring.* runs pacman, pacman-key .*after 30 s" calrun_stock "$WORK/sp.m"
+    sp_mut "a keyring command with timeout 0 (no limit to Calamares)" "create-pacman-keyring.* may only take 0 s .*needs at least 600 s" modules/shellprocess_initialize_pacman.conf '/create-pacman-keyring/{n;s/timeout: 3600/timeout: 0/;}'
+    sp_mut "a keyring command with 120 s (below the network floor)" "create-pacman-keyring.* may only take 120 s" modules/shellprocess_initialize_pacman.conf '/create-pacman-keyring/{n;s/timeout: 3600/timeout: 120/;}'
+    sp_mut "a copy without any file-level limit (the plain commands fall back to 30 s; cp -a is heavy)" "runs cp -a/-r and has no timeout of its own" modules/shellprocess_initialize_pacman.conf '/^timeout: 600$/d'
+    sp_mut "a mk_hook copy without a limit" "shellprocess_modify_mk_hook.conf: commands 1, 2.*default of 30 s" modules/shellprocess_modify_mk_hook.conf '/^timeout: 600$/d'
+    mk_stock_root; sed -i.bak 's/^ - "mkdir -p \${ROOT}\/etc\/pacman.d\/"$/ - "mkdir -p ${ROOT}\/etc\/pacman.d\/"\n - "bash \/etc\/calamares\/scripts\/new-upstream-step"/' "$SR/etc/calamares/modules/shellprocess_initialize_pacman.conf" && rm -f "$SR/etc/calamares/modules/shellprocess_initialize_pacman.conf.bak"
+    bad "calamares + image files: the image's file gained a command the overlay's frozen copy does not run (reviewed, not silently outdated)" "new-upstream-step.*which the overlay's copy does not" calrun_stock "$WORK/sp.good"
+    mk_stock_root; sed -i.bak 's/^ - "mkdir -p \${ROOT}\/etc\/pacman.d\/"$/ - "mkdir -p ${ROOT}\/etc\/pacman.d\/"\n - "true"/; s/^i18n:/newKey: 1\ni18n:/' "$SR/etc/calamares/modules/shellprocess_initialize_pacman.conf" && rm -f "$SR/etc/calamares/modules/shellprocess_initialize_pacman.conf.bak"
+    bad "calamares + image files: the image's file gained a top-level key the copy lacks" "has the key 'newKey'" calrun_stock "$WORK/sp.good"
+    mk_stock_root
+    # R3, second half: where the commands run (dontChroot) and their order, on the image's file and on the overlay's copy
+    ic_conf="$SR/etc/calamares/modules/shellprocess_initialize_pacman.conf"
+    mk_stock_root; sed -i.bak 's/^dontChroot: true$/dontChroot: false/' "$ic_conf" && rm -f "$ic_conf.bak"
+    bad "calamares + image files: the image's file now runs in the target (dontChroot true -> false) where the overlay's frozen copy runs on the live system" "shellprocess_initialize_pacman.conf: the installer's config runs its commands inside the target .*the overlay's copy on the live system" calrun_stock "$WORK/sp.good"
+    mk_stock_root
+    sp_mut "an overlay copy that runs on the target where the image's file runs on the live system (dontChroot true -> false)" "shellprocess_initialize_pacman.conf: the installer's config runs its commands on the live system .*the overlay's copy inside the target" modules/shellprocess_initialize_pacman.conf 's/^dontChroot: true$/dontChroot: false/'
+    # the image's file lists mkdir before the cp -a of the keyring directory; swap the two there: the same commands, another order
+    mk_stock_root
+    awk '/^ - "mkdir -p \$\{ROOT\}\/etc\/pacman.d\/"$/ && h == "" { h = $0; next } h != "" { print; print h; h = ""; next } { print }' "$ic_conf" > "$ic_conf.new" && mv "$ic_conf.new" "$ic_conf"
+    bad "calamares + image files: the image's file runs the same commands in another order (cp -a of the keyring directory before the mkdir): the frozen copy is outdated" "shellprocess_initialize_pacman.conf: the installer's config runs .mkdir -p .* at a place in its order" calrun_stock "$WORK/sp.good"
+    mk_stock_root
+    good "calamares + image files: the unchanged image files and the overlay's copies agree again after the mutants (no state leaks between them)" calrun_stock "$WORK/sp.good"
+    # the shorter forms of `script:` are read as the list they stand for (a string used to be read one character at a time)
+    rm -rf "$WORK/sp.m"; cp -R "$WORK/sp.good" "$WORK/sp.m"
+    printf -- '---\ndontChroot: true\ntimeout: 20\nscript: "pacman -Syu --noconfirm"\n' > "$WORK/sp.m/modules/shellprocess_modify_mk_hook.conf"
+    bad "calamares + image files: a config whose \`script:\` is ONE STRING running pacman on a 20 s file-level limit" "shellprocess_modify_mk_hook.conf: command 1 .*runs pacman .*may only take 20 s" calrun_stock "$WORK/sp.m"
+    printf -- '---\ndontChroot: true\nscript:\n  command: "pacman -Syu --noconfirm"\n  timeout: 900\n' > "$WORK/sp.m/modules/shellprocess_modify_mk_hook.conf"
+    good "calamares + image files: a config whose \`script:\` is ONE MAPPING with its own 900 s limit passes (it was reported as having none)" calrun_stock "$WORK/sp.m"
+    printf -- '---\ndontChroot: true\ntimeout: 120\nscript:\n  - "mkinitcpio -P"\n  - "dracut --force"\n  - "locale-gen"\n  - "limine-update"\n' > "$WORK/sp.m/modules/shellprocess_modify_mk_hook.conf"
+    bad "calamares + image files: initramfs, locale and bootloader tools (mkinitcpio, dracut, locale-gen, limine-update) on a 120 s limit are below the disk floor" "shellprocess_modify_mk_hook.conf: command 2 .*runs dracut/update-initramfs .*may only take 120 s .*needs at least 300 s" calrun_stock "$WORK/sp.m"
+    rm -rf "$WORK/sp.m"
+    # the install page label
+    sp_mut "MUTANT ISO #5: no patches.list row for the driver label (the install window says 'Installing needed drivers for CachyOS...' at 35 percent)" "the install window would still name CachyOS .*chwd: Installing needed drivers for CachyOS" patches.list '/chwd\/main.py/d'
+    sp_mut "a patches.list row whose expression does not touch the label" "the install window would still name CachyOS .*chwd" patches.list 's#s/CachyOS/Companion OS/g | Installing needed#s/Nothing/Companion OS/g | Installing needed#'
+    sp_mut "a patches.list row whose marker is not in the image any more (the installer's text changed, the patch cannot apply, the label still says CachyOS)" "the install window would still name CachyOS .*chwd: Installing needed drivers for CachyOS" patches.list 's#| Installing needed drivers for CachyOS$#| Installing needed drivers for Something Else#'
+    rm -rf "$WORK/sp.m"; cp -R "$WORK/sp.good" "$WORK/sp.m"
+    mk_stock_root; printf 'def pretty_name():\n    return _("Installing needed drivers for Companion OS...")\n' > "$SR/usr/lib/calamares/modules/chwd/main.py"
+    good "calamares + image files: an image whose label already says Companion OS (an installer that fixed it) passes; the stale patch row is a note" calrun_stock "$WORK/sp.m"
+    ok_out "... and the note names the row" "patches.list: /usr/lib/calamares/modules/chwd/main.py no longer contains"
+    mk_stock_root
+    printf 'def pretty_name():\n    return _("Installing needed drivers for CachyOS...")\n' > "$SR/usr/lib/calamares/modules/chwd/main.py"
+    # the grub script
+    printf '#! /bin/sh\nefibootmgr -v\n' > "$SR/etc/grub.d/31_efi_bootnext"
+    bad "calamares + image files: the image's 31_efi_bootnext does not read GRUB_DISABLE_BOOTNEXT (the switch would do nothing)" "does not read GRUB_DISABLE_BOOTNEXT" calrun_stock "$WORK/sp.good"
+    mk_stock_root; rm "$SR/etc/grub.d/31_efi_bootnext"
+    good "calamares + image files: a grub without 31_efi_bootnext has nothing to switch off (a note, not a failure)" calrun_stock "$WORK/sp.good"
+    ok_out "... and the report says so" "has no /etc/grub.d/31_efi_bootnext"
+    # without the image's files the effective config of a stock step cannot be read: a note, never a pass for it
+    good "calamares without an image root: the overlay's own configs are still judged" calrun "$WORK/sp.good"
+    ok_out "... and the report says the installer's own files are not available" "installer's own files of the image are not available here"
+    rm -rf "$WORK/sp.m" "$WORK/sp.good" "$SR"
     # Without python the helper reports a visible skip, never a pass.
     mkdir -p "$WORK/nopython"
     PATH_SAVE="$PATH"; PASS=0; FAIL=0; SKIPPED=()

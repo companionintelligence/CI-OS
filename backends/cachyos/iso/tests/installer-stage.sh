@@ -90,7 +90,7 @@ if grep -q "color: \"$CI_DARK_BACKGROUND\"" "$OV/branding/companion/show.qml" &&
 
 DESC="the overlay's scripts and libraries equal the repository's (copied, not edited on the way)"
 bad=0
-for f in lib/ci-guards.sh lib/ci-pkglist.py scripts/ci-os-stage-target.sh scripts/ci-os-post-install-fixups.sh settings.conf guards.list patches.list pacstrap-code-added.list; do
+for f in lib/ci-guards.sh lib/ci-pkglist.py lib/ci-shellprocess.py scripts/ci-os-stage-target.sh scripts/ci-os-post-install-fixups.sh settings.conf guards.list patches.list pacstrap-code-added.list; do
   cmp -s "$INSTALLER/$f" "$OV/$f" || bad=1
 done
 for f in "$INSTALLER"/modules/*; do cmp -s "$f" "$OV/modules/$(basename "$f")" || bad=1; done
@@ -337,7 +337,7 @@ stubf usermod 'echo "usermod $*" >> "$FAKE_FIX_LOG"; exit "${FAKE_USERMOD_RC:-0}
 new_fix_root() { rm -rf "$1"; mkdir -p "$1/etc/default" "$1/usr/share/libalpm/scripts" "$1/usr/share/applications" "$1/etc/xdg/autostart"
   printf '[Desktop Entry]\nName=Cachy-Update\nComment=An interactive update notifier & applier for CachyOS\nNoDisplay=false\nExec=arch-update\n' > "$1/usr/share/applications/arch-update.desktop"
   printf '[Desktop Entry]\nName=Cachy-Update Systray Applet\nExec=/bin/sh -c "sleep 3 && arch-update --tray"\nNoDisplay=true\n' > "$1/etc/xdg/autostart/arch-update-tray.desktop"
-  printf 'GRUB_THEME="/usr/share/grub/themes/companion-os/theme.txt"\nGRUB_DISTRIBUTOR="Companion OS"\n' > "$1/etc/default/grub"
+  printf 'GRUB_THEME="/usr/share/grub/themes/companion-os/theme.txt"\nGRUB_DISTRIBUTOR="Companion OS"\nGRUB_DISABLE_OS_PROBER='"'"'true'"'"'\nGRUB_DISABLE_BOOTNEXT='"'"'true'"'"'\n' > "$1/etc/default/grub"
   echo 'NAME="Companion OS"' > "$1/etc/os-release"; }
 run_fix() { # root [env...] -> FIX_OUT FIX_RC
   local r="$1"; shift; : > "$W/fix.log"
@@ -396,6 +396,30 @@ new_fix_root "$FR"; printf 'GRUB_DISTRIBUTOR="CachyOS"\nGRUB_THEME="/x/companion
 run_fix "$FR" FAKE_HAS_GRUB_THEME=0
 DESC="a GRUB_DISTRIBUTOR that still names CachyOS is reported"
 if printf '%s' "$FIX_OUT" | grep -q 'WARN: GRUB_DISTRIBUTOR still names CachyOS'; then verdict 0; else verdict 1; fi
+# The boot menu of the installed system: no firmware leftovers (ISO #5: UiApp, a gone DVD drive, the NVMe disk, EFI Shell, a second
+# companion-os, all "(EFI BootNext)" entries of the grub package's 31_efi_bootnext). The switches are set by grubcfg.conf, before
+# grub-mkconfig; the fix-ups only check, because by now grub.cfg is written.
+new_fix_root "$FR"
+run_fix "$FR"
+DESC="GRUB_DISABLE_BOOTNEXT and GRUB_DISABLE_OS_PROBER set (quoted 'true', as the grubcfg job writes them): no warning about the boot menu"
+if [ "$FIX_RC" = 0 ] && ! printf '%s' "$FIX_OUT" | grep -q 'WARN:.*GRUB_DISABLE'; then verdict 0; else verdict 1; printf '%s\n' "$FIX_OUT" | sed 's/^/      /'; fi
+new_fix_root "$FR"; printf 'GRUB_THEME="/x/companion-os/theme.txt"\nGRUB_DISABLE_BOOTNEXT=true\nGRUB_DISABLE_OS_PROBER="true"\n' > "$FR/etc/default/grub"
+run_fix "$FR" FAKE_HAS_GRUB_THEME=0
+DESC="the unquoted and the double-quoted spellings of true count as set"
+if ! printf '%s' "$FIX_OUT" | grep -q 'WARN:.*GRUB_DISABLE'; then verdict 0; else verdict 1; printf '%s\n' "$FIX_OUT" | sed 's/^/      /'; fi
+new_fix_root "$FR"; printf 'GRUB_THEME="/x/companion-os/theme.txt"\nGRUB_DISABLE_OS_PROBER=false\n' > "$FR/etc/default/grub"
+run_fix "$FR" FAKE_HAS_GRUB_THEME=0
+DESC="MUTANT: GRUB_DISABLE_BOOTNEXT missing and GRUB_DISABLE_OS_PROBER=false (the pre-fix grubcfg.conf) -> one warning each, exit 0"
+if [ "$FIX_RC" = 0 ] && printf '%s' "$FIX_OUT" | grep -q 'WARN: GRUB_DISABLE_BOOTNEXT is not true' && printf '%s' "$FIX_OUT" | grep -q 'WARN: GRUB_DISABLE_OS_PROBER is not true'; then verdict 0; else verdict 1; printf '%s\n' "$FIX_OUT" | sed 's/^/      /'; fi
+new_fix_root "$FR"; mkdir -p "$FR/boot/grub"
+printf '%s\n' "menuentry 'Companion OS Linux' --id gnulinux-simple {" "}" "menuentry 'UiApp (EFI BootNext)' --class uiapp --id 'efi-bootnext-0001' {" "}" > "$FR/boot/grub/grub.cfg"
+run_fix "$FR"
+DESC="a grub.cfg that holds EFI BootNext entries although the switch is set is reported with the command that regenerates it (never silently, never a failure)"
+if [ "$FIX_RC" = 0 ] && printf '%s' "$FIX_OUT" | grep -q 'WARN: /boot/grub/grub.cfg holds EFI BootNext entries' && printf '%s' "$FIX_OUT" | grep -q 'grub-mkconfig -o /boot/grub/grub.cfg'; then verdict 0; else verdict 1; printf '%s\n' "$FIX_OUT" | sed 's/^/      /'; fi
+new_fix_root "$FR"; mkdir -p "$FR/boot/grub"; printf '%s\n' "menuentry 'Companion OS Linux' --id gnulinux-simple {" "}" "menuentry 'UEFI Firmware Settings' --id 'uefi-firmware' {" "}" > "$FR/boot/grub/grub.cfg"
+run_fix "$FR"
+DESC="a clean grub.cfg (Companion OS and the firmware-setup entry) draws no warning"
+if [ "$FIX_RC" = 0 ] && ! printf '%s' "$FIX_OUT" | grep -q 'WARN:'; then verdict 0; else verdict 1; printf '%s\n' "$FIX_OUT" | sed 's/^/      /'; fi
 
 # =============================================================================================================================
 echo "== E  first-boot-setup.sh"

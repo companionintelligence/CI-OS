@@ -14,7 +14,7 @@
 #   settings.conf guards.list patches.list pacstrap-code-added.list
 #                                               from this directory (the last one is read by lib/ci-pkglist.py)
 #   modules/*                                   module configs, netinstall.yaml, the two shellprocess instances
-#   lib/ci-guards.sh lib/ci-pkglist.py          the guard library and the package-list reader
+#   lib/ci-guards.sh lib/ci-pkglist.py lib/ci-shellprocess.py   the guard library, the package-list reader, the shellprocess time-limit auditor
 #   scripts/*.sh                                ci-os-stage-target.sh, ci-os-post-install-fixups.sh
 #   branding/companion/                         branding.desc, show.qml, stylesheet.qss with the brand tokens filled in (its CTRL_*
 #                                               placeholders: selection row, progress track, outline, fill and text)
@@ -75,7 +75,7 @@ put() {  # SRC DEST-relative-to-$DEST
 # --- the overlay's own files -----------------------------------------------------------------------------------------------------
 for f in settings.conf guards.list patches.list pacstrap-code-added.list; do put "$HERE/$f" "$f"; done
 for f in "$HERE"/modules/*; do put "$f" "modules/$(basename "$f")"; done
-for f in ci-guards.sh ci-pkglist.py; do put "$HERE/lib/$f" "lib/$f"; done
+for f in ci-guards.sh ci-pkglist.py ci-shellprocess.py; do put "$HERE/lib/$f" "lib/$f"; done
 for f in "$HERE"/scripts/*.sh; do put "$f" "scripts/$(basename "$f")"; done
 
 # --- branding: fill in the tokens ---------------------------------------------------------------------------------------------------

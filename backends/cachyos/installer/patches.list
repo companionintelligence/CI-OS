@@ -10,3 +10,8 @@
 /etc/calamares/scripts/bootloader-post-setup | s/TARGET_OS_NAME="CachyOS"/TARGET_OS_NAME="Companion OS"/ | TARGET_OS_NAME="CachyOS"
 # Btrfs installs: the description of the snapshot taken right after the install.
 /etc/calamares/scripts/btrfs-installation-snapshot | s/Fresh CachyOS Installation/Fresh Companion OS Installation/ | Fresh CachyOS Installation
+#
+# The label of the driver job (job 26 of 47: "chwd", the status line of the install page from 35 percent on). A Python job's label is its
+# pretty_name(), which returns a gettext msgid; the new text has no translation in the installer's catalogs, so it shows in English in
+# every language (the old one named the CachyOS distribution, which a Companion OS install window must not).
+/usr/lib/calamares/modules/chwd/main.py | /Installing needed drivers for/ s/CachyOS/Companion OS/g | Installing needed drivers for CachyOS

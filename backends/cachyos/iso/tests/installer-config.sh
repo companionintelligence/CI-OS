@@ -7,10 +7,12 @@
 #                           strings or hosts in what the installer shows or contacts, GRUB only, efiBootloaderId, the docker
 #                           group, hostname, the install sequence (order of the Companion OS steps), the units that get enabled,
 #                           every package name against the recorded archlinux.org / CachyOS repository check, the launcher
-#                           .desktop and the cachyos-hello hook, the first-boot units
+#                           .desktop and the cachyos-hello hook, the first-boot units, the installer stylesheet, the time limits of every
+#                           shellprocess command (Calamares kills one after 30 s by default: ISO #5 died on it), the install page label
+#                           patch, the grubcfg switches that keep the firmware's leftovers out of the installed GRUB menu
 #   installer-launcher.sh   the guard library and calamares-online.sh on a fake Calamares tree built from the pinned
-#                           installer's recorded shape (critical guards fail closed, cosmetic ones warn, CI_OS_CALAMARES_ROOT
-#                           redirects every lookup; the launcher end to end against stubs)
+#                           installer's recorded shape, its real shellprocess commands and time limits included (critical guards fail
+#                           closed, cosmetic ones warn, CI_OS_CALAMARES_ROOT redirects every lookup; the launcher end to end against stubs)
 #   installer-stage.sh      stage-installer.sh, stage-headless.sh (the payload PARITY test), the Calamares staging step, the
 #                           post-install fix-ups, the first-boot driver, the provisioning wrapper, on fixture directories
 #   progress-filter.sh      the filter that keeps terminal redraws (Ollama's progress, colour codes) out of the first-boot log and

@@ -11,18 +11,22 @@
  * brand teal (10,99,88). Everything Qt draws with the palette's Highlight is therefore invisible, which is what the ISO #4 frames showed:
  *   - the progress bar of the installing page: its filled part had the window colour, only the unfilled track was lighter (inverted);
  *   - the selected row of the keyboard layout / variant lists, the bootloader list, the package tree and the partition table;
- *   - the Welcome page's help icon, a stock dark pictogram from Calamares' own resources (:/data/images/help.svg), unreadable on teal.
+ *   - the Welcome page's help icon, a stock dark pictogram from Calamares' own resources (:/data/images/help.svg), unreadable on teal;
+ *   - (ISO #5) the popup of every combo box, the zone list of the location page: no highlight for the current entry or the one under the
+ *     pointer; and the checked radio buttons of the partition page: a bare white dot without its ring.
  * The scheme is shared with the Ubuntu edition and not ours to change, so the installer sets its own colours here, for the widgets it
  * actually uses. Verified against the pinned installer (3.4.2-13, the package the launcher keeps): the object names #supportButton,
  * #donateButton, #releaseNotesButton and #knownIssuesButton are the ones its own stock stylesheet uses and are in the strings of its
- * welcome module; the rest are Qt classes (QProgressBar, QAbstractItemView), which Calamares documents as styleable. The result was
- * rendered offscreen with the Breeze style, the CI-OS-Dark palette and this sheet; the installer tests of this edition (installer-config.py)
- * hold the contrast numbers.
+ * welcome module; the rest are Qt classes (QProgressBar, QAbstractItemView, QComboBox, QRadioButton), which Calamares documents as
+ * styleable. The result was rendered offscreen (Qt 6.12, the Breeze style, the CI-OS-Dark palette and this sheet; PySide6 in a scratch
+ * container: not Calamares itself); the installer tests of this edition (installer-config.py) hold the contrast numbers.
  *
  * Contrast (WCAG 2.1, checked by iso/tests/installer-config.py from the resolved tokens, not by eye):
  *   selected row     dark text on sage          13.98:1 (AAA), the row against the window 5.43:1 (needs 3:1 as a graphic)
  *   progress text    light text on the fill      4.58:1 (AA, needs 4.5), on the track 16.16:1
  *   progress fill    against the track           3.53:1 (needs 3:1), the track's outline against the window 3.52:1
+ *   popup entry      dark text on sage           13.98:1 (AAA), the row against the window 5.43:1
+ *   radio button     ring against the window     3.52:1 (muted), checked ring and dot 5.43:1 (sage); needs 3:1 as a graphic
  */
 
 QWidget {
@@ -62,6 +66,54 @@ QProgressBar::chunk {
 QAbstractItemView {
     selection-background-color: @CTRL_SELECTION@;
     selection-color: @CTRL_SELECTION_TEXT@;
+}
+
+/*** Combo box popups (the Region and Zone lists of the location page, the keyboard model, the storage device and file system lists).
+ *
+ * ISO #5's zone list (the current entry New York, the pointer on any entry) showed no highlight at all. The list-style popup that Breeze
+ * uses is painted by a plain item delegate, which ignores every item rule of a stylesheet and draws the current and the hovered entry with
+ * the style's own focus decoration, a translucent wash that is invisible on this window colour (checked offscreen with Qt 6.12 and
+ * Breeze: `QAbstractItemView { selection-... }` above and `QComboBox QAbstractItemView::item:selected` change nothing there). The
+ * menu-style popup (`combobox-popup: 1`, the style hint Qt exposes to stylesheets) is painted by the stylesheet itself: the entry under the
+ * pointer or the keyboard gets the same sage row with dark text (13.98:1) as every other list, and the current one a check mark. The
+ * transparent base rule matters: without a rule of its own for every entry, the rows the sheet does not style keep Breeze's native empty
+ * check boxes. The popup scrolls with arrows and the mouse wheel instead of a scroll bar.
+ */
+QComboBox {
+    combobox-popup: 1;
+}
+
+QComboBox::item {
+    background-color: transparent;
+}
+
+QComboBox::item:selected {
+    background-color: @CTRL_SELECTION@;
+    color: @CTRL_SELECTION_TEXT@;
+}
+
+/*** Radio buttons (the choices of the partition page: Erase disk, Manual partitioning, ...).
+ *
+ * Breeze draws the checked state as a dot in the palette's Highlight and the ring in the Button colour, and on this scheme both are the
+ * window colour: ISO #5 showed the selected choice as a bare white dot with no ring. The indicator is drawn here instead: a ring in the
+ * muted outline colour (3.52:1 on the window), and when checked a sage ring with a sage dot and a gap of window colour between them
+ * (5.43:1 on the window, a graphic needs 3:1). 12 px plus two 2 px borders is a 16 px circle: border-radius is half of that.
+ */
+QRadioButton::indicator {
+    width: 12px;
+    height: 12px;
+    border: 2px solid @CTRL_TRACK_OUTLINE@;
+    border-radius: 8px;
+    background-color: transparent;
+}
+
+QRadioButton::indicator:hover {
+    border-color: @CTRL_SELECTION@;
+}
+
+QRadioButton::indicator:checked {
+    border: 2px solid @CTRL_SELECTION@;
+    background-color: qradialgradient(cx: 0.5, cy: 0.5, radius: 0.5, fx: 0.5, fy: 0.5, stop: 0 @CTRL_SELECTION@, stop: 0.5 @CTRL_SELECTION@, stop: 0.62 transparent, stop: 1 transparent);
 }
 
 /*** Welcome page: the four link buttons.

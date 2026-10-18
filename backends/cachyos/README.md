@@ -1,18 +1,19 @@
 # Companion OS, CachyOS edition (`backends/cachyos/`)
 
-> Status: the build system, the brand and identity overlay, the installer overlay, the first-boot provisioning and the ISO
-> verifier are written and unit-tested on fixtures. **Two Companion OS ISOs have been built from this overlay.** The second
-> (`companion-os-plasma-2026.10.16-x86_64.iso`, 3,217,129,472 bytes, built from the clean commit `16271e6`, sha256
-> `9f0afab64be9cac10f199bffa9aa4851c33880623bf473838b4b137be60506d9`) passes **all 187 checks of `verify-iso.sh`** and **boots to the
-> Plasma desktop under QEMU software emulation** (direct-kernel mode, no VM flags beyond the overlay's own `companion-vm-timeouts`:
-> plasmashell and kwin running at 245 s, a drawn desktop with the Companion OS wallpaper at 421 s on a heavily loaded Apple-silicon
-> host). The first ISO had two brand gaps that this one fixes: KDE's stock wallpaper (`apply-wallpaper`) and the CachyOS Hello menu
-> entry (the hook's `sed` quoting). **No installation of it has been run**, and its BIOS and UEFI boot menus were not booted.
-> The research demo ISO built earlier from the same pinned upstream (a trivial overlay) was booted under QEMU software
-> emulation: its desktop comes up in direct-kernel mode once the VM is given more time than the stock systemd settings allow,
-> which the overlay now does for every VM (`companion-vm-timeouts`); the BIOS and UEFI paths reached a serial login prompt, with
-> one service masked on the command line, and no desktop. Run names, timings and the status table are in
-> [`docs/architecture/cachyos-backend.md`](../../docs/architecture/cachyos-backend.md#test-status). Private & Confidential,
+> Status (2026-10-18): the build system, the brand and identity overlay, the installer overlay, the first-boot provisioning and the ISO
+> verifier are written and unit-tested on fixtures. **Five Companion OS ISOs have been built from this overlay.** ISO #2
+> (`companion-os-plasma-2026.10.16-x86_64.iso`, built from the clean commit `16271e6`) passed all 187 checks of `verify-iso.sh` and booted
+> to the Plasma desktop in direct-kernel mode. **ISO #4 and ISO #5 were each run end to end under QEMU/OVMF software emulation (TCG, no KVM):** real UEFI
+> GRUB boot to a drawn desktop (first graphical frame about 4 minutes after Enter in GRUB on a lightly loaded host), the Calamares online install (47 jobs, 22 min 9 s on ISO #4,
+> 23 min 20 s on ISO #5), the installed boot, and first-boot provisioning with three Ollama models pulled. The ISO #4 run found defects (first boot ended
+> "degraded" with all models present, a oneshot that held the boot targets for 16 minutes, a log flood, a visible Cachy-Update, an unreadable
+> installer look), fixed in commit `552063f` and built as ISO #5. **ISO #5 shows those fixes working on an installed system:** `graphical.target` after 37.8 s,
+> first boot 21 min 49 s with status 0/SUCCESS and no "degraded", a 367-line log, no Cachy-Update. Still open on that record: the Calamares keyring step's 30 second limit
+> (two of three ISO #5 install attempts failed at 2 percent; a fix is in the working tree, not yet run on a built ISO; KI-20), two highlight gaps in the installer look (KI-09), and the
+> missing `verify-iso.sh` log for ISO #4 and ISO #5. Nothing has run on KVM, in BIOS mode, under Secure Boot or on real
+> hardware. Run names, timings and the status table are in
+> [`docs/architecture/cachyos-backend.md`](../../docs/architecture/cachyos-backend.md#test-status); the evidence rows are in
+> [`docs/architecture/test-evidence.md`](../../docs/architecture/test-evidence.md). Private & Confidential,
 > Lifescope Inc.
 
 A live and installer ISO of Companion OS, based on CachyOS. It is the pinned upstream profile
@@ -36,9 +37,13 @@ backends/cachyos/iso/scripts/build-iso.sh --version 1.0
 | Prerequisites | Docker (Docker Desktop on macOS or Windows, the engine on Linux), bash 3.2 or newer, network. Nothing else on the host: the build runs in a throw-away privileged `linux/amd64` container. On Apple silicon the amd64 container runs under Rosetta. |
 | Disk | About 25 GiB free in the Docker VM, plus about 3 GB for the output. |
 | Memory and CPU | The container defaults to 8 CPUs and 16 GB (`--cpus`, `--memory`); `mksquashfs` peaks near 8 GiB. |
-| Time | 35 to 60 minutes on a loaded Apple-silicon host. The research demo (same upstream, trivial overlay) took 33 min 14 s under Rosetta at a host load average of 28 to 143 on 12 cores; upstream's own CI needs about 18 minutes on a native runner. `mksquashfs` writes nothing visible for about 10 minutes: that is not a hang. |
+| Time | 25 to 26 minutes on a lightly loaded Apple-silicon host (ISO #4 26 minutes, ISO #5 25 minutes: packages about 12, `mksquashfs` about 11); 31 to 37 minutes on a loaded one (ISO #1 about 37 minutes from the start of `build-iso.sh`, ISO #2 about 31). The research demo (same upstream, trivial overlay) took 33 min 14 s under Rosetta at a host load average of 28 to 143 on 12 cores; upstream's own CI needs about 18 minutes on a native runner. `mksquashfs` writes nothing visible for about 10 minutes: that is not a hang. |
 | Output | `output/` (override with `--out`; an unwritable directory is refused before the build starts): `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso`, `.iso.sha256`, `.pkgs.txt` (the package list), `.build-info` (pins, hashes, tool versions, the repository commit and whether the tree was clean), `.build.log`. If the build finishes but the copy out fails, the container and its volume are kept with the ISO inside and the recovery `docker cp` command is printed. |
 | Dry run | `--dry-run` prints every input and every `docker` command and runs nothing. |
+
+Every environment variable of the build, the verifier, the installer launcher, first boot and the tests is in the
+[environment reference](../../docs/guides/environment-reference.md) (`CI_OS_PIN`, `CI_OS_JOBS`, `CI_OS_UPSTREAM_REUSE`, `CI_OS_COMPAT_*`,
+`VERIFY_*`, `SKIP_CACHYOS_TESTS`, ...).
 
 The date in the file name is the date of `SOURCE_DATE_EPOCH`. By default that is the UTC build day (`--source-date-epoch now`).
 `--source-date-epoch pin` uses the pinned upstream commit's date (2026.10.03), so a rebuild keeps its name and two builds can be
@@ -84,6 +89,11 @@ skipped group fails the run), `VERIFY_REQUIRE_CLEAN=1` (the build record must sa
 The checks are tested against a bug each: `iso/tests/verify-selftest.sh` drives every check function on small synthetic inputs, a
 good one that must pass and a broken one that must fail (see [Tests](#tests)).
 
+Section 5 also reads the installer's own files out of the image (`/etc/calamares/{modules,scripts}`, `/usr/lib/calamares/modules`, `/etc/grub.d`) and judges the
+**effective** result, the overlay laid over them the way `calamares-online.sh` does: the time limit of every `shellprocess` command of the install sequence (Calamares kills a command
+after 30 s unless it has a `timeout`; ISO #5 died at 2 percent on the keyring step), the install page's job labels with the overlay's `patches.list` applied (no CachyOS), and the
+`GRUB_DISABLE_BOOTNEXT` switch against the `31_efi_bootnext` of the image's grub. Details: `installer/README.md`, "What the ISO #5 install run changed".
+
 ## Boot test
 
 `iso/tests/qemu-boot.sh ISO` boots the ISO in QEMU and waits for an expected state (a login prompt on the serial console, or the
@@ -95,8 +105,8 @@ built from the overlay needs no flag; `--vm-fixes` injects the same generator in
 With it the research demo reached the Plasma desktop under QEMU/TCG in direct-kernel mode; the BIOS and UEFI modes reached a
 login prompt on the serial console only. The evidence (run names, timings, screenshots) is in the header of the script and in
 [Booting under QEMU](../../docs/architecture/cachyos-backend.md#booting-under-qemu); the logs and screenshots themselves are
-not in the repository. A boot of a Companion OS ISO, of Calamares and of an installed system still needs an x86-64 host with KVM
-or real hardware.
+not in the repository. The Companion OS ISOs #4 and #5 were booted through real UEFI (OVMF, GRUB) rather than the direct-kernel mode, and both were
+installed and booted; BIOS (syslinux) mode, KVM and real hardware have not been exercised.
 
 ## Tests
 
@@ -113,7 +123,7 @@ backends/cachyos/iso/tests/verify-selftest.sh     # every check of verify-iso.sh
 
 `installer-config.sh` also runs `progress-filter.sh` (the filter that keeps `ollama pull`'s redraws and colour codes out of the first-boot log and the journal, and the driver's hand-over of that output: the real recorded stream, floods, a layer that goes up and down, linear time on escape-heavy input, the tail of the output when the main process exits, streaming), `compat-libs.sh` (the compatibility-library lock, its stager and the `mksquashfs` shim, with the
 network and the keyring stubbed) and `gate-calamares.sh` (the build-time installer gate, on a fake image with recorded `ldd` and
-start output), and `installer-launcher.sh` holds the keyring cases of the launcher (see [Rolling-release drift](#rolling-release-drift-the-compat-lock-and-the-installer-gate)).
+start output), and `installer-launcher.sh` holds the keyring cases of the launcher (see [Rolling-release drift](#rolling-release-drift-the-compat-lock-and-the-installer-gate)) and the cases of the `shell-timeouts` guard, which fails when a `shellprocess` command of the install sequence would run on Calamares' silent 30 second default.
 
 `overlay-brand.sh` checks the patches against the pinned upstream only when it can see a checkout: set
 `CACHYOS_UPSTREAM_ARCHISO=<CachyOS-Live-ISO checkout>/archiso` (or `CACHYOS_TEST_FETCH=1`, which fetches the pin); otherwise
@@ -225,14 +235,17 @@ In short:
 
 ## Known limits
 
-* **Not proven**: the Companion ISO has been built and statically verified, but no boot of it is recorded here and it has not been installed. The installed-system path (Calamares, payload staging, first boot) cannot be run end to
-  end on an Apple-silicon host: there is no KVM, and a 200-package online install under emulation is not practical. It needs an
-  x86-64 host with KVM.
+* **Proven twice, under emulation only**: ISO #4 and ISO #5 were installed and booted under QEMU/OVMF software emulation on an Apple-silicon host (the installs took
+  22 min 9 s and 23 min 20 s with fast mirrors, not the hours that had been feared; ISO #5 needed three attempts, see the keyring-step point below). The fixes of ISO #4's
+  defects are seen working on ISO #5's installed system. Nothing has run on KVM or real hardware.
 * **Online only.** No install without a working internet connection; the live session also contacts the CachyOS and Arch
   mirrors. The architecture document lists the known external endpoints (not exhaustive: it says what was read and what was not).
 * **First boot can end "degraded".** If a required Ollama model did not arrive (a failed pull, or a link too slow for the largest,
   17.8 GB), setup is not marked done: `/var/lib/ci-os/first-boot-setup-status` says `degraded`, and it retries on the next boot
-  or timer tick, three automatic attempts in all, then `sudo ci-os-setup`. Nothing of this has run on a real machine.
+  or timer tick, three automatic attempts in all, then `sudo ci-os-setup`. On ISO #4 it ended degraded with every model present (a missing `$HOME`
+  made `ollama list` panic; fixed in `552063f`; on ISO #5 it ended with status 0 and the marker written). **The three models take about 18.8 GB, and nothing checks free disk space
+  first**: on a 30 GiB disk they left 3.7 GiB free (see the architecture document, finding 4).
+* **The Calamares keyring step had a 30 second limit.** The installer's `shellprocess_initialize_pacman.conf` gives the command `create-pacman-keyring` no `timeout`, so Calamares applied its 30 second default; under QEMU/TCG the step takes about 28 seconds, and two of three ISO #5 install attempts died at 2 percent (known issue KI-20, `docs/architecture/known-issues-and-decisions.md`). **[I]** A fix is in the working tree: overlay copies of three stock `shellprocess` configs with explicit time limits and a `shell-timeouts` guard (`installer/lib/ci-shellprocess.py`, `installer/guards.list`); it is covered by `iso/tests/installer-launcher.sh` and has not been run on a built ISO.
 * **Two services are open to the LAN without a credential, both from shared code this edition does not change.** While the setup
   portal's nginx runs (it is not enabled at boot; the network watcher starts it when the machine has no network), `POST /api/configure`
   of the root-run setup backend can delete saved NetworkManager profiles and re-point the Wi-Fi, and the shared Arch provisioner makes

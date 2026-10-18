@@ -4,19 +4,22 @@ The live ISO installs Companion OS with Calamares, CachyOS' online installer (`c
 is not a copy of the ISO: Calamares `pacstrap`s it from the CachyOS and Arch repositories at install time. So everything
 that makes the result Companion OS has to be put there by the installer, and this directory is how.
 
-Status: written and unit-tested against the SHAPE of the pinned installer (3.4.2-13) and its real files; **no installation
-has been run end to end** (see "What is not tested").
+Status: written and unit-tested against the SHAPE of the pinned installer (3.4.2-13) and its real files. **Two full installations
+were run end to end (ISO #4 and ISO #5, QEMU/OVMF software emulation, 2026-10-18) and succeeded** (ISO #5 on its third attempt: the first two
+died on the keyring step's 30 second limit, see "What is not tested"). The fixes ISO #4 led to are seen working on ISO #5's installed system [V];
+the fix for the keyring limit and the driver-job label are in the working tree [I] and have not been run on a built ISO (see "What is not tested"
+and `docs/architecture/cachyos-backend.md`, "Test status").
 
 ## What is where
 
 | Path | What it is | Where it ends up |
 |---|---|---|
 | `settings.conf` | the install sequence (derived from the installer's `settings_online.conf`) | `/etc/calamares/settings.conf` |
-| `modules/*.conf`, `modules/netinstall.yaml` | module configs that replace the installer's: bootloader (GRUB, `companion-os`), grubcfg, plymouthcfg, users (docker group, hostname), packages_online (the core package list), netinstall (local file only), welcome, pacstrap, services-systemd, the bootloader chooser, two `shellprocess` instances | `/etc/calamares/modules/` |
+| `modules/*.conf`, `modules/netinstall.yaml` | module configs that replace the installer's: bootloader (GRUB, `companion-os`), grubcfg, plymouthcfg, users (docker group, hostname), packages_online (the core package list), netinstall (local file only), welcome, pacstrap, services-systemd, the bootloader chooser, two `shellprocess` instances of ours, and copies of three stock `shellprocess` configs that differ from the installer's only in explicit time limits (`shellprocess_initialize_pacman.conf`, `shellprocess_modify_mk_hook.conf`, `shellprocess_reset_mk_hook.conf`) | `/etc/calamares/modules/` |
 | `branding/companion/` | the Calamares branding component: names, colours from the brand tokens, the slideshow | `/usr/share/calamares/branding/companion/` |
-| `guards.list`, `lib/ci-guards.sh` | what the overlay assumes about the installer, and the code that checks it | read from `/usr/share/ci-os/calamares/` |
+| `guards.list`, `lib/ci-guards.sh`, `lib/ci-shellprocess.py` | what the overlay assumes about the installer, the code that checks it, and the reader behind the `shell-timeouts` guard (every `shellprocess` command has an explicit time limit) | read from `/usr/share/ci-os/calamares/` |
 | `pacstrap-code-added.list` | the packages the installer's `pacstrap/main.py` adds to the base system IN CODE (grub, the microcode, the kernels, ...), which no config can change | read by `lib/ci-pkglist.py` and the `code-names` guard |
-| `patches.list` | cosmetic one-line edits to installer files the overlay does not replace | applied by the launcher |
+| `patches.list` | cosmetic one-line edits to installer files the overlay does not replace (the bootloader script's OS name, the btrfs snapshot text, the `before-online` progress text, the driver job's label "Installing needed drivers for CachyOS...") | applied by the launcher |
 | `scripts/ci-os-stage-target.sh` | the Calamares step that puts Companion OS on the target (payload, first-boot, identity) | run from `/usr/share/ci-os/calamares/scripts/` |
 | `scripts/ci-os-post-install-fixups.sh` | fix-ups of CachyOS hard-codes, run in the target | copied to `/usr/lib/ci-os/` of the target |
 | `lib/ci-pkglist.py` | reads the package names the installer will ask pacman for: `basePackages`, `pacstrap-code-added.list`, the package job's operations, the netinstall groups. One definition for the launcher's preflight, `check-packages.py` and the tests | used by the launcher and the tests |
@@ -133,7 +136,7 @@ guard"): the same safety, but an incompatible CachyOS release does not turn the 
   that gate belongs in the shared provisioner, which this change does not edit. An interrupted boot (power off during the
   download) uses up one of the three automatic attempts because a run is counted when it starts.
 - **What the ISO #4 install run changed (full run on the 30 GiB NVMe target: live, Calamares online install, installed boot, first boot).**
-  Each item has a test; none is confirmed on a booted system until the next ISO is built and the frames are re-shot.
+  Each item has a test. On ISO #5's booted system the first-boot, boot-target, log, Cachy-Update and look items are seen working [V]; the exceptions are named in the items (`docs/architecture/test-evidence.md`).
   - `ollama list` ran as root under a unit with no `$HOME`, the CLI panics without one (exit 2), and the wrapper read that as "server
     never answered": all three models were installed and the run ended "degraded" (74) every time. Now the unit sets `HOME=/root`,
     `provision.sh` sets it when it is unset, and the failure message shows the last stderr of `ollama list`. The Arch script's own
@@ -164,6 +167,46 @@ guard"): the same safety, but an incompatible CachyOS release does not turn the 
     space. The guard (skip a model when the free space of the model directory is below its `size_bytes` plus a margin, and do not
     count it as missing) belongs in the shared gate `ci_os_model_gate_allows` in `core/lib/gpu-detect.sh`, which the Arch script and
     this wrapper both call; it cannot be done here without editing `backends/arch/**`.
+- **What the ISO #5 install run changed (full run on the 64 GiB NVMe target; its three Calamares sessions and the installed boot are the evidence).**
+  Each item has a test; none has run on a built ISO yet. The Calamares analysis of `iso/scripts/verify-iso.sh`, run on the real files of ISO #5 with the new overlay staged
+  over them, passes; the whole script on the unchanged ISO #5 fails exactly on the five defects below (10 FAIL lines, no other, 204 PASS).
+  - **Calamares' 30 s default killed the install at job 13 of 47 (twice).** Only `shellprocess` has that default: the process calls of Calamares'
+    own C++ and Python job modules default to `timeoutSec = 0`, no limit (`System.h`), which is why `pacstrap` (442 s), `packages` (586 s), `chwd` (132 s) and
+    `initcpio` (93 s) ran long without a limit on the same install. The overlay therefore ships copies of the three stock `shellprocess` configs that have
+    no complete set of limits (`shellprocess_initialize_pacman.conf`, `shellprocess_modify_mk_hook.conf`, `shellprocess_reset_mk_hook.conf`), identical to the
+    installer's apart from `timeout:` keys (3600 s on `update-mirrorlist` and `create-pacman-keyring`, 600 s for the rest of those files). The audit
+    of every `shellprocess*.conf` of the pinned installer: `shellprocess.conf` 3600 s, `shellprocess_btrfs_snapshot.conf` 300 s, `shellprocess-before-online.conf`
+    and `shellprocess_cleanup_calamares.conf` 10 s each (a `cp` of one file, `ld.so --help | grep`, two `rmdir`: 1 s on ISO #5), and the two scripts
+    of ours (`ci_os_stage` 1800 s, `ci_os_fixups` 900 s) carry limits; the overlay ships no job module of its own. The durations of the 47 jobs on the run that passed
+    are the evidence for the numbers (job 13: 68 s, of which the keyring command 28 s; pacstrap 442 s; chwd 132 s; packages 586 s; mkinitcpio 93 s;
+    bootloader 15 s; localecfg 10 s; every other job under 10 s). The `shell-timeouts` guard (`lib/ci-shellprocess.py`, three rules in its header) runs in the launcher
+    before the overlay is applied and judges the EFFECTIVE config of every `shellprocess` step, including a newer installer package's own files and the
+    scripts they run, so an update that gives a stock step a heavy command without a limit is not taken (the ISO's installer is kept, as for any critical
+    guard). `verify-iso.sh` holds a character-for-character copy of the same rules (`installer-config.py` compares them) and applies them to the image.
+  - **The install page said "Installing needed drivers for CachyOS..." at 35 percent.** It is the label of the `chwd` job, a Python module's `pretty_name()`; no
+    config reaches it, so `patches.list` rewrites it (the table below). The new wording has no translation in the installer's catalogs, so it shows in
+    English in every language. `verify-iso.sh` applies the overlay's patches to the image's own modules and fails when any job label still names CachyOS.
+  - **The installed GRUB menu listed the firmware's leftovers** (UiApp, a DVD drive that was no longer attached, the NVMe disk, EFI Shell, a second
+    `companion-os`, each ending in "(EFI BootNext)"). They are not os-prober's: the grub package of the image has `/etc/grub.d/31_efi_bootnext`, which turns every entry of
+    `efibootmgr -v` into a menu entry, and whose own switch is `GRUB_DISABLE_BOOTNEXT` ("intentionally independent of `GRUB_DISABLE_OS_PROBER`"), so
+    `GRUB_DISABLE_OS_PROBER=true` alone would not have removed one of them. `modules/grubcfg.conf` now sets both to `true` (the job writes them quoted, which both scripts
+    compare with; the stock `grubcfg` module, run with this file, was seen to replace an existing `false` and to uncomment a commented key), and it runs before `bootloader`, whose
+    `grub-mkconfig` writes the menu, so they are in force when it is generated. The post-install fix-ups only check (it is too late to set them there) and warn about a
+    `grub.cfg` that still holds `efi-bootnext-` entries. What stays: the Companion OS entries, "Advanced options", "Companion OS snapshots" on Btrfs and the
+    firmware-setup entry. **The cost, on purpose:** with `GRUB_DISABLE_OS_PROBER=true` another system on the machine (Windows, another Linux) gets no GRUB entry; the installer's
+    "alongside" choice is not removed. It stays reachable from the firmware's boot menu and from "UEFI Firmware Settings", and `GRUB_DISABLE_OS_PROBER=false` in
+    `/etc/default/grub` plus `grub-mkconfig -o /boot/grub/grub.cfg` brings the scan back. That is a product decision (the open question is in `docs/architecture/known-issues-and-decisions.md`);
+    setting only `GRUB_DISABLE_BOOTNEXT` would clean the menu and keep the scan. Seen: the real `31_efi_bootnext` of ISO #5, fed the VM's five firmware entries through a stand-in `efibootmgr`,
+    prints exactly the five "(EFI BootNext)" entries of the ISO #5 frame, and none with `GRUB_DISABLE_BOOTNEXT=true`.
+  - **The installer's look, two gaps left by ISO #5's stylesheet.** (1) The popups of the combo boxes (the zone list) showed no highlight for the current entry or under the
+    pointer: the list-style popup is painted by a delegate that ignores every item rule of a stylesheet and draws focus with a translucent wash that is invisible on this
+    window colour; no `QAbstractItemView` selection or hover rule changes it (offscreen, Qt 6.12, Breeze). The stylesheet switches the combo boxes to the menu-style popup (`combobox-popup: 1`), which it
+    paints itself: a transparent base rule per entry (else Breeze draws an empty check box on every other row), sage on dark text for the entry under the pointer or the keyboard, a check mark on
+    the current one. The popup scrolls with arrows and the wheel instead of a scroll bar. (2) The checked radio button of the partition page was a bare white dot: the indicator is drawn by
+    the sheet now (a ring in the muted outline colour, a sage ring with a sage dot and a gap when checked). The selected row of the partition choices is not highlighted: those rows are
+    widgets (`PrettyRadioButton`), not an item view, and a stylesheet cannot colour a parent by the state of its child; the manual partition table (an item view) is highlighted.
+    Frames to re-shoot after a rebuild: `install/02b` (zone popup), `install/05a` and `install/05b` (partition page: every radio button changed), `install/11b` (the 35 percent status line)
+    and `installed/01` (GRUB menu); the failure frame `install/09b` needs none.
 - **No host firewall (UFW is not installed, the `enable-ufw` step is dropped).** Reasons: the Ubuntu edition ships `ufw` installed
   but disabled (`docs/architecture/tier-b-tools.md`, risk R4: CI-Hub's containers reach the host's Ollama on `0.0.0.0:11434`
   through the docker bridge, which a default-deny INPUT policy would block); the stock `enable-ufw` sets `default deny incoming`,
@@ -262,6 +305,7 @@ matches only the bare state words, while `nmcli` prints `connecting (getting IP 
 | Limine entry `/+CachyOS`, palette | `bootloader/main.py` | Limine is not offered |
 | `TARGET_OS_NAME="CachyOS"`, snapshot text | `scripts/*` | `patches.list` |
 | "... of CachyOS" in progress text | `modules/shellprocess-before-online.conf` | `patches.list` |
+| "Installing needed drivers for CachyOS..." (the label of the driver job, from 35 percent on) | `/usr/lib/calamares/modules/chwd/main.py` | `patches.list` **[I]**: added after ISO #5, in the working tree, not yet run; the new text has no translation, so it shows in English in every language |
 | `cachyos-hooks` rewrites `/etc/os-release` | pacman hook | `zz-ci-os-os-release` (brand overlay), re-checked by the fix-ups |
 | `cachyos-kde-settings` skeleton | package | `zz-ci-os-skel` (brand overlay) |
 
@@ -285,9 +329,14 @@ matches only the bare state words, while `nmcli` prints `connecting (getting IP 
 backends/cachyos/iso/tests/installer-config.sh        # runs the parts below; no root, no Docker, no network (bash 3.2+, python3 + PyYAML, git)
   installer-config.py       YAML and text invariants, contract.env, the package fixture, the sequence order, the units (which run at
                             boot and which the hotspot script starts), the guards.list policy, the first-boot unit's shape (does not hold
-                            the boot targets, HOME), the installer stylesheet's contrast, the bootloader picture, the package descriptions
-  installer-launcher.sh     guard library (unparseable sequences and lists, frozen-list drift, code-added packages) and launcher
-                            (package preflight of the whole base system) against a fake Calamares tree and stubbed pacman/bsdtar/pkexec/dialogs
+                            the boot targets, HOME), the installer stylesheet's contrast (progress bar, selected rows, combo popup, radio indicator), the bootloader
+                            picture, the package descriptions, the `shellprocess` time limits (rules R1 to R3 on the overlay's configs and on the installer's recorded
+                            ones, a matrix of heavy and light commands), the install page label patch and the grubcfg switches; with CI_OS_REAL_CALAMARES_ROOT
+                            the same audit on the real files and the REAL grubcfg module run on this overlay's grubcfg.conf
+  installer-launcher.sh     guard library (unparseable sequences and lists, frozen-list drift, code-added packages, the `shell-timeouts` guard)
+                            and launcher (package preflight of the whole base system) against a fake Calamares tree and stubbed
+                            pacman/bsdtar/pkexec/dialogs; the tree holds the installer's real shellprocess commands and time limits
+                            (the `spconf` lines of the facts file), including the keyring command that has none
   installer-stage.sh        stager, payload PARITY, Calamares staging step, fix-ups (incl. cachy-update), first-boot driver (incl. degraded
                             runs and the output filter), provisioning wrapper (incl. the Ollama model check against a stand-in `ollama`
                             that panics without HOME)
@@ -300,22 +349,36 @@ backends/cachyos/iso/tests/installer-config.sh        # runs the parts below; no
 
 ## What is not tested
 
-- No Calamares run: that `shellprocess` expands `${ROOT}`/`${USER}` in these commands (it does in the installer's own configs, which
-  are the model), that `file://` as the only `groupsUrl` loads, that a hidden netinstall group installs, that `services-systemd`
-  enables units staged by an earlier job, that the `users` job creates `docker` before the packages job.
-- No boot of an installed system; GRUB and Plymouth themes are the brand overlay's and are marked not boot-tested there.
+- Calamares ran once on this overlay (ISO #4: 47 jobs, `completion: succeeded`; frames and the session log are in the capture scratch, not in the
+  repository). What that run shows about the open questions of the first draft: the target holds the staged payload, the first-boot unit and the
+  carry-over (so `shellprocess` expanded `${ROOT}`/`${USER}` in these commands); `file://` as the only `groupsUrl` loaded and the always-on Plasma
+  group installed (1148 packages on the target, including `plasma-desktop`, `docker`, `ollama`, `tailscale`); `services-systemd` enabled the units an
+  earlier job staged (`ci-os-first-boot-setup.service`; Docker was running on the first boot). **Not shown:** that the `users` job creates the `docker`
+  group before the packages job (not checked separately).
+- ISO #5 (with the fixes of `552063f`) ran all 47 jobs on its third attempt (23 min 20 s, `completion: succeeded`) [V]. The first two attempts stopped at
+  job 13, `bash /etc/calamares/scripts/create-pacman-keyring` "failed to finish in 30 seconds": the stock `shellprocess_initialize_pacman.conf`
+  gives its command no `timeout`, so Calamares' default of 30 s applies, and the step takes about 28 s under QEMU/TCG (KI-20). **[I]** The fix is in the
+  working tree: overlay copies of the three stock `shellprocess` configs with an explicit `timeout` on every command (3600 s for the two commands that
+  talk to mirrors, 600 s for the file's other commands), and the `shell-timeouts` guard, which judges the effective config of every `shellprocess` step
+  of the sequence (rules in the header of `lib/ci-shellprocess.py`: an explicit limit on every command, at least 600 s for network and package tools and
+  300 s for disk and initramfs tools, and a frozen copy still runs every command of the installer's file, in its order and with its `dontChroot`). It is covered by `iso/tests/installer-launcher.sh`
+  against a fake tree that holds the installer's real commands. **Not run:** a Calamares install with these copies, on any ISO.
+- Installed systems booted three times (ISO #4 twice, offline and on NAT; ISO #5 once, on NAT): GRUB, Plymouth and the greeter themes were seen working.
+  Nothing was booted on KVM or real hardware, in BIOS mode or under Secure Boot.
 - `pacman -Sw` / `bsdtar` / `pacman -S` of a real newer installer package, and `pkexec-wrapper` with a real desktop.
 - `kdialog` is not in the live package list (checked in the built demo ISO: `libnotify` is). The launcher falls back to
   `notify-send` (critical urgency), which is easy to miss. Add `kdialog` to `iso/overlay/packages.add`.
-- The Arch provisioner itself (`backends/arch/provision/provision.sh`) has never run on CachyOS here, so the model check was tested
-  against a stand-in `ollama` (its `list` output and a server that comes up late or never), not a real server: that `ollama list` as
-  root reaches a server bound to `0.0.0.0`, and that a pull resumes after `systemctl stop`, are from the documentation, not seen.
+- The Arch provisioner itself (`backends/arch/provision/provision.sh`) had not run on CachyOS when the model check was written, so the check was
+  tested against a stand-in `ollama` (its `list` output and a server that comes up late or never). It has since run on the installed systems of ISO #4 and
+  ISO #5, against a real server: `ollama list` as root answered once `HOME` was set and the three models were found (status 0 on ISO #5) [V]. Still
+  from the documentation and not seen: that a pull resumes after `systemctl stop`.
   The first-boot unit and the retry timer were checked with `systemd-analyze verify` (systemd 262 in the builder image: nothing but the
-  emulation artefact below) and by the tests of their text, but never run under systemd: that `Type=exec` really keeps
-  `graphical.target` from waiting is from systemd.target(5), not seen on a boot.
+  emulation artefact below) and by the tests of their text. They have since run under systemd on ISO #5's installed system: `Type=exec` kept
+  `graphical.target` from waiting (reached after 37.8 s with the unit running) [V].
 - The installer stylesheet was rendered offscreen with PySide6, the Breeze style and the CI-OS-Dark palette (the selected rows, the progress
   bar with its text, the netinstall tree, the bootloader page with the real picture), not in Calamares itself: the widget names come from the
-  pinned package's strings and its stock stylesheet, not from a run.
+  pinned package's strings and its stock stylesheet, not from a run. The same holds for the popup and radio rules of ISO #5's second look (the harness is not Calamares: the real
+  popup showed no highlight at all, the harness a faint one, so the fix is the menu-style popup that the stylesheet paints itself; whether it reads in the real window is what the re-shot `install/02b` shows).
 - The `settings-drift`, `list-drift` and `code-names` guards were tested on the recorded SHAPE of 3.4.2-13 and on edited copies of
   it (empty file, flow style, renamed key, comment on the header, added and removed items), with BSD awk 20200816 and gawk 5.4.1;
   not on a newer upstream release.

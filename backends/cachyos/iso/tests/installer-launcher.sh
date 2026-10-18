@@ -27,8 +27,9 @@
 #
 #   backends/cachyos/iso/tests/installer-launcher.sh
 #
-# Needs bash 3.2+, awk, sed, cmp, find; the preflight cases need python3 with PyYAML (skipped without). Exit: non-zero when any
-# check fails, 2 when it cannot run.
+# Needs bash 3.2+, awk, sed, cmp, find; the preflight cases need python3 with PyYAML (skipped without), and so does the
+# `shell-timeouts` guard, which fails closed without it (as it does in the product: the live image has PyYAML), so the guard cases need it
+# too. Exit: non-zero when any check fails, 2 when it cannot run.
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
@@ -87,6 +88,7 @@ build_fake() {
       list)    name="${rest%% *}"; rest="${rest#"$name" }"; key="${rest%% *}"; rest="${rest#"$key"}"
                printf '%s:\n' "$key" >> "$d/etc/calamares/modules/$name.conf"
                for f in $rest; do printf '  - %s\n' "$f" >> "$d/etc/calamares/modules/$name.conf"; done ;;
+      spconf)  name="${rest%% *}"; printf '%s\n' "${rest#* }" > "$d/etc/calamares/modules/$name" ;;   # a shellprocess config: JSON is valid YAML
       seq)     seq="$seq$rest"$'\n' ;;
     esac
   done < "$FACTS"
@@ -103,8 +105,11 @@ EOF
     echo 'branding: cachyos'
   } > "$d/usr/share/calamares/settings_online.conf"
   # Files the cosmetic patches edit.
-  printf '%s\n' 'i18n:' '     name: "Preparing your system for online installation of CachyOS"' '     name[de]: "Online-Installation von CachyOS"' 'script:' '    - command: "cp /etc/pacman-more.conf ${ROOT}/etc/pacman.conf"' > "$d/etc/calamares/modules/shellprocess-before-online.conf"
+  printf '%s\n' 'i18n:' '     name: "Preparing your system for online installation of CachyOS"' '     name[de]: "Online-Installation von CachyOS"' 'timeout: 10' 'script:' '    - command: "cp /etc/pacman-more.conf ${ROOT}/etc/pacman.conf"' '    - command: "/etc/calamares/scripts/detect-architecture ${ROOT}/etc/pacman.conf"' > "$d/etc/calamares/modules/shellprocess-before-online.conf"
   printf '%s\n' 'sed -i '"'"'s/TARGET_OS_NAME=".*"/TARGET_OS_NAME="CachyOS"/'"'"' "$limine_snapper_config"' > "$d/etc/calamares/scripts/bootloader-post-setup"
+  # The two scripts of the keyring job, as the installer ships them (their text is what tells the `shell-timeouts` guard that a command talks to mirrors).
+  printf '%s\n' '#!/usr/bin/env bash' 'exec 2>&1' 'pacman-key --init' 'for ((i=0; i<5; i++)); do pacman -Sy --noconfirm --needed cachyos-keyring && break; done' 'pacman-key --populate' > "$d/etc/calamares/scripts/create-pacman-keyring"
+  printf '%s\n' '#!/usr/bin/env bash' 'sudo pacman -Sy --noconfirm --needed cachyos-rate-mirrors rate-mirrors' 'sudo cachyos-rate-mirrors' > "$d/etc/calamares/scripts/update-mirrorlist"
   printf '%s\n' '--description "Fresh CachyOS Installation"' > "$d/etc/calamares/scripts/btrfs-installation-snapshot"
   # An upstream settings.conf and a module config the overlay replaces, with CachyOS content, to see them replaced.
   printf '%s\n' 'branding: cachyos' > "$d/etc/calamares/settings.conf"
@@ -183,6 +188,163 @@ cp -R "$OV" "$W/ov5"; sed -i.bak 's/^componentName:.*/componentName:  other/' "$
 run_guards "$W/up" "$W/ov5"
 DESC="a branding componentName that differs from its directory is critical"
 if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'componentName'; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+# --- the time limits of the shellprocess steps (ISO #5 died at job 13 of 47: Calamares kills a command after 30 s unless it has a timeout) ---
+# The guard `shell-timeouts` (lib/ci-shellprocess.py) judges the EFFECTIVE config of every shellprocess step: the overlay's copy where
+# there is one, the installer's own file otherwise. The fake installer tree holds the REAL commands and time limits of the pinned
+# installer (the `spconf` facts), so the stock shape of the bug is in it.
+DESC="the guard table has the shell-timeouts row, critical, and the overlay ships the reader it calls"
+if grep -Eq '^critical[[:space:]]*\|[[:space:]]*shell-timeouts[[:space:]]*\|' "$OV/guards.list" && [ -f "$OV/lib/ci-shellprocess.py" ]; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+DESC="the fake installer tree carries the installer's real stock shape: the keyring command of shellprocess_initialize_pacman.conf has NO timeout (the ISO #5 defect)"
+if python3 -I -c '
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+t = {s["command"]: s.get("timeout") for s in d["script"]}
+sys.exit(0 if t.get("bash /etc/calamares/scripts/update-mirrorlist") == 3600 and t.get("bash /etc/calamares/scripts/create-pacman-keyring", "absent") is None and "timeout" not in d else 1)' "$W/up/etc/calamares/modules/shellprocess_initialize_pacman.conf" 2>/dev/null; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+# The ISO #5 shape: the overlay WITHOUT its copy of the module config, so the installer's own file (keyring without a limit) is what runs.
+cp -R "$OV" "$W/ov-st1"; rm "$W/ov-st1/modules/shellprocess_initialize_pacman.conf"
+run_guards "$W/up" "$W/ov-st1"
+DESC="MUTANT: without the overlay's copy, the installer's own shellprocess_initialize_pacman.conf (keyring command on the 30 s default) is critical, and the report names the command and the tools"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'create-pacman-keyring' && printf '%s\n' "$GR_OUT" | grep -q 'pacman-key' && printf '%s\n' "$GR_OUT" | grep -q 'after 30 s'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+
+# The overlay's copy has the limit on the keyring command itself.
+DESC="the overlay's shellprocess_initialize_pacman.conf gives BOTH mirror-facing commands an own timeout of at least 3600 s and the rest a file-level one"
+if python3 -I -c '
+import sys, yaml
+d = yaml.safe_load(open(sys.argv[1]))
+t = {s["command"]: s.get("timeout") for s in d["script"] if isinstance(s, dict)}
+ok = t.get("bash /etc/calamares/scripts/update-mirrorlist", 0) >= 3600 and t.get("bash /etc/calamares/scripts/create-pacman-keyring", 0) >= 3600 and d.get("timeout", 0) >= 600
+sys.exit(0 if ok else 1)' "$OV/modules/shellprocess_initialize_pacman.conf" 2>/dev/null; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+# Mutants of the overlay copy: each must be refused.
+shell_mutant() {  # NAME SED-EXPRESSION FILE  -> $W/ov-NAME with the expression applied to modules/FILE
+  cp -R "$OV" "$W/ov-$1"; sed -i.bak "$2" "$W/ov-$1/modules/$3"; rm -f "$W/ov-$1/modules/$3.bak"
+  cmp -s "$OV/modules/$3" "$W/ov-$1/modules/$3" && { echo "shell_mutant $1: the expression changed nothing" >&2; return 1; }
+  return 0
+}
+shell_mutant st2 '/create-pacman-keyring/{n;s/timeout: 3600/timeout: 0/;}' shellprocess_initialize_pacman.conf
+run_guards "$W/up" "$W/ov-st2"
+DESC="MUTANT: timeout 0 on the keyring command (no limit to Calamares, not a generous one) is critical"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'create-pacman-keyring' && printf '%s\n' "$GR_OUT" | grep -q 'needs at least 600 s'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+shell_mutant st3 '/create-pacman-keyring/{n;s/timeout: 3600/timeout: 120/;}' shellprocess_initialize_pacman.conf
+run_guards "$W/up" "$W/ov-st3"
+DESC="MUTANT: 120 s on the keyring command (a limit below the network floor of 600 s) is critical"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'create-pacman-keyring' && printf '%s\n' "$GR_OUT" | grep -q 'may only take 120 s'; then t_pass "$DESC"; else t_fail "$DESC"; fi
+shell_mutant st4 '/create-pacman-keyring/{n;/timeout:/d;}' shellprocess_initialize_pacman.conf
+# (the keyring command loses its own limit; the file's 600 s then applies to it: a heavy command on the file-level limit is fine)
+run_guards "$W/up" "$W/ov-st4"
+DESC="a keyring command that inherits the file's 600 s (no timeout of its own) passes: the floor is what matters, not where the number is written"
+if [ "$GR_RC" = 0 ]; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+shell_mutant st5 '/^timeout: 600$/d' shellprocess_modify_mk_hook.conf
+run_guards "$W/up" "$W/ov-st5"
+DESC="MUTANT: shellprocess_modify_mk_hook.conf without any timeout (every command on the silent 30 s default) is critical"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'shellprocess_modify_mk_hook.conf' && printf '%s\n' "$GR_OUT" | grep -q 'default of 30 s'; then t_pass "$DESC"; else t_fail "$DESC"; fi
+shell_mutant st6 '/^timeout: 600$/d' shellprocess_initialize_pacman.conf
+run_guards "$W/up" "$W/ov-st6"
+DESC="MUTANT: the copy loses its file-level timeout: the plain mkdir/cp commands fall back to 30 s and are reported together, once"
+if [ "$GR_RC" = 1 ] && [ "$(printf '%s\n' "$GR_OUT" | grep -c 'default of 30 s')" = 1 ]; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+
+# Stock steps the overlay does NOT replace: an installer update must not be taken when one of them gains a heavy command with no limit.
+cp -R "$W/up" "$W/st7"
+printf '%s\n' '{"dontChroot": false, "script": [{"command": "-rm /etc/systemd/system/etc-pacman.d-gnupg.mount"}, {"command": "pacman -Syu --noconfirm"}], "timeout": 3600}' > "$W/st7/etc/calamares/modules/shellprocess.conf"
+run_guards "$W/st7"
+DESC="a stock step with a heavy command and a generous file-level limit passes (the fake installer is judged on its effective config, not on its text)"
+if [ "$GR_RC" = 0 ]; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+cp -R "$W/up" "$W/st8"
+printf '%s\n' '{"dontChroot": false, "script": [{"command": "-rm /etc/systemd/system/etc-pacman.d-gnupg.mount"}, {"command": "pacman -Syu --noconfirm"}]}' > "$W/st8/etc/calamares/modules/shellprocess.conf"
+run_guards "$W/st8"
+DESC="MUTANT: an update gives the stock final step a pacman command with no limit: critical, so the update is not taken (the ISO's installer is kept)"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'shellprocess.conf: command 2' && printf '%s\n' "$GR_OUT" | grep -q 'pacman'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+cp -R "$W/up" "$W/st9"
+printf '%s\n' '{"dontChroot": false, "script": [{"command": "/etc/calamares/scripts/btrfs-installation-snapshot"}], "timeout": 60}' > "$W/st9/etc/calamares/modules/shellprocess_btrfs_snapshot.conf"
+printf '%s\n' 'snapper --no-dbus -c root create' > "$W/st9/etc/calamares/scripts/btrfs-installation-snapshot"
+run_guards "$W/st9"
+DESC="MUTANT: a stock step whose SCRIPT runs a disk tool (snapper) on a 60 s limit is critical (the script text is read, not only the command line)"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'snapper' && printf '%s\n' "$GR_OUT" | grep -q 'needs at least 300 s'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+cp -R "$W/up" "$W/st10"
+printf '%s\n' '{"dontChroot": false, "script": [{"command": "/etc/calamares/scripts/btrfs-installation-snapshot"}], "timeout": 60}' > "$W/st10/etc/calamares/modules/shellprocess_btrfs_snapshot.conf"
+printf '%s\n' '# snapper would be started here' 'if pacman -Qs cachyos-snapper-support > /dev/null; then echo ok; fi' > "$W/st10/etc/calamares/scripts/btrfs-installation-snapshot"
+run_guards "$W/st10"
+DESC="a comment that names snapper and a read-only pacman -Qs query are not heavy: a 60 s limit passes"
+if [ "$GR_RC" = 0 ]; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+
+# R3: the frozen copy must not fall behind the installer's file.
+cp -R "$W/up" "$W/st11"
+printf '%s\n' '{"dontChroot": true, "script": [{"command": "bash /etc/calamares/scripts/update-mirrorlist", "timeout": 3600}, {"command": "bash /etc/calamares/scripts/create-pacman-keyring"}, {"command": "bash /etc/calamares/scripts/new-upstream-step"}, {"command": "mkdir -p ${ROOT}/etc/pacman.d/"}], "newKey": "x", "i18n": "x"}' > "$W/st11/etc/calamares/modules/shellprocess_initialize_pacman.conf"
+run_guards "$W/st11"
+DESC="a command and a key the installer's shellprocess_initialize_pacman.conf gained and the overlay's copy lacks are critical (a frozen copy is reviewed, not silently outdated)"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'new-upstream-step' && printf '%s\n' "$GR_OUT" | grep -q "key 'newKey'"; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+
+# R3, second half: the frozen copy must also run the installer's commands WHERE (dontChroot) and in the ORDER the installer's file does; a copy
+# that drops no command and no key but runs them in the other place, or backwards, is outdated just the same.
+cp -R "$W/up" "$W/st15"
+sed -i.bak 's/"dontChroot": true/"dontChroot": false/' "$W/st15/etc/calamares/modules/shellprocess_initialize_pacman.conf" && rm -f "$W/st15/etc/calamares/modules/shellprocess_initialize_pacman.conf.bak"
+cmp -s "$W/up/etc/calamares/modules/shellprocess_initialize_pacman.conf" "$W/st15/etc/calamares/modules/shellprocess_initialize_pacman.conf" && echo "st15: the expression changed nothing" >&2
+run_guards "$W/st15"
+DESC="MUTANT: the installer's shellprocess_initialize_pacman.conf now runs in the target (dontChroot true -> false) while the overlay's frozen copy still runs on the live system: critical"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'shellprocess_initialize_pacman.conf: the installer.s config runs its commands inside the target' && printf '%s\n' "$GR_OUT" | grep -q 'live system'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+cp -R "$OV" "$W/ov-st16"
+# swap the first two commands of the copy (mkdir of the hooks directory, then the cp into it): the same commands, the same keys, another order
+awk 'BEGIN { h = "" } /^ - "mkdir -p \/etc\/pacman.d\/hooks\/"$/ && h == "" && !d { h = $0; next } h != "" { print; print h; h = ""; d = 1; next } { print }' \
+  "$OV/modules/shellprocess_modify_mk_hook.conf" > "$W/ov-st16/modules/shellprocess_modify_mk_hook.conf"
+cmp -s "$OV/modules/shellprocess_modify_mk_hook.conf" "$W/ov-st16/modules/shellprocess_modify_mk_hook.conf" && echo "st16: the awk program changed nothing" >&2
+run_guards "$W/up" "$W/ov-st16"
+DESC="MUTANT: the overlay's copy runs the installer's first two commands in the other order (nothing dropped, no key lost): critical, and the report names the command and the file"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'shellprocess_modify_mk_hook.conf: the installer.s config runs `cp /etc/calamares/scripts/90-mkinitcpio-install.hook /etc/pacman.d/hooks/` at a place in its order'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+cp -R "$OV" "$W/ov-st17"; sed -i.bak 's/^dontChroot: false$/dontChroot: true/' "$W/ov-st17/modules/shellprocess_reset_mk_hook.conf" && rm -f "$W/ov-st17/modules/shellprocess_reset_mk_hook.conf.bak"
+cmp -s "$OV/modules/shellprocess_reset_mk_hook.conf" "$W/ov-st17/modules/shellprocess_reset_mk_hook.conf" && echo "st17: the expression changed nothing" >&2
+run_guards "$W/up" "$W/ov-st17"
+DESC="MUTANT: the overlay's copy of shellprocess_reset_mk_hook.conf runs on the live system where the installer's runs in the target: critical"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'shellprocess_reset_mk_hook.conf: the installer.s config runs its commands inside the target' && printf '%s\n' "$GR_OUT" | grep -q 'live system'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+
+# The shorter forms of `script:` (one string, one mapping) are read as the list they stand for.
+cp -R "$W/up" "$W/st18"
+printf '%s\n' '{"dontChroot": false, "script": "pacman -Syu --noconfirm", "timeout": 20}' > "$W/st18/etc/calamares/modules/shellprocess.conf"
+run_guards "$W/st18"
+DESC="MUTANT: a stock step whose \`script:\` is ONE STRING running pacman on a 20 s file-level limit is critical (the string was read one character at a time and passed)"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'shellprocess.conf: command 1' && printf '%s\n' "$GR_OUT" | grep -q 'may only take 20 s'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+cp -R "$W/up" "$W/st19"
+printf '%s\n' '{"dontChroot": false, "script": {"command": "pacman -Syu --noconfirm", "timeout": 900}}' > "$W/st19/etc/calamares/modules/shellprocess.conf"
+run_guards "$W/st19"
+DESC="a stock step whose \`script:\` is ONE MAPPING with its own 900 s limit passes (it was reported as having no limit)"
+if [ "$GR_RC" = 0 ]; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+cp -R "$W/up" "$W/st20"
+printf '%s\n' '{"dontChroot": false, "script": {"command": "pacman -Syu --noconfirm"}}' > "$W/st20/etc/calamares/modules/shellprocess.conf"
+run_guards "$W/st20"
+DESC="MUTANT: a stock step whose \`script:\` is ONE MAPPING without any limit is critical (the 30 s default)"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'shellprocess.conf: command 1' && printf '%s\n' "$GR_OUT" | grep -q 'after 30 s'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+
+# The initramfs, bootloader, locale and splash tools are disk-heavy too (300 s), whether the command line or the script it runs names them.
+cp -R "$W/up" "$W/st21"
+printf '%s\n' '{"dontChroot": false, "script": [{"command": "/etc/calamares/scripts/btrfs-installation-snapshot"}], "timeout": 60}' > "$W/st21/etc/calamares/modules/shellprocess_btrfs_snapshot.conf"
+printf '%s\n' 'limine-update' 'locale-gen' 'dracut --force' 'plymouth-set-default-theme -R companion-os' > "$W/st21/etc/calamares/scripts/btrfs-installation-snapshot"
+run_guards "$W/st21"
+DESC="MUTANT: a stock step whose script runs limine-update, locale-gen, dracut and plymouth-set-default-theme on a 60 s limit is critical, naming each, and needing 300 s"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'limine-update' && printf '%s\n' "$GR_OUT" | grep -q 'locale-gen' && printf '%s\n' "$GR_OUT" | grep -q 'dracut' && printf '%s\n' "$GR_OUT" | grep -q 'plymouth-set-default-theme' && printf '%s\n' "$GR_OUT" | grep -q 'needs at least 300 s'; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+printf '%s\n' '{"dontChroot": false, "script": [{"command": "/etc/calamares/scripts/btrfs-installation-snapshot"}], "timeout": 300}' > "$W/st21/etc/calamares/modules/shellprocess_btrfs_snapshot.conf"
+run_guards "$W/st21"
+DESC="... and 300 s is enough for them"
+if [ "$GR_RC" = 0 ]; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$GR_OUT" | sed 's/^/      /'; fi
+
+# The guard fails closed.
+cp -R "$OV" "$W/ov-st12"; rm "$W/ov-st12/lib/ci-shellprocess.py"
+run_guards "$W/up" "$W/ov-st12"
+DESC="a missing lib/ci-shellprocess.py is critical (the check cannot run, so it does not pass silently)"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'ci-shellprocess.py'; then t_pass "$DESC"; else t_fail "$DESC"; fi
+cp -R "$OV" "$W/ov-st13"; printf '%s\n' 'this: is: not: [yaml' > "$W/ov-st13/modules/shellprocess_ci_os_fixups.conf"
+run_guards "$W/up" "$W/ov-st13"
+DESC="a shellprocess config that does not parse is critical"
+if [ "$GR_RC" = 1 ] && printf '%s\n' "$GR_OUT" | grep -q 'does not parse'; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+# On the live system the guards run with CI_OS_CALAMARES_ROOT unset and ci_g_root prints nothing; the reader joins paths to the root it is given, so
+# an empty root would make it look in ./etc/calamares of the launcher's working directory. The guard must pass "/" then (a stub reader shows what it got).
+mkdir -p "$W/ov-st14/lib"; printf 'import sys\nprint("ROOT=" + repr(sys.argv[2]))\nsys.exit(1)\n' > "$W/ov-st14/lib/ci-shellprocess.py"
+OUT14="$(env -u CI_OS_CALAMARES_ROOT CI_OS_OVERLAY_DIR="$W/ov-st14" bash -c '. "$1/lib/ci-guards.sh"; ci_g_reset; ci_g_g_shell_timeouts critical why; printf "%s" "$CI_G_CRIT_MSGS"' _ "$INSTALLER" 2>&1)"
+OUT14b="$(CI_OS_CALAMARES_ROOT="$W/up/" CI_OS_OVERLAY_DIR="$W/ov-st14" bash -c '. "$1/lib/ci-guards.sh"; ci_g_reset; ci_g_g_shell_timeouts critical why; printf "%s" "$CI_G_CRIT_MSGS"' _ "$INSTALLER" 2>&1)"
+DESC="the shell-timeouts guard gives its reader '/' for the live system (no CI_OS_CALAMARES_ROOT), not an empty string that would read ./etc/calamares, and the given root, without its trailing slash, otherwise"
+if printf '%s' "$OUT14" | grep -q "ROOT='/'" && printf '%s' "$OUT14b" | grep -qF "ROOT='$W/up'"; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n%s\n' "$OUT14" "$OUT14b" | sed 's/^/      /'; fi
 
 # --- the install sequence the settings-drift guard reads (decision D6: a new upstream step is reviewed, not silently dropped) ---------
 # A guard that cannot parse the installer's file must FAIL, not report "no difference". Each case below passed with 0 critical before the
@@ -311,14 +473,25 @@ DESC="a failure while building the file set leaves the installer exactly as it w
 if [ "$AP_RC" != 0 ] && [ "$(cat "$W/a2/etc/calamares/settings.conf")" = "branding: cachyos" ] && [ ! -d "$W/a2/usr/share/calamares/branding/companion" ]; then t_pass "$DESC"; else t_fail "$DESC"; fi
 
 CI_OS_CALAMARES_ROOT="$W/a1" CI_OS_SUDO='' bash -c '. "$1/lib/ci-guards.sh"; ci_g_reset; ci_g_apply_cosmetic_patches "$2/patches.list"; printf "FIRST_WARN=%s\n" "$CI_G_WARN_COUNT"; ci_g_reset; ci_g_apply_cosmetic_patches "$2/patches.list"; printf "SECOND_WARN=%s\n" "$CI_G_WARN_COUNT"' _ "$INSTALLER" "$OV" > "$W/patch.out" 2>&1 || true
-DESC="cosmetic patches rename the product in the progress text, the Limine post-setup script and the Btrfs snapshot description"
+DESC="cosmetic patches rename the product in the progress text, the Limine post-setup script, the Btrfs snapshot description and the driver job's label"
 if grep -q 'installation of Companion OS' "$W/a1/etc/calamares/modules/shellprocess-before-online.conf" \
   && grep -q 'Online-Installation von Companion OS' "$W/a1/etc/calamares/modules/shellprocess-before-online.conf" \
   && grep -q 'TARGET_OS_NAME="Companion OS"' "$W/a1/etc/calamares/scripts/bootloader-post-setup" \
   && grep -q 'Fresh Companion OS Installation' "$W/a1/etc/calamares/scripts/btrfs-installation-snapshot" \
   && grep -q '^FIRST_WARN=0$' "$W/patch.out"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$W/patch.out"; fi
+DESC="the driver job's label (job 26, the 35 percent status line of ISO #5: 'Installing needed drivers for CachyOS...') now names the product, and nothing of it still says CachyOS"
+CHWD="$W/a1/usr/lib/calamares/modules/chwd/main.py"
+if [ -f "$CHWD" ] && grep -qxF 'Installing needed drivers for Companion OS' "$CHWD" && ! grep -qi 'cachy' "$CHWD"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$CHWD" 2>/dev/null; fi
+# The line as the installer's chwd/main.py has it (3.4.2-13, line 34), with its neighbours: only that line changes, the Python stays valid.
+mkdir -p "$W/chwd1/usr/lib/calamares/modules/chwd"
+printf '%s\n' 'def pretty_name():' '    return _("Installing needed drivers for CachyOS...")' '' 'def line_cb(line):' '    libcalamares.utils.debug("chwd: " + line.strip())' > "$W/chwd1/usr/lib/calamares/modules/chwd/main.py"
+cp "$W/chwd1/usr/lib/calamares/modules/chwd/main.py" "$W/chwd1/main.py.orig"
+CI_OS_CALAMARES_ROOT="$W/chwd1" CI_OS_SUDO='' bash -c '. "$1/lib/ci-guards.sh"; ci_g_reset; ci_g_apply_cosmetic_patches "$2/patches.list"' _ "$INSTALLER" "$OV" >/dev/null 2>&1 || true
+DESC="the driver label patch turns '_(\"Installing needed drivers for CachyOS...\")' into the Companion OS wording, exactly, and leaves the other lines of chwd/main.py byte for byte"
+if [ "$(sed -n 2p "$W/chwd1/usr/lib/calamares/modules/chwd/main.py")" = '    return _("Installing needed drivers for Companion OS...")' ] \
+  && [ "$(sed '2d' "$W/chwd1/usr/lib/calamares/modules/chwd/main.py")" = "$(sed '2d' "$W/chwd1/main.py.orig")" ]; then t_pass "$DESC"; else t_fail "$DESC"; cat "$W/chwd1/usr/lib/calamares/modules/chwd/main.py" | sed 's/^/      /'; fi
 DESC="applying them a second time is a warning each (the markers are gone), never an error"
-if grep -q '^SECOND_WARN=3$' "$W/patch.out"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+if grep -q '^SECOND_WARN=4$' "$W/patch.out"; then t_pass "$DESC"; else t_fail "$DESC"; fi
 DESC="the patches left the commands of shellprocess-before-online.conf alone"
 if grep -q 'cp /etc/pacman-more.conf' "$W/a1/etc/calamares/modules/shellprocess-before-online.conf"; then t_pass "$DESC"; else t_fail "$DESC"; fi
 
@@ -498,12 +671,12 @@ fi
 
 # 2. compatible update
 if [ "$HAVE_YAML" = 1 ]; then
-  mkdir -p "$W/cand-ok"; cp -R "$W/up"/. "$W/cand-ok"/; printf 'candidateMarker: 1\n' >> "$W/cand-ok/etc/calamares/modules/shellprocess.conf"
+  mkdir -p "$W/cand-ok"; cp -R "$W/up"/. "$W/cand-ok"/; printf 'candidateMarker: 1\n' >> "$W/cand-ok/etc/calamares/modules/partition.conf"
   seed_gnupg upd
   run_launcher upd FAKE_REPO_VER=3.4.2-14 FAKE_CANDIDATE="$W/cand-ok"
   DESC="launcher: a newer installer that passes the guards is downloaded (pacman -Sw), unpacked (bsdtar) and installed (pacman -S)"
   if [ "$L_RC" = 0 ] && grep -q '^pacman -Sw --noconfirm cachyos-calamares-next' "$L_DIR/log" && grep -q '^bsdtar -xf' "$L_DIR/log" \
-    && [ -f "$L_DIR/state/installed-candidate" ] && grep -q 'candidateMarker' "$L_DIR/root/etc/calamares/modules/shellprocess.conf"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+    && [ -f "$L_DIR/state/installed-candidate" ] && grep -q 'candidateMarker' "$L_DIR/root/etc/calamares/modules/partition.conf"; then t_pass "$DESC"; else t_fail "$DESC"; fi
   DESC="launcher: the overlay is applied AFTER the update, on the new installer"
   if cmp -s "$OV/settings.conf" "$L_DIR/root/etc/calamares/settings.conf"; then t_pass "$DESC"; else t_fail "$DESC"; fi
 

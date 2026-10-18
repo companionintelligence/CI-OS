@@ -29,7 +29,14 @@
 #       system does not get cachy-update; the first-boot unit does not hold up the boot targets and sets HOME; the
 #       installer's stylesheet gives the progress bar, the selected rows and the Welcome links colours that read
 #       (the colour scheme's Highlight equals the window colour); the bootloader chooser shows a picture of the overlay,
-#       not Calamares' placeholder; no package group description that the installer window would cut off;
+#       not Calamares' placeholder; no package group description that the installer window would cut off; every shellprocess
+#       command of the install sequence has an explicit time limit (Calamares kills one after 30 s by default: ISO #5 died at
+#       2 percent on the pacman keyring step) and a generous one where it runs pacman, curl, git, a package manager, a disk or
+#       initramfs tool (mkinitcpio, dracut, grub, limine, locale-gen, ...); an overlay copy of a stock config keeps its commands, their
+#       order and its dontChroot;
+#       no job label of the install page names CachyOS once the overlay's cosmetic patches are applied to the image's own modules;
+#       the installed system's GRUB menu switches (GRUB_DISABLE_BOOTNEXT, GRUB_DISABLE_OS_PROBER) are set and the grub of the image
+#       reads the first one;
 #   6.  file modes: mkarchiso drops modes, so every file with a #! line that is not owned by a package must be
 #       executable, sudoers drop-ins are 0440 and /etc/shadow is 0400; the slow-boot generator for virtual machines
 #       (companion-vm-timeouts) is there and executable;
@@ -1008,6 +1015,8 @@ v_write_calamares_py() {
 import argparse
 import os
 import re
+import shlex
+import subprocess
 import sys
 
 try:
@@ -1018,6 +1027,7 @@ except ImportError:
 
 ap = argparse.ArgumentParser()
 ap.add_argument("tree")
+ap.add_argument("--stock-root", help="directory that holds the installer's own files at their installed paths (etc/calamares/modules, etc/calamares/scripts, usr/lib/calamares/modules, etc/grub.d): the image's root, extracted")
 ap.add_argument("--stock-modules", help="file: module names that exist under /usr/lib/calamares/modules")
 ap.add_argument("--stock-confs", help="file: basenames under /etc/calamares/modules")
 ap.add_argument("--image-paths", help="file: every path in the image, one per line")
@@ -1336,6 +1346,16 @@ def chk_grubcfg(n, d):
         bad("%s: GRUB_THEME is '%s' (unset or CachyOS's theme; D6)" % (n, theme))
     if d.get("keep_distributor") is True:
         info("%s: keep_distributor is true" % n)
+    # The installed system's boot menu: Companion OS and the firmware-setup entry, nothing else (ISO #5 listed UiApp, a gone DVD drive, the
+    # NVMe disk, EFI Shell and a second companion-os, all "(EFI BootNext)" entries of the grub package's /etc/grub.d/31_efi_bootnext).
+    if d.get("always_use_defaults") is not True:
+        bad("%s: always_use_defaults is not true: the grubcfg job would not write the defaults (theme, menu switches) into /etc/default/grub of an existing file" % n)
+    for key, why in (("GRUB_DISABLE_BOOTNEXT", "the grub package's 31_efi_bootnext adds a menu entry per firmware boot variable (UiApp, a DVD drive that is no longer attached, the disk, EFI Shell, a second companion-os)"),
+                     ("GRUB_DISABLE_OS_PROBER", "30_os-prober scans every other disk and adds a chainloader entry for each system it finds")):
+        if defaults.get(key) is True:
+            ok("%s: %s is true (the boot menu lists Companion OS and the firmware-setup entry only)" % (n, key))
+        else:
+            bad("%s: %s is %r, not true: %s" % (n, key, defaults.get(key), why))
 
 def chk_plymouth(n, d):
     for k in ("plymouth_theme", "plymouth_theme_amdgpu"):
@@ -1545,6 +1565,27 @@ if os.path.isfile(qss_path):
         ok("selected rows have their own colours (%s on %s, %.2f:1): the scheme's selection colour equals the window colour, which made them invisible on ISO #4" % (sfg, sbg, qcr(sfg, sbg)))
     else:
         bad("no selection colours for item views in the installer's stylesheet (selection-background-color / selection-color, text >= 7:1): selected rows are invisible on ISO #4")
+    # ISO #5 (install frames 02b and 05b): the zone list's popup had no highlight for the current or the hovered entry, and the selected radio of the
+    # partition page was a bare white dot without its ring. The list-style popup is painted by a delegate a stylesheet cannot reach, so the sheet
+    # switches to the menu-style popup and styles its entries; the radio indicator is drawn by the sheet.
+    qcb, qcbi, qcbs = qrules.get("QComboBox", {}), qrules.get("QComboBox::item", {}), qrules.get("QComboBox::item:selected", {})
+    cbg, cfg_ = qhex(qcbs.get("background-color")), qhex(qcbs.get("color"))
+    if qcb.get("combobox-popup") == "1" and qcbi.get("background-color") == "transparent" and cbg and cfg_ and qcr(cfg_, cbg) >= 7:
+        ok("combo box popups are menu-style (combobox-popup: 1) with a transparent base rule per entry and a selected entry of %s on %s (%.2f:1): the current and the hovered entry of the zone list are visible" % (cfg_, cbg, qcr(cfg_, cbg)))
+    else:
+        bad("combo box popups are not styled so that the current and the hovered entry show (ISO #5, zone list: no highlight): need QComboBox { combobox-popup: 1; }, a transparent QComboBox::item and QComboBox::item:selected colours with dark text >= 7:1 (got popup=%r, base=%r, selected=%s on %s)" % (qcb.get("combobox-popup"), qcbi.get("background-color"), cfg_, cbg))
+    qri, qrc = qrules.get("QRadioButton::indicator", {}), qrules.get("QRadioButton::indicator:checked", {})
+    def qpx(v_):
+        m2_ = re.match(r"^(\d+)px", (v_ or "").strip())
+        return int(m2_.group(1)) if m2_ else None
+    bw_ = qpx((qri.get("border") or "").split()[0]) if qri.get("border") else None
+    ring_ok = bool(qhex(qri.get("border"))) and bw_ is not None and qpx(qri.get("width")) is not None and qpx(qri.get("width")) == qpx(qri.get("height")) \
+        and qpx(qri.get("border-radius")) is not None and qpx(qri.get("border-radius")) * 2 == qpx(qri.get("width")) + 2 * bw_
+    dot_ok = bool(qhex(qrc.get("border"))) and "qradialgradient" in (qrc.get("background-color") or "") and qhex(qrc.get("border")) in (qrc.get("background-color") or "") and "transparent" in (qrc.get("background-color") or "")
+    if ring_ok and dot_ok:
+        ok("the radio buttons' indicator is drawn by the stylesheet: a circle (border-radius is half the outer diameter) with a ring, and when checked a ring in %s with a dot of the same colour and a gap" % qhex(qrc.get("border")))
+    else:
+        bad("the radio buttons' indicator is not drawn by the stylesheet (ISO #5, partition page: the selected choice was a bare white dot with no ring): need QRadioButton::indicator as a circle with a border and QRadioButton::indicator:checked with a ring and a radial-gradient dot (ring_ok=%s dot_ok=%s)" % (ring_ok, dot_ok))
     welcome_ok = all(qrules.get(n_, {}).get("icon-size") == "0px" for n_ in ("#supportButton", "#donateButton", "#releaseNotesButton", "#knownIssuesButton"))
     if welcome_ok:
         ok("the Welcome page's link buttons lose Calamares' dark stock pictogram (icon-size 0px)")
@@ -1584,6 +1625,319 @@ if long_desc:
     bad("package group descriptions longer than 72 characters are cut off at the edge of the installer window: %s" % ", ".join("%s (%d)" % x for x in long_desc))
 else:
     ok("every package group the user sees has a description of at most 72 characters (nothing is cut off at the window edge)")
+
+# --- shared: iso/scripts/verify-iso.sh embeds this text, up to the closing marker, character for character (installer-config.py compares them) ---
+NET_FLOOR = 600
+DISK_FLOOR = 300
+FLOORS = {"net": NET_FLOOR, "disk": DISK_FLOOR}
+
+# A command word starts where the previous character cannot continue a name: not in the middle of `libgit2`, `github-cli`, `pacman.conf`,
+# `/etc/pacman.d`. A path in front (`/usr/bin/pacman`) is fine, hence '/' is not in the first class.
+_B = r"(?<![\w.-])"
+_E = r"(?![\w.-])"
+HEAVY = [
+    # ("net" | "disk", name, regex). Read-only pacman queries (-Q, -T, -V, -h) are not heavy: they read the local database.
+    ("net", "pacman", _B + r"pacman" + r"(?![\w.-])(?!\s+-[QTVh])"),
+    ("net", "pacman-key", _B + r"pacman-key" + _E),
+    ("net", "pacstrap", _B + r"pacstrap" + _E),
+    ("net", "rate-mirrors", _B + r"(?:cachyos-)?rate-mirrors" + _E),
+    ("net", "curl", _B + r"curl" + _E),
+    ("net", "wget", _B + r"wget" + _E),
+    ("net", "git", _B + r"git" + _E),
+    ("net", "package manager", _B + r"(?:apt|apt-get|flatpak|snap|yay|paru|pamac|makepkg|pip|pip3|pipx|npm|pnpm|yarn|cargo|chwd)" + _E),
+    ("net", "ollama/docker", _B + r"(?:ollama|docker)\s+(?:pull|build|compose|run|push|load)" + _E),
+    ("disk", "mkinitcpio", _B + r"mkinitcpio" + _E),
+    # `/usr/lib/dracut/` is a directory, not the tool: no '/' after the name.
+    ("disk", "dracut/update-initramfs", _B + r"(?:dracut|update-initramfs)" + _E + r"(?!/)"),
+    ("disk", "plymouth-set-default-theme", _B + r"plymouth-set-default-theme" + _E),
+    ("disk", "locale-gen", _B + r"locale-gen" + _E),
+    ("disk", "limine-update/sdboot-manage", _B + r"(?:limine-update|sdboot-manage)" + _E),
+    ("disk", "grub", _B + r"(?:grub-install|grub-mkconfig|update-grub)" + _E),
+    ("disk", "btrfs/snapper", _B + r"(?:btrfs|snapper)" + _E),
+    ("disk", "rsync/squashfs", _B + r"(?:rsync|unsquashfs|mksquashfs)" + _E),
+    ("disk", "mkfs/fsck/dd", _B + r"(?:mkfs(?:\.\w+)?|fsck(?:\.\w+)?|dd|parted|sgdisk)" + _E),
+    ("disk", "cp -a/-r", _B + r"cp\s+(?:-[A-Za-z]*[aRr][A-Za-z]*|--recursive|--archive)" + _E),
+]
+
+_WRAPPERS = {"bash", "sh", "dash", "zsh", "sudo", "env", "exec", "nice", "ionice", "time", "timeout"}
+
+
+def strip_comments(src):
+    """A shell script without its full-line comments and the trailing `# ...` of a line (a `#` inside a word, as in `$#`, stays)."""
+    out = []
+    for line in src.splitlines():
+        if line.lstrip().startswith("#"):
+            continue
+        out.append(re.sub(r"(?:^|\s)#.*$", "", line))
+    return "\n".join(out)
+
+
+def command_word_script(command, script_dirs):
+    """The text of the script a command runs, or "". The command word is the first token that is not a wrapper (bash, sudo, ...) or an
+    option or an assignment; it names a script when a file of that base name is in one of the script directories."""
+    try:
+        tokens = shlex.split(command.lstrip("-").strip())
+    except ValueError:
+        tokens = command.lstrip("-").split()
+    for tok in tokens:
+        if tok in _WRAPPERS or tok.startswith("-") or "=" in tok.split("/")[0]:
+            continue
+        base = os.path.basename(tok)
+        for d in script_dirs:
+            p = os.path.join(d, base)
+            if base and os.path.isfile(p):
+                try:
+                    with open(p, encoding="utf-8", errors="replace") as fh:
+                        return strip_comments(fh.read())
+                except OSError:
+                    return ""
+        return ""
+    return ""
+
+
+def heavy_classes(command, script_text=""):
+    """{"net": [tool names], "disk": [...]} the command line and the script it runs use; empty lists when nothing heavy."""
+    text = command.lstrip("-").strip() + "\n" + (script_text or "")
+    found = {"net": [], "disk": []}
+    for cls, name, rx in HEAVY:
+        if re.search(rx, text) and name not in found[cls]:
+            found[cls].append(name)
+    return found
+
+
+def _int(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) else None
+
+
+def effective_timeout(item_timeout, file_timeout):
+    """What Calamares applies (CommandList::run): the command's own value when it has one (>= 0), else the file's, else 30 s. Returns
+    (seconds, explicit): explicit False means the silent default."""
+    it, ft = _int(item_timeout), _int(file_timeout)
+    if it is not None and it >= 0:
+        return it, True
+    if ft is not None and ft >= 0:
+        return ft, True
+    return 30, False
+
+
+def items_of(doc):
+    """[(command, own timeout or None)] of a shellprocess config document, in order. A plain string is a command; a mapping holds
+    `command:` and optionally `timeout:` and `verbose:`. `script:` is a list of those, or one string, or one mapping (iterating a
+    string would read it one character at a time, a mapping one key at a time)."""
+    out = []
+    script = (doc or {}).get("script")
+    if isinstance(script, (str, dict)) and script:
+        script = [script]
+    elif not isinstance(script, list):
+        script = []
+    for raw in script:
+        if isinstance(raw, str):
+            out.append((raw.strip(), None))
+        elif isinstance(raw, dict) and raw.get("command") is not None:
+            out.append((str(raw["command"]).strip(), raw.get("timeout")))
+    return out
+
+
+def audit_doc(name, doc, script_dirs=()):
+    """Problems (list of strings) of one shellprocess config: rules R1 and R2."""
+    problems = []
+    if not isinstance(doc, dict):
+        return ["%s: not a mapping (empty or unreadable), so its time limits cannot be judged" % name]
+    ftimeout = doc.get("timeout")
+    its = items_of(doc)
+    if not its:
+        return problems
+    light_default = []
+    for n, (cmd, own) in enumerate(its, 1):
+        secs, explicit = effective_timeout(own, ftimeout)
+        short = cmd if len(cmd) <= 70 else cmd[:67] + "..."
+        heavy = heavy_classes(cmd, command_word_script(cmd, script_dirs))
+        if not explicit:
+            if heavy["net"] or heavy["disk"]:
+                problems.append("%s: command %d `%s` runs %s and has no timeout of its own while the file sets none, so Calamares kills it after 30 s"
+                                % (name, n, short, ", ".join(heavy["net"] + heavy["disk"])))
+            else:
+                light_default.append(n)
+            continue
+        for cls in ("net", "disk"):
+            if heavy[cls] and secs < FLOORS[cls]:
+                problems.append("%s: command %d `%s` runs %s (%s) but may only take %d s (needs at least %d s; 0 means no limit and does not count)"
+                                % (name, n, short, ", ".join(heavy[cls]), "network and packages" if cls == "net" else "disk", secs, FLOORS[cls]))
+    if light_default:
+        problems.append("%s: command%s %s %s no timeout and the file sets none, so Calamares applies its silent default of 30 s (set `timeout:` at the top of the file)"
+                        % (name, "s" if len(light_default) > 1 else "", ", ".join(str(n) for n in light_default), "have" if len(light_default) > 1 else "has"))
+    return problems
+
+
+def _norm_cmd(c):
+    return " ".join(str(c).split())
+
+
+def compare_docs(name, stock, ours):
+    """Problems of rule R3: what the stock config has and the overlay's copy lacks or changes (a command, the order of the commands,
+    dontChroot, a top-level key). The overlay's copy may run more commands than the stock one, never fewer or in another order."""
+    problems = []
+    if not isinstance(stock, dict) or not stock:
+        return problems
+    if not isinstance(ours, dict):
+        return ["%s: the overlay's copy is not a mapping" % name]
+    for k in sorted(set(stock) - set(ours)):
+        problems.append("%s: the installer's config has the key '%s' that the overlay's copy lacks" % (name, k))
+    # dontChroot decides where every command runs: false (the default) inside the target, true on the live system. (A key the overlay's copy
+    # lacks is reported above, once.)
+    where = {False: "inside the target (chroot)", True: "on the live system (dontChroot)"}
+    s_dc, o_dc = bool(stock.get("dontChroot", False)), bool(ours.get("dontChroot", False))
+    if s_dc != o_dc and ("dontChroot" in ours or "dontChroot" not in stock):
+        problems.append("%s: the installer's config runs its commands %s, the overlay's copy %s" % (name, where[s_dc], where[o_dc]))
+    mine = [_norm_cmd(c) for c, _ in items_of(ours)]
+    pos = 0
+    for c in (_norm_cmd(c) for c, _ in items_of(stock)):
+        if c not in mine:
+            problems.append("%s: the installer's config runs `%s`, which the overlay's copy does not" % (name, c))
+        elif c in mine[pos:]:
+            pos = mine.index(c, pos) + 1
+        else:
+            problems.append("%s: the installer's config runs `%s` at a place in its order of commands where the overlay's copy does not (reordered, or run fewer times)" % (name, c))
+    return problems
+
+
+# --- end shared ---
+
+
+# ── time limits of the shellprocess steps (ISO #5 died at job 13 of 47: Calamares kills a command after 30 s unless it has a timeout) ──────
+# The rules are lib/ci-shellprocess.py's (the text above is a character for character copy of its shared part; installer-config.py compares
+# them): R1 every command has an explicit limit (its own or the file's), R2 a heavy tool has a generous one, R3 an overlay copy of a stock
+# config runs every command of the stock one, in its order and with its dontChroot. Judged on the EFFECTIVE configs of the sequence: the
+# overlay's copy where there is one, else the image's own /etc/calamares/modules file, with the scripts they run read from the overlay and
+# from the image.
+stock_root = args.stock_root if args.stock_root and os.path.isdir(args.stock_root) else None
+script_dirs_v = [os.path.join(tree, "scripts")] + ([os.path.join(stock_root, "etc", "calamares", "scripts")] if stock_root else [])
+
+def patch_rows_v():
+    """[(path, sed expression, marker)] of the overlay's patches.list."""
+    rows = []
+    for ln in text_of(os.path.join(tree, "patches.list")).splitlines():
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            continue
+        parts = [x.strip() for x in ln.split("|")]
+        if len(parts) == 3:
+            rows.append(tuple(parts))
+    return rows
+
+def stock_text_v(path):
+    """The text of an installer file of the image (path as installed, e.g. /etc/calamares/modules/x.conf) AFTER the overlay's cosmetic patches
+    for it, as the launcher applies them on the live system. None when the image has no such file or there is no image root."""
+    if not stock_root:
+        return None
+    fp = os.path.join(stock_root, path.lstrip("/"))
+    if not os.path.isfile(fp):
+        return None
+    src = text_of(fp)
+    for rp, expr, marker in patch_rows_v():
+        if rp == path and marker in src:
+            res = subprocess.run(["sed", "-e", expr], input=src, capture_output=True, text=True)
+            if res.returncode == 0:
+                src = res.stdout
+    return src
+
+sp_problems, sp_checked, sp_unresolved, sp_cfgs = [], 0, [], {}
+for spath, sd in settings:
+    inst_cfg = {}
+    for i_ in sd.get("instances") or []:
+        if isinstance(i_, dict) and i_.get("module") == "shellprocess":
+            inst_cfg[str(i_.get("id"))] = i_.get("config")
+    for kind_, step_ in flatten_sequence(sd["sequence"]):
+        if kind_ != "exec":
+            continue
+        if step_ == "shellprocess":
+            cfg_ = "shellprocess.conf"
+        elif step_.startswith("shellprocess@"):
+            cfg_ = inst_cfg.get(step_.split("@", 1)[1])
+        else:
+            continue
+        if not cfg_ or cfg_ in sp_cfgs:
+            continue
+        mine_ = os.path.join(tree, "modules", cfg_)
+        doc_, src_ = None, None
+        try:
+            if os.path.isfile(mine_):
+                src_ = "overlay"
+                with open(mine_, encoding="utf-8") as fh:
+                    doc_ = yaml.safe_load(fh)
+            else:
+                st_ = stock_text_v("/etc/calamares/modules/" + cfg_)
+                if st_ is not None:
+                    src_ = "image"
+                    doc_ = yaml.safe_load(st_)
+        except yaml.YAMLError as exc:
+            sp_problems.append("%s: %s does not parse: %s" % (step_, cfg_, str(exc).splitlines()[0]))
+            continue
+        if doc_ is None and src_ is None:
+            sp_unresolved.append(cfg_)
+            continue
+        sp_cfgs[cfg_] = (src_, doc_)
+        sp_checked += 1
+        sp_problems += audit_doc(cfg_, doc_, script_dirs_v)
+        if src_ == "overlay" and stock_root:
+            st_ = stock_text_v("/etc/calamares/modules/" + cfg_)
+            if st_ is not None:
+                try:
+                    sp_problems += compare_docs(cfg_, yaml.safe_load(st_), doc_)
+                except yaml.YAMLError:
+                    sp_problems.append("%s: the image's copy does not parse, so the overlay's copy cannot be compared with it" % cfg_)
+for pr_ in sp_problems:
+    bad("shellprocess time limits: %s" % pr_)
+if sp_unresolved:
+    info("shellprocess steps whose config is not in the overlay and cannot be read from the image (no image root here): %s" % ", ".join(sorted(set(sp_unresolved))))
+if sp_checked and not sp_problems:
+    ok("%d shellprocess configs of the install sequence (%s) have an explicit time limit on every command, a generous one (>= %d s network and package tools, >= %d s disk tools) on every heavy one, and the overlay's copies of stock configs run every stock command"
+       % (sp_checked, ", ".join("%s from the %s" % (c_, v_[0]) for c_, v_ in sorted(sp_cfgs.items())), NET_FLOOR, DISK_FLOOR))
+elif not sp_checked and not sp_problems:
+    bad("no shellprocess config of the install sequence could be read: the time limits of its commands are not checked")
+
+# ── install page labels: no CachyOS in what the window says while it installs (ISO #5, 35 percent: 'Installing needed drivers for CachyOS...') ──
+# A Python job's label is its pretty_name(); the launcher rewrites the ones that name the distribution through patches.list, so the check
+# reads the image's own module, applies the overlay's patches to it the way the launcher does, and looks at the result.
+if stock_root:
+    mods_dir = os.path.join(stock_root, "usr", "lib", "calamares", "modules")
+    labels_checked, label_bad = 0, []
+    if os.path.isdir(mods_dir):
+        for mname in sorted(os.listdir(mods_dir)):
+            mp = "/usr/lib/calamares/modules/%s/main.py" % mname
+            src_m = stock_text_v(mp)
+            if src_m is None:
+                continue
+            for body in re.findall(r"def\s+pretty_name\s*\(\s*\)\s*:(.*?)(?=\n(?:def|class)\s|\Z)", src_m, re.S):
+                labels_checked += 1
+                for lit in re.findall(r"""(["'])((?:(?!\1).)*)\1""", body):
+                    if re.search(r"cachy", lit[1], re.I):
+                        label_bad.append("%s: %s" % (mname, lit[1]))
+    for cfg_, (src_, doc_) in sorted(sp_cfgs.items()):
+        if isinstance(doc_, dict) and isinstance(doc_.get("i18n"), dict) and re.search(r"cachy", " ".join(str(v) for v in doc_["i18n"].values()), re.I):
+            label_bad.append("%s (%s): %s" % (cfg_, src_, str(doc_["i18n"].get("name"))))
+    if label_bad:
+        bad("the install window would still name CachyOS while it installs (after the overlay's cosmetic patches): %s" % "; ".join(label_bad))
+    elif labels_checked:
+        ok("no job label of the install page names CachyOS: %d Python module pretty_name() and every shellprocess step of the sequence, read from the image with the overlay's patches.list applied" % labels_checked)
+    else:
+        info("no Python job module in the image to read the install page labels from")
+    # A patch row whose marker is not in the image does not apply: either the installer fixed the text itself (fine) or it changed the text (the label
+    # check above fails when the result still names CachyOS). The launcher only warns about such a row; so does this, as a note.
+    for rp, expr, marker in patch_rows_v():
+        fp = os.path.join(stock_root, rp.lstrip("/"))
+        if os.path.isfile(fp) and marker not in text_of(fp):
+            info("patches.list: %s no longer contains '%s' in the image, so this cosmetic patch does not apply (the installer fixed the text, or changed it: the label checks say which)" % (rp, marker))
+    # The installed system's boot menu switches only do something when the grub package of the image reads them.
+    bn = os.path.join(stock_root, "etc", "grub.d", "31_efi_bootnext")
+    if os.path.isfile(bn):
+        if "GRUB_DISABLE_BOOTNEXT" in text_of(bn):
+            ok("/etc/grub.d/31_efi_bootnext of the image reads GRUB_DISABLE_BOOTNEXT: the switch grubcfg.conf sets is the one that script honours")
+        else:
+            bad("/etc/grub.d/31_efi_bootnext of the image does not read GRUB_DISABLE_BOOTNEXT: the switch grubcfg.conf sets would do nothing against its firmware entries")
+    else:
+        info("the image's grub has no /etc/grub.d/31_efi_bootnext (a grub without EFI BootNext entries: nothing to switch off)")
+else:
+    info("the installer's own files of the image are not available here: the time limits of its shellprocess steps, its install page labels and the boot menu switch are not read from it")
 
 # ── interface-visible text and endpoints ────────────────────────────────────
 def live_text(p):
@@ -2012,7 +2366,9 @@ EOF
     section "5. Calamares overlay (usr/share/ci-os/calamares), static"
     local CT="$R/usr/share/ci-os/calamares"
     awk -F'\t' 'index($3, "/usr/lib/calamares/modules/") == 1 { n = $3; sub("^/usr/lib/calamares/modules/", "", n); if (n !~ /\//) print n }' "$L" > "$W/stock-modules.txt"
-    unsquashfs -no-xattrs -q -f -d "$R" "$SQ" etc/calamares/modules >/dev/null 2>&1 || true
+    # The installer's own files, which the launcher's patches and the overlay's copies act on: configs, scripts, job modules, and the grub.d
+    # scripts that write the installed system's boot menu. verify checks the effective result (overlay over image), not the overlay alone.
+    unsquashfs -no-xattrs -q -f -d "$R" "$SQ" etc/calamares/modules etc/calamares/scripts usr/lib/calamares/modules etc/grub.d >/dev/null 2>&1 || true
     ls "$R/etc/calamares/modules" 2>/dev/null > "$W/stock-confs.txt" || : > "$W/stock-confs.txt"
     awk -F'\t' '{ print $3 }' "$L" > "$W/image-paths.txt"
     local deps=""
@@ -2024,7 +2380,7 @@ EOF
     if [ ! -d "$CT" ]; then
         fail "usr/share/ci-os/calamares is not in the image: no Companion branding, module configuration or package list for the installer (D6)"
     else
-        v_run_calamares_py "$CT" --stock-modules "$W/stock-modules.txt" --stock-confs "$W/stock-confs.txt" --image-paths "$W/image-paths.txt" --extra-packages "$deps"
+        v_run_calamares_py "$CT" --stock-modules "$W/stock-modules.txt" --stock-confs "$W/stock-confs.txt" --image-paths "$W/image-paths.txt" --extra-packages "$deps" --stock-root "$R"
     fi
 
     # ── 6. modes ────────────────────────────────────────────────────────────

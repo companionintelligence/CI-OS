@@ -45,6 +45,11 @@
 #                                            exactly the names the overlay's LISTFILE (pacstrap-code-added.list) lists
 #   settings     (none)                      the overlay's settings.conf resolves: every module exists, every instance has a
 #                                            config file (in the overlay or the installer), the branding component exists
+#   shell-timeouts (none)                    every shellprocess step of the overlay's sequence has an explicit time limit on every command,
+#                                            and a generous one (>= 600 s network and package tools, >= 300 s disk tools) where it runs a
+#                                            heavy tool; an overlay copy of a stock shellprocess config still runs every command of the
+#                                            installer's, in its order and with its dontChroot (lib/ci-shellprocess.py, which reads the configs with PyYAML). Calamares kills a
+#                                            shellprocess command after 30 s unless told otherwise: ISO #5 died at 2 percent that way
 #
 # Messages are collected, not printed one by one: ci_g_report prints them all, so a maintainer sees every problem at once.
 
@@ -290,6 +295,27 @@ EOF
   fi
 }
 
+ci_g_g_shell_timeouts() {  # severity why
+  local helper out rc=0 line root
+  helper="$(ci_g_overlay)/lib/ci-shellprocess.py"
+  [ -f "$helper" ] || { ci_g_fail "$1" "the overlay has no lib/ci-shellprocess.py, so the time limits of the shellprocess steps cannot be checked ($2)"; return 0; }
+  command -v python3 >/dev/null 2>&1 || { ci_g_fail "$1" "python3 is not installed, so the time limits of the shellprocess steps cannot be checked ($2)"; return 0; }
+  # ci_g_root is empty for the live system itself (no prefix); the reader joins paths to it, so it gets "/" then, never a relative path.
+  root="$(ci_g_root)"
+  out="$(python3 -I "$helper" audit "${root:-/}" "$(ci_g_overlay)" 2>&1)" || rc=$?
+  case "$rc" in
+    0) return 0 ;;
+    1) while IFS= read -r line; do
+         [ -n "$line" ] || continue
+         ci_g_fail "$1" "$line ($2)"
+       done <<PROBLEMS
+$out
+PROBLEMS
+       ;;
+    *) ci_g_fail "$1" "lib/ci-shellprocess.py could not run (exit $rc: $(printf '%s' "$out" | head -n 1)), so the time limits of the shellprocess steps cannot be checked ($2)" ;;
+  esac
+}
+
 # ci_g_run_table FILE: run every guard of a guards.list.
 ci_g_run_table() {
   local file="$1" line sev kind a1 a2 why
@@ -313,6 +339,7 @@ EOF
       list-drift)     ci_g_g_list_drift "$sev" "$a1" "$a2" "$why" ;;
       code-names)     ci_g_g_code_names "$sev" "$a1" "$a2" "$why" ;;
       settings)       ci_g_g_settings "$sev" "$why" ;;
+      shell-timeouts) ci_g_g_shell_timeouts "$sev" "$why" ;;
       *) ci_g_critical "guards.list: unknown guard kind '$kind' in: $line" ;;
     esac
   done < "$file"

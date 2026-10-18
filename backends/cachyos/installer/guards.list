@@ -46,11 +46,19 @@ critical | exists         | /etc/calamares/scripts/90-mkinitcpio-install.hook   
 critical | exists         | /etc/calamares/scripts/dmcheck                         |  | the stock final shellprocess picks the display manager with it
 critical | exists         | /etc/calamares/modules/shellprocess.conf               |  | the stock final step (user home, skel, display manager); not replaced by the overlay
 critical | exists         | /etc/calamares/modules/shellprocess-before-online.conf |  | not replaced: writes the target's pacman.conf from /etc/pacman-more.conf
-critical | exists         | /etc/calamares/modules/shellprocess_modify_mk_hook.conf |  | not replaced
-critical | exists         | /etc/calamares/modules/shellprocess_reset_mk_hook.conf |  | not replaced
-critical | exists         | /etc/calamares/modules/shellprocess_initialize_pacman.conf |  | not replaced
 critical | exists         | /etc/calamares/modules/shellprocess_btrfs_snapshot.conf |  | not replaced
 critical | exists         | /etc/calamares/modules/shellprocess_cleanup_calamares.conf |  | not replaced
+#
+# --- shellprocess steps: time limits (ISO #5 died at job 13 of 47 on Calamares' silent 30 s default) -----------------------------
+# Three stock shellprocess configs are replaced by overlay copies that differ from the installer's only in explicit `timeout:` keys
+# (modules/shellprocess_{initialize_pacman,modify_mk_hook,reset_mk_hook}.conf). The `shell-timeouts` guard (lib/ci-shellprocess.py)
+# judges the EFFECTIVE configs of every shellprocess step of settings.conf -- the overlay's copy where there is one, the installer's
+# own file otherwise -- so an installer update that gives a stock step a heavy command without a time limit is not taken.
+critical | oexists        | modules/shellprocess_initialize_pacman.conf   |  | the copy with explicit timeouts: the installer's gives the keyring command Calamares' default of 30 s, which a slow machine exceeds
+critical | oexists        | modules/shellprocess_modify_mk_hook.conf      |  | the copy with an explicit timeout (the installer's sets none)
+critical | oexists        | modules/shellprocess_reset_mk_hook.conf       |  | the copy with an explicit timeout (the installer's sets none)
+critical | oexists        | lib/ci-shellprocess.py                        |  | the reader behind the `shell-timeouts` guard
+critical | shell-timeouts |                                               |  | every shellprocess command has an explicit time limit, a generous one where it runs pacman, pacman-key, curl, git, a package manager, a disk or initramfs tool; a frozen copy still runs every command of the installer's file, in its order and with its dontChroot
 #
 # --- payload staging: what the target gets must be in the overlay (fail closed) ------------------------------------------
 # stage-installer.sh puts these into the overlay at build time; ci-os-stage-target.sh copies them into the target.

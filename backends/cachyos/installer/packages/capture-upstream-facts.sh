@@ -24,6 +24,9 @@
 #   keys NAME KEY KEY ...      top-level keys of etc/calamares/modules/NAME.conf (the module configs the overlay replaces)
 #   list NAME KEY ITEM ...     the items of the block list KEY of etc/calamares/modules/NAME.conf, for every `list-drift` row of guards.list
 #   seq show:X | exec:X        the install sequence of usr/share/calamares/settings_online.conf
+#   spconf NAME JSON           a shellprocess config (etc/calamares/modules/shellprocess*.conf): its commands, their time limits and its top-level
+#                              keys, as one line of JSON, which is valid YAML (lib/ci-shellprocess.py capture); the fake installer tree writes it
+#                              back verbatim, so the `shell-timeouts` guard sees the installer's real commands. Needs python3 with PyYAML
 #   owned PKG PATH             a path the named package owns (from the local database), for the hooks that edit package files
 #
 # Plain bash 3.2, sed, grep, awk, find. Writes only to stdout.
@@ -79,6 +82,16 @@ if [ -f "$ROOT$PM" ]; then
   ci_g_code_statements "$ROOT$PM" | while IFS= read -r l; do printf 'marker %s %s\n' "$PM" "$l"; done
 fi
 
+# The strings the cosmetic patches (patches.list) rewrite: the fake tree needs a file that holds them for the patch to find. A row whose file
+# or marker is not in the real tree is simply not recorded (the launcher warns about it at run time).
+if [ -f "$INSTALLER/patches.list" ]; then
+  grep -vE '^[[:space:]]*(#|$)' "$INSTALLER/patches.list" | while IFS='|' read -r path _expr marker; do
+    path="$(printf '%s' "$path" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    marker="$(printf '%s' "$marker" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    if [ -f "$ROOT$path" ] && grep -qF -- "$marker" "$ROOT$path"; then printf 'marker %s %s\n' "$path" "$marker"; fi
+  done
+fi
+
 # Top-level keys of the module configs the overlay replaces.
 for c in bootloader grubcfg plymouthcfg users packages_online netinstall welcome_online pacstrap services-systemd packagechooser_bootloader; do
   f="$ROOT/etc/calamares/modules/$c.conf"
@@ -90,6 +103,16 @@ done
 SO="$ROOT/usr/share/calamares/settings_online.conf"
 if [ -f "$SO" ]; then
   ci_g_sequence "$SO" | sed 's/^/seq /'
+fi
+
+# Every shellprocess config: commands, time limits, keys (the `shell-timeouts` guard compares the overlay's copies with these).
+if command -v python3 >/dev/null 2>&1; then
+  for f in "$ROOT"/etc/calamares/modules/shellprocess*.conf; do
+    [ -f "$f" ] || continue
+    printf 'spconf %s %s\n' "$(basename "$f")" "$(python3 -I "$INSTALLER/lib/ci-shellprocess.py" capture "$f")"
+  done
+else
+  printf 'capture-upstream-facts.sh: python3 is missing: no spconf facts\n' >&2
 fi
 
 # The lists the `list-drift` rows of guards.list compare: the installer's items, so the fake tree holds real list content.
