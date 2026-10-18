@@ -13,17 +13,23 @@ description: CI-OS conventions for driving a PR to mergeable — validation to r
 
 It is exactly what the `PR checks` workflow runs (bash -n, `shellcheck -S error`,
 `py_compile`, yamllint, no tracked build artifacts, no retired product name such as "CI OS" or
-"Companion Ubuntu" back in `backends/`, `core/` or `.github/`: the name is "Companion OS"; no retired distro name back outside `core/lib/retired-names.allow`: a retired target is restored from tag `pre-retire-multidistro-2026-10-17`, not re-described; and no block-letter banner art, which can spell one in a way a text grep cannot read). If it fails locally, don't push. The
+"Companion Ubuntu" back in `backends/`, `core/` or `.github/`: the name is "Companion OS"; no retired distro name back outside `core/lib/retired-names.allow`: a retired target is restored from tag `pre-retire-multidistro-2026-10-17`, not re-described; and no block-letter banner art, which can spell one in a way a text grep cannot read; and **no tracked file that names an untracked one** (`core/lib/check-untracked-deps.sh`: check-repo and the unit tests run on the working tree, so a new script, fixture or payload file that was never `git add`ed passes them and is missing from the commit; `git add -N <path>` is enough for `git add -u` / `git commit -a` to take it). If it fails locally, don't push. The
 other workflows (`build-companion-os-iso.yml`, `style-canon-lint.yml`) are manual-only
 (`ci-local:gated` markers) — don't restore their triggers in a PR; that's a maintainer call.
 
 Touching `backends/ubuntu/iso/scripts/md5sum-txt.sh` or the md5sum.txt part of `build-iso.sh` → the
 `check-repo.sh` run above already includes `backends/ubuntu/iso/tests/md5sum-txt.sh` (with `xorriso` and GNU `dd` installed it
-also builds a mini ISO; PR checks install `xorriso`). The other ISO tests (`boot-media-plymouth.sh`,
-`plymouth-ground-render.sh`, `desktop-theme/tests/plymouth-theme.sh`, `placeholder-layer-modes.sh`,
-`verify-logo-surfaces.sh`) need a container and are **manual**: no workflow runs them, so before you push a change to
-`core/lib/theme-lib.sh` (`ci_plymouth_recolor`), `brand_boot_media` or the logo steps, run the ones that cover it (the
-commands are in each file's header; the table is in `backends/ubuntu/iso/README.md`, "Script tests").
+also builds a mini ISO; PR checks install `xorriso`). It also runs the Ubuntu 26.04 backend's host suites: `iso/tests/grub-live-menu-modules.sh`
+(the live GRUB menu insmods only modules the signed GRUB has built in), `backends/ubuntu/lib/tests/{os-release-golden,install-rocm-driver,lact-release,shell-theme}.sh`,
+`chroot/tests/customize-chroot-checks.sh`, `headless-package/tests/control-depends.sh` and `core/render/tests/gresource-provenance.sh`
+(a suite that needs a tool the host lacks exits 2 and is reported, not failed). The ISO tests that need a container are **manual**: no
+workflow runs them (`iso/tests/{boot-media-plymouth,plymouth-ground-render,placeholder-layer-modes,verify-logo-surfaces,verify-installer-base}.sh`,
+`split-live-layer.sh` Part B, `chroot/tests/no-dracut-pin.sh`, `desktop-theme/tests/{plymouth-theme,about-logo-svg,visible-names,about-logo-no-renderer,start-icon-from-mark}.sh`,
+`chroot/tests/render-preflight.sh`, `headless-package/tests/netplan-keeps-networkmanager.sh`, `core/lib/tests/divert-file.sh`), so before you push a change to
+`core/lib/theme-lib.sh` (`ci_plymouth_recolor`), `brand_boot_media`, `brand_live_grub`, `verify-iso.sh`, the split library, the logo or visible-name steps, or
+the dracut pin, run the ones that cover it in an `ubuntu:26.04` container (the commands are in each file's header; the table is in
+`backends/ubuntu/iso/README.md`, "Script tests"). A new stock base ISO is a port, not a pin bump: see the comment next to `BASE_ISO_SHA256`
+in `build-companion-os-iso.yml`.
 
 Touching brand assets or the setup portal's logo/font → also run
 `core/lib/check-brand-mirrors.sh` and `core/lib/vendor-brand.sh --check`.

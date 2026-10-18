@@ -165,7 +165,8 @@ Scripts typically apply:
 - a CI-OS identity and teal/phthalo/sage rebrand (GRUB, Plymouth, GDM/GNOME Shell or the
   distro's native DE, MOTD, wallpaper, `os-release`),
 - distro telemetry and bloatware removed,
-- AMD GPU / ROCm support where applicable (Strix Halo / gfx1151 via ROCm **7.2.4**), and
+- AMD GPU / ROCm support where applicable (Strix Halo / gfx1151, with ROCm from the distribution's own
+  package archive: Ubuntu 26.04's on the Ubuntu edition, Arch's `extra` repo on CachyOS), and
 - the full CI developer + appliance stack (Docker, Node, Ollama, CI-Hub, …), driven by one
   shared manifest (`core/manifest/ecosystem.yaml`) instead of per-distro hardcoded tool lists.
 
@@ -184,7 +185,7 @@ See the Stack section of `CLAUDE.md` for exactly which backend uses what.
 
 | Goal | Entry point | Run on |
 |------|-------------|--------|
-| **A. Ship a branded installer ISO** | [`backends/ubuntu/iso/scripts/build-iso.sh`](backends/ubuntu/iso/scripts/build-iso.sh) | An Ubuntu 24.04 *build host* |
+| **A. Ship a branded installer ISO** | [`backends/ubuntu/iso/scripts/build-iso.sh`](backends/ubuntu/iso/scripts/build-iso.sh) | An Ubuntu 26.04 *build host* (or a privileged `ubuntu:26.04` container) |
 | **B. Turn a fresh/existing Ubuntu into a CI appliance** (dev + service stack) | [`backends/ubuntu/provision/provision.sh`](backends/ubuntu/provision/provision.sh) | The *target* machine, as root |
 | **C. Re-skin a running Ubuntu desktop** (branding only, no packages) | [`backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh`](backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh) | The *target* machine, as root |
 | **D. First-time headless WiFi onboarding** (captive portal) | [`backends/ubuntu/headless-package/build.sh`](backends/ubuntu/headless-package/build.sh) → `.deb` | The *target* device |
@@ -233,20 +234,29 @@ See [`backends/cachyos/README.md`](backends/cachyos/README.md) and [`docs/archit
 
 ## Build a branded CI-OS ISO
 
-Produces a bootable, installable `companion-os-<version>-amd64.iso` from a stock
-Ubuntu 24.04 Desktop ISO. This is the primary "customize Ubuntu" workflow.
+Produces a bootable, installable `companion-os-<version>-amd64.iso` from the stock
+Ubuntu 26.04.1 LTS Desktop ISO. This is the primary "customize Ubuntu" workflow.
 
 ### Build-host requirements
 
-The build host **must be Ubuntu 24.04 (Noble) with the Yaru theme installed** — the
-branding step extracts the Yaru GNOME Shell gresource from the host, so its version
-must match the target. You also need **~30 GB free** and **root**.
+The build host **must be Ubuntu 26.04 (Resolute) with the Yaru theme installed** — the
+branding step extracts the Yaru GNOME Shell gresource from the host, so it has to be the
+Yaru of the GNOME Shell 50 the image carries. `build-iso.sh` stops at the start on any other
+host. You also need **~30 GB free** and **root**.
 
 ```bash
 sudo apt-get install \
   squashfs-tools xorriso libglib2.0-bin libglib2.0-dev-bin \
-  yaru-theme-gnome-shell debootstrap rsync gpg cpio zstd initramfs-tools-core imagemagick librsvg2-bin
+  yaru-theme-gnome-shell rsync gpg cpio zstd initramfs-tools-core imagemagick librsvg2-bin curl
 ```
+
+> **On a Mac or any other host that is not Ubuntu 26.04:** run the whole build inside a
+> privileged `ubuntu:26.04` container (`docker run --privileged --platform linux/amd64 ...`)
+> with the repo and the base ISO mounted. The requirements are in
+> [`backends/ubuntu/iso/README.md`](backends/ubuntu/iso/README.md), and
+> [`.github/workflows/build-companion-os-iso.yml`](.github/workflows/build-companion-os-iso.yml)
+> does the same in CI, in a privileged `ubuntu:26.04` container. An older Ubuntu host or container
+> is not a build host.
 
 The build also needs network access (it installs the CI-Hub and wireless setup tools into the image).
 After a build, `backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-*.iso` checks that they are
@@ -255,12 +265,13 @@ all there and that the branding is applied (see [`backends/ubuntu/iso/README.md`
 ### Quick start
 
 ```bash
-# 1. Download the Ubuntu 24.04 base ISO (any 24.04.x point release works)
-wget https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso
+# 1. Download the Ubuntu 26.04.1 base ISO (take the .1 file, not the 26.04.0 image listed next to it;
+#    its SHA-256 is in backends/ubuntu/iso/README.md)
+wget https://releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso
 
-# 2. Build — single entry point, runs as root
+# 2. Build — single entry point, runs as root, on Ubuntu 26.04
 sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
-  --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
+  --base-iso ./ubuntu-26.04.1-desktop-amd64.iso
 ```
 
 Output: `./output/companion-os-1.0-amd64.iso` (+ `SHA256SUMS` / `MD5SUMS`).
@@ -275,7 +286,7 @@ MOTD, first-boot bootstrap), and repacks a bootable ISO with `xorriso`.
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--base-iso PATH` | *(required)* | Path to the Ubuntu 24.04 Desktop ISO |
+| `--base-iso PATH` | `./ubuntu-26.04.1-desktop-amd64.iso` | Path to the Ubuntu 26.04.1 Desktop ISO |
 | `--output-dir PATH` | `./output` | Where the finished ISO is written |
 | `--work-dir PATH` | `./work` | Scratch space (~25 GB) |
 | `--version VERSION` | `1.0` | CI-OS version embedded in the ISO |
@@ -291,7 +302,7 @@ Full reference, branding color map, and iterative-dev tips:
 
 ✅ **Ubuntu rebranded as CI-OS** — GRUB, Plymouth, GDM/GNOME Shell, MOTD, `os-release`  
 ✅ **Privacy first** — telemetry removed, metric endpoints blocked  
-✅ **AMD GPU ready** — ROCm 7.2.4 helper (`--no-dkms` on Strix Halo / gfx1151) 
+✅ **AMD GPU ready** — `ci-os-install-rocm` installs ROCm from the Ubuntu 26.04 archive on Strix Halo / gfx1151, with the kernel's inbox amdgpu driver (no amdgpu-dkms)  
 ✅ **CI canon theme** — navy/phthalo/sage, sourced from `vendor/brand/tokens/tokens.sh`  
 ✅ **Core stack on first boot** — Docker, Node (asdf), Ollama+models, CI-Hub (`provision.sh --tier=core`); VS Code/Chromium/Homebrew/Companion Launcher are opt-in (`--tier=extended`)  
 ✅ **Bootable** — inherits BIOS + UEFI + Secure Boot from the base ISO
@@ -308,7 +319,7 @@ ISOs build automatically via [`.github/workflows/build-companion-os-iso.yml`](.g
 
 ## Provision a fresh / existing Ubuntu
 
-Convert any Ubuntu 24.04 machine into a CI appliance without reimaging. This is the
+Convert an Ubuntu 26.04 machine into a CI appliance without reimaging. This is the
 same script the ISO runs on first boot (as `--tier=core`), so it is **idempotent** —
 safe to re-run. What gets installed is controlled by `--tier` — see
 `provision.sh`'s own header for the full core/extended/hardware breakdown; default
@@ -340,7 +351,7 @@ truth this list mirrors:
 - **[extended]** **Homebrew**
 - **[extended]** **Chromium** and **VS Code** (Snap fallback if apt fails)
 - **[extended]** **Companion Launcher** (+ autostart) — the desktop GUI app, distinct from the CI Hub Service backend above
-- **[hardware, supported machines only]** **ROCm** (`backends/ubuntu/lib/install-rocm-driver.sh`, non-fatal) and **LACT**. The support rule is a Strix Halo-class APU (Ryzen AI Max / gfx1151 / Radeon 8060S) with at least ~32 GB of RAM. Ubuntu 26.04 installs `rocm` from the Ubuntu archive; Ubuntu 24.04 uses ROCm 7.2.4 with `--no-dkms`. Other hardware is left alone.
+- **[hardware, supported machines only]** **ROCm** (`backends/ubuntu/lib/install-rocm-driver.sh`, non-fatal) and **LACT**. The support rule is a Strix Halo-class APU (Ryzen AI Max / gfx1151 / Radeon 8060S) with at least ~32 GB of RAM. It installs `rocm`, `rocminfo` and `rocm-smi` from the Ubuntu 26.04 archive and uses the kernel's inbox amdgpu driver: no `amdgpu-dkms`, nothing from `repo.radeon.com`, and on any other Ubuntu release it stops with an error and installs nothing. Other hardware is left alone.
 - **[hardware, auto-detected]** **Strix Halo unified-memory boot params** (`backends/ubuntu/lib/strix-halo-boot-params.sh`, non-fatal) — see note below
 - GNOME power profile set to *performance*
 

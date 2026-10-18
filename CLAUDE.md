@@ -37,8 +37,9 @@ and `stick/README.md`.
 
 - **Shared** (`core/`): plain Bash + a declarative `core/manifest/ecosystem.yaml` (the single
   source of truth for what gets installed — see its own comments) — no distro assumptions here.
-- **`backends/ubuntu/`**: apt/dpkg + Bash. `debootstrap`, `squashfs-tools`,
-  `xorriso` for ISO building; `.deb` packaging; systemd first-boot services.
+- **`backends/ubuntu/`**: apt/dpkg + Bash. `squashfs-tools` and `xorriso` for ISO building
+  (it repacks the layers of the stock Ubuntu 26.04.1 Desktop ISO and does not build a rootfs from scratch);
+  `.deb` packaging; systemd first-boot services.
 - **`backends/arch/`**: pacman + Bash. The provisioning engine under CachyOS, not a target:
   `backends/cachyos/provision/provision.sh` wraps its `provision/provision.sh`, and
   `headless-setup/install.sh` is the dependency oracle the payload tests and the CachyOS ISO verifier read.
@@ -50,8 +51,10 @@ and `stick/README.md`.
 ## Key commands
 
 ```bash
-# Build a branded CI-OS ISO (on an Ubuntu 24.04 build host, as root)
-sudo ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso ./ubuntu-24.04.4-desktop-amd64.iso
+# Build a branded Companion OS ISO (as root, on an Ubuntu 26.04 build host: build-iso.sh stops on any other host)
+sudo ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso ./ubuntu-26.04.1-desktop-amd64.iso
+# From a Mac or any non-26.04 host: the same build inside a privileged ubuntu:26.04 container
+# (docker run --privileged --platform linux/amd64 ... ubuntu:26.04; see backends/ubuntu/iso/README.md)
 
 # Provision a fresh/existing Ubuntu into a CI appliance (idempotent)
 # --tier=core,hardware is the default; add "extended" for VS Code/Chromium/Homebrew/Launcher
