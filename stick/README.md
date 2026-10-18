@@ -27,6 +27,25 @@ cargo fmt --check
 CI runs the same commands, plus a 1.75 MSRV check, in the `stick` job of
 `.github/workflows/pr-checks.yml`.
 
+**Adding a dependency or bumping the lock.** The MSRV is 1.75, and newer releases of some dependencies (`ureq` 3.4.x, `reqwest` 0.13, ...) declare
+a higher Rust version, so a plain `cargo update` can move `Cargo.lock` to a crate that 1.75 cannot build. `stick/.cargo/config.toml` sets
+`incompatible-rust-versions = "fallback"` (read by Cargo 1.84 and newer; on an older cargo set `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback`),
+and `ureq` is also pinned exactly (`=3.2.1`) in `crates/ci-stick/Cargo.toml`. After any change to dependencies or to the lock, check the MSRV and
+commit `Cargo.lock`:
+
+```bash
+cd stick && cargo +1.75 check --locked --all-targets
+```
+
+**One test is opt-in.** `crates/ci-stick/tests/models_live.rs` downloads `nomic-embed-text` (274 MB) from the real Ollama registry and is skipped
+(with a note) unless you ask for it:
+
+```bash
+cd stick && CI_STICK_LIVE=1 CI_STICK_LIVE_DIR="$(mktemp -d)" cargo test --test models_live -- --nocapture
+```
+
+The other tuning variables of `ci-stick models fetch` and the test switches are in the [environment reference](../docs/guides/environment-reference.md).
+
 ## Usage
 
 ```bash
@@ -196,7 +215,8 @@ It flashes a sparse 64 GB image from a casper-shaped test ISO and boots it three
 a USB stick under UEFI: slot A, a reboot (persistence), then slot B after `slot set B`.
 It also checks the safety refusals, and it prints a PASS/FAIL summary. It uses KVM when
 `/dev/kvm` is usable and TCG otherwise. `cargo test -- --ignored qemu_boot_harness` runs
-the same script. It uses the unsigned development chain, like CI.
+the same script. It uses the unsigned development chain, like CI. CI runs it in a privileged `ubuntu:26.04` container, so the
+tools and the kernel it boots are the target release's; the recorded run on that userland passed all its checks (17 lines in the summary).
 
 ### Test Secure Boot on your Mac
 
@@ -214,7 +234,7 @@ stick/tests/secureboot/run-on-mac.sh
 stick/tests/secureboot/run-on-mac.sh --show          # watch each boot in a window
 stick/tests/secureboot/run-on-mac.sh --skip-build    # boot again without rebuilding
 
-# a real Ubuntu (or CI-OS) ISO in slot A, Secure Boot on, in a window (~8 GB free, slow
+# a real Ubuntu (or Companion OS) ISO in slot A, Secure Boot on, in a window (~8 GB free, slow
 # under TCG): check `mokutil --sb-state` says enabled, and that files survive a reboot
 stick/tests/secureboot/run-on-mac.sh --iso ~/Downloads/ubuntu-26.04.1-desktop-amd64.iso
 ```
@@ -233,7 +253,7 @@ Desktop for Apple Silicon with Rosetta emulation (seen with Docker Desktop 29 on
 Ubuntu 26.04's GNU `tar` cannot create files inside a directory it has just created
 ("Function not implemented"; bsdtar and Python's `tarfile` work there), so `dpkg-deb -x`
 fails. `build-in-container.sh` checks this first and stops with a message instead of
-failing later. Until that is fixed, run the build half on an x86_64 Ubuntu 26.04 machine.
+failing later. The trigger was not isolated (another amd64 `ubuntu:26.04` container ran `installed-boot.sh --no-boot` to the end on 2026-10-18), so treat amd64 on this setup as "may fail": run the build half on an x86_64 Ubuntu 26.04 machine.
 `fetch-signed-boot.sh` alone also runs in an arm64 `ubuntu:26.04` container whose apt is
 pointed at the amd64 archive through an `APT_CONFIG` file (`APT::Architecture "amd64"`, the
 archive's own sources, a separate `Dir::State`), because it only downloads and unpacks; the
@@ -284,12 +304,17 @@ stick/
     grubenv.rs  bootcfg.rs      A/B pointer (GRUB env block); grub.cfg from the layout
     slot.rs                     slot show / set
   crates/ci-stick/templates/    grub.cfg template
-  crates/ci-stick/tests/        CLI end-to-end, flash-to-image, schema drift tests
+  crates/ci-stick/tests/        CLI end-to-end, flash-to-image, schema drift, model catalog, lock, fetch and resume tests, and the opt-in
+                                live-registry test (models_live.rs)
+  .cargo/config.toml            MSRV-aware dependency resolution (see "Adding a dependency or bumping the lock")
   scripts/fetch-signed-boot.sh  Secure Boot chain (shim, Canonical GRUB, MokManager) via apt
   scripts/grub-builtin-modules.py  modules built into a signed GRUB image (fetch-signed-boot.sh checks them)
   scripts/build-grub-efi.sh     standalone GRUB EFI (development chain, not signed)
-  tests/qemu/                   QEMU boot harness + casper-shaped test boot image
-  tests/secureboot/             local Secure Boot harness (run-on-mac.sh; not in CI)
+  scripts/usb-inventory-macos.py  read-only inventory of the USB disks on a Mac, by serial (mass-flashing.md, section 8.7)
+  tests/qemu/                   QEMU boot harness (run.sh, build-test-boot-image.sh), Docker-in-a-live-session tests (docker-live.sh,
+                                guest-docker-test.sh) and the mac80211_hwsim hotspot test (hotspot-hwsim.sh, guest-hotspot-test.sh,
+                                README-hotspot.md)
+  tests/secureboot/             local Secure Boot harness (run-on-mac.sh, build-in-container.sh; not in CI)
   schema/bundle.schema.json     published JSON Schema (mirror of manifest.rs)
   schema/examples/              canonical example bundle.json
 ```

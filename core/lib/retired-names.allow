@@ -28,11 +28,3 @@ docs/architecture/multi-distro-design.md
 
 # --- PENDING: documents the docs phase rewrites. Delete each line when its file is clean (a stale line fails the check) -----
 
-docs/architecture/headless-setup.md
-docs/architecture/tier-b-tools.md
-docs/architecture/companion-stick.md
-docs/architecture/companion-stick-128gb.md
-docs/architecture/models-tooling.md
-docs/architecture/ubuntu-iso-layers.md
-docs/architecture/docker-in-live-sessions.md
-docs/architecture/cachyos-backend.md

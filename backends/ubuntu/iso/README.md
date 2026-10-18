@@ -61,11 +61,14 @@ pre-installing the tools. Every third-party key fingerprint and download hash is
 
 The stock desktop image has no image renderer, so the logo PNGs are rendered on the build host from the vendored SVG marks (`core/render/render-mark-png.sh`): `librsvg2-bin` (`rsvg-convert`) renders the greeter logo, the Settings > About logo and the GRUB background, and `imagemagick` scales the Plymouth logo and composes the GRUB background. `build-iso.sh` stops at the start if either is missing, and `verify-iso.sh` fails an image built without them. `unmkinitramfs` (`initramfs-tools-core` 0.151, a 3cpio-based program that extracts all four segments of the 26.04 initrd flat into one directory; a desktop install has it, a minimal container or a bare `ubuntu:26.04` does not) unpacks the stock casper initrd to take the live Plymouth theme files from it. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio python3`.
 
-> **Building on a Mac or any non-Ubuntu host:** run the whole build in a privileged
-> `ubuntu:26.04` container (`docker run --privileged --platform linux/amd64 ...`) with the repo and
-> the base ISO mounted and a named Docker volume for `--work-dir` and `--output-dir`. A privileged
-> container is needed for the chroot's `proc`/`dev` mounts. (A `ubuntu:24.04` container is not a build host any more: its Yaru and its
-> `unmkinitramfs` do not match the 26.04.1 image.)
+> **Building on a Mac or any non-Ubuntu host:** run the whole build in a privileged `ubuntu:26.04` container with a clean tree of the repo,
+> the base ISO mounted read-only and a named Docker volume for `--work-dir` and `--output-dir`. A privileged container is needed for the
+> chroot's `proc`/`dev` mounts. **On Apple silicon use an ARM64 container** (`--platform linux/arm64`): it is the route that built and verified
+> the image, and the image's x86-64 chroot runs through the Docker VM's Rosetta binfmt handlers. An amd64 `ubuntu:26.04` container may fail
+> (GNU tar 1.35 reported "Function not implemented" under Rosetta once; the trigger was not isolated). The full, tested recipe is in
+> [`docs/guides/building-on-a-mac.md`](../../../docs/guides/building-on-a-mac.md#recipe) and in the root `README.md`; do not use the
+> `--platform linux/amd64` form that an earlier version of this note gave. (A `ubuntu:24.04` container is not a build host any more: its Yaru
+> and its `unmkinitramfs` do not match the 26.04.1 image.)
 
 ---
 
@@ -123,7 +126,8 @@ The compiled gresource is committed to source at:
      every one of them to read Companion OS.
    - GRUB configuration
    - AMD GPU / ROCm helper tools
-   - Installer whitelabel (whitelabel.yaml, slides)
+   - The installer's product name: there is **no installer whitelabel step** (the installer is Canonical's snap and its text is fixed); the launcher
+     label and the last page read the name from `/.disk/info`, which the boot-media step rewrites
    - MOTD and CI-OS utilities
 4. Deletes the snapd seed of Ubuntu's TPM full-disk-encryption variant from `C` (`remove_esb_seed`; 0.66 GB the stock live layer carries:
    `seed/systems/enhanced-secureboot-desktop` and the pc-kernel, pc, second firefox and nvidia component snap files in `seed/snaps` that
@@ -240,9 +244,10 @@ The seed matters: snap files do not compress, so L would have been about 0.78 GB
 the pre-installed tools: `docs/architecture/tier-b-tools.md` section 6 measured Ollama's CUDA libraries at 1.52 GB (24 MB with
 `CI_OS_OLLAMA_CUDA=none`), the other optional tools at about 0.1 GB, and the Docker and wireless additions are estimated at 0.3 GB (unmeasured).
 That adds up to **about 7.3 GB (6.8 GiB) with everything on, about 5.8 GB with `CI_OS_OLLAMA_CUDA=none`**: inside the 8 GiB slot by about 1.3 GB. That
-sum is arithmetic over pieces measured on different bases, not a build. **No complete Companion OS image has been built on 26.04.1**, so its size is not
-known; the first one has to be read against section 9 of `verify-iso.sh` (the line says how many bytes are spare). An earlier estimate of 7.5 to 9.5 GB
-did not take the seed out of the live layer.
+sum is arithmetic over pieces measured on different bases, not a build. **The first complete Companion OS image built on 26.04.1 measures
+7,076,577,280 bytes (6.59 GiB)** with every optional bake on (clean checkout at `02c575e`, 2026-10-18, `docs/evidence/2026-10-18-ubuntu-clean-02c575e/`),
+so 1,513,357,312 bytes are spare in an 8 GiB slot, and the estimate above was about 3 percent high. `verify-iso.sh` section 9 prints the spare
+bytes on every build. An earlier estimate of 7.5 to 9.5 GB did not take the seed out of the live layer.
 
 The list of what is live-only, the reason for each row, how to extend it, what each test proves and the test status are in
 [`docs/architecture/ubuntu-iso-layers.md`](../../../docs/architecture/ubuntu-iso-layers.md). `verify-iso.sh` section 3g and
@@ -251,6 +256,9 @@ The list of what is live-only, the reason for each row, how to extend it, what e
 ---
 
 ## Flags
+
+The environment variables (`CI_OS_BAKE_*`, `CI_OS_OLLAMA_CUDA`, `CI_OS_CACHE_DIR`, `CI_OS_ALLOW_OTHER_BUILD_HOST`, `VERIFY_*`, ...) are tabulated in the
+[environment reference](../../../docs/guides/environment-reference.md).
 
 | Flag | Default | Description |
 |------|---------|-------------|
@@ -266,55 +274,42 @@ The list of what is live-only, the reason for each row, how to extend it, what e
 
 ## Directory Structure
 
+Tracked files only (`git ls-files backends/ubuntu`); the layout below is what the build reads. Generated output (`work/`, `output/`) is not tracked.
+
 ```
-backends/ubuntu/iso/
-├── README.md                              ← This file
-└── scripts/
-    ├── build-iso.sh                       ← Main entry point (run this)
-    ├── build-packages.sh                  ← Builds all .deb packages
-    ├── build-gdm-branding-gresource.sh    ← Builds branded Yaru gresource
-    ├── md5sum-txt.sh                      ← Writes and verifies the image's /md5sum.txt (see Testing)
-    ├── verify-iso.sh                      ← Inspects a built ISO without booting it (see Testing)
-    ├── stage-live-build-branding-package.sh  ← Stages .deb into config/packages.chroot
-    └── setup-repository.sh                ← reprepro repository setup helper
-
-scripts/
-└── customize-chroot.sh                  ← Chroot customization (OS identity,
-                                              branding, AMD GPU, installer, etc.)
-
-packages/
-└── ci-os-branding/
-    ├── DEBIAN/
-    │   ├── control      ← Package metadata
-    │   ├── postinst     ← Adds dpkg-divert for gresource override
-    │   ├── prerm        ← Removes divert on uninstall
-    │   └── postrm
-    └── usr/share/gnome-shell/theme/Yaru/
-        └── gnome-shell-theme.gresource    ← Compiled branded theme (regenerated by build)
-
+backends/ubuntu/
+├── iso/
+│   ├── README.md                            ← This file
+│   ├── scripts/
+│   │   ├── build-iso.sh                     ← Main entry point (run this, as root on Ubuntu 26.04)
+│   │   ├── build-packages.sh                ← Builds the .deb packages and the branded gresource
+│   │   ├── build-gdm-branding-gresource.sh  ← Thin caller of core/render/render-gnome-shell-gresource.sh (Yaru data)
+│   │   ├── yaru-color-map.pl                ← The orange-to-teal ramp for the Yaru CSS
+│   │   ├── yaru-audit-patterns.txt          ← Regression patterns for pre-rebrand Yaru colours
+│   │   ├── md5sum-txt.sh                    ← Writes and verifies the image's /md5sum.txt
+│   │   ├── verify-iso.sh                    ← Inspects a built ISO without booting it
+│   │   ├── lib/split-live-layer.sh          ← The installer-base / live-only split and its table
+│   │   ├── stage-live-build-branding-package.sh  ← Unused by the build: stages the .deb into a live-build path
+│   │   └── setup-repository.sh              ← reprepro repository helper (status: docs/guides/package-repository-setup.md)
+│   └── tests/                               ← See "Testing" below; tests/lib/ holds the harness code, tests/fixtures/ the stock-ISO facts
+├── chroot/
+│   ├── customize-chroot.sh                  ← Chroot customization (identity, branding, Docker, tools, installer, first boot)
+│   ├── payload/                             ← apt, docker, live-start (the one-click installer), models, ssh
+│   └── tests/                               ← customize-chroot checks, models-*.sh, test_auto_install.py, first-boot-units-boot.sh
+├── packages/
+│   ├── PROVENANCE-gnome-shell-theme.txt     ← Input and output hashes of the branded gresource
+│   └── ci-os-branding/                      ← The GNOME Shell theme .deb: DEBIAN/{control,postinst,prerm,postrm} and
+│                                              usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource (rebuilt by the build)
+├── provision/, desktop-theme/, lib/, headless-package/   ← see the repository README
 assets/
-├── logos/
-│   ├── 2024_CI__Logo_Banner_Color_small.svg   ← CI logo used in GDM/GNOME Shell
-│   └── ci-holo-depth.png                      ← no longer installed (off canon); the greeter logo is rendered from vendor/brand/logos/mark.svg
-├── package theme assets/
-│   ├── checkbox-focused-light.svg
-│   ├── checkbox-light.svg
-│   ├── checkbox-off-focused-light.svg
-│   └── toggle-on-light.svg
-└── wallpapers/
-    └── ci-os-wallpaper.svg                    ← Fallback wallpaper
-
-config/
-└── packages.chroot/
-    └── mydistro-branding_1.0_all.deb          ← STALE — regenerate with build-packages.sh
+├── logos/                                   ← 2024_CI__LogoMark_Color_med.svg, 2024_CI__Logo_Banner_Color_small.svg, ci-holo-depth.png (not installed)
+├── package theme assets/                    ← four checkbox and toggle SVGs for the Shell theme
+└── wallpapers/ci-os-wallpaper.svg           ← Fallback wallpaper
 ```
 
-> **Note:** `config/packages.chroot/` contains a stale `.deb` from the old
-> `mydistro-branding` package name. The live-build staging path is not part of
-> the active build pipeline — `build-iso.sh` copies the gresource directly.
-> Run `./backends/ubuntu/iso/scripts/build-packages.sh` and then
-> `./backends/ubuntu/iso/scripts/stage-live-build-branding-package.sh` if you need
-> to refresh it.
+> **Note:** `stage-live-build-branding-package.sh` copies the `.deb` into `config/packages.chroot/`, a live-build path. This build does not use
+> live-build and there is no `config/` directory in the repository (an older version of this file showed a stale `mydistro-branding` package
+> there). The active pipeline copies the gresource directly into the chroot.
 
 ---
 
@@ -495,6 +490,8 @@ sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
 ## Testing
 
 ### Script tests: what runs where
+
+Every suite of the repository, with what it needs and which one to run for which change, is in one table in [`docs/guides/running-the-tests.md`](../../../docs/guides/running-the-tests.md); this section keeps the Ubuntu ISO detail.
 
 Two of the ISO tests run automatically: `core/lib/check-repo.sh` (and so the PR checks) runs `tests/md5sum-txt.sh` and
 `tests/grub-live-menu-modules.sh`, besides the Ubuntu 26.04 backend's other host suites listed under the table. **The others are
@@ -786,9 +783,10 @@ of the v7 install, and reached the GDM greeter; it is not a supported procedure 
 
 ## CI/CD
 
-The repository includes `.github/workflows/build-companion-os-iso.yml` for
-automated builds triggered by tags, manual dispatch, or weekly schedule.
-See that workflow for GitHub Secrets required for GPG signing.
+The repository includes `.github/workflows/build-companion-os-iso.yml`. It is **manual dispatch only** (inputs `version` and `sign`): the tag
+and weekly-schedule triggers are commented out inside the `ci-local:gated` block, and restoring them is a maintainer call. It builds in a
+privileged `ubuntu:26.04` container on the runner. See the workflow for the GitHub secrets (`GPG_PRIVATE_KEY`, `GPG_PASSPHRASE`) that signing needs;
+its "Create GitHub Release" step is not safe for ISOs (KI-12 in `docs/architecture/known-issues-and-decisions.md`).
 
 ---
 
