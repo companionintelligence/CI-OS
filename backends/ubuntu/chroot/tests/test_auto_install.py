@@ -8,15 +8,20 @@ The helper is extensionless, so it is loaded by path.
 import ast
 import importlib.machinery
 import importlib.util
+import http.server
 import io
 import itertools
 import json
 import os
 import re
+import shutil
+import socketserver
 import stat
 import subprocess
 import tempfile
+import threading
 import unittest
+import urllib.parse
 from contextlib import redirect_stdout
 from unittest import mock
 
@@ -241,6 +246,27 @@ class AutoinstallTests(unittest.TestCase):
         self.assertIn("blockdev --getsize64 /dev/nvme0n1", cmd)
         self.assertIn("/cdrom", cmd)
         self.assertIn("exit 1", cmd)
+
+    # The top-level keys of the 26.04.1 installer's autoinstall schema (autoinstall-schema.json of ubuntu-desktop-bootstrap rev 665).
+    SCHEMA_KEYS = {"active-directory", "apt", "codecs", "debconf-selections", "drivers", "early-commands", "error-commands", "identity",
+                   "interactive-sections", "kernel", "kernel-crash-dumps", "keyboard", "late-commands", "locale", "network", "oem",
+                   "packages", "proxy", "refresh-installer", "reporting", "shutdown", "snaps", "source", "ssh", "storage", "timezone",
+                   "ubuntu-advantage", "ubuntu-pro", "updates", "user-data", "version", "zdevs"}
+
+    def test_the_document_is_a_complete_non_interactive_autoinstall(self):
+        # server.py: `interactive` = bool(autoinstall["interactive-sections"]); any section named there needs a client to answer it,
+        # and a server with no client waits for ever. 'autoinstall' must also be the only top-level key (_read_config).
+        doc = ai.build_autoinstall(self.target, "$6$salt$hash")
+        self.assertEqual(list(doc), ["autoinstall"])
+        self.assertNotIn("interactive-sections", self.cfg)
+        self.assertEqual(self.cfg["version"], 1)
+        self.assertLessEqual(set(self.cfg), self.SCHEMA_KEYS, "a key the installer's schema does not have")
+        self.assertEqual(ai.dump_yaml(doc).count("interactive"), 0)
+
+    def test_the_machine_powers_off_when_the_install_is_done(self):
+        # shutdown.py: not interactive + DONE -> initiate_poweroff() for `poweroff` (reboot is the default of the installer)
+        self.assertEqual(self.cfg["shutdown"], "poweroff")
+        self.assertIn(self.cfg["shutdown"], ("reboot", "poweroff"))
 
     def test_first_login_forces_password_change_and_cleanup(self):
         late = " ".join(self.cfg["late-commands"])
@@ -789,14 +815,131 @@ class CurtinRunningTests(unittest.TestCase):
             self.assertTrue(ai.curtin_running())
 
 
+class FakeClock:
+    """Virtual time: sleep() moves the clock, so a ten-minute wait costs nothing and its length can be asserted."""
+
+    def __init__(self, start=1_000_000.0):
+        self.start = self.now = start
+
+    def time(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.now += seconds
+        if self.elapsed > 2 * 86400:                  # a wait that is not bounded fails the test instead of hanging the suite
+            raise AssertionError("the helper was still waiting after two days of virtual time")
+
+    @property
+    def elapsed(self):
+        return self.now - self.start
+
+
+# What the real server reports, in order, for an install that goes well (server/controllers/install.py; observed in its dry-run mode,
+# backends/ubuntu/chroot/tests/oneclick-subiquity-dryrun.sh): the second WAITING is the window between curtin and the post-install
+# work, which the first revision of the helper did not know about.
+PREPARE_OK = ["EARLY_COMMANDS", "WAITING", "WAITING", "NEEDS_CONFIRMATION"]
+AFTER_OK = ["RUNNING", "WAITING", "RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"]
+TTY_TEXT_500 = ('Traceback (most recent call last):\n  File "/snap/ubuntu-desktop-bootstrap/665/bin/subiquity/subiquity/common/api/server.py", '
+                'line 156, in handler\n    raise TypeError(\'missing required argument "{}"\'.format(arg))\n'
+                'TypeError: missing required argument "tty"\n')
+
+
+class FakeServer:
+    """The installer's server, as the 26.04.1 snap (ubuntu-desktop-bootstrap rev 665) behaves. Read in its code and run in its dry-run mode.
+
+      * GET /meta/status answers {"state", "interactive", "log_syslog_id": "subiquity_log.<pid>", ...}. `interactive` is False when the
+        server was started while our autoinstall file was in place and True when it found none (server.py load_autoinstall_config); it
+        is None until the server has read the file.
+      * POST /meta/confirm takes `tty` from the QUERY string, JSON-encoded. A JSON body, or no tty, is HTTP 500 with a TypeError. The
+        server does not look at its own state: a confirmation sent too early is kept (so the helper must send it at the right time).
+      * a restart is a NEW process (new log_syslog_id) that starts its script from the top; it is interactive unless the file is there.
+
+    `before`: the script of the server of the live session, which is running when the helper starts. `plans`: one (prepare, after) pair per
+    restart: `prepare` is what the new server reports until it is confirmed, `after` what it reports from the accepted confirmation on.
+    A script is a list; every GET /meta/status takes the next entry and the last entry repeats. An entry is a state name, a dict of
+    status fields (with "state"), or None (the server does not answer)."""
+
+    STARTING = ("STARTING_UP", "CLOUD_INIT_WAIT")
+
+    def __init__(self, before=("WAITING",), plans=None, confirm_code=200, confirm_body="null", confirm_takes_effect=None,
+                 reads_file=True, restart_works=True, restart_accepted=True, stock_interactive=True):
+        self.pid = 1000
+        self.plans = list(plans) if plans is not None else [(PREPARE_OK, AFTER_OK)]
+        self.confirm_code, self.confirm_body = confirm_code, confirm_body
+        self.confirm_takes_effect = (confirm_code == 200) if confirm_takes_effect is None else confirm_takes_effect
+        self.reads_file, self.restart_works, self.restart_accepted = reads_file, restart_works, restart_accepted
+        self.file_written = False
+        self.restarts = 0
+        self.posts = []             # (state the server was last seen in, JSON body, query) of every POST /meta/confirm
+        self.requests = []
+        self.instance = self._new(before, [], stock_interactive)
+
+    def _new(self, script, after, interactive):
+        self.pid += 1
+        return {"pid": self.pid, "script": list(script), "after": list(after), "i": 0, "interactive": interactive, "last": None}
+
+    def restart(self):
+        """systemctl restart: True when systemd accepts it."""
+        self.restarts += 1
+        if not self.restart_accepted:
+            return False
+        if self.restart_works:
+            prepare, after = self.plans[min(self.restarts - 1, len(self.plans) - 1)]
+            self.instance = self._new(prepare, after, interactive=not (self.file_written and self.reads_file))
+        return True
+
+    def api(self, method, path, data=None, timeout=20, query=None):
+        self.requests.append((method, path, data, query))
+        inst = self.instance
+        if (method, path) == ("GET", "/meta/status"):
+            entry = inst["script"][min(inst["i"], len(inst["script"]) - 1)]
+            inst["i"] += 1
+            inst["last"] = entry["state"] if isinstance(entry, dict) else entry
+            if entry is None:
+                return 0, ""
+            fields = dict(entry) if isinstance(entry, dict) else {"state": entry}
+            body = {"state": fields["state"], "confirming_tty": "", "error": None, "nonreportable_error": None, "cloud_init_ok": True,
+                    "interactive": None if fields["state"] in self.STARTING else inst["interactive"],
+                    "echo_syslog_id": f"subiquity_echo.{inst['pid']}", "log_syslog_id": f"subiquity_log.{inst['pid']}",
+                    "event_syslog_id": f"subiquity_event.{inst['pid']}"}
+            body.update(fields)
+            return 200, json.dumps(body)
+        if (method, path) == ("POST", "/meta/confirm"):
+            self.posts.append((inst["last"], data, query))
+            if data is not None or not query or "tty" not in query:
+                return 500, TTY_TEXT_500
+            if self.confirm_takes_effect and inst["after"]:
+                inst["script"], inst["i"] = list(inst["after"]), 0
+            return self.confirm_code, self.confirm_body
+        raise AssertionError(f"the helper asked the installer for {method} {path}")
+
+
+class installer_world:
+    """The helper talks to `server` instead of the installer's socket, and time is the fake clock's."""
+
+    def __init__(self, server, clock=None):
+        self.server, self.clock = server, clock or FakeClock()
+
+    def __enter__(self):
+        self._patches = [mock.patch.object(ai, "api", self.server.api), mock.patch.object(ai.time, "time", self.clock.time),
+                         mock.patch.object(ai.time, "sleep", self.clock.sleep)]
+        for p in self._patches:
+            p.start()
+        return self.clock
+
+    def __exit__(self, *a):
+        for p in reversed(self._patches):
+            p.stop()
+
+
 class RestartIfIdleTests(unittest.TestCase):
     """After a failure the server is restarted to drop the settings it loaded, unless that would kill an install."""
 
-    def run_it(self, state, target=False, curtin=False):
+    def run_it(self, state, target=False, curtin=False, restart_ok=True):
         restarted = []
         with mock.patch.object(ai, "status", return_value={"state": state} if state else {}), \
                 mock.patch.object(ai, "target_in_use", return_value=target), mock.patch.object(ai, "curtin_running", return_value=curtin), \
-                mock.patch.object(ai, "restart_server", lambda: restarted.append(1)):
+                mock.patch.object(ai, "restart_server", lambda: restarted.append(1) or restart_ok):
             result = ai.restart_if_idle()
         return result, restarted
 
@@ -814,9 +957,218 @@ class RestartIfIdleTests(unittest.TestCase):
     def test_a_server_that_does_not_answer_is_restarted(self):
         self.assertEqual(self.run_it(None), (True, [1]))
 
+    def test_a_restart_that_systemd_refuses_is_reported_as_not_restarted(self):
+        self.assertEqual(self.run_it("ERROR", restart_ok=False), (False, [1]))
+
+
+class RestartServerTests(unittest.TestCase):
+    def test_the_answer_is_systemds(self):
+        for rc, expected in ((0, True), (1, False)):
+            with mock.patch.object(ai, "sh", return_value=subprocess.CompletedProcess([], rc, "", "")) as sh:
+                self.assertEqual(ai.restart_server(), expected)
+            self.assertEqual(sh.call_args[0][0], ["sudo", "-n", "systemctl", "restart", ai.SERVER_UNIT])
+
+
+class ConfirmRequestTests(unittest.TestCase):
+    """POST /meta/confirm: the request the real server accepts, and only when it is waiting for it."""
+
+    def confirm(self, server):
+        with installer_world(server):
+            return ai.confirm_install()
+
+    def test_the_request_is_the_one_the_real_client_sends(self):
+        # subiquity/client/client.py: `await self.client.meta.confirm.POST(self.our_tty)` = POST /meta/confirm?tty="/dev/tty1", no body
+        srv = FakeServer(before=("NEEDS_CONFIRMATION",), stock_interactive=False)
+        self.assertEqual(self.confirm(srv), (True, None))
+        self.assertEqual(srv.posts, [("NEEDS_CONFIRMATION", None, {"tty": "/dev/tty1"})])
+
+    def test_the_first_revision_of_the_request_is_what_the_real_server_refused(self):
+        # the tty as a JSON body: HTTP 500 `missing required argument "tty"`, observed on the first real run (and in the dry run)
+        srv = FakeServer(before=("NEEDS_CONFIRMATION",), stock_interactive=False)
+        code, body = srv.api("POST", "/meta/confirm", "/dev/tty1")
+        self.assertEqual(code, 500)
+        self.assertIn('missing required argument "tty"', body)
+        self.assertEqual(srv.api("POST", "/meta/confirm", query={"tty": "/dev/tty1"})[0], 200)
+
+    def test_it_is_sent_in_needs_confirmation_and_in_no_other_state(self):
+        for state in SUBIQUITY_STATES:
+            if state == "NEEDS_CONFIRMATION":
+                continue
+            srv = FakeServer(before=(state,), stock_interactive=False)
+            sent, problem = self.confirm(srv)
+            self.assertEqual(srv.posts, [], state)
+            self.assertFalse(sent, state)
+            self.assertIn(f"state: {state}", problem)
+
+    def test_it_is_not_sent_to_a_server_in_interactive_mode(self):
+        # a server that did not read our file, or one a person is clicking through: its answers are not ours to confirm
+        for flag in (True, None):
+            srv = FakeServer(before=({"state": "NEEDS_CONFIRMATION", "interactive": flag},), stock_interactive=True)
+            sent, problem = self.confirm(srv)
+            self.assertEqual((srv.posts, sent), ([], False), flag)
+            self.assertIn("not waiting for the confirmation", problem)
+
+    def test_a_500_on_which_the_server_went_on_anyway_counts_as_confirmed(self):
+        srv = FakeServer(before=("NEEDS_CONFIRMATION",), stock_interactive=False,
+                         confirm_code=500, confirm_body=TTY_TEXT_500, confirm_takes_effect=True)
+        srv.instance["after"] = list(AFTER_OK)
+        self.assertEqual(self.confirm(srv), (True, None))
+
+    def test_a_500_that_changed_nothing_is_a_refusal_with_the_servers_own_words(self):
+        srv = FakeServer(before=("NEEDS_CONFIRMATION",), stock_interactive=False, confirm_code=500, confirm_body=TTY_TEXT_500)
+        sent, problem = self.confirm(srv)
+        self.assertFalse(sent)                                # the server said no and is still waiting: the disk is untouched
+        self.assertIn("HTTP 500", problem)
+        self.assertIn('missing required argument "tty"', problem)
+
+    def test_no_answer_at_all_may_still_have_been_delivered(self):
+        srv = FakeServer(before=("NEEDS_CONFIRMATION",), stock_interactive=False, confirm_code=0, confirm_body="")
+        sent, problem = self.confirm(srv)
+        self.assertTrue(sent)                                 # honest about the disk: we cannot say it was not started
+        self.assertIn("HTTP 0", problem)
+
+
+class WaitForConfirmationTests(unittest.TestCase):
+    """What the helper does after the restart, state by state."""
+
+    def wait(self, server, old=None, timeout=600):
+        with installer_world(server) as clock:
+            return ai.wait_for_confirmation(timeout, old), clock.elapsed
+
+    def test_it_waits_through_waiting_for_the_confirmation_state(self):
+        srv = FakeServer(before=PREPARE_OK, stock_interactive=False)
+        (outcome, state, _), _ = self.wait(srv)
+        self.assertEqual((outcome, state), ("confirm", "NEEDS_CONFIRMATION"))
+
+    def test_startup_states_are_waited_out(self):
+        srv = FakeServer(before=["STARTING_UP", "CLOUD_INIT_WAIT", None, "EARLY_COMMANDS", "WAITING", "NEEDS_CONFIRMATION"], stock_interactive=False)
+        (outcome, _, _), _ = self.wait(srv)
+        self.assertEqual(outcome, "confirm")
+
+    def test_a_server_that_stays_in_waiting_is_given_up_on_at_the_time_limit(self):
+        # automatic mode, but it never gets to the confirmation: bounded, and the last state is reported
+        srv = FakeServer(before=["WAITING"], stock_interactive=False)
+        (outcome, state, _), elapsed = self.wait(srv)
+        self.assertEqual((outcome, state), ("timeout", "WAITING"))
+        self.assertGreaterEqual(elapsed, 600)
+        self.assertLess(elapsed, 600 + 2 * ai.POLL_SECONDS)
+
+    def test_waiting_in_interactive_mode_is_recognised_at_once(self):
+        srv = FakeServer(before=["EARLY_COMMANDS", "WAITING"], stock_interactive=True)
+        (outcome, state, st), elapsed = self.wait(srv)
+        self.assertEqual((outcome, state, st["interactive"]), ("ignored", "WAITING", True))
+        self.assertLess(elapsed, 3 * ai.POLL_SECONDS)
+
+    def test_the_confirmation_state_in_interactive_mode_is_not_ours(self):
+        srv = FakeServer(before=["WAITING", "NEEDS_CONFIRMATION"], stock_interactive=True)
+        (outcome, _, _), _ = self.wait(srv)
+        self.assertEqual(outcome, "ignored")
+
+    def test_error_and_exited_are_failures_not_waits(self):
+        for state in ("ERROR", "EXITED"):
+            srv = FakeServer(before=["EARLY_COMMANDS", state], stock_interactive=False)
+            (outcome, got, _), elapsed = self.wait(srv)
+            self.assertEqual((outcome, got), ("failed", state))
+            self.assertLess(elapsed, 3 * ai.POLL_SECONDS)
+
+    def test_a_server_that_is_already_installing_is_followed_not_confirmed(self):
+        for state in ("RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"):
+            srv = FakeServer(before=[state], stock_interactive=False)
+            (outcome, got, _), _ = self.wait(srv)
+            self.assertEqual((outcome, got), ("started", state))
+
+    def test_the_answers_of_the_server_that_was_running_before_the_restart_do_not_count(self):
+        # restart accepted but nothing happened (or the old process is still shutting down): same pid, same instance id
+        srv = FakeServer(before=["NEEDS_CONFIRMATION"], stock_interactive=False, restart_works=False)
+        old = ai.instance_of(json.loads(srv.api("GET", "/meta/status")[1]))
+        (outcome, state, _), elapsed = self.wait(srv, old=old)
+        self.assertEqual((outcome, state), ("timeout", None))
+        self.assertGreaterEqual(elapsed, 600)
+        # without the instance check the stale answer would be taken for the new server's
+        srv2 = FakeServer(before=["NEEDS_CONFIRMATION"], stock_interactive=False, restart_works=False)
+        (outcome2, _, _), _ = self.wait(srv2, old=None)
+        self.assertEqual(outcome2, "confirm")
+
+    def test_the_new_server_after_a_restart_is_accepted(self):
+        srv = FakeServer(before=["NEEDS_CONFIRMATION"], stock_interactive=False)
+        old = ai.instance_of(json.loads(srv.api("GET", "/meta/status")[1]))
+        srv.file_written = True
+        srv.restart()
+        (outcome, _, st), _ = self.wait(srv, old=old)
+        self.assertEqual(outcome, "confirm")
+        self.assertNotEqual(ai.instance_of(st), old)
+
+    def test_the_texts_name_the_state_and_the_reason(self):
+        self.assertIn("state WAITING", ai.not_ready_text("ignored", "WAITING", {}))
+        self.assertIn("interactive", ai.not_ready_text("ignored", "WAITING", {}))
+        self.assertIn("10 minutes", ai.not_ready_text("timeout", "WAITING", {}))
+        self.assertIn("still in state WAITING", ai.not_ready_text("timeout", "WAITING", {}))
+        self.assertIn("did not answer", ai.not_ready_text("timeout", None, {}))
+        failed = ai.not_ready_text("failed", "ERROR", {"nonreportable_error": {"cause": "AutoinstallUserSuppliedCmdError", "message": "x"}})
+        self.assertIn("state: ERROR", failed)
+        self.assertIn("the disk is still the one you confirmed", failed)
+        other = ai.error_detail({"nonreportable_error": {"cause": "SomethingElse", "message": "m" * 500}})
+        self.assertIn("SomethingElse", other)
+        self.assertLess(len(other), 200)
+        self.assertEqual(ai.error_detail({"error": {"kind": "UNKNOWN", "base": "1792.unknown"}}), "; UNKNOWN, crash report 1792.unknown")
+        self.assertEqual(ai.error_detail({}), "")
+
+
+class FollowInstallTests(unittest.TestCase):
+    """follow_install: RUNNING ... DONE, ERROR, EXITED, silence."""
+
+    def follow(self, script):
+        srv = FakeServer(before=script, stock_interactive=False)
+        said = []
+        with installer_world(srv) as clock:
+            try:
+                ai.follow_install(said.append)
+                result = None
+            except RuntimeError as exc:
+                result = str(exc)
+        return result, said, clock.elapsed
+
+    def test_a_whole_install_ends_at_done(self):
+        result, said, _ = self.follow(AFTER_OK)
+        self.assertIsNone(result)
+        text = " ".join(said)
+        for expected in ("Installing Companion OS", "Finishing up", "Applying updates"):
+            self.assertIn(expected, text)
+        self.assertEqual(said.count(ai.PROGRESS_TEXT["WAITING"]), 2)           # WAITING, then LATE_COMMANDS: both "Finishing up"
+
+    def test_done_is_the_only_success(self):
+        for last in ("ERROR", "EXITED"):
+            result, _, _ = self.follow(["RUNNING", "UU_RUNNING", last])
+            self.assertIsNotNone(result, last)
+
+    def test_error_says_why_in_the_installers_words(self):
+        failed = {"state": "ERROR", "nonreportable_error": {"cause": "AutoinstallUserSuppliedCmdError", "message": "x"}}
+        result, _, _ = self.follow(["RUNNING", failed])
+        self.assertIn("the install failed", result)
+        self.assertIn("the disk is still the one you confirmed", result)
+
+    def test_exited_before_done_is_a_failure(self):
+        result, _, _ = self.follow(["RUNNING", "LATE_COMMANDS", "EXITED"])
+        self.assertIn("exited before the installation was finished", result)
+
+    def test_a_server_that_goes_quiet_for_long_is_a_failure_a_short_silence_is_not(self):
+        result, _, elapsed = self.follow(["RUNNING", "LATE_COMMANDS", None])
+        self.assertIn("stopped answering (last state: LATE_COMMANDS)", result)
+        self.assertGreater(elapsed, ai.SILENCE_TIMEOUT)
+        self.assertLess(elapsed, ai.SILENCE_TIMEOUT + 4 * ai.FOLLOW_POLL_SECONDS)
+        # a restart of the server in the middle: 60 s of silence, then it is back and finishes
+        result, said, _ = self.follow(["RUNNING"] + [None] * 12 + ["RUNNING", "DONE"])
+        self.assertIsNone(result)
+
+    def test_an_install_that_never_ends_stops_at_the_time_limit(self):
+        result, _, elapsed = self.follow(["RUNNING"])
+        self.assertIn("did not finish in 4 hours", result)
+        self.assertGreaterEqual(elapsed, ai.FOLLOW_TIMEOUT)
+        self.assertLess(elapsed, ai.FOLLOW_TIMEOUT + 2 * ai.FOLLOW_POLL_SECONDS)
+
 
 class RunInstallTests(unittest.TestCase):
-    """run_install with the installer's API, systemd and sudo replaced by recorders."""
+    """run_install against FakeServer, with systemd, sudo and the dialogs replaced by recorders, on a virtual clock."""
 
     def setUp(self):
         disks, _ = classify([stick(), nvme()], "/dev/sda3")
@@ -824,15 +1176,14 @@ class RunInstallTests(unittest.TestCase):
         self.log = []
         self.popen = FakePopen()
         self.errors = []
-        self.api_calls = []
-        self.waited = []          # the sets of states wait_for() was asked to wait for, in order
+        self.normal = []
+        self.zenity_calls = []
 
-    def go(self, states, post_code=200, ready="WAITING", in_the_way=False, disks_ok=True, sudo_ok=True, target_mounted=False,
-           curtin=False, slow_install=False):
-        """`states`: the installer states, in the order the server reports them. wait_for() polls through them until one is
-        in the set it was asked for (as the real one does); status() hands out what is left, one per call.
-        `target_mounted`: True/False, or a list of the successive answers of target_in_use() (the last one repeats)."""
-        states = list(states)
+    def go(self, plans=None, before=("WAITING",), in_the_way=False, disks_ok=True, sudo_ok=True, target_mounted=False, curtin=False,
+           **server_kw):
+        """`target_mounted`: True/False, or a list of the successive answers of target_in_use() (the last one repeats)."""
+        self.server = FakeServer(before=before, plans=plans, **server_kw)
+        self.clock = FakeClock()
         mounted = list(target_mounted) if isinstance(target_mounted, (list, tuple)) else [target_mounted]
         asked = []
 
@@ -842,52 +1193,38 @@ class RunInstallTests(unittest.TestCase):
 
         def fake_run(cmd, **kw):
             self.log.append(("run", cmd))
+            if "tee" in cmd:
+                self.server.file_written = True
             return subprocess.CompletedProcess(cmd, 0, "", "")
 
         def fake_sh(cmd, **kw):
             self.log.append(("sh", cmd))
             return subprocess.CompletedProcess(cmd, 0 if sudo_ok or cmd[-1] != "true" else 1, "", "")
 
-        seen = []                                   # the states already handed out; the server stays in the last one
+        def fake_remove():
+            self.log.append(("remove",))
+            self.server.file_written = False
 
-        def fake_wait_for(wanted, timeout, poll=3):
-            self.waited.append(set(wanted))
-            last = None
-            while states:
-                last = states.pop(0)
-                seen.append(last)
-                if last in wanted:
-                    return last, {"state": last}
-            return last, {}
-
-        def fake_api(method, path, data=None, timeout=20):
-            self.api_calls.append((method, path, data))
-            return (post_code, "") if method == "POST" else (200, "{}")
-
-        def fake_status():
-            if not states:
-                return {"state": seen[-1] if seen else "ERROR"}
-            seen.append(states[0])
-            return {"state": states.pop(0) if len(states) > 1 else states[0]}
+        def fake_restart():
+            self.log.append(("restart",))
+            return self.server.restart()
 
         devs = [stick(), nvme()] if disks_ok else [stick(), nvme(size=1)]
-        clock = mock.patch.object(ai.time, "time", side_effect=itertools.count(0, 5 * 3600)) if slow_install else mock.patch.object(ai.time, "time", wraps=ai.time.time)
-        with Env(devs, "/dev/sda3"), clock, \
+        with Env(devs, "/dev/sda3"), \
                 mock.patch.object(ai.subprocess, "run", fake_run), \
                 mock.patch.object(ai.subprocess, "Popen", return_value=self.popen), \
                 mock.patch.object(ai, "sh", fake_sh), \
-                mock.patch.object(ai.time, "sleep", lambda s: None), \
+                mock.patch.object(ai.time, "time", self.clock.time), \
+                mock.patch.object(ai.time, "sleep", self.clock.sleep), \
                 mock.patch.object(ai, "target_in_use", fake_target_in_use), \
                 mock.patch.object(ai, "curtin_running", return_value=curtin), \
-                mock.patch.object(ai, "wait_ready", return_value=ready), \
-                mock.patch.object(ai, "wait_for", fake_wait_for), \
-                mock.patch.object(ai, "status", fake_status), \
-                mock.patch.object(ai, "api", fake_api), \
+                mock.patch.object(ai, "api", self.server.api), \
                 mock.patch.object(ai, "autoinstall_in_the_way", return_value=in_the_way), \
-                mock.patch.object(ai, "remove_autoinstall", lambda: self.log.append(("remove",))), \
-                mock.patch.object(ai, "restart_server", lambda: self.log.append(("restart",))), \
+                mock.patch.object(ai, "remove_autoinstall", fake_remove), \
+                mock.patch.object(ai, "restart_server", fake_restart), \
+                mock.patch.object(ai, "normal_installer", lambda: self.normal.append(1) or 0), \
                 mock.patch.object(ai, "error_dialog", lambda t: self.errors.append(t)), \
-                mock.patch.object(ai, "zenity", lambda a, **k: subprocess.CompletedProcess(a, 0, "", "")):
+                mock.patch.object(ai, "zenity", lambda a, **k: self.zenity_calls.append(a) or subprocess.CompletedProcess(a, 0, "", "")):
             return ai.run_install(self.target, "autoinstall: {}\n", "abcd-efgh-jkmn-pqrs")
 
     def wrote(self):
@@ -898,49 +1235,61 @@ class RunInstallTests(unittest.TestCase):
         return self.log.count(("restart",))
 
     def test_success_confirms_exactly_once_and_cleans_up(self):
-        rc = self.go(["NEEDS_CONFIRMATION", "RUNNING", "DONE"])
+        rc = self.go()
         self.assertEqual(rc, 0)
-        posts = [c for c in self.api_calls if c[0] == "POST"]
-        self.assertEqual(posts, [("POST", "/meta/confirm", "/dev/tty1")])
+        self.assertEqual(self.server.posts, [("NEEDS_CONFIRMATION", None, {"tty": "/dev/tty1"})])
         self.assertIn(("remove",), self.log)
         self.assertTrue(self.popen.terminated)
         self.assertEqual(self.errors, [])
+        self.assertEqual(self.restarts(), 1)
+        self.assertEqual(self.normal, [])
+
+    def test_the_whole_sequence_in_order(self):
+        # write the file, restart, wait for the NEW server's NEEDS_CONFIRMATION, one confirmation, follow to DONE
+        self.assertEqual(self.go(), 0)
+        kinds = [c[0] if c[0] != "run" else ("tee" if "tee" in c[1] else "run") for c in self.log]
+        self.assertLess(kinds.index("tee"), kinds.index("restart"))
+        gets = [r for r in self.server.requests if r[0] == "GET"]
+        posts = [i for i, r in enumerate(self.server.requests) if r[0] == "POST"]
+        self.assertEqual(len(posts), 1)
+        self.assertTrue(all(r[1] == "/meta/status" for r in gets))
+        self.assertGreater(len(self.server.requests) - posts[0], 3)             # it kept reading the state after the confirmation
+        self.assertEqual(self.server.instance["last"], "DONE")
 
     def test_a_whole_real_run_through_every_state(self):
-        # the order install.py reports them, the idle WAITING first and the post-install WAITING in the middle
-        rc = self.go(["WAITING", "NEEDS_CONFIRMATION", "RUNNING", "WAITING", "RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"])
+        rc = self.go()
         self.assertEqual(rc, 0)
-        self.assertEqual(self.errors, [])
         said = " ".join(self.popen.lines)
-        for text in ("Installing Companion OS", "Finishing up", "Applying updates"):
+        for text in ("getting ready", "Installing Companion OS", "Finishing up", "Applying updates"):
             self.assertIn(text, said)
-        self.assertEqual(len([c for c in self.api_calls if c[0] == "POST"]), 1)
-
-    def test_the_waits_ask_for_every_state_that_can_follow(self):
-        # polling every few seconds can miss a short state, so each wait names ALL the states that mean "past this point"
-        self.assertEqual(self.go(["NEEDS_CONFIRMATION", "RUNNING", "DONE"]), 0)
-        started = {"RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"}
-        failed = {"ERROR", "EXITED"}
-        self.assertEqual(self.waited, [{"NEEDS_CONFIRMATION"} | started | failed, started | failed])
 
     def test_an_install_that_is_already_confirmed_is_followed_not_confirmed_again(self):
         # a kernel command line with the word `autoinstall` skips the confirmation: the server goes straight to RUNNING
-        rc = self.go(["RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"])
+        rc = self.go(plans=[(["EARLY_COMMANDS", "WAITING", "RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"], [])])
         self.assertEqual(rc, 0)
-        self.assertEqual([c for c in self.api_calls if c[0] == "POST"], [])
+        self.assertEqual(self.server.posts, [])
 
     def test_progress_text_keeps_the_sign_in_details(self):
-        self.go(["NEEDS_CONFIRMATION", "RUNNING", "DONE"])
+        self.go()
         self.assertTrue(self.popen.lines)
         self.assertTrue(all("abcd-efgh-jkmn-pqrs" in line for line in self.popen.lines))
         self.assertTrue(all(line.count("\n") == 1 for line in self.popen.lines))   # one line each: "# text\n"
 
+    def test_the_dialog_after_done_shows_the_sign_in_details_and_the_poweroff_hint(self):
+        self.assertEqual(self.go(), 0)
+        info = [c for c in self.zenity_calls if "--info" in c]
+        self.assertEqual(len(info), 1)
+        text = " ".join(info[0])
+        self.assertIn("abcd-efgh-jkmn-pqrs", text)
+        self.assertIn("remove the USB stick", text)
+
     def test_busy_installer_is_never_touched(self):
         for busy in ("RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"):
             self.log.clear()
-            self.assertEqual(self.go([], ready=busy), 5, busy)
+            self.assertEqual(self.go(before=(busy,)), 5, busy)
             self.assertFalse(self.wrote(), busy)
             self.assertEqual(self.restarts(), 0, busy)
+            self.assertEqual(self.server.posts, [], busy)
             self.assertTrue(any("already running" in e for e in self.errors), busy)
             self.errors.clear()
 
@@ -948,15 +1297,15 @@ class RunInstallTests(unittest.TestCase):
         # WAITING after curtin has written the system: the state the old guard missed
         for kw in ({"target_mounted": True}, {"curtin": True}, {"target_mounted": True, "curtin": True}):
             self.log.clear()
-            self.assertEqual(self.go([], ready="WAITING", **kw), 5, kw)
+            self.assertEqual(self.go(before=("WAITING",), **kw), 5, kw)
             self.assertFalse(self.wrote(), kw)
             self.assertEqual(self.restarts(), 0, kw)
-            self.assertEqual(self.api_calls, [], kw)
+            self.assertEqual(self.server.posts, [], kw)
 
     def test_unknown_states_are_never_touched(self):
-        for odd in ("POST_WAIT", "POST_RUNNING", "UU_CANCELLING", "SOMETHING_NEW", "STARTING_UP"):
+        for odd in ("POST_WAIT", "POST_RUNNING", "UU_CANCELLING", "SOMETHING_NEW"):
             self.log.clear()
-            self.assertEqual(self.go([], ready=odd), 5, odd)
+            self.assertEqual(self.go(before=(odd,)), 5, odd)
             self.assertFalse(self.wrote(), odd)
             self.assertEqual(self.restarts(), 0, odd)
 
@@ -965,72 +1314,168 @@ class RunInstallTests(unittest.TestCase):
         for idle in ("WAITING", "NEEDS_CONFIRMATION", "ERROR", "EXITED"):
             self.log.clear()
             self.errors.clear()
-            self.assertEqual(self.go(["NEEDS_CONFIRMATION", "RUNNING", "DONE"], ready=idle), 0, idle)
+            self.assertEqual(self.go(before=(idle,)), 0, idle)
             self.assertTrue(self.wrote(), idle)
             self.assertEqual(self.errors, [], idle)
 
     def test_installer_not_ready_writes_nothing(self):
-        self.assertEqual(self.go([], ready=None), 5)
+        self.assertEqual(self.go(before=(None,)), 5)
         self.assertFalse(self.wrote())
+        self.assertGreaterEqual(self.clock.elapsed, 180)
 
     def test_foreign_autoinstall_file_is_not_touched(self):
-        self.assertEqual(self.go([], in_the_way=True), 5)
+        self.assertEqual(self.go(in_the_way=True), 5)
         self.assertFalse(self.wrote())
 
     def test_no_sudo_writes_nothing(self):
-        self.assertEqual(self.go([], sudo_ok=False), 5)
+        self.assertEqual(self.go(sudo_ok=False), 5)
         self.assertFalse(self.wrote())
 
     def test_disks_changed_at_the_last_moment_never_confirms(self):
-        rc = self.go(["NEEDS_CONFIRMATION"], disks_ok=False)
+        rc = self.go(disks_ok=False)
         self.assertEqual(rc, 7)
-        self.assertEqual([c for c in self.api_calls if c[0] == "POST"], [])
+        self.assertEqual(self.server.posts, [])
         self.assertIn("Nothing was erased", self.errors[0])
         self.assertIn(("remove",), self.log)
         self.assertEqual(self.restarts(), 2)        # one to load the settings, one to drop them again
+        self.assertEqual(self.normal, [1])          # and the stock installer window this tool closed comes back
 
-    def test_refused_confirmation_is_a_failure_not_an_hours_long_wait(self):
-        rc = self.go(["NEEDS_CONFIRMATION"], post_code=500)
+    # ── the sequence after the restart ──
+
+    def test_a_server_stuck_in_waiting_ends_in_a_dialog_with_the_state_and_the_log(self):
+        rc = self.go(plans=[(["EARLY_COMMANDS", "WAITING"], [])])
+        self.assertEqual(rc, 7)                     # (the file was written, so the new server is in automatic mode: it is not "ignored")
+        self.assertEqual(self.server.posts, [])
+        self.assertIn("still in state WAITING", self.errors[0])
+        self.assertIn("10 minutes", self.errors[0])
+        self.assertIn(ai.SERVER_LOG, self.errors[0])
+        self.assertIn("Nothing was erased", self.errors[0])
+        self.assertGreaterEqual(self.clock.elapsed, ai.PREPARE_TIMEOUT)
+        self.assertLess(self.clock.elapsed, ai.PREPARE_TIMEOUT + 60)          # bounded: not an hours-long wait
+        self.assertIn(("remove",), self.log)
+        self.assertEqual(self.restarts(), 2)
+        self.assertEqual(self.normal, [1])
+
+    def test_a_server_that_did_not_read_the_file_fails_at_once_and_says_so(self):
+        # exactly the state of the VM run after the helper's clean-up: WAITING, interactive true
+        rc = self.go(reads_file=False)
         self.assertEqual(rc, 7)
+        self.assertEqual(self.server.posts, [])
+        self.assertIn("interactive mode", self.errors[0])
+        self.assertIn("state WAITING", self.errors[0])
+        self.assertIn(ai.SERVER_LOG, self.errors[0])
+        self.assertLess(self.clock.elapsed, 60)
+        self.assertEqual(self.normal, [1])
+
+    def test_a_restart_that_systemd_refuses_is_a_failure_before_any_wait(self):
+        rc = self.go(restart_accepted=False)
+        self.assertEqual(rc, 7)
+        self.assertEqual(self.server.posts, [])
+        self.assertIn("could not be restarted", self.errors[0])
         self.assertIn("Nothing was erased", self.errors[0])
         self.assertIn(("remove",), self.log)
+        self.assertEqual(self.normal, [])           # nothing restarted, so no promise of a fresh installer window
+
+    def test_the_old_server_answering_after_the_restart_is_never_confirmed(self):
+        # a leftover server in NEEDS_CONFIRMATION with a document of its own (a failed earlier attempt whose restart did not happen)
+        rc = self.go(before=("NEEDS_CONFIRMATION",), stock_interactive=False, restart_works=False)
+        self.assertEqual(rc, 7)
+        self.assertEqual(self.server.posts, [])
+        self.assertIn("did not answer", self.errors[0])
+
+    def test_error_after_the_restart_is_a_failure_before_any_confirm(self):
+        failed = {"state": "ERROR", "nonreportable_error": {"cause": "AutoinstallUserSuppliedCmdError", "message": "x"}}
+        rc = self.go(plans=[(["EARLY_COMMANDS", failed], [])])
+        self.assertEqual(rc, 7)
+        self.assertEqual(self.server.posts, [])
+        self.assertIn("state: ERROR", self.errors[0])
+        self.assertIn("the disk is still the one you confirmed", self.errors[0])
+        self.assertIn("Nothing was erased", self.errors[0])
+
+    def test_exited_after_the_restart_is_a_failure_before_any_confirm(self):
+        rc = self.go(plans=[(["EARLY_COMMANDS", "EXITED"], [])])
+        self.assertEqual(rc, 7)
+        self.assertEqual(self.server.posts, [])
+        self.assertIn("state: EXITED", self.errors[0])
+
+    def test_the_confirmation_is_refused_with_a_500(self):
+        rc = self.go(confirm_code=500, confirm_body=TTY_TEXT_500)
+        self.assertEqual(rc, 7)
+        self.assertEqual(len(self.server.posts), 1)
+        self.assertIn("HTTP 500", self.errors[0])
+        self.assertIn('missing required argument "tty"', self.errors[0])
+        self.assertIn("Nothing was erased", self.errors[0])
+        self.assertIn(("remove",), self.log)
+        self.assertEqual(self.restarts(), 2)
+        self.assertEqual(self.normal, [1])
+        self.assertLess(self.clock.elapsed, ai.PREPARE_TIMEOUT)                # a failure, not a wait
+
+    def test_a_500_after_which_the_install_runs_is_followed(self):
+        rc = self.go(confirm_code=500, confirm_body="oops", confirm_takes_effect=True)
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(self.server.posts), 1)
+
+    def test_a_confirmation_nobody_answered_may_have_started_the_install(self):
+        rc = self.go(confirm_code=0, confirm_body="")
+        self.assertEqual(rc, 7)
+        self.assertIn("partly or completely erased", self.errors[0])
+        self.assertEqual(self.normal, [])
 
     def test_error_after_confirmation_says_the_disk_may_be_erased(self):
-        rc = self.go(["NEEDS_CONFIRMATION", "RUNNING", "ERROR"])
+        rc = self.go(plans=[(PREPARE_OK, ["RUNNING", "RUNNING", "ERROR"])])
         self.assertEqual(rc, 7)
         self.assertIn("partly or completely erased", self.errors[0])
         self.assertIn(("remove",), self.log)
         self.assertEqual(self.restarts(), 2)        # ERROR is idle: the second restart drops the loaded settings
         self.assertTrue(self.popen.terminated)
+        self.assertEqual(self.normal, [])           # an install was started: no installer window on top of it
+
+    def test_exited_while_installing_is_a_failure(self):
+        rc = self.go(plans=[(PREPARE_OK, ["RUNNING", "UU_RUNNING", "EXITED"])])
+        self.assertEqual(rc, 7)
+        self.assertIn("exited before the installation was finished", self.errors[0])
+        self.assertIn("partly or completely erased", self.errors[0])
 
     def test_giving_up_on_a_slow_install_does_not_restart_the_server_under_it(self):
         # the tool stops waiting after 4 hours, but the installer is still RUNNING: a restart would kill curtin mid-write
-        rc = self.go(["NEEDS_CONFIRMATION", "RUNNING", "RUNNING"], slow_install=True)
+        rc = self.go(plans=[(PREPARE_OK, ["RUNNING"])])
         self.assertEqual(rc, 7)
         self.assertIn("did not finish in 4 hours", self.errors[0])
         self.assertIn("partly or completely erased", self.errors[0])
         self.assertIn(("remove",), self.log)         # our files go: a crash must not leave an autoinstall behind
         self.assertEqual(self.restarts(), 1)         # only the one that loaded the settings
+        self.assertEqual(self.normal, [])
 
     def test_a_confirmation_that_never_took_effect_restarts_an_idle_server_only(self):
         # after the confirm the server reports WAITING (not a started state): with nothing mounted it is idle and is restarted,
         # with the new system mounted it is installing and is left alone
-        rc = self.go(["NEEDS_CONFIRMATION", "WAITING"])
+        rc = self.go(plans=[(PREPARE_OK, ["WAITING"])])
         self.assertEqual(rc, 7)
         self.assertIn("did not start after it was confirmed (state: WAITING)", self.errors[0])
         self.assertEqual(self.restarts(), 2)
         self.log.clear()
         self.errors.clear()
         # not mounted when the tool starts (idle installer), mounted by the time it gives up
-        rc = self.go(["NEEDS_CONFIRMATION", "WAITING"], target_mounted=[False, True])
+        rc = self.go(plans=[(PREPARE_OK, ["WAITING"])], target_mounted=[False, True])
         self.assertEqual(rc, 7)
         self.assertEqual(self.restarts(), 1)
 
-    def test_server_that_rejects_the_settings_is_a_failure_before_any_confirm(self):
-        rc = self.go(["ERROR"])
-        self.assertEqual(rc, 7)
-        self.assertEqual([c for c in self.api_calls if c[0] == "POST"], [])
-        self.assertIn("Nothing was erased", self.errors[0])
+    def test_a_reopened_installer_that_cannot_start_is_not_an_error(self):
+        with mock.patch.object(ai, "normal_installer", side_effect=FileNotFoundError("gtk-launch")), \
+                mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            ai.reopen_normal_installer()
+        self.assertIn("could not open the normal installer", err.getvalue())
+
+    def test_the_failure_text_says_where_the_log_is_and_what_to_do_next(self):
+        text = ai.failure_text(RuntimeError("it broke"), False, True)
+        self.assertIn("it broke", text)
+        self.assertIn("Nothing was erased", text)
+        self.assertIn(ai.SERVER_LOG, text)
+        self.assertIn("opens when you close this message", text)
+        text = ai.failure_text(RuntimeError("it broke"), True, False)
+        self.assertIn("partly or completely erased", text)
+        self.assertIn("from the dock", text)
+        self.assertNotIn("desktop icon", text)
 
 
 class AutoinstallFileTests(unittest.TestCase):
@@ -1047,6 +1492,18 @@ class AutoinstallFileTests(unittest.TestCase):
                 os.unlink(link)
                 os.symlink("/etc/hostname", link)                                 # somebody else's symlink
                 self.assertTrue(ai.autoinstall_in_the_way())
+
+    def test_a_file_named_on_the_kernel_command_line_is_read_instead_of_ours_so_it_is_in_the_way(self):
+        # server.py select_autoinstall: --autoinstall, then subiquity.autoinstallpath=, then /autoinstall.yaml: the first one wins
+        with tempfile.TemporaryDirectory() as td:
+            ours, link = os.path.join(td, "run", "autoinstall.yaml"), os.path.join(td, "autoinstall.yaml")
+            with mock.patch.object(ai, "AUTOINSTALL_PATH", ours), mock.patch.object(ai, "AUTOINSTALL_LINK", link):
+                for cmdline, expected in (("BOOT_IMAGE=/casper/vmlinuz boot=casper subiquity.autoinstallpath=/cdrom/x.yaml quiet", True),
+                                          ("BOOT_IMAGE=/casper/vmlinuz boot=casper ci.autoinstall=1 --- quiet splash", False),
+                                          ("BOOT_IMAGE=/casper/vmlinuz xsubiquity.autoinstallpath=/x", False),
+                                          ("", False)):
+                    with mock.patch.dict(os.environ, {"CI_OS_AI_CMDLINE": cmdline}):
+                        self.assertEqual(ai.autoinstall_in_the_way(), expected, cmdline)
 
     def test_remove_never_removes_a_foreign_file(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1203,12 +1660,139 @@ class ApiTests(unittest.TestCase):
             self.assertEqual(ai.api("GET", "/meta/status"), (200, '{"state": "DONE"}'))
             self.assertEqual(ai.status(), {"state": "DONE"})
         with mock.patch.object(ai.subprocess, "run", fake("\n500")):
-            self.assertEqual(ai.api("POST", "/meta/confirm", "/dev/tty1")[0], 500)
+            self.assertEqual(ai.api("POST", "/meta/confirm", query={"tty": "/dev/tty1"})[0], 500)
             self.assertEqual(ai.status(), {})
         with mock.patch.object(ai.subprocess, "run", fake("")):
             self.assertEqual(ai.api("GET", "/meta/status"), (0, ""))
         with mock.patch.object(ai.subprocess, "run", side_effect=OSError):
             self.assertEqual(ai.api("GET", "/meta/status"), (0, ""))
+        with mock.patch.object(ai.subprocess, "run", fake('["not", "a", "dict"]\n200')):
+            self.assertEqual(ai.status(), {})
+
+    def curl_argv(self, *args, **kw):
+        seen = []
+        with mock.patch.object(ai.subprocess, "run", lambda cmd, **k: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, "null\n200", "")):
+            ai.api(*args, **kw)
+        return seen[0]
+
+    def test_query_arguments_are_json_encoded_and_url_quoted_and_there_is_no_body(self):
+        # the installer's API: `POST /meta/confirm?tty="/dev/tty1"` (JSON-encoded, then percent-encoded), not a request body
+        cmd = self.curl_argv("POST", "/meta/confirm", query={"tty": "/dev/tty1"})
+        self.assertEqual(cmd[-1], "http://a/meta/confirm?tty=%22%2Fdev%2Ftty1%22")
+        self.assertNotIn("-d", cmd)
+        self.assertNotIn("Content-Type: application/json", cmd)
+        self.assertEqual(cmd[:2], ["sudo", "-n"])
+        self.assertIn("--unix-socket", cmd)
+
+    def test_a_body_is_still_possible_and_a_plain_get_has_no_query(self):
+        cmd = self.curl_argv("POST", "/x", {"a": 1})
+        self.assertIn("http://a/x", cmd)
+        self.assertEqual(cmd[cmd.index("-d") + 1], '{"a": 1}')
+        self.assertEqual(self.curl_argv("GET", "/meta/status")[-1], "http://a/meta/status")
+
+    def test_awkward_query_values_survive(self):
+        cmd = self.curl_argv("POST", "/x", query={"a": "b&c=d e", "n": 3})
+        parsed = urllib.parse.parse_qs(urllib.parse.urlsplit(cmd[-1]).query)
+        self.assertEqual({k: json.loads(v[0]) for k, v in parsed.items()}, {"a": "b&c=d e", "n": 3})
+
+
+class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    daemon_threads = True
+
+
+class _InstallerHandler(http.server.BaseHTTPRequestHandler):
+    """The two endpoints of the installer's API that the helper uses, with the argument binding of the real server
+    (subiquity/common/api/server.py): a parameter that is not a Payload comes from the query string and is JSON-decoded; a missing one
+    is TypeError('missing required argument ...') = HTTP 500."""
+    protocol_version = "HTTP/1.0"
+
+    def log_message(self, *args):
+        pass
+
+    def address_string(self):
+        return "unix"
+
+    def reply(self, code, text):
+        body = text.encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        self.server.seen.append(("GET", self.path, b""))
+        if urllib.parse.urlsplit(self.path).path == "/meta/status":
+            return self.reply(200, json.dumps(self.server.status))
+        self.reply(404, "")
+
+    def do_POST(self):
+        body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self.server.seen.append(("POST", self.path, body))
+        url = urllib.parse.urlsplit(self.path)
+        if url.path != "/meta/confirm":
+            return self.reply(404, "")
+        query = urllib.parse.parse_qs(url.query)
+        if "tty" not in query:
+            return self.reply(500, TTY_TEXT_500)
+        try:
+            tty = json.loads(query["tty"][0])
+        except ValueError as exc:
+            return self.reply(500, f"json.decoder.JSONDecodeError: {exc}")
+        if not isinstance(tty, str):
+            return self.reply(500, "TypeError: tty is not a string")
+        self.server.status = dict(self.server.status, state="RUNNING", confirming_tty=tty)
+        self.reply(200, "null")
+
+
+@unittest.skipUnless(shutil.which("curl"), "curl is not installed")
+class InstallerSocketTests(unittest.TestCase):
+    """The helper's own curl calls against a real HTTP server on a Unix socket that binds arguments like the installer's does."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="ci-os-")
+        self.addCleanup(shutil.rmtree, self.dir, True)
+        self.path = os.path.join(self.dir, "s")
+        if len(self.path) > 100:
+            self.skipTest("no room for a Unix socket path in the temporary directory")
+        self.server = _UnixServer(self.path, _InstallerHandler)
+        self.server.seen = []
+        self.server.status = {"state": "NEEDS_CONFIRMATION", "interactive": False, "confirming_tty": "", "log_syslog_id": "subiquity_log.7"}
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        real_run = subprocess.run
+
+        def run_without_sudo(cmd, **kw):               # the test is not root: `sudo -n curl ...` is `curl ...`
+            return real_run(cmd[2:] if cmd[:2] == ["sudo", "-n"] else cmd, **kw)
+
+        for p in (mock.patch.object(ai, "SOCKET", self.path), mock.patch.object(ai.subprocess, "run", run_without_sudo)):
+            p.start()
+            self.addCleanup(p.stop)
+
+    def test_status_over_the_socket(self):
+        self.assertEqual(ai.status()["state"], "NEEDS_CONFIRMATION")
+        self.assertEqual(ai.instance_of(ai.status()), "subiquity_log.7")
+
+    def test_the_confirmation_the_helper_sends_is_accepted(self):
+        self.assertEqual(ai.confirm_install(), (True, None))
+        post = [r for r in self.server.seen if r[0] == "POST"]
+        self.assertEqual(post, [("POST", "/meta/confirm?tty=%22%2Fdev%2Ftty1%22", b"")])
+        self.assertEqual(ai.status()["confirming_tty"], "/dev/tty1")
+
+    def test_the_first_revision_of_the_request_gets_the_500_of_the_first_real_run(self):
+        code, body = ai.api("POST", "/meta/confirm", "/dev/tty1")                 # the tty as a JSON body
+        self.assertEqual(code, 500)
+        self.assertIn('missing required argument "tty"', body)
+        code, body = ai.api("POST", "/meta/confirm", query=None)
+        self.assertEqual(code, 500)
+        self.assertEqual(ai.status()["state"], "NEEDS_CONFIRMATION")             # nothing changed
+
+    def test_a_confirmation_that_is_not_json_quoted_is_refused_too(self):
+        code, body = ai.api("POST", "/meta/confirm?tty=/dev/tty1")
+        self.assertEqual(code, 500)
+        self.assertIn("JSONDecodeError", body)
 
 
 class SourceRulesTests(unittest.TestCase):
@@ -1251,6 +1835,19 @@ class SourceRulesTests(unittest.TestCase):
                 names.add(node.value)
         looks_like_state = {n for n in names if n in set(SUBIQUITY_STATES) or n.startswith(("POST_", "UU_", "LATE_")) or n.endswith("_WAIT")}
         self.assertEqual(sorted(looks_like_state - set(SUBIQUITY_STATES)), [])
+
+    def test_the_confirmation_is_a_query_argument_never_a_body_and_is_posted_in_one_place(self):
+        # POST /meta/confirm takes `tty` from the query string (the first revision sent it as a JSON body: HTTP 500 on a real server)
+        posts = []
+        for node in ast.walk(ast.parse(self.src)):
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "api" and node.args \
+                    and isinstance(node.args[0], ast.Constant) and node.args[0].value == "POST":
+                posts.append(node)
+        self.assertEqual(len(posts), 1, "the helper may POST to the installer in exactly one place")
+        call = posts[0]
+        self.assertEqual([a.value for a in call.args if isinstance(a, ast.Constant)], ["POST", "/meta/confirm"])
+        self.assertEqual(len(call.args), 2, "a third positional argument is a request body")
+        self.assertEqual([k.arg for k in call.keywords], ["query"])
 
     def test_the_run_dir_is_made_with_sudo_only(self):
         self.assertNotIn("os.makedirs(RUN_DIR", self.src)                  # /run is root's; the unprivileged user cannot

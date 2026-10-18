@@ -1,7 +1,9 @@
 # One-click automatic install
 
-> Status 2026-10-18: implemented on branch `liam/companion-os-single-click-install`; unit-tested (121 tests), its image assertions pass on a real Ubuntu 26.04.1 build,
-> **not yet proven end to end on a real install** (see [Status](#status)). Private & Confidential, Lifescope Inc.
+> Status 2026-10-18: implemented on branch `liam/companion-os-single-click-install`; unit-tested (168 tests), driven against the installer's real server in its dry-run mode
+> (`backends/ubuntu/chroot/tests/oneclick-subiquity-dryrun.sh`), its image assertions pass on a real Ubuntu 26.04.1 build. The first run on a real VM was **refused at the confirmation
+> (HTTP 500: the request was wrong)**, see [What went wrong on the first real run](#what-went-wrong-on-the-first-real-run); the fix is proven against the real server code and
+> **not yet re-run on a real install** (see [Status](#status)). Private & Confidential, Lifescope Inc.
 
 "Install Companion OS (automatic)" erases one internal disk and installs Companion OS with **one question**: a dialog that names the disk and what is on it.
 Everything else the installer would ask is answered for the user.
@@ -54,7 +56,8 @@ What is answered automatically (`build_autoinstall` in the helper; `ci-os-auto-i
 ## Safety rules
 
 These are the rules the tests pin. Each is a property of `ci-os-auto-install`, not of the user paying attention. The first version of this tool was reviewed independently on
-2026-10-15; the review's findings are what most of rules 1-3, 6 and 8-9 are. The state sets of rule 6 were corrected on 2026-10-17 after the real enum of the 26.04.1 installer was read.
+2026-10-15; the review's findings are what most of rules 1-3, 6 and 8-9 are. The state sets of rule 6 were corrected on 2026-10-17 after the real enum of the 26.04.1 installer was read. The sequence in rule 8 and rule 10
+were added on 2026-10-18 after the first real run and checked against the installer's real server (below).
 
 1. **Never the boot medium.** A disk is excluded when `/cdrom` is mounted from it (traced through partitions and `dm` parents), when `/cdrom` is a **loop device** and the disk
    holds its backing file (`losetup -nO BACK-FILE`, then `findmnt -T`; GRUB loopback, iso-scan, Ventoy), when any partition under it is mounted at or below `/cdrom`,
@@ -74,16 +77,22 @@ These are the rules the tests pin. Each is a property of `ci-os-auto-install`, n
 7. **The password never leaves the box.** Only its SHA-512 hash goes into the autoinstall file, which lives on tmpfs (`/run/ci-os-auto-install/`, mode 0600; `/autoinstall.yaml` is a
    symlink to it, so a crash leaves a dangling link that subiquity ignores) and is removed on success and on failure. The helper never prints the password (a test parses the script
    for it). It does appear in the argv of the zenity dialogs of the live session, which is a single-user machine and the password is one-time (`chage -d 0`).
-8. **Failures are visible and honest.** Every API call checks the HTTP status; a refused confirmation is a failure, not a four-hour wait. Any exception shows a dialog. After a
+8. **Failures are visible and honest.** Every API call checks the HTTP status; a refused confirmation is a failure, not a four-hour wait. Every wait is bounded and names the state it
+   is stuck in. Any exception shows a dialog that says what happened, **which state the installer is in and where its log is** (`/var/log/installer/subiquity-server-debug.log`). After a
    failure the autoinstall file is removed and the installer server is restarted **only if it is not installing** (`restart_if_idle`), so the next start is a clean one and a
-   give-up after the four-hour wait cannot kill curtin in the middle of a write. The message says "Nothing was erased" only when the install was never confirmed, otherwise "The disk may
-   be partly or completely erased".
+   give-up after the four-hour wait cannot kill curtin in the middle of a write; when that restart happened and nothing was confirmed, the stock installer window (which this tool
+   closed) is opened again. The message says "Nothing was erased" only when the install was never confirmed, otherwise "The disk may be partly or completely erased".
 9. **No disk tools of its own.** The helper has no `mkfs`, `wipefs`, `sgdisk`, `parted` or `dd`, and no `shell=True` (tested on the script text, and re-checked on the copy inside the
    ISO by `verify-iso.sh`). Dynamic text in dialogs is escaped (`&`, `<`, backslash), because a partition label is attacker-controlled input.
+10. **Only our own file, and only a server that has read it.** The installer reads the first of: the server's autoinstall option, the kernel word `subiquity.autoinstallpath=`, `/autoinstall.yaml`,
+   cloud-init's file, `/cdrom/autoinstall.yaml` (`server.py` `select_autoinstall`). A `subiquity.autoinstallpath=` on the kernel command line is treated like a foreign `/autoinstall.yaml`: nothing is
+   changed. After the restart the helper accepts answers only from the **new** server process (`log_syslog_id` differs from the one it replaced) and only a server that reports
+   `"interactive": false`, i.e. one that read a file; the confirmation is never sent to an interactive server or to a leftover one.
 
 ## The installer's states
 
-The helper talks to the installer's server over `/run/subiquity/socket` (`GET /meta/status`, `POST /meta/confirm` with the JSON string `"/dev/tty1"`). The states are the
+The helper talks to the installer's server over `/run/subiquity/socket`: `GET /meta/status`, and `POST /meta/confirm?tty=%22%2Fdev%2Ftty1%22`. **The tty is a query argument, JSON-encoded, with no
+request body**; sending it as a body is what failed on the first real run ([below](#what-went-wrong-on-the-first-real-run)). The states are the
 `ApplicationState` enum of the 26.04.1 snap (`ubuntu-desktop-bootstrap` rev 665, `subiquity/common/types/__init__.py`): `STARTING_UP`, `CLOUD_INIT_WAIT`, `EARLY_COMMANDS`,
 `NEEDS_CONFIRMATION`, `WAITING`, `RUNNING`, `UU_RUNNING`, `LATE_COMMANDS`, `DONE`, `ERROR`, `EXITED`. [V] read in the snap; the helper's sets are `STARTUP_STATES`, `BUSY_STATES`,
 `IDLE_STATES` and `AMBIGUOUS_STATE` at the top of `ci-os-auto-install` (lines 72-91).
@@ -101,13 +110,71 @@ post-install settings), `RUNNING` (with `UU_RUNNING` for unattended-upgrades in 
 | `ERROR`, `EXITED` | failed, or the server is exiting | idle |
 | anything else, an unreadable mount table, a `pgrep` that cannot run | | **busy** (fail closed: a wrong "busy" costs one more click, a wrong "idle" restarts the server in the middle of writing a disk) |
 
-The waits name every state that can follow: after the restart the helper waits for `NEEDS_CONFIRMATION`, the busy states or a failure (600 s); after the confirmation it waits for the
-busy states or a failure (180 s); then it polls until `DONE` (at most four hours).
+The sequence after the restart, each step only after the one before it (`run_install`): (1) wait for the **new** server to say `NEEDS_CONFIRMATION` while reporting `"interactive": false`
+(`wait_for_confirmation`, at most 600 s; the real server needs about 40 s because it checks the mirror); a server that is idle in `WAITING` or `NEEDS_CONFIRMATION` but interactive did not read
+our file, and that is reported **at once**, not after the 600 s; `ERROR` and `EXITED` end the wait as failures; (2) look at the disks once more; (3) read the state again and
+`POST /meta/confirm` **only if it is `NEEDS_CONFIRMATION`** (`confirm_install`); a non-200 answer counts as a refusal unless the server went on to an installing state anyway;
+(4) wait for an installing state (180 s); (5) follow the state to `DONE` (`follow_install`, at most four hours; `ERROR` is a failure with the installer's own reason, `EXITED` before
+`DONE` is a failure, 15 minutes without any answer is a failure). With `shutdown: poweroff` the machine switches itself off right after `DONE`, so on a real run the helper usually never
+gets to see it.
 
 An earlier revision of the helper listed `POST_WAIT`, `POST_RUNNING` and `UU_CANCELLING`, which do not exist, and left `WAITING` and `LATE_COMMANDS` out, so a second click in the
 post-install window passed the "already installing" guard. `StateGuardTests` (10 tests) pins the sets against the real enum, checks that every state is accounted for exactly once and
 that each of the listed behaviours holds whatever the mount table says. A failed attempt can leave `/target` mounted; the next click then says "An installation is already running, or an earlier one left the new system mounted at /target"
 and asks for a restart from the USB stick. That is safe and slightly annoying.
+
+## What went wrong on the first real run
+
+The first run of the automatic entry on a real Companion OS Ubuntu 26.04.1 ISO (built from commit `02c575e`, QEMU, one 64 GiB NVMe disk) went through the dialog, the file and the server
+restart and was **refused at the confirmation: `POST /meta/confirm` answered HTTP 500**. The target check had passed, and nothing was erased (rule 8). Times are the guest's, from
+`serial.log` of the capture (`shots/ubuntu/vm/logs/serial.log` in the session scratch), the log of the first server (pid 7064) [V]:
+
+| Time | What the log says |
+|---|---|
+| 18:24:40 - 18:24:44 | `CLOUD_INIT_WAIT`, `EARLY_COMMANDS` after the helper's restart |
+| 18:24:45 | `Early/run_user_supplied/command_0: SUCCESS` (the target check) |
+| 18:24:56 - 18:25:32 | `WAITING`: the controllers apply the file (the mirror check runs `apt-get update` at 18:25:19) |
+| 18:25:35.307 | `Meta/status_GET` answers **`NEEDS_CONFIRMATION`** |
+| 18:25:35.946 | `Meta/confirm_POST` finishes with **`500`**: `TypeError: missing required argument "tty"` (`subiquity/common/api/server.py` line 156), a crash report is written |
+| 18:26 on | the helper removed its file and restarted the (idle) server, pid 8367: it finds no autoinstall file, so it is **`WAITING` with `"interactive": true`**, with no installer window (the helper had closed it); at 18:47 that server was confirmed (`confirming_tty` `/dev/tty1`) and started installing, which is the capture's fallback run |
+
+The long `WAITING` / `"interactive": true` tail of that log is the clean-up server, not the one that had the helper's file: the helper's server **did** reach `NEEDS_CONFIRMATION`, 55 s after its first answer, and
+was then refused. The document needed no change.
+
+**Root cause: the request.** In the installer's API (`subiquity/common/apidef.py` lines 119-121) `class confirm: def POST(tty: str)` has no `Payload[...]` parameter. The server binds every
+such parameter from `request.query` and JSON-decodes it (`common/api/server.py` lines 148-156; `serialize_query_args` is true for this API) and raises `TypeError('missing required argument "tty"')`,
+which is HTTP 500, when it is absent. The real client sends `POST /meta/confirm?tty="/dev/tty1"`, percent-encoded as `?tty=%22%2Fdev%2Ftty1%22` (`client/client.py` line 487, `common/api/client.py`
+line 73). The first revision sent `curl -d '"/dev/tty1"'`, a body the server never reads. The unit tests could not see it: their stand-in for the API accepted any call, and the
+documents (this page included) described the request as "the JSON string `/dev/tty1`".
+
+**What `interactive` means here.** `server.py` line 782: `interactive = bool(autoinstall["interactive-sections"])` once a file was read, and `True` when none was found (lines 773-775).
+The helper's file names no interactive section, so the server is non-interactive: no client has to answer anything, every controller applies its own section of the file (`apply_autoinstall_config`),
+and `Install.install()` reports `WAITING` and then `NEEDS_CONFIRMATION` when the install models are configured (`install.py` lines 612-620). Non-interactive also means that the shutdown
+controller powers the machine off by itself at `DONE` (`shutdown.py` lines 79-83) and that `/run/casper-no-prompt` is created (`server.py` lines 1056-1057; not in a dry run), which stops the live
+session asking for the medium to be removed. `interactive: true` in `WAITING` therefore means "this server did not read an autoinstall file".
+
+What was established on the installer's real server code, run in its dry-run mode (`oneclick-subiquity-dryrun.sh`, 2026-10-18; the snap of the stock ISO, rev 665) [V]:
+
+| Check | Result |
+|---|---|
+| the helper's own document, given to the server | `EARLY_COMMANDS` (target check passes), `WAITING`, `NEEDS_CONFIRMATION` after 8-10 s, `interactive: false`; the same document is fine, nothing in it changed |
+| the first revision's request (tty as a JSON body) | HTTP 500 `missing required argument "tty"`, the state stays `NEEDS_CONFIRMATION` |
+| `?tty=/dev/tty1` (in the query but not JSON-quoted) | HTTP 500 `JSONDecodeError` |
+| what the first revision did next (remove the file, restart the idle server) | `WAITING`, `interactive: true`, still there 25 s later: the stuck state of the VM run |
+| `?tty=%22%2Fdev%2Ftty1%22`, no body | HTTP 200; `RUNNING`, `UU_RUNNING`, `DONE` (about 75 s with the replayed curtin); `confirming_tty` is `/dev/tty1`; the late-commands run; `Shutdown/shutdown: mode=POWEROFF`; the server exits |
+| a confirmation sent while the server is still in `WAITING` | HTTP 200 and it is **kept**: `NEEDS_CONFIRMATION` is skipped and the install starts. The server does not look at its own state when it is confirmed, so the helper confirms in `NEEDS_CONFIRMATION` and nowhere else |
+| the first revision's `run_install()` against the server | exit 7, dialog "refused to start (HTTP 500)", "Nothing was erased", the server left in `WAITING` / interactive |
+| the current `run_install()` | exit 0; one confirmation, answered 200; no error dialog; the file and the link removed; progress text with the sign-in details in every line |
+| the current `run_install()` when the server does not read its file | exit 7 within seconds (3 s and 25 s in two runs; not 10 minutes), the dialog names `WAITING` and the interactive mode and the log, no confirmation sent, the stock installer opened again |
+| the current `run_install()` when the target check fails inside the server | exit 7, state `ERROR`, "the check that the disk is still the one you confirmed did not pass", "Nothing was erased", no confirmation sent |
+
+What a dry run cannot show: the curtin run is a replay (`examples/curtin-events`), so disks, the boot loader and the first boot are not exercised; `systemd-run` is stubbed; the container's Python
+(3.14) is not the snap's (3.12). It is the real state machine, loader, schema validation, HTTP binder and shutdown controller.
+
+**What changed in the helper:** the confirmation is a query argument (`api(..., query={"tty": ...})`); it is sent only after a fresh read says `NEEDS_CONFIRMATION` with `interactive: false`; the
+wait after the restart ignores answers of the pre-restart server process, detects "not read" at once, has a bounded timeout and a failure text with the state and the log path; a refused restart
+is a failure; `ERROR` reports the installer's own reason; `EXITED` before `DONE` and silence are failures; the stock installer is reopened after a failure that left nothing installing; a
+`subiquity.autoinstallpath=` on the kernel command line is refused; and the "desktop icon" in the dialogs now says "dock" (26.04's live session draws no desktop icons).
 
 ## How it works
 
@@ -118,10 +185,12 @@ click  ->  ci-os-auto-install
               re-classify; wait for the server to finish starting, then refuse if it is busy (see the states above)
               write /run/ci-os-auto-install/autoinstall.yaml (0600), ln -s /autoinstall.yaml
               pkill the stock installer window; systemctl restart snap.ubuntu-desktop-bootstrap.subiquity-server.service
-              poll  GET /meta/status  over /run/subiquity/socket   (sudo -n curl --unix-socket)
-                NEEDS_CONFIRMATION -> re-classify once more -> POST /meta/confirm (HTTP 200 required)
+              poll  GET /meta/status  over /run/subiquity/socket   (sudo -n curl --unix-socket), answers of the NEW server process only
+                NEEDS_CONFIRMATION and "interactive": false  (600 s at most; interactive = the file was not read -> fail at once)
+                  -> re-classify once more -> read the state again -> POST /meta/confirm?tty=%22%2Fdev%2Ftty1%22 (no body, HTTP 200 required)
                 RUNNING / WAITING / UU_RUNNING / LATE_COMMANDS ... DONE   (the machine powers off by itself)
-              on any failure: remove the file, restart the server only if it is idle, say honestly what happened
+              on any failure: remove the file, restart the server only if it is idle, say honestly what happened (state, log path),
+                              open the stock installer again when nothing was confirmed
 ```
 
 Files (all under `backends/ubuntu/chroot/payload/live-start/`, installed by `customize-chroot.sh` Step 10f, line 1042):
@@ -160,11 +229,19 @@ ci-os-auto-install --plan    # the chosen disk, the autoinstall file (hash maske
 
 Exit codes: 0 ok, 2 usage, 3 no safe target / medium unknown, 4 not a live session, 5 installer not ready or busy, 6 cancelled (or another instance is open), 7 install failed.
 
+The helper against the installer's real server, in a throw-away container (manual; Docker and the stock 26.04.1 ISO, about 5 minutes, details in the header of the script):
+
+```bash
+CI_OS_DRYRUN_OLD_HELPER=/path/to/helper-from-before-the-fix \
+  bash backends/ubuntu/chroot/tests/oneclick-subiquity-dryrun.sh     # evidence: $CI_OS_DRYRUN_OUT/dryrun.log and server-logs/
+```
+
 ## Tests
 
 | Where | What |
 |---|---|
-| `backends/ubuntu/chroot/tests/test_auto_install.py` (run by `core/lib/check-repo.sh`) | **121 tests** in 21 test classes, no root, no disk, no VM (run again on 2026-10-18 with Python 3.14.7: OK). Disk selection on fixtures (`SelectionTests`, `ExcludeMoreTests`, `LoopMediumTests`, `SourceRulesTests`: Stick boot, DVD boot, loop `/cdrom` with and without a resolvable backing file, `/isodevice`, medium unknown, a second Stick, USB/removable/SD/Thunderbolt/read-only/small/loop disks, `dm` parents, string booleans from old `lsblk`); what the dialog says (`DescribeTests`, `DescribeMoreTests`, `DialogTests`: whole-disk filesystems, RAID/LUKS members, unrecognised partitions, markup escaping, every dialog answer including zenity failing, option names checked against the real zenity 4.2.1 option list in `tests/fixtures/zenity-4.2.1-options.txt`); the installer states (`StateGuardTests` 10, `TargetInUseTests` 7, `CurtinRunningTests` 4, `RestartIfIdleTests` 3: the sets against the real enum, `WAITING` before and after curtin, mountinfo octal escapes and look-alikes, an unreadable mount table); the whole `interactive()` and `run_install()` flows with zenity, sudo, systemd and the installer API replaced by recorders (`InteractiveFlowTests`, `RunInstallTests` 18: cancel and "normal installer" write nothing, a busy installer is never touched, a refused or failed confirmation cleans up and says the honest thing, the disks changing at the last moment never confirm); the autoinstall file and its early-command executed in bash with stub `blockdev`/`findmnt` (`AutoinstallTests`, `EarlyCommandTests`, `AutoinstallFileTests`); `--live-setup` inert on an installed system and a boot-menu word matched only as a whole token (`LiveSetupTests`); the dock pin (`PinToDockTests`); `--plan` (`PlanCliTests`); the lock (`LockTests`); the API wrapper (`ApiTests`); script-text rules. Mutation-checked: ten mutants of the first version and eleven of the state logic were each caught |
+| `backends/ubuntu/chroot/tests/test_auto_install.py` (run by `core/lib/check-repo.sh`) | **168 tests** in 26 test classes, no root, no disk, no VM (run on 2026-10-18 with Python 3.14.7 on macOS and in an `ubuntu:26.04` container: OK). Disk selection on fixtures (`SelectionTests`, `ExcludeMoreTests`, `LoopMediumTests`, `SourceRulesTests`: Stick boot, DVD boot, loop `/cdrom` with and without a resolvable backing file, `/isodevice`, medium unknown, a second Stick, USB/removable/SD/Thunderbolt/read-only/small/loop disks, `dm` parents, string booleans from old `lsblk`); what the dialog says (`DescribeTests`, `DescribeMoreTests`, `DialogTests`: whole-disk filesystems, RAID/LUKS members, unrecognised partitions, markup escaping, every dialog answer including zenity failing, option names checked against the real zenity 4.2.1 option list in `tests/fixtures/zenity-4.2.1-options.txt`); the installer states (`StateGuardTests` 10, `TargetInUseTests` 7, `CurtinRunningTests` 4, `RestartIfIdleTests` 4: the sets against the real enum, `WAITING` before and after curtin, mountinfo octal escapes and look-alikes, an unreadable mount table); **the sequence against a model of the real server** (`FakeServer` in the test file: `interactive` as the server sets it, a new `log_syslog_id` per restart, `tty` taken from the query string and a 500 for anything else, a confirmation kept whatever the state, a virtual clock so that the 10-minute and 4-hour limits are asserted without waiting): `ConfirmRequestTests` 7 (the request is the real client's, sent in `NEEDS_CONFIRMATION` and in no other state, never to an interactive server, a 500 that went on anyway, no answer at all), `WaitForConfirmationTests` 10 (stuck in `WAITING` times out at 600 s, `WAITING` + interactive is recognised at once, `ERROR`/`EXITED`, answers of the pre-restart server ignored), `FollowInstallTests` 6 (`DONE` is the only success, `ERROR` with the installer's reason, `EXITED`, silence, 4 hours), `RunInstallTests` 29 (cancel and "normal installer" write nothing, a busy installer is never touched, a refused restart, a 500 on the confirmation, an install that is followed to `DONE` with the dialog and the power-off hint, the disks changing at the last moment never confirm, the installer window reopened only when nothing was confirmed); `InstallerSocketTests` 4 (the helper's own `curl` against a real HTTP server on a Unix socket that binds `tty` like the installer: accepted request, the first revision's 500, unquoted value); the autoinstall file and its early-command executed in bash with stub `blockdev`/`findmnt` (`AutoinstallTests` 13, incl. no `interactive-sections`, keys within the 26.04.1 schema, `shutdown: poweroff`; `EarlyCommandTests`, `AutoinstallFileTests` incl. `subiquity.autoinstallpath`); `--live-setup` inert on an installed system and a boot-menu word matched only as a whole token (`LiveSetupTests`); the dock pin (`PinToDockTests`); `--plan` (`PlanCliTests`); the lock (`LockTests`); the API wrapper (`ApiTests`: JSON-encoded, percent-quoted query, no body); script-text rules (the one `POST` is `/meta/confirm` with a `query=` and no body). **Mutation-checked on 2026-10-18** (a copy of the helper with one line broken, the suite run against it through `CI_OS_AI_HELPER`, the helper in the tree untouched): 19 mutants of the new sequence and wait logic and 15 of the older safety rules and the foreign-file guard, 34 of 34 caught, among them the confirmation as a body again, a confirmation in any state, no `interactive` check, answers of the old server accepted, no timeout, `ERROR`/`EXITED` taken for success, no silence limit, a refused restart ignored, no disk re-check, Enter confirming, an unknown medium offered, a busy installer restarted |
+| `backends/ubuntu/chroot/tests/oneclick-subiquity-dryrun.sh` + `oneclick_dryrun_driver.py` (manual: Docker, the stock 26.04.1 ISO) | the helper against the **installer's real server** (the snap of the stock ISO, `python -m subiquity.cmd.server --dry-run`, a simulated 100 GiB disk, replayed curtin) in an `ubuntu:26.04` arm64 container, not privileged. **47 of 47 checks passed on 2026-10-18**: the protocol checks of the table above, the first revision of the helper failing with HTTP 500, the current one installing to `DONE` with `mode=POWEROFF`, failing at once when the server did not read its file, reporting a failed target check. Run it after any change to the confirmation, the waits or the autoinstall document, and when the installer snap changes |
 | `backends/ubuntu/iso/scripts/verify-iso.sh` "One-click automatic install" | 17 checks, all passed on the real 26.04.1 build: the files are in the image, the helper's dependencies are in the image (`zenity curl openssl lsblk findmnt`, `python3-yaml`), **the same unit tests run against the helper inside the ISO**, the GRUB entry exists once and only it carries `ci.autoinstall=1`, and no kernel line carries bare `autoinstall`. Each check fails on a planted defect in `tests/verify-installer-base.sh` |
 | `add_auto_install_menuentry` | no unit test of its own: it runs in every build, in `tests/md5sum-txt.sh`'s mini-ISO build (which uses the real 26.04.1 menus), and its output is what the three GRUB checks above read |
 
@@ -172,17 +249,20 @@ Exit codes: 0 ok, 2 usage, 3 no safe target / medium unknown, 4 not a live sessi
 
 | Claim | State | Evidence |
 |---|---|---|
-| The helper's rules and flows, with the installer replaced by recorders | [V] | `test_auto_install.py`: 121 tests OK |
+| The helper's rules and flows, against a model of the installer's server | [V] | `test_auto_install.py`: 168 tests OK; 34 of 34 mutants caught |
+| **The helper against the installer's real server code** (dry-run mode, stock ISO's snap rev 665): the document is accepted, `NEEDS_CONFIRMATION` is reached, the confirmation `?tty=%22%2Fdev%2Ftty1%22` is accepted, `RUNNING` ... `DONE`, `mode=POWEROFF`; the first revision's request is a 500; a server that did not read the file is reported at once | [V] | `oneclick-subiquity-dryrun.sh`: 47 of 47 checks (2026-10-18); [What went wrong](#what-went-wrong-on-the-first-real-run) |
 | The state sets equal the installer's real enum | [V] | read in the snap (rev 665); `test_the_sets_use_only_states_the_installer_has`, `test_every_state_is_accounted_for_exactly_once` |
 | The image carries the helper, its tools, the launcher and the GRUB entry | [V] | `verify-iso.sh` on the 2026-10-18 build: 17 of 17 |
-| The unit name, the socket, `GET /meta/status`, `POST /meta/confirm` (JSON string tty), `/autoinstall.yaml` read at server start through a symlink, the `identity` and `storage` keys, the installer client's file `/snap/ubuntu-desktop-bootstrap/665/bin/ubuntu_bootstrap`, zenity 4.2.1 and python3-yaml in the image | [V] read | the snap (rev 665) and the image; the stock-ISO report, section 3.4 |
-| `/autoinstall.yaml` is picked up by a restarted server on a booted live session, the `pkill -f` pattern matches the client's run-time command line, and the zenity flags behave (their names are checked, not their behaviour) | [N] | not run |
+| The unit name, the socket, `GET /meta/status`, `POST /meta/confirm?tty=<JSON string>` (a query argument; the first reading, "JSON body", was wrong), `/autoinstall.yaml` read at server start through a symlink, the `identity` and `storage` keys, the installer client's file `/snap/ubuntu-desktop-bootstrap/665/bin/ubuntu_bootstrap`, zenity 4.2.1 and python3-yaml in the image | [V] read | the snap (rev 665) and the image; the stock-ISO report, section 3.4 |
+| `/autoinstall.yaml` is picked up by a restarted server on a booted live session | [V] | the first real run (2026-10-18): the restarted server ran the early-command and reached `NEEDS_CONFIRMATION` with the helper's file (`serial.log`) |
+| The `pkill -f` pattern matches the client's run-time command line, and the zenity flags behave (their names are checked, not their behaviour) | [N] | not run |
 | The dock pin, and that the launcher is found in a booted live session | [N] | not run |
-| `shutdown: poweroff` beats the final dialog; the installed disk boots; the first sign-in forces a new password; `docker` is in the user's groups | [N] | not run |
+| `shutdown: poweroff` is honoured by the server (`mode=POWEROFF`) | [V] in a dry run | `oneclick-subiquity-dryrun.sh` |
+| `shutdown: poweroff` beats the final dialog on real hardware; the installed disk boots; the first sign-in forces a new password; `docker` is in the user's groups | [N] | not run |
 | **The whole path on a built 26.04.1 ISO: boot, dialog, subiquity restart, `/meta/confirm`, installed disk, power off, boot of the installed disk** | **pending evidence** | `CAPTURE.md` and logs in the capture directories of the Ubuntu run (`shots/ubuntu/` and `ubuntu/` in the session scratch; their text records are copied into [`docs/evidence/`](../evidence/README.md) and the frames into `docs/ui/companion-os/ubuntu/` when the row is run) |
 
 What will confirm the pending row: a QEMU run of the built ISO in the "Install Companion OS (automatic)" entry that shows, in order, (1) the dialog naming the QEMU disk and its
-(empty) contents, (2) `GET /meta/status` walking `NEEDS_CONFIRMATION`, `RUNNING`, `WAITING`, `LATE_COMMANDS`, `DONE` in the helper's log, (3) the guest powering off, (4) a second boot from the
+(empty) contents, (2) `GET /meta/status` walking `WAITING`, `NEEDS_CONFIRMATION`, one `POST /meta/confirm?tty=...` answered 200, then `RUNNING`, `WAITING`, `RUNNING`, `LATE_COMMANDS`, `DONE` in the helper's log, (3) the guest powering off, (4) a second boot from the
 disk alone reaching the sign-in screen, and then, in a terminal on the installed system, `id companion` listing `docker`, `chage -l companion` showing the password as expired, `ls /etc/ssh/ssh_host_*`
 listing the keys, and `dpkg -s casper` reporting "not installed". Until then do not publish this path as tested.
 The installer-side facts also depend on one run of the normal installer ([ubuntu-iso-layers.md](ubuntu-iso-layers.md), section 7).
@@ -192,6 +272,8 @@ The installer-side facts also depend on one run of the normal installer ([ubuntu
 * It installs to **one** disk, wiping it. There is no dual-boot, encryption or manual partitioning in this path; the normal installer has them.
 * Time zone needs a network for geoip; offline it is UTC.
 * The Companion Stick's own boot menu has no automatic entry yet.
+* The dry run and the unit tests cannot say how long the real server takes in `WAITING` on slow hardware or a slow mirror (about 40 s in `WAITING` in the QEMU run); the helper waits 10 minutes and then says so.
+* A kernel command line with the word `autoinstall` would make the installer skip the confirmation altogether; nothing sets it, `verify-iso.sh` asserts that no menu entry does, and the helper follows an install that is already running instead of confirming it.
 * The stock installer window (when the normal path is used) still shows Ubuntu's help slides and the Ubuntu roundel; the automatic path never shows them because its own progress window replaces the installer client.
 * The helper is part of the installed system too (inert there). Whether it should be, is the open decision in [ubuntu-iso-layers.md](ubuntu-iso-layers.md), section 8.
 * What changed on the way to 26.04.1 is in [ubuntu-2604-port-notes.md](ubuntu-2604-port-notes.md).
