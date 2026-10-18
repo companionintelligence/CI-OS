@@ -245,6 +245,7 @@ for suite in \
   "ROCm driver installer|bash backends/ubuntu/lib/tests/install-rocm-driver.sh" \
   "LACT release lookup|bash backends/ubuntu/lib/tests/lact-release.sh" \
   "customize-chroot guards (26.04 base only)|bash backends/ubuntu/chroot/tests/customize-chroot-checks.sh" \
+  "first-boot-units containment self-test|bash backends/ubuntu/chroot/tests/first-boot-units-boot.sh --selftest" \
   "headless package dependencies|bash backends/ubuntu/headless-package/tests/control-depends.sh" \
   "gnome-shell theme overlay|bash backends/ubuntu/lib/tests/shell-theme.sh" \
   "gresource provenance|bash core/render/tests/gresource-provenance.sh" \
