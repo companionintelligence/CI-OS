@@ -3,9 +3,10 @@
 
   initrd-audit.py INITRD
 
-Parses the image the way the kernel does: any number of uncompressed "early" cpio archives (CPU microcode), then one compressed
-cpio archive (zstd, xz, gzip, lz4 or bzip2: Ubuntu 24.04 uses zstd; the decompressor is the system's own binary). Streams the cpio
-and prints, one per line:
+Parses the image the way the kernel does: any number of uncompressed "early" cpio archives, then one compressed cpio archive (zstd,
+xz, gzip, lz4 or bzip2; the decompressor is the system's own binary). Ubuntu 26.04.1's initramfs-tools 0.151 writes three early
+archives (AMD microcode, Intel microcode, and the firmware files, 52 MB uncompressed) and a zstd main archive; the stock casper/initrd
+has exactly that shape. Streams the cpio and prints, one per line:
 
   entries N            number of cpio entries seen
   path NAME            an entry whose path mentions casper (at most 12 of them)

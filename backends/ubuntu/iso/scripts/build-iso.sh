@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #=============================================================================
-# CI-OS Ubuntu 24.04 ISO Builder
-# Main orchestration script for building custom CI-OS ISOs
+# Companion OS ISO builder (base: Ubuntu 26.04.1 LTS, "Resolute Raccoon")
+# Main orchestration script for building custom Companion OS ISOs. Ubuntu 26.04 is the only Ubuntu release this
+# builds on; 24.04 (noble) is retired.
 #
 # This script coordinates the entire ISO build process:
 # 1. Build .deb packages and branded gresource (unless --skip-packages)
@@ -17,7 +18,7 @@
 #   sudo ./backends/ubuntu/iso/scripts/build-iso.sh [options]
 #
 # Options:
-#   --base-iso PATH       Path to Ubuntu 24.04 Desktop ISO
+#   --base-iso PATH       Path to the Ubuntu 26.04.1 Desktop ISO (default: ./ubuntu-26.04.1-desktop-amd64.iso)
 #   --output-dir PATH     Output directory for built ISO (default: ./output)
 #   --work-dir PATH       Working directory (default: ./work)
 #   --version VERSION     CI-OS version string (default: 1.0)
@@ -38,12 +39,28 @@
 # See docs/architecture/tier-b-tools.md.
 #
 # Requirements:
-#   - Ubuntu 24.04 (Noble) build host with Yaru theme installed
+#   - an Ubuntu 26.04 (Resolute) build host or container (docker run --privileged ubuntu:26.04) with the Yaru theme installed: the
+#     branded GNOME Shell theme is built from the build host's Yaru, which has to be the 26.04 one (GNOME Shell 50). On 26.04 the
+#     coreutils are uutils and sudo is sudo-rs; unmkinitramfs is initramfs-tools 0.151's (a 3cpio program).
 #   - Root privileges
 #   - Network access to download.docker.com, pkgs.tailscale.com, pkg.cloudflare.com, cli.github.com,
 #     github.com (Ollama release asset) and dl.ci.computer while building
 #   - Packages: squashfs-tools xorriso glib2.0-bin libglib2.0-bin
-#               yaru-theme-gnome-shell debootstrap rsync gpg cpio zstd curl initramfs-tools-core
+#               yaru-theme-gnome-shell rsync gpg cpio zstd curl initramfs-tools-core
+#
+# The installed system is initramfs-tools based (decision, 2026-10-17). Ubuntu 26.04.1's minimal layer, which is what a stock install
+# copies, is dracut based: dracut 110-11, a dracut-built /boot/initrd.img-<kernel>, and /usr/sbin/update-initramfs is dracut's wrapper
+# around `dracut --force`. Its live layer swaps that for initramfs-tools 0.151 (casper needs it) by whiting out 75 paths: all of dracut
+# and the dracut-built initrd, and it adds initramfs-tools. This build merges the three layers into one rootfs (extract_squashfs applies
+# the whiteouts, apply_layer_whiteouts), so the rootfs, and the base layer the split gives back (initramfs-tools is a kept package), have
+# initramfs-tools and no dracut and no initrd. curtin then regenerates the installed initrd with update-initramfs, which is
+# initramfs-tools' own script (curtin's initramfs step: update-initramfs if it exists, else nothing when only dracut exists, else an
+# error). Restoring dracut in the base instead was not chosen: it would make the installed system differ from the live one in the
+# tool that builds its initrd, and every initramfs test here (installed-boot.sh) would have to be redone for dracut. What it costs:
+# ubuntu-desktop-minimal RECOMMENDS dracut, which Conflicts: initramfs-tools, so a later apt could try to swap the generator under the
+# system. customize-chroot.sh therefore writes /etc/apt/preferences.d/ci-os-no-dracut (dracut and dracut-core at Pin-Priority -1;
+# not dracut-install, which initramfs-tools-core depends on) and verify-iso.sh asserts it. Not yet shown on a real install: that curtin's initrd for this base boots (tests/
+# installed-boot.sh does the same steps on the base layer and boots the result; it has not been run on a 26.04 build).
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
@@ -60,7 +77,7 @@ NC='\033[0m' # No Color
 # SCRIPT_DIR is backends/ubuntu/iso/scripts/ — four levels below the repo root.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-BASE_ISO="${BASE_ISO:-$REPO_ROOT/ubuntu-24.04.4-desktop-amd64.iso}"
+BASE_ISO="${BASE_ISO:-$REPO_ROOT/ubuntu-26.04.1-desktop-amd64.iso}"
 OUTPUT_DIR="$REPO_ROOT/output"
 WORK_DIR="$REPO_ROOT/work"
 CI_OS_VERSION="${CI_OS_VERSION:-1.0}"
@@ -93,6 +110,27 @@ check_root() {
     fi
 }
 
+# The build host has to be Ubuntu 26.04: the branded GNOME Shell theme is built from the HOST's Yaru
+# (build-gdm-branding-gresource.sh), which has to be the Yaru of the GNOME Shell 50 the image carries, and unmkinitramfs has
+# to be initramfs-tools 0.151's (it unpacks the 26.04 initrd's four segments; a 24.04 host's shell script does not).
+# CI_OS_ALLOW_OTHER_BUILD_HOST=1 skips this check for a host you have verified yourself.
+check_build_host() {
+    local id="" ver=""
+    if [[ -r /etc/os-release ]]; then
+        id="$(. /etc/os-release && echo "${ID:-}")"; ver="$(. /etc/os-release && echo "${VERSION_ID:-}")"
+    fi
+    if [[ "$id" == ubuntu && "$ver" == 26.04 ]]; then
+        log_info "Build host: Ubuntu $ver"
+        return 0
+    fi
+    if [[ "${CI_OS_ALLOW_OTHER_BUILD_HOST:-}" == 1 ]]; then
+        log_warn "Build host is ${id:-unknown} ${ver:-?}, not Ubuntu 26.04 (CI_OS_ALLOW_OTHER_BUILD_HOST=1): the branded shell theme and the initrd tools may not match the image"
+        return 0
+    fi
+    log_error "The build host must be Ubuntu 26.04 (found ${id:-unknown} ${ver:-?}). Use an Ubuntu 26.04 machine or: docker run --privileged -v \"\$PWD:/src\" ubuntu:26.04 (see backends/ubuntu/iso/README.md)."
+    exit 1
+}
+
 # Check required dependencies
 check_dependencies() {
     log_info "Checking dependencies..."
@@ -101,7 +139,7 @@ check_dependencies() {
     # unmkinitramfs (initramfs-tools-core) unpacks the stock casper initrd, to take the live Plymouth theme files from it.
     # awk and dd are what md5sum-txt.sh (the image's md5sum.txt) runs on.
     # comm, cmp, du, chroot and mknod are what the layer split (lib/split-live-layer.sh) runs on; it also needs overlayfs.
-    for cmd in debootstrap mksquashfs unsquashfs xorriso rsync gpg glib-compile-resources gresource cpio zstd \
+    for cmd in mksquashfs unsquashfs xorriso rsync gpg glib-compile-resources gresource cpio zstd \
                unmkinitramfs curl sha256sum tar dpkg-deb awk dd comm cmp du chroot mknod; do
         if ! command -v "$cmd" &> /dev/null; then
             missing+=("$cmd")
@@ -120,7 +158,7 @@ check_dependencies() {
 
     if [[ ${#missing[@]} -gt 0 ]]; then
         log_error "Missing required commands: ${missing[*]}"
-        log_info "Install with: apt-get install debootstrap squashfs-tools xorriso rsync gpg libglib2.0-bin libglib2.0-dev-bin cpio zstd initramfs-tools-core curl dpkg coreutils tar librsvg2-bin imagemagick"
+        log_info "Install with: apt-get install squashfs-tools xorriso rsync gpg libglib2.0-bin libglib2.0-dev-bin cpio zstd initramfs-tools-core curl dpkg coreutils tar librsvg2-bin imagemagick yaru-theme-gnome-shell"
         exit 1
     fi
     
@@ -217,11 +255,10 @@ extract_iso() {
     
     mount -o loop,ro "$BASE_ISO" "$mount_point"
     
-    # Copy ALL ISO contents — including every squashfs layer, language
-    # packs, enhanced-secureboot layers, manifests, and sizes.
-    # We will only REPLACE the 3 main layers; all other casper files
-    # (language layers, enhanced-secureboot, metadata) stay intact so the
-    # installer and casper find the complete layered structure they expect.
+    # Copy ALL ISO contents, including every squashfs layer: the three main layers, the stock language layers, the layers of the
+    # TPM full-disk-encryption variant (enhanced-secureboot) and the .size, .manifest and .manifest.full file of each. repack_squashfs
+    # replaces the three main layers and removes all the others with their metadata (they describe the stock layers and this image
+    # ships neither the languages nor the encryption variant); everything else (pool/, dists/, the boot files) stays as it is.
     log_info "Copying ISO contents (all files including squashfs layers)..."
     rsync -a "$mount_point/" "$WORK_DIR/custom-iso/"
     
@@ -244,8 +281,9 @@ extract_iso() {
 
 # Overlay whiteouts in a Ubuntu casper layer are character devices 0,0.
 # unsquashfs -f cannot replace a non-empty directory with one of those, so
-# delete the lower path first. Ubuntu 26.04's live layer uses this to drop
-# dracut from the minimal layer.
+# delete the lower path first. Ubuntu 26.04.1's live layer has 75 of them: it drops all of
+# dracut and the dracut-built /boot/initrd.img-<kernel> from the minimal layer (see the
+# header: that is what makes the merged rootfs, and the installed system, initramfs-tools based).
 apply_layer_whiteouts() {
     local layer="$1"
     local dest="$2"
@@ -317,14 +355,67 @@ nameserver 1.1.1.1
 nameserver 8.8.8.8
 EOF
 
-    # The installer CD source is not mounted. Leaving it enabled makes
-    # apt-get update fail before any package install.
+    # The installer CD source (file:///cdrom, the ISO's pool) is not mounted. Leaving it enabled makes apt-get update fail before any
+    # package install, so it is disabled FOR THE BUILD ONLY. restore_cdrom_source puts it back before the layers are packed:
+    # Ubuntu 26.04's subiquity expects /etc/apt/sources.list.d/cdrom.sources in the layer it installs (it keeps the file during the
+    # install, with its inline ISO signing key, and deletes it from the installed system itself); without it subiquity writes a plain
+    # "deb file:///cdrom resolute main restricted" line that has no key for the pool.
     if [[ -f "$chroot_dir/etc/apt/sources.list.d/cdrom.sources" ]]; then
         mv "$chroot_dir/etc/apt/sources.list.d/cdrom.sources" \
             "$chroot_dir/etc/apt/sources.list.d/cdrom.sources.disabled"
     fi
 
     log_info "Chroot environment ready"
+}
+
+# Put the ISO pool's apt source back where setup_chroot moved it (idempotent; a no-op when it was never disabled).
+restore_cdrom_source() {
+    local d="$WORK_DIR/chroot/etc/apt/sources.list.d"
+    if [[ -f "$d/cdrom.sources.disabled" ]]; then
+        if [[ -e "$d/cdrom.sources" ]]; then
+            log_error "both cdrom.sources and cdrom.sources.disabled exist in the chroot; cannot tell which is the ISO pool's"; return 1
+        fi
+        mv "$d/cdrom.sources.disabled" "$d/cdrom.sources"
+        log_info "Restored /etc/apt/sources.list.d/cdrom.sources (the ISO pool source subiquity 26.04 expects in the installed layer)"
+    fi
+    if [[ ! -f "$d/cdrom.sources" ]]; then
+        log_error "the chroot has no /etc/apt/sources.list.d/cdrom.sources: the base ISO changed shape, or a customization step removed it"; return 1
+    fi
+}
+
+# Delete the snapd seed of Ubuntu's TPM full-disk-encryption ("enhanced secureboot") install variant from the merged rootfs C, so it is in
+# NEITHER layer. Ubuntu 26.04.1's live layer carries it: the UC-style system seed var/lib/snapd/seed/systems/enhanced-secureboot-desktop and, in
+# seed/snaps, the snap files that seed.yaml (the classic seed the live session uses) does not name: a pc-kernel, a pc gadget, a second firefox
+# revision and two nvidia components, 0.66 GB that snap files cannot compress away. This image ships none of the enhanced-secureboot layers
+# and install-sources.yaml offers no such variation (see repack_squashfs), so the variant cannot be installed from it and the seed is dead weight on a
+# medium that has to fit the smallest Companion Stick boot slot (8 GiB, ci-stick layout: usable/10 clamped to 8..=48 GiB). The split already keeps the
+# seed out of the INSTALLED layer (table rows `rm|var/lib/snapd/seed/systems` and `seed-orphans|`, and verify-iso.sh section 3g); this takes it out of the
+# live layer too, which the library anticipates (CI_SPLIT_LIVE_REQUIRED: "a customization step may delete them from the rootfs altogether"). Nothing
+# else is touched: a snap file seed.yaml names stays, and the function refuses to sweep anything unless seed.yaml names at least one snap file and
+# every file it names is there (a seed.yaml that is empty or damaged would otherwise make every blob an "orphan").
+#   remove_esb_seed <merged rootfs>
+remove_esb_seed() {
+    local root="$1" seed="$1/var/lib/snapd/seed" names f missing="" before after
+    if [[ ! -d "$seed" ]]; then log_info "No snapd seed in the rootfs: nothing to remove of the encryption variant's seed"; return 0; fi
+    if [[ ! -r "$seed/seed.yaml" ]]; then
+        log_error "$seed/seed.yaml is missing or unreadable: cannot tell which snap files are the live session's, so none is swept"; return 1
+    fi
+    names="$(sed -n 's/^[[:space:]-]*file:[[:space:]]*//p' "$seed/seed.yaml" | tr -d '\r"'"'"'')"
+    if [[ -z "$names" ]]; then
+        log_error "$seed/seed.yaml names no snap file (empty or not the shape of a classic seed): none is swept"; return 1
+    fi
+    while IFS= read -r f; do
+        [[ -n "$f" ]] || continue
+        [[ -f "$seed/snaps/$f" ]] || missing="$missing $f"
+    done <<<"$names"
+    if [[ -n "$missing" ]]; then
+        log_error "$seed/seed.yaml names snap file(s) that are not in seed/snaps:$missing. The seed is not what this step assumes, so none is swept"; return 1
+    fi
+    before="$(du -sx --block-size=1 "$seed" 2>/dev/null | cut -f1)" || before=0
+    rm -rf -- "${seed:?}/systems"
+    ci_split_row_seed_orphans "$root" || return 1
+    after="$(du -sx --block-size=1 "$seed" 2>/dev/null | cut -f1)" || after=0
+    log_info "Removed the encryption variant's snapd seed (seed/systems and the snap files seed.yaml does not name) from the rootfs: ${before:-0} -> ${after:-0} bytes in seed/"
 }
 
 # Cleanup chroot mounts
@@ -387,6 +478,98 @@ make_placeholder_layer() {
     chmod 1777 "$empty_dir/tmp"
 }
 
+# Remove every stock layer file from a casper directory: minimal*.{squashfs,size,manifest,manifest.full} (the stock ISO has 41 layers,
+# so 164 files; this image's three layers are written afresh by repack_squashfs). Nothing but minimal* is touched.
+remove_stock_layer_files() {
+    local casper="$1" f n=0
+    for f in "$casper"/minimal*; do
+        [[ -e "$f" || -L "$f" ]] || continue
+        rm -f -- "$f"; n=$((n + 1))
+    done
+    log_info "Removed $n stock layer file(s) from casper/ (layers, language and enhanced-secureboot variants, their .size/.manifest/.manifest.full)"
+}
+
+# The casper directory must hold exactly the three layers' twelve files among its minimal* ones: a stale stock file (a leftover
+# .manifest.full, an enhanced-secureboot size) would describe a layer this image does not have. verify-iso.sh asserts the same on the ISO.
+assert_casper_layer_files() {
+    local casper="$1" want have
+    want="minimal.manifest minimal.manifest.full minimal.size minimal.squashfs minimal.standard.live.manifest minimal.standard.live.manifest.full minimal.standard.live.size minimal.standard.live.squashfs minimal.standard.manifest minimal.standard.manifest.full minimal.standard.size minimal.standard.squashfs"
+    have="$(cd "$casper" && ls -d minimal* 2>/dev/null | LC_ALL=C sort | paste -sd' ' -)"
+    if [[ "$have" != "$want" ]]; then
+        log_error "casper/ does not hold exactly the three layers' files. Have: $have. Want: $want"
+        return 1
+    fi
+}
+
+# Write casper/install-sources.yaml for the two entries this image offers. Ubuntu 26.04.1's file is a version 2 MAPPING:
+#   kernel:  { default: linux-generic-hwe-24.04 }   <- the kernel meta-package subiquity asks curtin to install
+#   sources: [ ...entries... ]
+#   version: 2
+# Written as a bare list (24.04's shape) subiquity assumes the kernel "linux-generic", which is installed neither in the base layer nor in
+# the ISO's pool (subiquity/models/source.py: a list gets KernelInfo(default="linux-generic")). So the `kernel:` block is COPIED from
+# the stock file, which is still in casper/ at this point (or is a version 2 file this function wrote earlier): its default,
+# linux-generic-hwe-24.04, is installed in the minimal layer and so in the base, curtin then finds no new kernel and removes none, and
+# verify-iso.sh asserts both. (The name says 24.04 although the ISO is 26.04.1: it is what Canonical's own 26.04.1 file names, and
+# the package is in the minimal layer, which is all that matters here.) No enhanced-secureboot variations (see repack_squashfs).
+#   write_install_sources <casper dir> <installed size: du of the base layer> <file size of minimal.squashfs>
+# (both entries carry the base layer's sizes: the standard entry installs the same single layer, the placeholder adds nothing)
+write_install_sources() {
+    local casper="$1" installed_size="$2" squashfs_size="$3" stock="$1/install-sources.yaml" kernel tmp
+    if [[ ! -f "$stock" ]]; then log_error "casper/install-sources.yaml is missing: nothing to take the kernel: block from"; return 1; fi
+    if ! grep -q -x 'version: 2' "$stock"; then
+        log_error "casper/install-sources.yaml is not the version 2 mapping this build writes (no 'version: 2' line): the base ISO changed shape, review before building"
+        return 1
+    fi
+    kernel="$(awk '/^kernel:[[:space:]]*$/ { f = 1; print; next } f && /^[[:space:]]/ { print; next } f { exit }' "$stock")"
+    if ! grep -q -E '^  default: [A-Za-z0-9][A-Za-z0-9.+-]*$' <<<"$kernel"; then
+        log_error "casper/install-sources.yaml has no 'kernel:' block with a 'default:' meta-package: the base ISO changed shape, review before building"
+        return 1
+    fi
+    tmp="$(mktemp)"
+    {
+        printf '%s\n' "$kernel"
+        cat <<ISYAML
+sources:
+- default: true
+  description:
+    en: Companion OS (minimized)
+  id: ubuntu-desktop-minimal
+  locale_support: langpack
+  name:
+    en: Companion OS (minimized)
+  path: minimal.squashfs
+  preinstalled_langs: []
+  size: ${installed_size}
+  type: fsimage-layered
+  variant: desktop
+  variations:
+    minimal:
+      path: minimal.squashfs
+      size: ${squashfs_size}
+- default: false
+  description:
+    en: Companion OS
+  id: ubuntu-desktop
+  locale_support: langpack
+  name:
+    en: Companion OS
+  path: minimal.standard.squashfs
+  preinstalled_langs: []
+  size: ${installed_size}
+  type: fsimage-layered
+  variant: desktop
+  variations:
+    standard:
+      path: minimal.standard.squashfs
+      size: ${squashfs_size}
+version: 2
+ISYAML
+    } > "$tmp" || { rm -f "$tmp"; return 1; }
+    # (replaced, not written over: the stock file was copied from the read-only ISO and is mode 0444)
+    rm -f -- "$stock" && cp "$tmp" "$stock" && chmod 644 "$stock" || { rm -f "$tmp"; return 1; }
+    rm -f "$tmp"
+}
+
 # Repack squashfs
 #
 # The merged rootfs is NOT put into one layer. The live session stacks all three casper layers, but the installer
@@ -405,13 +588,18 @@ make_placeholder_layer() {
 # and comparing the stack with C); the installer sees B. The kernels and the bootloader stay in B: the installer finds a
 # kernel already installed and curtin only generates the initrd, which now has no casper in it.
 #
-# The stock LANGUAGE layers (minimal.<lang>.squashfs, minimal.standard.<lang>.squashfs and the *.no-languages ones) are
-# REMOVED, and install-sources.yaml lists no preinstalled_langs. Why: when a source has preinstalled_langs, subiquity
-# installs from "<base>.<lang>.squashfs" (models/source.py get_source), a layer stacked ON TOP of the base. Every stock
-# language layer carries a stock var/lib/dpkg/status and a stock gschemas.compiled and whiteouts for the font packages it
-# drops. Stacked over our base, an installed system would have all our files but a package database that has never heard
-# of docker-ce, setup-device, tailscale, ... and the stock wallpaper schema. With no preinstalled_langs the installer uses
-# minimal.squashfs alone; locale_support: langpack still makes it install the chosen language's packs from apt.
+# The whole stock layer family but these three is REMOVED, with every .size, .manifest and .manifest.full file of it: the stock
+# LANGUAGE layers (minimal.<lang>.squashfs, minimal.standard.<lang>.squashfs, the *.no-languages ones) and the layers of the TPM
+# full-disk-encryption variant (minimal.enhanced-secureboot*.squashfs and minimal.standard.enhanced-secureboot*.squashfs, with their
+# language layers: 20 files on 26.04.1, 64.7 MB). install-sources.yaml lists no preinstalled_langs and no enhanced-secureboot
+# variations. Why: when a source has preinstalled_langs, subiquity installs from "<base>.<lang>.squashfs" (models/source.py get_source),
+# a layer stacked ON TOP of the base. Every stock language layer carries a stock var/lib/dpkg/status and a stock gschemas.compiled and
+# whiteouts for the font packages it drops. Stacked over our base, an installed system would have all our files but a package database
+# that has never heard of docker-ce, setup-device, tailscale, ... and the stock wallpaper schema. With no preinstalled_langs the
+# installer uses minimal.squashfs alone; locale_support: langpack still makes it install the chosen language's packs from apt. The
+# enhanced-secureboot layers are thin deltas ON the stock minimal layer (they whiteout the kernel, firmware and bootloader packages for a
+# snapd-managed boot): next to these rootfs layers they would describe a system this image is not, and listed as variations
+# the installer dies when it examines them.
 repack_squashfs() {
     log_info "Repacking squashfs filesystem..."
 
@@ -421,18 +609,9 @@ repack_squashfs() {
     local live_squashfs="$casper_dir/minimal.standard.live.squashfs"
     local split_dir="$WORK_DIR/split-result"
 
-    # Remove ONLY the 3 main layers we are replacing. Keep all language
-    # layers, enhanced-secureboot layers, and all metadata files intact.
-    rm -f "$casper_dir/minimal.squashfs"
-    rm -f "$casper_dir/minimal.standard.squashfs"
-    rm -f "$casper_dir/minimal.standard.live.squashfs"
-
-    # Drop the stock language layers (see above), with their .size and .manifest files.
-    local lang_suffix
-    for lang_suffix in de en es fr it pt ru zh no-languages; do
-        rm -f "$casper_dir"/minimal."$lang_suffix".{squashfs,size,manifest} \
-              "$casper_dir"/minimal.standard."$lang_suffix".{squashfs,size,manifest}
-    done
+    # Every stock layer file goes (see above): the three layers this build replaces, the language and enhanced-secureboot layers,
+    # and the .size, .manifest and .manifest.full of each one describe the STOCK layers. The three layers' own files are written below.
+    remove_stock_layer_files "$casper_dir"
 
     # mksquashfs packs /tmp itself (only its contents are excluded, see CI_SPLIT_PACK_EXCLUDES), so it has to be 1777
     # before the pack, whatever the unsquashed layers or the customization steps left behind.
@@ -497,57 +676,25 @@ repack_squashfs() {
     # preinstalled_langs is [] on purpose: the stock language layers are gone
     # (see the strategy comment above), and a non-empty list would make
     # subiquity look for minimal.<lang>.squashfs.
-    local squashfs_size
-    squashfs_size="$(stat -c%s "$casper_dir/minimal.squashfs")"
-    local standard_squashfs_size
-    standard_squashfs_size="$(stat -c%s "$casper_dir/minimal.standard.squashfs")"
-
+    #
     # NO "enhanced-secureboot" variations. The stock file lists them (TPM-backed full-disk encryption needs
     # a snapd system seed with its own layers), but this ISO ships no minimal*.enhanced-secureboot.squashfs.
     # With the variations listed, ubuntu-desktop-bootstrap examines every variation when the user leaves the
     # "Optimise your computer" page, hits `Failed to use fsimage: '///cdrom/casper/minimal.enhanced-secureboot
     # .squashfs' doesn't exist or is invalid` in filesystem.py _examine_systems, and the installer dies with
-    # "Something went wrong" for EVERY user (seen in a QEMU install of the v7 ISO, 2026-10-15). Every path
-    # in this file must exist on the ISO: verify-iso.sh checks that.
+    # "Something went wrong" for EVERY user (seen in a QEMU install of the v7 ISO, 2026-10-15; that was on 24.04.5's
+    # installer, 26.04.1's has the same examination code). Every path in this file must exist on the ISO: verify-iso.sh checks that.
+    local squashfs_size
+    squashfs_size="$(stat -c%s "$casper_dir/minimal.squashfs")"
+    write_install_sources "$casper_dir" "$installed_size" "$squashfs_size" || return 1
+    log_info "install-sources.yaml regenerated: version 2, the stock kernel: block, both entries (minimal + standard), no enhanced-secureboot variations"
 
-    cat > "$casper_dir/install-sources.yaml" << ISYAML
-- default: true
-  description:
-    en: Companion OS (minimized)
-  id: ubuntu-desktop-minimal
-  locale_support: langpack
-  name:
-    en: Companion OS (minimized)
-  path: minimal.squashfs
-  preinstalled_langs: []
-  size: ${installed_size}
-  type: fsimage-layered
-  variant: desktop
-  variations:
-    minimal:
-      path: minimal.squashfs
-      size: ${squashfs_size}
-- default: false
-  description:
-    en: Companion OS
-  id: ubuntu-desktop
-  locale_support: langpack
-  name:
-    en: Companion OS
-  path: minimal.standard.squashfs
-  preinstalled_langs: []
-  size: ${installed_size}
-  type: fsimage-layered
-  variant: desktop
-  variations:
-    standard:
-      path: minimal.standard.squashfs
-      size: ${squashfs_size}
-ISYAML
-    log_info "install-sources.yaml regenerated with both entries (minimal + standard), no enhanced-secureboot variations"
+    # Nothing of the stock layer family may be left over (a stale .manifest.full or enhanced-secureboot .size would describe a layer
+    # this image does not have).
+    assert_casper_layer_files "$casper_dir" || return 1
 
     # ── Regenerate SHA256SUMS for ALL squashfs files ────────────────────────
-    # Must cover every .squashfs in casper/ or integrity checks fail.
+    # Must cover every .squashfs in casper/ or integrity checks fail (the three layers; the stock list also named the removed ones).
     log_info "Regenerating casper/SHA256SUMS..."
     (cd "$casper_dir" && sha256sum *.squashfs > SHA256SUMS)
     log_info "casper/SHA256SUMS regenerated ($(wc -l < "$casper_dir/SHA256SUMS") entries)"
@@ -564,7 +711,7 @@ ISYAML
 # Repaint the Plymouth theme files the live session's splash is drawn from, into the initrd overlay directory <ov>.
 #
 # The initrd never reads the rootfs copies 10-plymouth.sh branded: it has its own bgrt.plymouth and spinner.plymouth (black
-# ground, white progress bar) and ubuntu-text.plymouth (aubergine, titled "Ubuntu 24.04", shown for the safe-graphics entry).
+# ground, white progress bar) and ubuntu-text.plymouth (aubergine, titled "Ubuntu 26.04", shown for the safe-graphics entry).
 # Each is taken from the STOCK initrd and repainted with the same helpers the rootfs uses (core/lib/theme-lib.sh), so the
 # canon colours are the same everywhere and nothing else of the stock file changes. In particular the Font= lines stay
 # Ubuntu's: the initrd carries no other font, and a theme that names one it lacks draws no text.
@@ -576,12 +723,14 @@ ISYAML
 # installed system, and the live session's own shutdown splash) is. That gives up the repaint of the firmware logo that
 # makes the hand-over from the firmware seamless: on a live medium the navy GRUB menu sits between the two anyway.
 #
-# unmkinitramfs unpacks the early microcode archives into early*/ and the compressed root into main/ (a plain single
-# archive goes straight into the target). Fails the build, rather than ship a half-branded splash, if the initrd has no
-# such theme file or a repaint did not take (a base ISO whose files changed shape).
+# The initrd of 26.04.1 has four segments: two uncompressed microcode cpios (AMD, Intel), an uncompressed cpio of the firmware files
+# (52 MB) and the zstd main archive. initramfs-tools 0.151's unmkinitramfs (a program built on 3cpio, not the old shell script)
+# extracts every segment FLAT into the target directory; the old script's early*/ and main/ directories no longer exist. The theme
+# files are in the main archive, so they are found at $x/usr/share/plymouth/themes/... Fails the build, rather than ship a
+# half-branded splash, if the initrd has no such theme file or a repaint did not take (a base ISO whose files changed shape).
 brand_initrd_plymouth() {
     local initrd="$1" ov="$2"
-    local themes="usr/share/plymouth/themes" x="$WORK_DIR/initrd-stock-x" out tree conf ground fill title
+    local themes="usr/share/plymouth/themes" x="$WORK_DIR/initrd-stock-x" out conf ground fill title
     # shellcheck source=../../../../core/lib/theme-lib.sh
     source "$REPO_ROOT/core/lib/theme-lib.sh"
 
@@ -589,13 +738,12 @@ brand_initrd_plymouth() {
     if ! out="$(unmkinitramfs "$initrd" "$x" 2>&1)"; then
         log_error "unmkinitramfs could not unpack $initrd: $(printf '%s' "$out" | tail -n 3)"; rm -rf "$x"; return 1
     fi
-    tree="$x/main"; [[ -d "$tree" ]] || tree="$x"
     for conf in bgrt/bgrt.plymouth spinner/spinner.plymouth ubuntu-text/ubuntu-text.plymouth; do
-        if [[ ! -f "$tree/$themes/$conf" ]]; then
+        if [[ ! -f "$x/$themes/$conf" ]]; then
             log_error "the stock initrd has no $themes/$conf: the base ISO changed shape, review before branding it"
             rm -rf "$x"; return 1
         fi
-        install -D -m 644 "$tree/$themes/$conf" "$ov/$themes/$conf"
+        install -D -m 644 "$x/$themes/$conf" "$ov/$themes/$conf"
     done
     rm -rf "$x"
 
@@ -627,13 +775,30 @@ brand_initrd_plymouth() {
 # Rebrand the parts of the live boot that are NOT in the root filesystem.
 #
 #  1. casper/initrd is copied verbatim from the base ISO, and the live session's Plymouth splash (theme files, the
-#     Ubuntu logo, the firmware-logo fallback) and casper.conf (live user and host name "ubuntu") live inside it.
+#     watermark, the firmware-logo fallback) and casper.conf (live user and host name "ubuntu") live inside it.
 #     Appending a small compressed cpio overlay replaces exactly those files without unpacking and repacking the
 #     whole initrd: the kernel unpacks concatenated archives in order and later files win. The stock part of the
 #     initrd stays byte for byte as it was (verify-iso.sh compares it with the base ISO).
-#  2. /.disk/info decides the launcher label ("Install ...") and, unless casper.conf sets FLAVOUR, the live
-#     user and host name. Keep its field layout: casper reads field 1 (flavour), fields 1-3 (launcher label),
-#     subiquity reads field 2 (release) and pollinate wants the trailing "(serial)".
+#  2. /.disk/info is data that several readers take apart, and ONE OF THEM PUTS IT ON A SCREEN. The stock line is
+#     `Ubuntu 26.04.1 LTS "Resolute Raccoon" - Release amd64 (20260826)`; this writes `Companion OS 26.04.1 LTS "Resolute
+#     Raccoon" - Release amd64 (20260826)`, the product's name, with a blank. What the readers do with it (26.04.1: the stock
+#     initrd's scripts and the installer snap, rev 665; verify-iso.sh section 5 asserts each on the built image):
+#       the installer's last page   ubuntu_bootstrap's ProductService reads /cdrom/.disk/info and the page says "<name> is installed
+#                                   and ready to use". The recorded 24.04.5 run (written with a hyphen, `Companion-OS`) shows
+#                                   "Companion-OS 24.04.5 LTS is installed and ready to use": the hyphen WAS on a screen, so the name
+#                                   is spelt Companion OS here. (An earlier revision of this comment said no user ever reads it; that
+#                                   was wrong.)
+#       casper 25adduser            the launcher's label "Install RELEASE": fields 1-2 with `-` as a blank, plus " LTS" when field 3
+#                                   is LTS. With a blank in the name field 3 is the release, so the label reads "Install Companion
+#                                   OS" (no release, no LTS): a shorter label, and the one a product with its own versions wants.
+#       casper scripts/casper       field 1 lower-cased is the live user and host unless casper.conf sets FLAVOUR (it does).
+#       subiquity refresh.py        takes the SECOND word for the release its snap channel is named after: "OS" gives
+#                                   stable/ubuntu-OS. configure_snapd switches channel only when the installer snap tracks
+#                                   stable/ubuntu-<release of the live system>; the seed has it on 26.04/stable/ubuntu-26.04.1, so it
+#                                   returns first and never uses the word. Latent, and verify-iso.sh reads the snap's channel from the
+#                                   image's own seed.yaml to prove the guard holds (a future base with another channel fails it).
+#       pollinate                   the trailing "(serial)".
+#     tests/boot-media-plymouth.sh computes the label with casper's own lines (and checks them against the real 25adduser).
 #
 # The ISO volume id is deliberately NOT touched: the signed EFI GRUB searches for it (see generate_iso).
 brand_boot_media() {
@@ -656,7 +821,6 @@ brand_boot_media() {
     rm -rf "$ov"
     mkdir -p "$ov/usr/share/plymouth/themes/spinner" "$ov/etc"
     install -m 644 "$watermark" "$ov/usr/share/plymouth/themes/spinner/watermark.png"
-    install -m 644 "$watermark" "$ov/usr/share/plymouth/ubuntu-logo.png"
     install -m 644 "$fallback" "$ov/usr/share/plymouth/themes/spinner/bgrt-fallback.png"
     install -m 644 "$casper_conf" "$ov/etc/casper.conf"
     brand_initrd_plymouth "$initrd" "$ov" || return 1
@@ -679,9 +843,17 @@ brand_boot_media() {
     if [[ -f "$info" ]]; then
         chmod u+w "$custom/.disk" "$info" 2>/dev/null || true
         cp "$info" "$info.orig"
-        # "Ubuntu 24.04.5 LTS "Noble Numbat" - Release amd64 (date)" -> "Companion-OS 24.04.5 LTS ...":
-        # the hyphen keeps field 1 a single word (FLAVOUR) and becomes a space in the launcher label.
-        sed -i '1s/^Ubuntu\b/Companion-OS/' "$info"
+        # `Ubuntu 26.04.1 LTS "Resolute Raccoon" - Release amd64 (20260826)` -> `Companion OS 26.04.1 LTS ...`: the product's name, with a
+        # blank, because the installer's last page shows it ("<name> is installed and ready to use"); what the blank costs the other readers
+        # (the launcher label loses the release, subiquity's second word is "OS") is in the comment above brand_boot_media. Anything
+        # but the stock shape is refused, not rewritten blindly.
+        if ! head -n 1 "$info" | grep -q -E '^Ubuntu [0-9]+\.[0-9]+(\.[0-9]+)? LTS .*\([0-9.]+\)[[:space:]]*$'; then
+            log_error ".disk/info is not 'Ubuntu <release> LTS ... (serial)' (the base ISO changed shape): $(head -n 1 "$info")"; return 1
+        fi
+        sed -i '1s/^Ubuntu /Companion OS /' "$info"
+        if ! head -n 1 "$info" | grep -q -E '^Companion OS [0-9]+\.[0-9]+(\.[0-9]+)? LTS .*\([0-9.]+\)[[:space:]]*$'; then
+            log_error ".disk/info did not come out as 'Companion OS <release> LTS ... (serial)': $(head -n 1 "$info")"; return 1
+        fi
         log_info ".disk/info: $(tr -d '\n' < "$info")"
     fi
 }
@@ -733,9 +905,15 @@ add_auto_install_menuentry() {
 # stay exactly as they are, so Secure Boot's chain and the kernel command lines are untouched.
 #
 #  - The block is Ubuntu's own gfxterm recipe from an installed system's 00_header, and it insmods only
-#    all_video, gfxterm and png: those are built into Canonical's signed GRUB, while any other insmod is a
-#    separate module file that Secure Boot refuses to load. `if loadfont unicode` keeps the text menu on a
-#    GRUB that has no font.
+#    gfxterm and png: those are built into Canonical's signed GRUB (the CD image the firmware loads from this ISO,
+#    EFI/boot/grubx64.efi), while any other insmod is a separate module file that Secure Boot refuses to load
+#    (GRUB prints an error at every boot; whether it also stops for a keypress was not tested).
+#    NOT all_video: the 24.04 image had it built in, GRUB 2.14's 26.04.1 image does not (95 built-in modules, read
+#    with stick/scripts/grub-builtin-modules.py; the string "feature_all_video_module" in the binary is a feature flag,
+#    not the module). The video driver the menu needs, efi_gop, is built in and registers itself, so nothing replaces it.
+#    tests/grub-live-menu-modules.sh holds every insmod of this block against the committed list of that image's modules,
+#    and verify-iso.sh against the binary on the built ISO. `if loadfont unicode` keeps the text menu on a GRUB that has
+#    no font.
 #  - menu_color_* take colour NAMES, never hex, so ci_grub_nearest_color derives them from the tokens
 #    (white/black for entries, black/cyan for the highlight) instead of a hand-picked pair.
 #
@@ -775,7 +953,6 @@ brand_live_grub() {
     cat > "$block" <<'GRUB_GFX_BLOCK'
 if loadfont unicode ; then
   set gfxmode=auto
-  insmod all_video
   insmod gfxterm
   insmod png
   terminal_output gfxterm
@@ -891,8 +1068,10 @@ generate_iso() {
         | grep -i 'volume.id' | head -1 \
         | sed "s/.*: *//" | sed "s/^ *'\{0,1\}//;s/'\{0,1\} *$//")" || true
     if [[ -z "$orig_volid" ]]; then
-        orig_volid="Ubuntu 24.04.4 LTS amd64"
-        log_warn "Could not read volume id from base ISO — using fallback: $orig_volid"
+        # No guess: the volume id must be the base ISO's own (the signed EFI GRUB and casper find the medium by it), and a made-up
+        # one (the old fallback was a 24.04 string) would build an ISO that does not boot.
+        log_error "Could not read the volume id of the base ISO ($BASE_ISO): refusing to guess one"
+        return 1
     fi
     log_info "Original ISO volume id: '$orig_volid' (preserving for EFI boot compatibility)"
 
@@ -933,7 +1112,7 @@ generate_iso() {
 
     # ─────────────────────────────────────────────────────────────────────────
     # Build ISO inheriting all boot parameters (EFI + BIOS) from the original
-    # Ubuntu 24.04 ISO, then swap in our custom casper directory.
+    # Ubuntu 26.04.1 ISO, then swap in our custom casper directory.
     # CRITICAL: Use the ORIGINAL volume id so the EFI embedded GRUB search
     # and casper can find the boot medium.
     # ─────────────────────────────────────────────────────────────────────────
@@ -1021,6 +1200,7 @@ main() {
     
     check_root
     parse_args "$@"
+    check_build_host
     check_dependencies
     validate_config
     check_base_md5sum
@@ -1037,6 +1217,8 @@ main() {
     # Apply customizations (wrapped in trap for cleanup)
     trap cleanup_chroot EXIT
     apply_customizations
+    restore_cdrom_source
+    remove_esb_seed "$WORK_DIR/chroot"
 
     # Generate manifest while chroot mounts are still active
     log_info "Generating package manifest..."
@@ -1044,8 +1226,9 @@ main() {
     chroot "$WORK_DIR/chroot" dpkg-query -W --showformat='${Package} ${Version}\n' \
         > "$casper_dir/filesystem.manifest" 2>/dev/null || true
 
-    # No filesystem.manifest-remove is generated, and none is needed: nothing reads it. The stock Ubuntu 24.04 ISO ships
-    # none, and the installer (subiquity / ubuntu-desktop-bootstrap) has NO package-removal step: it extracts the layer
+    # No filesystem.manifest-remove is generated, and none is needed: nothing reads it. The stock Ubuntu 26.04.1 ISO ships
+    # none (its casper/ has no filesystem.* file at all), and the installer (subiquity / ubuntu-desktop-bootstrap) has NO
+    # package-removal step: it extracts the layer
     # install-sources.yaml names and runs curthooks (subiquity/server/controllers/install.py). Stock Ubuntu keeps the live-only
     # content out of the installed system by keeping it in a layer the installer never installs
     # (minimal.standard.live.squashfs). This build merges the three layers to customize them, so repack_squashfs splits the

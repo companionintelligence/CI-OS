@@ -2,8 +2,8 @@
 #=============================================================================
 # Test: the placeholder casper layers keep the rootfs directory modes
 #
-# build-iso.sh packs the whole rootfs into minimal.squashfs and adds two empty placeholder layers
-# (minimal.standard.squashfs, minimal.standard.live.squashfs) on top of it. casper stacks the
+# build-iso.sh splits the rootfs into minimal.squashfs (the installed base) and minimal.standard.live.squashfs
+# (live-only), with an empty placeholder (minimal.standard.squashfs) between them. casper stacks the
 # layers with overlayfs, and a directory present in several layers takes its mode from the
 # topmost one. A placeholder made with a plain `mkdir -p` has /tmp as drwxr-xr-x, so the live
 # session lost its sticky world-writable /tmp (untrusted desktop launcher, installer that does

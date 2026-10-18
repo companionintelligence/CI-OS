@@ -25,32 +25,47 @@
 #      three tones, the start icon every path of the mark and no brand hex, ci-os-logo.svg is the
 #      vendored file), and the stock files are dpkg-diverted so an upgrade cannot restore them;
 #   2c. the live GRUB menu is themed: an 8-bit PNG background, menu colours derived from the brand
-#      tokens, and only the modules the signed GRUB has built in (all_video, gfxterm, png); and,
-#      given VERIFY_BASE_ISO, the Secure Boot EFI binaries are byte-identical to the stock ISO's;
-#   2d. the Ubuntu display names that were still on screen read Companion OS: the four sessions in GDM's gear
-#      menu, the Settings sidebar entry and the three shell extensions; while the identifiers behind them
-#      (session file names, Exec=, DesktopNames=, OnlyShowIn=, extension uuids) are untouched and the stock files
-#      are dpkg-diverted;
+#      tokens, and only modules the signed GRUB has built in (gfxterm, png; each is looked up in the module list of the
+#      /EFI/boot/grubx64.efi on the ISO itself, read with stick/scripts/grub-builtin-modules.py; all_video is NOT built into
+#      26.04.1's GRUB, so an insmod of it would be refused under Secure Boot); and, given VERIFY_BASE_ISO, the Secure Boot
+#      EFI binaries are byte-identical to the stock ISO's;
+#   2d. the Ubuntu display names that were still on screen read Companion OS: the one session in GDM's gear menu
+#      (Ubuntu 26.04.1 ships a Wayland session only), the Settings sidebar entry and the three shell extensions; while the
+#      identifiers behind them (session file name, Exec=, TryExec=, DesktopNames=, OnlyShowIn=, extension uuids) are untouched
+#      and the stock files are dpkg-diverted;
 #   2e. the live boot's Plymouth (section 7): the initrd overlay carries the canon-painted bgrt, spinner and text-splash
 #      themes and the firmware-logo fallback, only those files, appended after a stock initrd that is byte-identical
 #      to the base ISO's (given VERIFY_BASE_ISO); the splash GROUND is canon navy: no section of the bgrt or spinner theme
 #      asks for the firmware background (which makes the plugin paint black), in the overlay and in the rootfs, and the two
 #      copies agree key by key apart from the fonts; the initrd's default theme is the bgrt one the overlay repaints
 #      (needs unmkinitramfs); the installed system's fallback logo is the same file, and every package-owned
-#      Plymouth file the build rewrites (the watermark, the bgrt and spinner themes, the text theme's template) is dpkg-diverted;
+#      Plymouth file the build rewrites (the watermark, the bgrt and spinner themes, the text theme's template) is dpkg-diverted
+#      (the stock copy of a diverted file may be a symlink: 26.04.1's spinner/watermark.png is one); the initrd's plymouthd.conf
+#      selects no other theme than bgrt (the stock one has comments only);
+#   4d. the GNOME Shell theme: the Ubuntu session's and the greeter's gresource (theme/Yaru/gnome-shell-theme.gresource) is the
+#      branded blob of the checkout, not Ubuntu's stock Yaru file, and the upstream gnome-shell-theme.gresource, which the built-in
+#      session modes load, still has the stylesheets the branded blob lacks (gnome-shell-light.css);
+#   5.  the boot menu names, /.disk/info (the product is spelt Companion OS in it, as the installer's last page shows it: the
+#      launcher label, the product name and the subiquity channel chain are asserted from casper's and the installer's own logic);
 #   3e. the casper layers stacked on the base keep the rootfs directory modes (/tmp stays 1777);
 #   3f. NetworkManager still manages wired devices (no netplan file overrides the
 #      global NetworkManager renderer, which would leave every Ethernet NIC unmanaged);
 #   3g. the installer base layer is clean: the layer the installer copies to the disk (minimal.squashfs) carries
 #      nothing that belongs to the live session only (the casper package and its files, the live dconf overrides,
-#      the installer's own snap), and the live layer (minimal.standard.live.squashfs) is the real live delta, not a
-#      placeholder: casper's files, a dpkg status that lists casper, true .size and .manifest files, while
-#      minimal.standard.squashfs stays the empty placeholder and the boot menus' kernel lines are the stock ones
-#      (given VERIFY_BASE_ISO, equal to the base ISO's). Why: docs/architecture/ubuntu-iso-layers.md;
+#      the installer's own snap, the live session's polkit rule and sysctl file, the encryption variant's snapd seed, which is
+#      in neither layer: build-iso.sh deletes it from the rootfs before the split), and
+#      the live layer (minimal.standard.live.squashfs) is the real live delta, not a placeholder: casper's files, a dpkg
+#      status that lists casper, true .size, .manifest and .manifest.full files, while minimal.standard.squashfs stays the empty
+#      placeholder and the boot menus' kernel lines are the stock ones (given VERIFY_BASE_ISO, equal to the base ISO's). The
+#      installed base is initramfs-tools based (the live layer whites out dracut) and apt is told never to swap it for dracut
+#      (/etc/apt/preferences.d/ci-os-no-dracut: dracut and dracut-core at Pin-Priority -1).
+#      Why: docs/architecture/ubuntu-iso-layers.md;
 #   8. the medium's /md5sum.txt, which the live system's casper-md5check.service verifies on every boot, is correct: every entry matches the
 #      file in the image (each file is hashed by streaming it out of the ISO, nothing is extracted), no entry names a file that is
-#      gone, and every regular file the stock convention lists (all but /md5sum.txt, /EFI and the subdirectories of /boot/grub)
-#      is listed. It is rewritten by build-iso.sh (md5sum-txt.sh); the stock file is wrong for every file the remaster changes.
+#      gone, and every regular file the stock convention lists (all but /md5sum.txt, /boot.catalog and the BIOS boot image
+#      /boot/grub/i386-pc/eltorito.img) is listed. It is rewritten by build-iso.sh (md5sum-txt.sh); the stock file is wrong for every
+#      file the remaster changes.
+#   9. the image is no larger than the smallest Companion Stick boot slot (8 GiB, a 64 GB stick), which ci-stick flash enforces.
 #
 # What is deliberately NOT asserted, because it cannot be changed by remastering:
 # the installer window's own text (a Canonical snap with a fixed flavour list)
@@ -63,13 +78,16 @@
 #   VERIFY_WORK=DIR ...    use DIR for scratch space (needs ~8 GB free)
 #   VERIFY_TIERB=0 ...     skip section 3c (an ISO built with CI_OS_BAKE_THIRD_PARTY=0
 #                          CI_OS_BAKE_OLLAMA=0 CI_OS_BAKE_LAUNCHER=0)
+#   VERIFY_MAX_ISO_BYTES=N the image must be at most N bytes (default 8589934592, the 8 GiB boot slot of a 64 GB Companion
+#                          Stick, which ci-stick flash enforces); 0 skips the check
 #   VERIFY_REQUIRE_CANON=1 fail if the canon content checks (they need the repo checkout, see below) had to be
 #                          skipped; without it they are listed under SKIPPED in the Summary and the status is unchanged
-#   VERIFY_BASE_ISO=ISO .. the stock Ubuntu ISO this one was built from: also assert that
+#   VERIFY_BASE_ISO=ISO .. the stock Ubuntu 26.04.1 ISO this one was built from: also assert that
 #                          /EFI/boot/{bootx64,grubx64,mmx64}.efi are byte-identical to it
 #                          (the Secure Boot chain is intact) and that casper/initrd starts with the
-#                          stock initrd, byte for byte, that the md5sum.txt exclusions are the stock ISO's own, and that
-#                          the kernel lines of grub.cfg and loopback.cfg are the stock ISO's (section 3g);
+#                          stock initrd, byte for byte, that the md5sum.txt exclusions are the stock ISO's own, that the
+#                          kernel lines of grub.cfg and loopback.cfg are the stock ISO's (section 3g), that the ISO volume id
+#                          is the stock one, and that install-sources.yaml carries the stock ISO's `kernel:` block;
 #                          without it those checks are skipped
 #
 # Needs: xorriso squashfs-tools zstd cpio python3 (Ubuntu: apt-get install xorriso squashfs-tools zstd cpio python3), and
@@ -137,7 +155,8 @@ xorriso -osirrox on -indev "$ISO" \
 xorriso -osirrox on -indev "$ISO" -extract /boot/grub/ci-os-bg.png "$ISOX/ci-os-bg.png" >/dev/null 2>&1
 # The per-layer .size and .manifest files (section 3g), one run each for the same reason.
 for f in minimal.size minimal.standard.size minimal.standard.live.size \
-         minimal.manifest minimal.standard.manifest minimal.standard.live.manifest; do
+         minimal.manifest minimal.standard.manifest minimal.standard.live.manifest \
+         minimal.manifest.full minimal.standard.manifest.full minimal.standard.live.manifest.full; do
     xorriso -osirrox on -indev "$ISO" -extract "/casper/$f" "$ISOX/$f" >/dev/null 2>&1
 done
 xorriso -osirrox on -indev "$ISO" \
@@ -164,7 +183,7 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     usr/lib/systemd/system/docker.service usr/lib/systemd/system/docker.socket \
     usr/lib/systemd/system/containerd.service usr/lib/systemd/system/ci-os-docker-group.service \
     usr/lib/systemd/system/ci-os-live-container-storage.service \
-    etc/apt/sources.list.d usr/share/keyrings etc/xdg/autostart usr/libexec/ci-os \
+    etc/apt/sources.list.d etc/apt/preferences.d usr/share/keyrings etc/xdg/autostart usr/libexec/ci-os usr/share/ci-os \
     usr/bin/ollama usr/lib/systemd/system/tailscaled.service var/lib/tailscale usr/share/ollama \
     usr/share/applications/ci-os-hub.desktop \
     usr/share/plymouth/themes/spinner/watermark.png usr/share/plymouth/themes/spinner/bgrt-fallback.png \
@@ -176,6 +195,7 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     usr/share/gnome-shell/extensions/ubuntu-dock@ubuntu.com/metadata.json \
     usr/share/gnome-shell/extensions/ubuntu-appindicators@ubuntu.com/metadata.json \
     usr/share/gnome-shell/extensions/tiling-assistant@ubuntu.com/metadata.json \
+    usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource usr/share/gnome-shell/gnome-shell-theme.gresource \
     >/dev/null 2>&1 || true
 
 # The live layer is what casper stacks on top of the base in a live session and the installer never installs
@@ -205,6 +225,11 @@ png_depth() { od -An -tu1 -j24 -N1 "$1" 2>/dev/null | tr -d ' \n'; } # IHDR bit 
 divert_ok() { # <path> is dpkg-diverted (local) to <path>.ubuntu-stock; /var/lib/dpkg/diversions has 3 lines per entry
     awk -v p="$1" 'NR%3==1{o=$0} NR%3==2{d=$0} NR%3==0{if (o==p && d==p".ubuntu-stock") f=1} END{exit !f}' "$R/var/lib/dpkg/diversions" 2>/dev/null
 }
+# stock_copy_listed <path>: the diverted original is in the image, at <path>.ubuntu-stock. It is a regular file for nearly everything this build diverts,
+# but a SYMLINK for Ubuntu 26.04.1's spinner/watermark.png (-> ../../../pixmaps/ubuntu-logo-text-dark.png): dpkg-divert --rename moves the link itself, and
+# `unsquashfs -ll` ends the line of a link in " -> target", so a match anchored at the end of the line never saw it (the first verify of a real 26.04.1
+# image failed on exactly this; every fixture had regular files). The optional " -> target" is the whole difference.
+stock_copy_listed() { in_listing " ${1//./\\.}\\.ubuntu-stock( -> .*)?\$"; }
 unit_enabled() { # a symlink to the unit exists under some *.wants directory
     in_listing "etc/systemd/system/[a-z.-]+\.wants/$1 -> "
 }
@@ -449,11 +474,38 @@ section "3d. Installed system: one layer, so the package database stays ours"
 # Stock language layers carry a stock var/lib/dpkg/status and gschemas.compiled; subiquity stacks
 # <base>.<lang>.squashfs on top whenever install-sources.yaml lists preinstalled_langs, which would give an
 # installed system all our files but a dpkg database without docker-ce, setup-device, tailscale, ...
+# Ubuntu 26.04.1's install-sources.yaml is a version 2 MAPPING (kernel:, sources:, version: 2), not the bare list of earlier releases.
+# Read as a list, subiquity assumes the kernel meta-package "linux-generic", which is installed neither in the base layer nor in the
+# ISO's pool (subiquity/models/source.py): the kernel step would need the network and may remove the preinstalled kernel.
 if [[ -s "$ISOX/install-sources.yaml" ]]; then
     check "install-sources.yaml lists no preinstalled_langs (installer uses minimal.squashfs alone)" \
         bash -c "grep -c '^  preinstalled_langs: \[\]\$' '$ISOX/install-sources.yaml' | grep -qx 2"
     check "install-sources.yaml keeps both entries (ubuntu-desktop-minimal, ubuntu-desktop)" \
         bash -c "grep -q '^  id: ubuntu-desktop-minimal\$' '$ISOX/install-sources.yaml' && grep -q '^  id: ubuntu-desktop\$' '$ISOX/install-sources.yaml'"
+    check "install-sources.yaml is the version 2 mapping (kernel:, sources:, version: 2), not a bare list" \
+        bash -c "grep -q '^kernel:\$' '$ISOX/install-sources.yaml' && grep -q '^sources:\$' '$ISOX/install-sources.yaml' && grep -q '^version: 2\$' '$ISOX/install-sources.yaml' && ! head -n 1 '$ISOX/install-sources.yaml' | grep -q '^- '"
+    kernel_block() { awk '/^kernel:[[:space:]]*$/ { f = 1; print; next } f && /^[[:space:]]/ { print; next } f { exit }' "$1"; }
+    ISRC_KERNEL="$(kernel_block "$ISOX/install-sources.yaml" | sed -n 's/^  default:[[:space:]]*//p' | head -n 1 | tr -d '\r"'"'"' ')"
+    if [[ -n "$ISRC_KERNEL" && "$ISRC_KERNEL" =~ ^[a-z0-9][a-z0-9.+-]*$ ]]; then
+        pass "install-sources.yaml names the kernel meta-package $ISRC_KERNEL"
+        # curtin installs that package: if the base layer already has it, nothing new is installed and no kernel is removed.
+        if pkg_ok "$ISRC_KERNEL"; then pass "the kernel meta-package $ISRC_KERNEL is installed in the base layer (curtin finds no new kernel to install and removes none)"
+        else fail "the kernel meta-package $ISRC_KERNEL that install-sources.yaml names is not installed in the base layer (the installer would need the network for it)"; fi
+    else
+        fail "install-sources.yaml has no kernel: block with a default: meta-package"
+    fi
+    if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
+        xorriso -osirrox on -indev "$VERIFY_BASE_ISO" -extract /casper/install-sources.yaml "$WORK/base-install-sources.yaml" >/dev/null 2>&1
+        if [[ -s "$WORK/base-install-sources.yaml" ]]; then
+            if [[ -n "$(kernel_block "$WORK/base-install-sources.yaml")" && "$(kernel_block "$WORK/base-install-sources.yaml")" == "$(kernel_block "$ISOX/install-sources.yaml")" ]]; then
+                pass "install-sources.yaml carries the stock ISO's kernel: block, verbatim"
+            else
+                fail "install-sources.yaml's kernel: block differs from the base ISO's (copy it, do not retype it)"
+            fi
+        else
+            fail "could not read /casper/install-sources.yaml from VERIFY_BASE_ISO"
+        fi
+    fi
 else
     fail "could not read /casper/install-sources.yaml"
 fi
@@ -476,8 +528,17 @@ if [[ -s "$ISOX/install-sources.yaml" ]]; then
         pass "install-sources.yaml lists no enhanced-secureboot variations"
     fi
 fi
-LANGLAYERS="$(xorriso -indev "$ISO" -ls /casper/ 2>/dev/null | tr -d "'" | tr ' ' '\n' | grep -E '^minimal(\.standard)?\.(de|en|es|fr|it|pt|ru|zh|no-languages)\.' || true)"
-if [[ -z "$LANGLAYERS" ]]; then pass "no stock language layers on the ISO"; else fail "stock language layers still on the ISO: $(echo $LANGLAYERS | tr '\n' ' ')"; fi
+LANGLAYERS="$(grep -E '^minimal(\.standard)?(\.enhanced-secureboot)?\.(de|en|es|fr|it|pt|ru|zh|no-languages)\.' <<<"$CASPER_LS" || true)"
+if [[ -z "$LANGLAYERS" ]]; then pass "no stock language layers on the ISO"; else fail "stock language layers still on the ISO: $(printf '%s' "$LANGLAYERS" | tr '\n' ' ' | cut -c1-600)"; fi
+ESBFILES="$(grep -E 'enhanced-secureboot' <<<"$CASPER_LS" || true)"
+if [[ -z "$ESBFILES" ]]; then pass "no enhanced-secureboot layer, size or manifest file on the ISO (this image ships no TPM full-disk-encryption variant)"
+else fail "enhanced-secureboot files still in /casper: $(printf '%s' "$ESBFILES" | tr '\n' ' ' | cut -c1-600)"; fi
+# Nothing of the stock layer family but the three layers this image has: their .squashfs, .size, .manifest and .manifest.full, and no
+# other minimal* file (a stale stock .manifest.full or .size would describe a layer that is not there).
+CASPER_WANT="minimal.manifest minimal.manifest.full minimal.size minimal.squashfs minimal.standard.live.manifest minimal.standard.live.manifest.full minimal.standard.live.size minimal.standard.live.squashfs minimal.standard.manifest minimal.standard.manifest.full minimal.standard.size minimal.standard.squashfs"
+CASPER_HAVE="$(grep -E '^minimal' <<<"$CASPER_LS" | LC_ALL=C sort | paste -sd' ' -)"
+if [[ "$CASPER_HAVE" == "$CASPER_WANT" ]]; then pass "/casper holds exactly the three layers' .squashfs, .size, .manifest and .manifest.full files and no other minimal* file"
+else fail "/casper's minimal* files are not the three layers' twelve: extra [$(LC_ALL=C comm -13 <(tr ' ' '\n' <<<"$CASPER_WANT") <(tr ' ' '\n' <<<"$CASPER_HAVE") | tr '\n' ' ' | cut -c1-300)] missing [$(LC_ALL=C comm -23 <(tr ' ' '\n' <<<"$CASPER_WANT") <(tr ' ' '\n' <<<"$CASPER_HAVE") | tr '\n' ' ' | cut -c1-300)]"; fi
 
 section "3e. Casper overlay layers must not change directory modes"
 # casper stacks minimal.squashfs, minimal.standard.squashfs and minimal.standard.live.squashfs with overlayfs, and a
@@ -559,13 +620,15 @@ BASE_FORBIDDEN=(
     "casper systemd units and their enable links|^/usr/lib/systemd/system/casper[^/]*\\.service\$|^/etc/systemd/system/.*casper[^/]*\\.service\$"
     "finalrd (casper's shutdown helper) files, unit and enable links|^/usr/lib/finalrd(/|\$)|^/usr/bin/finalrd\$|^/usr/share/doc/finalrd(/|\$)|^/usr/share/man/man1/finalrd\\.|^/usr/lib/systemd/system/finalrd\\.service\$|^/etc/systemd/system/.*finalrd\\.service\$|^/var/lib/dpkg/info/finalrd\\."
     "live-session dconf overrides (livecd-rootfs.gschema.override)|^/usr/share/glib-2\\.0/schemas/livecd-rootfs\\.gschema\\.override\$"
-    "installer snap files, snapd state, AppArmor and seccomp profiles (ubuntu-desktop-bootstrap, core22)|^/(snap|var/snap|var/lib/snapd|var/cache/snapd|var/cache/apparmor)/(.*/)?(snap\\.|snap-update-ns\\.)?(ubuntu-desktop-bootstrap|core22)([_./-]|\$)"
-    "installer snap mount units and service units|^/etc/systemd/system/(.*/)?snap[.-](ubuntu(-|\\\\x2d)desktop(-|\\\\x2d)bootstrap|core22)[.-]"
+    "installer snap files, snapd state, AppArmor and seccomp profiles (ubuntu-desktop-bootstrap; its base core24 is the system's own and stays)|^/(snap|var/snap|var/lib/snapd|var/cache/snapd|var/cache/apparmor)/(.*/)?(snap\\.|snap-update-ns\\.)?(ubuntu-desktop-bootstrap)([_./-]|\$)"
+    "installer snap mount units and service units|^/etc/systemd/system/(.*/)?snap[.-](ubuntu(-|\\\\x2d)desktop(-|\\\\x2d)bootstrap)[.-]"
     "installer user service (ubuntu-desktop-installer.service)|ubuntu-desktop-installer\\.service\$"
     "subiquity live-session files (/etc/subiquity, subiquity_config.mount and the device drop-in that wants it)|^/etc/subiquity(/|\$)|^/usr/lib/systemd/system/subiquity_config\\.mount\$|^/etc/systemd/system/dev-disk-by[^/]*\\.device\\.d(/|\$)"
     "live-image cloud-init files (06_quiet.cfg, the NoCloud seed)|^/etc/cloud/cloud\\.cfg\\.d/06_quiet\\.cfg\$|^/var/lib/cloud/seed/nocloud(/|\$)"
     "live-image apt preferences backup (preferences.d.save/preferences.d; the stock standard layer has the flat files) and packages.chroot|^/etc/apt/preferences\\.d\\.save/preferences\\.d(/|\$)|^/root/packages\\.chroot(/|\$)"
-    "live-session systemd settings (masked getty@tty1, udisks2-inhibit, media-filesystem.mount link, snapd no-reexec)|^/usr/lib/systemd/system/getty@tty1\\.service\$|^/usr/lib/systemd/system/(.*/)?udisks2-inhibit\\.service\$|^/usr/lib/systemd/system/local-fs\\.target\\.wants/media-filesystem\\.mount\$|^/usr/lib/systemd/system/snapd\\.service\\.d/no-reexec\\.conf\$"
+    "live-session systemd settings (masked getty@tty1, udisks2-inhibit, media-filesystem.mount link, snapd re-exec drop-in, display-manager wait for snapd seeding)|^/usr/lib/systemd/system/getty@tty1\\.service\$|^/usr/lib/systemd/system/(.*/)?udisks2-inhibit\\.service\$|^/usr/lib/systemd/system/local-fs\\.target\\.wants/media-filesystem\\.mount\$|^/etc/systemd/system/snapd\\.service\\.d/snapd-snap-reexec\\.conf\$|^/etc/systemd/system/display-manager\\.service\\.d/wait-for-snapd-seeding\\.conf\$"
+    "live-session security settings (the polkit rule that grants snapd's configuration to every subject, the sysctl file that switches off AppArmor's unprivileged-userns restriction)|^/etc/polkit-1/rules\\.d/10-allow-installer-wait-on-snap\\.rules\$|^/etc/sysctl\\.d/20-apparmor\\.conf\$"
+    "the snapd seed of the TPM full-disk-encryption variant (seed/systems/enhanced-secureboot-desktop; no such layer is shipped)|^/var/lib/snapd/seed/systems(/|\$)"
     "live-session journald drop-ins|^/etc/systemd/journald\\.conf\\.d/no-rate-limit\\.conf\$|^/etc/systemd/system/systemd-journald\\.service\\.d/no-(compact|hardening)\\.conf\$"
 )
 # Packages that belong to the live layer only: not in the base layer's dpkg status in any state (a purged package that
@@ -589,7 +652,6 @@ LIVE_REQUIRED=(
     "default-layer.conf (the live initrd's layer path)|^/etc/initramfs-tools/conf\\.d/default-layer\\.conf\$"
     "livecd-rootfs.gschema.override|^/usr/share/glib-2\\.0/schemas/livecd-rootfs\\.gschema\\.override\$"
     "the installer's user service|^/usr/lib/systemd/user/ubuntu-desktop-installer\\.service\$"
-    "subiquity's kernel-meta-package file|^/etc/subiquity/kernel-meta-package\$"
     "the installer snap file in the seed|^/var/lib/snapd/seed/snaps/ubuntu-desktop-bootstrap_[0-9]+\\.snap\$"
 )
 
@@ -610,11 +672,18 @@ pkg_present() { # pkg_present <dpkg status> <package>: a paragraph for it, in wh
     awk -v p="$2" 'BEGIN{RS=""; FS="\n"} $1 == "Package: " p {f = 1} END{exit !f}' "$1" 2>/dev/null
 }
 layer_size_bounds() { # layer_size_bounds <listing>: "lo hi", the range a true `du -sx --block-size=1` of the layer's tree falls in
-    # lo: 80% of the bytes of the regular files (hard links are listed once per name; the rest of the slack is for sparse
-    # files and compressing filesystems). hi: every regular file rounded up to 4 KiB, 4 KiB for every other entry, +20%, +1 MiB.
-    awk '{ t = substr($1, 1, 1)
-           if (t == "-") { app += $3; blk += int(($3 + 4095) / 4096) * 4096 } else other++ }
-         END { printf "%.0f %.0f\n", app * 0.8, (blk + other * 4096) * 1.2 + 1048576 }' "$1"
+    # An `unsquashfs -ll` listing shows a hard link once per name, but du counts the inode once. Ubuntu 26.04.1 stores every snap blob
+    # under two names that are ONE inode, /var/lib/snapd/snaps/X.snap and /var/lib/snapd/seed/snaps/X.snap, and mksquashfs 4.6.1 keeps
+    # such links: in the stock minimal layer the listing says 9.06 GB and du 6.16 GB. So the lower bound leaves out the bytes of the
+    # files directly in /var/lib/snapd/snaps (one name of every pair; a layer that lost a link has more du than that, never less).
+    # lo: 80% of the remaining regular-file bytes (the rest of the slack is for sparse files and compressing filesystems).
+    # hi: every regular file rounded up to 4 KiB, 4 KiB for every other entry, +20%, +1 MiB (both names counted: the upper bound allows a
+    # layer whose links were lost).
+    awk -v pre="$LL_PREFIX" '{ t = substr($1, 1, 1)
+           if (t == "-") { app += $3; blk += int(($3 + 4095) / 4096) * 4096
+                           p = $0; sub(pre, "", p); sub(/ -> .*$/, "", p)
+                           if (p ~ /^\/var\/lib\/snapd\/snaps\/[^\/]+$/) twin += $3 } else other++ }
+         END { printf "%.0f %.0f\n", (app - twin) * 0.8, (blk + other * 4096) * 1.2 + 1048576 }' "$1"
 }
 check_layer_size() { # check_layer_size <layer> <listing> <size file>: the size file is a number the layer's own listing allows
     local layer="$1" lst="$2" sf="$3" size lo hi
@@ -650,6 +719,10 @@ if grep -qxF /var/lib/dpkg/status "$BASE_PATHS" && [[ -s "$BASE_STATUS" ]]; then
         hits="$(grep -E -e "$re" "$BASE_PATHS" | head -n 3 | tr '\n' ' ')"
         if [[ -z "$hits" ]]; then pass "base layer has no $label"; else fail "base layer ships $label: ${hits% }"; fi
     done
+    # SSH host keys in the base would be the same private keys on every install made from this ISO (and on every copy of the ISO).
+    # openssh-server's postinst generates them in the chroot; customize-chroot.sh removes them, and 26.04's sshd-keygen.service makes a fresh set on the first boot.
+    hits="$(grep -E '^/etc/ssh/ssh_host_[A-Za-z0-9_]+_key(\.pub)?$' "$BASE_PATHS" | head -n 3 | tr '\n' ' ')"
+    if [[ -z "$hits" ]]; then pass "base layer has no SSH host keys (generated on the first boot)"; else fail "base layer ships SSH host keys, the same on every install: ${hits% }"; fi
     for p in "${LIVE_ONLY_PKGS[@]}"; do
         if pkg_present "$BASE_STATUS" "$p"; then fail "base layer's dpkg status lists the live-only package $p"
         else pass "base layer's dpkg status has no live-only package $p"; fi
@@ -667,11 +740,21 @@ if grep -qxF /var/lib/dpkg/status "$BASE_PATHS" && [[ -s "$BASE_STATUS" ]]; then
         done < <(sed -n 's/^[[:space:]-]*file:[[:space:]]*//p' "$SEEDY" | tr -d '\r"'"'")
         if [[ -z "$seed_missing" ]]; then pass "base layer's snapd seed.yaml names only snap files the base layer holds"
         else fail "base layer's snapd seed.yaml names snap files that are not in the base layer:$seed_missing"; fi
+        # The converse: 26.04.1's live layer drops the snap files of its TPM-encryption seed (pc-kernel, pc, a second firefox revision,
+        # nvidia components, 0.66 GB) into seed/snaps. The installed system's seed.yaml does not name them, so they are dead weight.
+        seed_extra=""
+        seed_names="$(sed -n 's/^[[:space:]-]*file:[[:space:]]*//p' "$SEEDY" | tr -d '\r"'"'")"
+        while IFS= read -r sf; do
+            [[ -n "$sf" ]] || continue
+            grep -qxF -- "$sf" <<<"$seed_names" || seed_extra="$seed_extra $sf"   # (a here-string: a pipe into grep -q can die of SIGPIPE under pipefail)
+        done < <(grep -E '^/var/lib/snapd/seed/snaps/[^/]+$' "$BASE_PATHS" | sed 's#^/var/lib/snapd/seed/snaps/##')
+        if [[ -z "$seed_extra" ]]; then pass "base layer's seed/snaps holds only snap files its seed.yaml names"
+        else fail "base layer's seed/snaps holds snap files that its seed.yaml does not name (the installed system's snapd never seeds them):$seed_extra"; fi
     else
         note "base layer has no var/lib/snapd/seed/seed.yaml (no snaps seeded)"
     fi
     if [[ -s "$R/var/lib/snapd/state.json" ]]; then
-        if grep -Eq 'ubuntu-desktop-bootstrap|core22' "$R/var/lib/snapd/state.json"; then fail "base layer's snapd state.json knows an installer snap (ubuntu-desktop-bootstrap or core22)"
+        if grep -Eq 'ubuntu-desktop-bootstrap' "$R/var/lib/snapd/state.json"; then fail "base layer's snapd state.json knows the installer snap (ubuntu-desktop-bootstrap)"
         else pass "base layer's snapd state.json knows no installer snap"; fi
     fi
     # Files the live image rewrote in place (the same path as in the stock layers below it): the base takes the stock ones back.
@@ -684,6 +767,48 @@ if grep -qxF /var/lib/dpkg/status "$BASE_PATHS" && [[ -s "$BASE_STATUS" ]]; then
     else
         pass "base layer's systemd-networkd-wait-online is not replaced by a symlink"
     fi
+    # The installed system's initramfs generator. Ubuntu 26.04.1's minimal layer (the stock installed system) is dracut based; the live
+    # layer swaps it for initramfs-tools by whiting dracut out (75 whiteout devices) and installing initramfs-tools. This build merges
+    # all three layers, so the base it splits back out is initramfs-tools based: curtin then regenerates the initrd with
+    # update-initramfs, which is initramfs-tools' (dracut's wrapper would run `dracut --force`; a base with neither would get no
+    # initrd, because curtin does nothing when only dracut exists). That is on purpose and it is pinned: ubuntu-desktop-minimal
+    # recommends dracut, which conflicts with initramfs-tools, so apt could later try to swap the generator under the system.
+    if pkg_ok initramfs-tools; then pass "base layer: initramfs-tools is installed (update-initramfs is the real one curtin calls)"
+    else fail "base layer: initramfs-tools is not installed (curtin would find no update-initramfs, or dracut's wrapper, and the installed system might get no initrd)"; fi
+    for p in dracut dracut-core; do
+        if pkg_present "$BASE_STATUS" "$p"; then fail "base layer's dpkg status lists $p (the base must be initramfs-tools based: dracut conflicts with initramfs-tools)"
+        else pass "base layer's dpkg status has no $p"; fi
+    done
+    PIN="$R/etc/apt/preferences.d/ci-os-no-dracut"
+    if [[ -f "$PIN" ]]; then
+        pin_missing=""
+        # The two generator packages. (dracut-install is NOT required: it is the helper initramfs-tools-core depends on, so pinning it to -1 would
+        # freeze it at the installed version and keep its updates out; customize-chroot.sh's payload/apt file pins dracut and dracut-core only,
+        # measured with apt-get -s dist-upgrade on 26.04. A pin file that lists it too is accepted.)
+        for p in dracut dracut-core; do
+            # a stanza of apt_preferences(5): a Package: line naming p, a Pin: line and Pin-Priority: -1 (apt never installs it)
+            awk -v want="$p" 'BEGIN { RS = ""; FS = "\n" }
+                { pk = 0; pn = 0; pr = 0
+                  for (i = 1; i <= NF; i++) {
+                      if ($i ~ /^Package:/) { line = $i; sub(/^Package:[[:space:]]*/, "", line); n = split(line, a, /[[:space:],]+/); for (j = 1; j <= n; j++) if (a[j] == want) pk = 1 }
+                      else if ($i ~ /^Pin:[[:space:]]*[a-z]+[[:space:]]/) pn = 1
+                      else if ($i ~ /^Pin-Priority:[[:space:]]*-1[[:space:]]*$/) pr = 1
+                  }
+                  if (pk && pn && pr) f = 1 }
+                END { exit !f }' "$PIN" || pin_missing="$pin_missing $p"
+        done
+        if [[ -z "$pin_missing" ]]; then pass "/etc/apt/preferences.d/ci-os-no-dracut pins dracut and dracut-core to Pin-Priority -1 (apt cannot swap the initramfs generator)"
+        else fail "/etc/apt/preferences.d/ci-os-no-dracut does not pin to Pin-Priority -1:$pin_missing"; fi
+    else
+        fail "/etc/apt/preferences.d/ci-os-no-dracut is missing (apt could install dracut, which conflicts with initramfs-tools, over the initramfs-tools based base)"
+    fi
+    # Ubuntu 26.04's subiquity expects the ISO pool's apt source IN the layer it installs (apt.py: "an /etc/apt/sources.list.d/cdrom.sources
+    # file is present since Ubuntu 26.04") and deletes it from the installed system itself. The build disables it in the chroot only
+    # for apt-get update and has to put it back; a renamed copy makes subiquity write an unsigned sources.list entry for the pool.
+    if in_listing ' /etc/apt/sources\.list\.d/cdrom\.sources$' && file_has "$R/etc/apt/sources.list.d/cdrom.sources" '^URIs:[[:space:]]*file:///cdrom[[:space:]]*$'; then
+        pass "base layer: /etc/apt/sources.list.d/cdrom.sources is there, for the ISO pool (subiquity 26.04 relies on it and removes it from the installed system)"
+    else fail "base layer: /etc/apt/sources.list.d/cdrom.sources is missing or is not the ISO pool's source"; fi
+    if in_listing 'cdrom\.sources\.disabled'; then fail "base layer: a cdrom.sources.disabled is left over from the build's apt-get update"; else pass "base layer: no cdrom.sources.disabled left over"; fi
 else
     fail "base layer: could not read its listing or var/lib/dpkg/status, so none of the live-only checks could run"
 fi
@@ -706,6 +831,21 @@ else
     else fail "live layer lacks:$live_missing"; fi
     if [[ -s "$LR/var/lib/snapd/seed/seed.yaml" ]] && grep -q 'ubuntu-desktop-bootstrap' "$LR/var/lib/snapd/seed/seed.yaml"; then pass "live layer's snapd seed.yaml still names the installer snap"
     else fail "live layer's snapd seed.yaml does not name the installer snap (the live session cannot seed it)"; fi
+    # Ubuntu 26.04.1's live layer carries the snapd seed of its TPM full-disk-encryption variant (seed/systems/enhanced-secureboot-desktop, and in
+    # seed/snaps a pc-kernel, a pc gadget, a second firefox revision and two nvidia components that seed.yaml does not name: 0.66 GB). This image ships
+    # none of the enhanced-secureboot layers and offers no such variation, so build-iso.sh (remove_esb_seed) deletes the seed from the rootfs before the
+    # split and it is in neither layer. Still there, it is weight on a medium that must fit the smallest Stick boot slot (see the size check below).
+    hits="$(grep -E '^/var/lib/snapd/seed/systems(/|$)' "$LIVE_PATHS" | head -n 3 | tr '\n' ' ')"
+    if [[ -z "$hits" ]]; then pass "live layer has no snapd seed of the TPM full-disk-encryption variant (seed/systems)"
+    else fail "live layer ships the snapd seed of the TPM full-disk-encryption variant (no such layer is shipped): ${hits% }"; fi
+    live_seed_names="$(sed -n 's/^[[:space:]-]*file:[[:space:]]*//p' "$LR/var/lib/snapd/seed/seed.yaml" 2>/dev/null | tr -d '\r"'"'")"
+    live_seed_extra=""
+    while IFS= read -r sf; do
+        [[ -n "$sf" ]] || continue
+        grep -qxF -- "$sf" <<<"$live_seed_names" || live_seed_extra="$live_seed_extra $sf"   # (a here-string: a pipe into grep -q can die of SIGPIPE under pipefail)
+    done < <(grep -E '^/var/lib/snapd/seed/snaps/[^/]+$' "$LIVE_PATHS" | sed 's#^/var/lib/snapd/seed/snaps/##')
+    if [[ -z "$live_seed_extra" ]]; then pass "live layer's seed/snaps holds only snap files its seed.yaml names"
+    else fail "live layer's seed/snaps holds snap files that its seed.yaml does not name (the encryption variant's pc-kernel, pc, second firefox, nvidia components; dead weight):$live_seed_extra"; fi
     if [[ -s "$LR/etc/cloud/cloud.cfg" ]] && grep -q 'subiquity-shell' "$LR/etc/cloud/cloud.cfg"; then pass "live layer carries the live session's /etc/cloud/cloud.cfg"
     else fail "live layer does not carry the live session's /etc/cloud/cloud.cfg (the base's stock copy would apply in the live session too)"; fi
     if [[ -s "$LIVE_STATUS" ]] && awk 'BEGIN{RS=""; FS="\n"} $1 == "Package: casper" { for (i = 1; i <= NF; i++) if ($i == "Status: install ok installed") f = 1 } END{exit !f}' "$LIVE_STATUS"; then
@@ -746,6 +886,27 @@ elif cmp -s "$PK/minimal.standard.live.manifest" "$PK/live.delta" && [[ -s "$PK/
 else
     fail "minimal.standard.live.manifest is not the live layer's package delta ($(comm -23 "$PK/minimal.standard.live.manifest" "$PK/live.delta" | wc -l | tr -d ' ') only in the manifest, $(comm -13 "$PK/minimal.standard.live.manifest" "$PK/live.delta" | wc -l | tr -d ' ') only in the layer)"
 fi
+# The full manifests describe the whole stack up to a layer: "name<TAB>version" per package, then "snap:name<TAB>channel<TAB>revision". The
+# stock ISO ships one per layer; the stock ones describe the stock layers, so a stale one would list packages this image does not have.
+full_pkgs() { # the package lines of a .manifest.full, name:arch reduced to name like manifest_pkgs does, sorted like status_pkgs
+    grep -v '^snap:' "$1" 2>/dev/null | awk -F'\t' '{ n = $1; sub(/:[^:]*$/, "", n); print n "\t" $2 }' | sort -u
+}
+for m in minimal minimal.standard minimal.standard.live; do
+    case "$m" in minimal.standard.live) want_status="$PK/live.status" ;; *) want_status="$PK/base.status" ;; esac
+    full_pkgs "$ISOX/$m.manifest.full" > "$PK/$m.full"
+    if [[ ! -s "$ISOX/$m.manifest.full" ]]; then fail "$m.manifest.full is missing or empty"
+    elif cmp -s "$PK/$m.full" "$want_status"; then pass "$m.manifest.full lists exactly the packages of the stack up to that layer ($(wc -l < "$want_status" | tr -d ' '))"
+    else fail "$m.manifest.full is not the package list of the stack up to that layer ($(comm -23 "$PK/$m.full" "$want_status" | wc -l | tr -d ' ') only in the manifest, $(comm -13 "$PK/$m.full" "$want_status" | wc -l | tr -d ' ') only in the layer)"; fi
+done
+# ...and the snap lines are the snaps of that stack's seed (the base's seed.yaml for the first two, the live layer's for the last)
+for pair in "minimal:$R/var/lib/snapd/seed/seed.yaml" "minimal.standard.live:$LR/var/lib/snapd/seed/seed.yaml"; do
+    m="${pair%%:*}"; sy="${pair#*:}"
+    [[ -s "$sy" && -s "$ISOX/$m.manifest.full" ]] || continue
+    seed_snap_names="$(sed -n 's/^[[:space:]-]*name:[[:space:]]*//p' "$sy" | tr -d '\r"'"'" | sort -u)"
+    full_snap_names="$(sed -n 's/^snap:\([^[:space:]]*\)[[:space:]].*/\1/p' "$ISOX/$m.manifest.full" | sort -u)"
+    if [[ "$seed_snap_names" == "$full_snap_names" ]]; then pass "$m.manifest.full lists the snaps of that stack's seed ($(printf '%s\n' "$full_snap_names" | grep -c .))"
+    else fail "$m.manifest.full's snap lines are not the snaps of that stack's seed.yaml (manifest: $(printf '%s' "$full_snap_names" | tr '\n' ' '); seed: $(printf '%s' "$seed_snap_names" | tr '\n' ' '))"; fi
+done
 live_casper_ver="$(awk -F'\t' '$1 == "casper" {print $2}' "$PK/live.status")"
 if [[ -n "$live_casper_ver" && "$(awk -F'\t' '$1 == "casper" {print $2}' "$PK/minimal.standard.live.manifest")" == "$live_casper_ver" ]]; then
     pass "minimal.standard.live.manifest lists casper $live_casper_ver, the version the live layer has"
@@ -942,11 +1103,16 @@ canon_png() {
 }
 if [[ $CANON_OK -eq 1 ]] && ! can_render; then note "no rsvg-convert or ImageMagick here: logo shapes are not compared with a fresh render of the mark"; fi
 
-# Settings > About (gnome-control-center) hard-codes two base-files pixmaps, light and dark, and ignores LOGO=.
-# These are the stock sha256 values of Ubuntu 24.04.5's pair (the orange wordmark, 260 and 256 px wide).
-# 45-about-logo.sh installs the one-colour mark in the canon primary of each mode.
-STOCK_ABOUT_LIGHT_SHA=26deac685457e38325d743c50ff3d7b83a820243afef26878c13ee262198528c
-STOCK_ABOUT_DARK_SHA=2d6f9e55acdc9583bb2d7533e5aff0947252eaddc0734cdceeb58e38713925f3
+# Settings > About (gnome-control-center) hard-codes two base-files pixmaps, light and dark, and ignores LOGO=. GNOME 50's
+# gnome-control-center 50.3 names the SVGs (/usr/share/pixmaps/ubuntu-logo-text.svg and ubuntu-logo-text-dark.svg: the strings are in the
+# binary, and no .png variant is); the PNGs are still shipped by base-files 26.04.1 and older consumers read them, so both pairs are
+# replaced. 45-about-logo.sh installs the one-colour mark in the canon primary of each mode, as PNG and as SVG.
+# The stock sha256 values below are Ubuntu 26.04.1's own files (read off the base ISO; the PNGs are 187x72, the wordmark in Ubuntu
+# orange; 24.04.5's pair was different, 260 and 256 px wide).
+STOCK_ABOUT_LIGHT_SHA=5f8a4779510b8eb5dfe40b7f5526945105e0788cd9577472894fef3c22d7ce2b
+STOCK_ABOUT_DARK_SHA=63c599f9b4ad9938161f996b9eac4be3634e9af26f25f32c4be8bcff2ac45f1e
+STOCK_ABOUT_LIGHT_SVG_SHA=351337c2bcd8b0eb9450aa47ea65fed87d92088298c8900c98fdb815c682c433
+STOCK_ABOUT_DARK_SVG_SHA=bc60770f29cda9e8d78809e25d6dfb8824efc29b4788ca9b1379054db0d48119
 for pair in "ubuntu-logo-text.png:$STOCK_ABOUT_LIGHT_SHA:light" "ubuntu-logo-text-dark.png:$STOCK_ABOUT_DARK_SHA:dark"; do
     name="${pair%%:*}"; rest="${pair#*:}"; stock="${rest%%:*}"; mode="${rest##*:}"; f="$R/usr/share/pixmaps/$name"
     if [[ ! -f "$f" ]]; then fail "Settings > About logo missing: /usr/share/pixmaps/$name"; continue; fi
@@ -957,7 +1123,7 @@ for pair in "ubuntu-logo-text.png:$STOCK_ABOUT_LIGHT_SHA:light" "ubuntu-logo-tex
         fail "$name is not a PNG"
     fi
     if [[ "$(sha256sum "$f" | cut -d' ' -f1)" != "$stock" ]]; then pass "$name is not Ubuntu's stock file"; else fail "$name is still Ubuntu's stock wordmark"; fi
-    if divert_ok "/usr/share/pixmaps/$name" && in_listing " /usr/share/pixmaps/${name//./\\.}\\.ubuntu-stock\$"; then
+    if divert_ok "/usr/share/pixmaps/$name" && stock_copy_listed "/usr/share/pixmaps/$name"; then
         pass "$name is dpkg-diverted (base-files cannot restore Ubuntu's)"
     else
         fail "$name is not dpkg-diverted to $name.ubuntu-stock (a base-files upgrade would restore Ubuntu's wordmark)"
@@ -965,6 +1131,34 @@ for pair in "ubuntu-logo-text.png:$STOCK_ABOUT_LIGHT_SHA:light" "ubuntu-logo-tex
     if [[ $CANON_OK -eq 1 ]] && png_is "$f"; then
         if [[ "$mode" == light ]]; then fill="$CI_LIGHT_PRIMARY"; else fill="$CI_DARK_PRIMARY"; fi
         canon_png "$name ($mode mode)" "$f" solid "${fill#\#}" "$fill"
+    fi
+done
+# The SVG pair gnome-control-center 50 actually reads. Branded means: not Ubuntu's file, no Ubuntu orange, and (given the repo's canon)
+# the vendored one-colour mark filled with the mode's primary token, exactly what the PNG of the same mode is drawn from: every path of
+# mark-mono.svg is in the file, with fill:<the primary>, and the dock/start-icon colours of the three-tone artwork are not.
+for pair in "ubuntu-logo-text.svg:$STOCK_ABOUT_LIGHT_SVG_SHA:light" "ubuntu-logo-text-dark.svg:$STOCK_ABOUT_DARK_SVG_SHA:dark"; do
+    name="${pair%%:*}"; rest="${pair#*:}"; stock="${rest%%:*}"; mode="${rest##*:}"; f="$R/usr/share/pixmaps/$name"
+    if [[ ! -f "$f" ]]; then fail "Settings > About SVG logo missing: /usr/share/pixmaps/$name (GNOME 50 reads this file, not the PNG)"; continue; fi
+    if grep -q -a '<svg' "$f"; then pass "$name is an SVG"; else fail "$name is not an SVG"; fi
+    if [[ "$(sha256sum "$f" | cut -d' ' -f1)" != "$stock" ]]; then pass "$name is not Ubuntu's stock file"; else fail "$name is still Ubuntu's stock wordmark (GNOME 50's Settings > About shows it)"; fi
+    if grep -q -i -a '#e95420' "$f"; then fail "$name still has Ubuntu orange (#e95420) in it"; else pass "$name has no Ubuntu orange"; fi
+    if divert_ok "/usr/share/pixmaps/$name" && stock_copy_listed "/usr/share/pixmaps/$name"; then
+        pass "$name is dpkg-diverted (base-files cannot restore Ubuntu's)"
+    else
+        fail "$name is not dpkg-diverted to $name.ubuntu-stock (a base-files upgrade would restore Ubuntu's wordmark)"
+    fi
+    if [[ $CANON_OK -eq 1 ]]; then
+        MONO_ABOUT="${CANON_MARK%/*}/mark-mono.svg"
+        if [[ "$mode" == light ]]; then fill="$CI_LIGHT_PRIMARY"; else fill="$CI_DARK_PRIMARY"; fi
+        n_paths=0; n_missing=0
+        while IFS= read -r dattr; do
+            n_paths=$((n_paths + 1))
+            grep -q -F -a -- "$dattr" "$f" || n_missing=$((n_missing + 1))
+        done < <(grep -o ' d="[^"]*"' "$MONO_ABOUT")
+        if [[ $n_paths -ge 1 && $n_missing -eq 0 ]]; then pass "$name carries all $n_paths paths of the vendored one-colour mark"
+        else fail "$name lacks $n_missing of the $n_paths paths of the vendored one-colour mark (vendor/brand/logos/mark-mono.svg)"; fi
+        if grep -q -i -a -- "${fill}" "$f" && ! grep -q -a 'currentColor' "$f"; then pass "$name is filled with the canon primary of $mode mode ($fill)"
+        else fail "$name is not filled with the canon primary of $mode mode ($fill), or still says currentColor"; fi
     fi
 done
 
@@ -1096,19 +1290,18 @@ else
 fi
 
 section "4c. Visible names (sessions, Settings panel, extensions)"
-# 60-visible-names.sh renames the display strings Ubuntu still showed after the logos: the sessions in GDM's gear menu,
-# the Settings sidebar entry (gnome-ubuntu-panel.desktop) and the names of three shell extensions. What the session and
+# 60-visible-names.sh renames the display strings Ubuntu still showed after the logos: the session in GDM's gear menu,
+# the Settings sidebar entry (gnome-ubuntu-panel.desktop) and the names of three shell extensions. Ubuntu 26.04.1 has exactly one
+# session, /usr/share/wayland-sessions/ubuntu.desktop (no /usr/share/xsessions, no ubuntu-xorg.desktop, no ubuntu-wayland.desktop, no
+# Xorg server): this build must not make a second one up, and a stray file would be a way to log in to a session nobody tested. What the session and
 # the shell find them by must stay Ubuntu's, and is asserted as hard as the names: a session whose file name, Exec= or
 # DesktopNames= changed does not log in, a panel without OnlyShowIn=ubuntu; vanishes, and an extension whose uuid no
 # longer matches its directory is not loaded. The stock files are diverted so a package upgrade cannot restore them.
-listed() { awk -v p="$1" '$NF == p { f = 1 } END { exit !f }' "$LISTING"; } # a file at exactly this path in the image
+listed() { grep -q -x -F -- "$1" "$BASE_PATHS"; } # a file at exactly this path in the image (BASE_PATHS: every path of the listing, a link's " -> target" dropped)
 has_line() { grep -q -x -F -- "$2" "$1" 2>/dev/null; }                     # has_line <file> <whole line>
 json_field() { python3 -I -c 'import json, sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$1" "$2" 2>/dev/null; }
 SESSION_ENTRIES=(
-    "/usr/share/xsessions/ubuntu.desktop|Companion OS"
-    "/usr/share/xsessions/ubuntu-xorg.desktop|Companion OS on Xorg"
     "/usr/share/wayland-sessions/ubuntu.desktop|Companion OS"
-    "/usr/share/wayland-sessions/ubuntu-wayland.desktop|Companion OS on Wayland"
 )
 session_name_bad=""
 for entry in "${SESSION_ENTRIES[@]}"; do
@@ -1120,9 +1313,11 @@ for entry in "${SESSION_ENTRIES[@]}"; do
     else
         fail "$f is not named '$want': $(grep -E '^(Name|Comment)=' "$R$f" 2>/dev/null | tr '\n' '|')"
     fi
-    if has_line "$R$f" "Exec=env GNOME_SHELL_SESSION_MODE=ubuntu /usr/bin/gnome-session --session=ubuntu" \
-       && has_line "$R$f" "TryExec=/usr/bin/gnome-shell" && file_has "$R$f" '^DesktopNames=ubuntu;GNOME;?$'; then
-        pass "$f keeps its session identifiers (Exec= ubuntu session, TryExec=, DesktopNames=ubuntu;GNOME)"
+    # GNOME 50 / Ubuntu 26.04.1: the session starts gnome-session directly (no env GNOME_SHELL_SESSION_MODE wrapper any more) and is
+    # tried by gnome-session, not gnome-shell.
+    if has_line "$R$f" "Exec=/usr/bin/gnome-session --session=ubuntu" \
+       && has_line "$R$f" "TryExec=/usr/bin/gnome-session" && file_has "$R$f" '^DesktopNames=ubuntu;GNOME;?$'; then
+        pass "$f keeps its session identifiers (Exec=/usr/bin/gnome-session --session=ubuntu, TryExec=/usr/bin/gnome-session, DesktopNames=ubuntu;GNOME)"
     else
         fail "$f lost an identifier the session starts by: $(grep -E '^(Exec|TryExec|DesktopNames)=' "$R$f" 2>/dev/null | tr '\n' '|')"
     fi
@@ -1133,10 +1328,14 @@ for entry in "${SESSION_ENTRIES[@]}"; do
     fi
 done
 if [[ -z "$session_name_bad" ]]; then
-    pass "every Name= in the four session files starts with 'Companion OS'"
+    pass "every Name= in the session file starts with 'Companion OS'"
 else
     fail "a Name= in a session file does not start with 'Companion OS':$session_name_bad"
 fi
+# exactly one selectable session: the file above (and its diverted stock copy), nothing in xsessions, no other wayland session
+session_extra="$(listing_paths "$LISTING" | grep -E '^/usr/share/(xsessions|wayland-sessions)/[^/]+$' | grep -v -x -e '/usr/share/wayland-sessions/ubuntu.desktop' -e '/usr/share/wayland-sessions/ubuntu.desktop.ubuntu-stock' | tr '\n' ' ' || true)"
+if [[ -z "$session_extra" ]]; then pass "exactly one session file exists (/usr/share/wayland-sessions/ubuntu.desktop; Ubuntu 26.04.1 has no Xorg session)"
+else fail "other session files exist: ${session_extra% } (26.04.1 has the one Wayland session only)"; fi
 
 PANEL="/usr/share/applications/gnome-ubuntu-panel.desktop"
 if ! listed "$PANEL"; then
@@ -1180,11 +1379,122 @@ for entry in "ubuntu-dock@ubuntu.com|Companion OS Dock" "ubuntu-appindicators@ub
     fi
 done
 
+section "4d. GNOME Shell theme (the Ubuntu session and the GDM greeter)"
+# Two files on Ubuntu 26.04.1 are called gnome-shell-theme.gresource and they are different things (backends/ubuntu/lib/shell-theme.sh has the story):
+#   theme/Yaru/gnome-shell-theme.gresource   what the Ubuntu session (modes/ubuntu.json) and the GDM greeter (gdm-theme.gresource -> /etc/alternatives
+#                                            -> this file) load: it must be the branded blob, which is the Yaru theme recoloured;
+#   gnome-shell-theme.gresource (top level)  the UPSTREAM theme, which the session modes without a theme of their own load (GNOME Shell 50's built-in
+#                                            modes, initial-setup): it must keep gnome-shell-light.css, which the branded blob does not have, or those
+#                                            modes throw "No valid stylesheet found".
+# The build used to copy the one blob over both. Step 2b of customize-chroot.sh installs the branded one over the Yaru file always and over the upstream one
+# only when it provides every resource, and a missing blob is only a warning there, so nothing but this section notices an image that is unthemed or that has
+# lost the stylesheets (found by the review of the port: neither state failed the build or the verify).
+YARU_GRES="$R/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
+TOP_GRES="$R/usr/share/gnome-shell/gnome-shell-theme.gresource"
+BRANDED_GRES="$VERIFY_REPO/backends/ubuntu/packages/ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
+STOCK_YARU_GRES_SHA=da1d2019b8f5c498d1d5570e8bfd0ef33445153095ebad77ba34802b29e384ac   # yaru-theme-gnome-shell 26.04.5.1: the file of the 26.04.1 ISO
+gres_lists() { # gres_lists <gresource> <file name>: the gresource has a theme resource of that name. A gresource keeps its resource names as plain
+               # text, so without the gresource tool (libglib2.0-bin) the name is looked up in the bytes (weaker: it also matches the Yaru/ copy of a name)
+    local out
+    if command -v gresource >/dev/null 2>&1 && out="$(gresource list "$1" 2>/dev/null)" && [[ -n "$out" ]]; then
+        grep -q -x -F -- "/org/gnome/shell/theme/$2" <<<"$out"
+    else
+        grep -a -q -F -- "$2" "$1" 2>/dev/null
+    fi
+}
+if [[ ! -s "$YARU_GRES" ]]; then
+    fail "GNOME Shell theme: /usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource is missing (the Ubuntu session and the greeter have no theme)"
+else
+    yaru_sha="$(sha256sum "$YARU_GRES" | cut -d' ' -f1)"
+    if [[ "$yaru_sha" == "$STOCK_YARU_GRES_SHA" ]]; then
+        fail "GNOME Shell theme: the Ubuntu session's gresource is Ubuntu's stock Yaru theme, byte for byte: the branded theme was not installed (Step 2b of customize-chroot.sh only warns when the blob is missing)"
+    else
+        pass "GNOME Shell theme: the Ubuntu session's gresource (theme/Yaru/gnome-shell-theme.gresource) is not Ubuntu's stock Yaru theme"
+    fi
+    if [[ -f "$BRANDED_GRES" ]]; then
+        if [[ "$yaru_sha" == "$(sha256sum "$BRANDED_GRES" | cut -d' ' -f1)" ]]; then
+            pass "GNOME Shell theme: theme/Yaru/gnome-shell-theme.gresource is the branded blob of this checkout, byte for byte ($yaru_sha)"
+        else
+            fail "GNOME Shell theme: theme/Yaru/gnome-shell-theme.gresource ($yaru_sha) is not the branded blob of this checkout (ci-os-branding/.../Yaru/gnome-shell-theme.gresource, $(sha256sum "$BRANDED_GRES" | cut -d' ' -f1)): built from another checkout, or replaced after the theme step"
+        fi
+    else
+        skip "the check that the Yaru gresource is this checkout's branded blob: run this script from the repo checkout (backends/ubuntu/packages/ci-os-branding)"
+    fi
+fi
+if [[ ! -s "$TOP_GRES" ]]; then
+    fail "GNOME Shell theme: /usr/share/gnome-shell/gnome-shell-theme.gresource (the upstream theme, gnome-shell-common's) is missing"
+else
+    top_missing=""
+    for css in gnome-shell-light.css gnome-shell-dark.css; do gres_lists "$TOP_GRES" "$css" || top_missing="$top_missing $css"; done
+    if [[ -z "$top_missing" ]]; then
+        pass "GNOME Shell theme: the upstream gnome-shell-theme.gresource still has gnome-shell-light.css and gnome-shell-dark.css (the built-in session modes load them)"
+    else
+        fail "GNOME Shell theme: the upstream gnome-shell-theme.gresource lost${top_missing} (the branded Yaru blob was copied over it): the built-in session modes and initial-setup would throw 'No valid stylesheet found'"
+    fi
+fi
+if in_listing ' /usr/share/gnome-shell/gdm-theme\.gresource -> /etc/alternatives/gdm-theme\.gresource$' \
+   && in_listing ' /etc/alternatives/gdm-theme\.gresource -> /usr/share/gnome-shell/theme/Yaru/gnome-shell-theme\.gresource$'; then
+    pass "GNOME Shell theme: the greeter's gdm-theme.gresource still resolves, through /etc/alternatives, to the Yaru file that carries the branded theme"
+else
+    fail "GNOME Shell theme: gdm-theme.gresource no longer leads, through /etc/alternatives, to theme/Yaru/gnome-shell-theme.gresource (the greeter would not show the branded theme)"
+fi
+
 section "5. Branding: boot menu"
 check "GRUB menu says Companion OS" file_has "$ISOX/grub.cfg" 'menuentry "Try or Install Companion OS"'
-check "/.disk/info starts with Companion-OS (launcher label 'Install Companion OS ...')" bash -c "head -1 '$ISOX/disk-info' | grep -q -E '^Companion-OS [0-9.]+ LTS '"
+# /.disk/info is data that several readers take apart, and one of them puts it on a screen. The stock line is
+# `Ubuntu 26.04.1 LTS "Resolute Raccoon" - Release amd64 (20260826)`; the build writes `Companion OS 26.04.1 LTS "Resolute Raccoon" - Release amd64 (...)`.
+# What each reader does with it (read from the 26.04.1 stock initrd and the installer snap, rev 665):
+#   the installer's last page   ubuntu_bootstrap's ProductService reads /cdrom/.disk/info and the page says "<name> is installed and ready to use": the text
+#                               before the quote is on screen ("Companion-OS 24.04.5 LTS is installed and ready to use" in the recorded 24.04.5 run, written
+#                               with a hyphen in this file). So the name is spelt "Companion OS" here, the product's name. (The first page and the review page
+#                               say "Ubuntu" whatever this file says: the known residue below.)
+#   casper 25adduser            the installer launcher's label "Install RELEASE": fields 1-2 with `-` as a blank, plus " LTS" if field 3 is "LTS". With a
+#                               blank in the name, field 3 is the release, so the launcher reads "Install Companion OS" (no release, no LTS: shorter, nothing lost).
+#   casper scripts/casper       field 1 lower-cased is the live user and host unless casper.conf sets FLAVOUR, which this image's does (section 7).
+#   subiquity refresh.py        the SECOND word is "the release" its snap channel is named after: "OS" gives stable/ubuntu-OS. configure_snapd switches the
+#                               channel only when the installer snap tracks stable/ubuntu-<release of the live system>; the 26.04.1 seed has it on
+#                               26.04/stable/ubuntu-26.04.1, so it returns before it uses the word. That is asserted below from the image's own seed.yaml.
+#   pollinate                   the trailing "(serial)".
+check "/.disk/info starts with 'Companion OS', the release and LTS (no hyphen: the installer's last page shows this text)" bash -c "head -1 '$ISOX/disk-info' | grep -q -E '^Companion OS [0-9]+\\.[0-9]+(\\.[0-9]+)? LTS '"
 check "/.disk/info keeps the (serial) suffix pollinate parses" bash -c "head -1 '$ISOX/disk-info' | grep -q -E '\\([0-9.]+\\)\\s*\$'"
+disk_info_first="$(head -n 1 "$ISOX/disk-info" 2>/dev/null)"
+# the product name the installer's last page shows: everything before the codename's quote
+disk_name="$(printf '%s\n' "$disk_info_first" | sed 's/[[:space:]]*".*$//')"
+if [[ "$disk_name" =~ ^Companion\ OS\ [0-9]+\.[0-9]+(\.[0-9]+)?\ LTS$ ]]; then pass "/.disk/info: the installer's last page reads '$disk_name is installed and ready to use' (Companion OS, no hyphen on screen)"
+else fail "/.disk/info: the product name before the codename is '${disk_name:-nothing}': the installer's last page would show it as '<that> is installed and ready to use' (want 'Companion OS <release> LTS')"; fi
+# the installer launcher's label, computed the way casper's 25adduser does (LTS from field 3, RELEASE from fields 1-2 with `-` as a blank)
+disk_lts="$(printf '%s\n' "$disk_info_first" | cut -d' ' -f3)"
+disk_label="$(printf '%s\n' "$disk_info_first" | cut -d' ' -f1-2 | sed 's/-/ /')"
+if [[ "$disk_lts" == LTS && -n "$disk_label" ]]; then disk_label="$disk_label LTS"; fi
+if [[ "$disk_label" =~ ^Companion\ OS(\ [0-9]+\.[0-9]+(\.[0-9]+)?(\ LTS)?)?$ ]]; then pass "/.disk/info: casper's launcher label reads 'Install $disk_label' (Companion OS, no hyphen on screen)"
+else fail "/.disk/info: casper would label the installer launcher 'Install ${disk_label:-nothing}' (want 'Install Companion OS')"; fi
+# subiquity: the second word of the line is "the release". If it is one, the channel it names is right; if it is not ("OS"), the channel logic must never get that far.
+disk_info_word2="$(printf '%s\n' "$disk_info_first" | awk '{ print $2 }')"
+live_release="$(sed -n 's/^DISTRIB_RELEASE=//p' "$R/etc/lsb-release" 2>/dev/null | head -n 1 | tr -d '"')"
+installer_channel="$(awk '
+    function flush() { if (nm == "ubuntu-desktop-bootstrap") print ch; nm = ""; ch = "" }
+    /^[[:space:]]*-[[:space:]]*($|[A-Za-z])/ { flush() }
+    { line = $0; sub(/^[[:space:]]*-?[[:space:]]*/, "", line) }
+    line ~ /^name:/    { nm = line; sub(/^name:[[:space:]]*/, "", nm); gsub(/["'\''[:space:]]/, "", nm) }
+    line ~ /^channel:/ { ch = line; sub(/^channel:[[:space:]]*/, "", ch); gsub(/["'\''[:space:]]/, "", ch) }
+    END { flush() }' "$LR/var/lib/snapd/seed/seed.yaml" 2>/dev/null | head -n 1)"
+if [[ "$disk_info_word2" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+    pass "/.disk/info: the second word is the release ($disk_info_word2), which subiquity names its snap channel after (stable/ubuntu-$disk_info_word2)"
+elif [[ -z "$live_release" || -z "$installer_channel" ]]; then
+    fail "/.disk/info: the second word is '${disk_info_word2:-nothing}', not a release, and the installer snap's channel (live layer seed.yaml: '${installer_channel:-none}') or the release (lsb-release: '${live_release:-none}') cannot be read, so it is not shown that subiquity never acts on it"
+elif [[ "$installer_channel" == "stable/ubuntu-$live_release" || "$installer_channel" == "latest/stable/ubuntu-$live_release" ]]; then
+    fail "/.disk/info: the second word is '$disk_info_word2' and the installer snap tracks $installer_channel: subiquity's refresh.py would switch it to the channel stable/ubuntu-$disk_info_word2 (it only leaves the channel alone when the snap tracks something else)"
+else
+    pass "/.disk/info: the second word is '$disk_info_word2' and subiquity's refresh.py never uses it: the installer snap tracks $installer_channel, not stable/ubuntu-$live_release, and it switches channel only for the latter"
+fi
 check "no Ubuntu in any GRUB menu entry title" bash -c "! grep -E '^\s*menuentry' '$ISOX/grub.cfg' '$ISOX/loopback.cfg' | grep -q -i ubuntu"
+# The ISO volume id is NOT renamed: the signed GRUB and casper find the medium by it (renaming it stops the EFI boot). It is also what
+# the user sees as the medium's label, so it stays "Ubuntu 26.04.1 LTS amd64" on purpose (listed under the known residues below).
+if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
+    BASE_VOLID="$(xorriso -indev "$VERIFY_BASE_ISO" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -1)"
+    if [[ -n "$BASE_VOLID" && "$PVD_VOLID" == "$BASE_VOLID" ]]; then pass "the ISO volume id is the base ISO's ('$PVD_VOLID'), which the signed GRUB and casper look for"
+    else fail "the ISO volume id '$PVD_VOLID' is not the base ISO's '${BASE_VOLID:-?}' (a changed label stops the medium from being found)"; fi
+fi
 
 # The live menu is themed (build-iso.sh brand_live_grub): the navy background with the mark, colours derived from
 # the tokens, and only the modules the signed GRUB has built in (any other insmod is refused under Secure Boot).
@@ -1198,11 +1508,34 @@ else
 fi
 check "grub.cfg loads the background (background_image /boot/grub/ci-os-bg.png)" file_has "$ISOX/grub.cfg" '^[[:space:]]*background_image /boot/grub/ci-os-bg\.png$'
 check "grub.cfg draws the menu with gfxterm (terminal_output gfxterm)" file_has "$ISOX/grub.cfg" '^[[:space:]]*terminal_output gfxterm$'
-insmods="$(grep -E '^[[:space:]]*insmod[[:space:]]' "$ISOX/grub.cfg" | awk '{print $2}' | sort -u | tr '\n' ' ')"
-if [[ "$insmods" == "all_video gfxterm png " ]]; then
-    pass "grub.cfg insmods exactly all_video, gfxterm and png (built into the signed GRUB)"
+# Exactly the modules build-iso.sh's block names (gfxterm, png) ...
+insmods="$(grep -E '^[[:space:]]*insmod[[:space:]]' "$ISOX/grub.cfg" | awk '{ for (i = 2; i <= NF; i++) print $i }' | sort -u | tr '\n' ' ')"
+if [[ "$insmods" == "gfxterm png " ]]; then
+    pass "grub.cfg insmods exactly gfxterm and png"
 else
-    fail "grub.cfg insmod set is '${insmods:-none}' (want 'all_video gfxterm png': any other module is refused under Secure Boot)"
+    fail "grub.cfg insmod set is '${insmods:-none}' (want 'gfxterm png': build-iso.sh's block; all_video is NOT among them, Ubuntu 26.04.1's signed GRUB does not have it built in)"
+fi
+# ... and every one of them is compiled into the signed GRUB this ISO boots (the CD image, /EFI/boot/grubx64.efi: Secure Boot refuses a
+# module loaded from disk, so GRUB prints an error at every boot). Read from the binary on the ISO itself, with the same tool that
+# fetch-signed-boot.sh uses for the stick; given VERIFY_BASE_ISO that binary is the stock one (byte-identical, below), so this is the stock
+# image's list. The producer and this check once agreed on all_video while the real binary has no such module.
+GRUB_MODS_TOOL="$VERIFY_REPO/stick/scripts/grub-builtin-modules.py"
+if [[ ! -s "$ISOX/grubx64.efi" ]]; then
+    fail "grub.cfg's insmod modules could not be compared with the signed GRUB: /EFI/boot/grubx64.efi is missing from the ISO"
+elif [[ ! -f "$GRUB_MODS_TOOL" ]] || ! command -v python3 >/dev/null 2>&1; then
+    skip "the grub.cfg insmod modules are not compared with the signed GRUB's built-in list: run this script from the repo checkout (stick/scripts/grub-builtin-modules.py) with python3"
+elif [[ -z "$insmods" ]]; then
+    note "grub.cfg has no insmod line: nothing to compare with the signed GRUB's built-in modules"
+else
+    mods_out="$(python3 -I "$GRUB_MODS_TOOL" "$ISOX/grubx64.efi" --require "$(printf '%s' "${insmods% }" | tr ' ' ',')" 2>&1)"; mods_rc=$?
+    if [[ "$mods_rc" -eq 0 ]]; then
+        mods_n="$(sed -n 's/.*(\([0-9][0-9]*\) in total).*/\1/p' <<<"$mods_out")"
+        pass "every module grub.cfg insmods (${insmods% }) is built into the signed GRUB on the ISO (/EFI/boot/grubx64.efi has ${mods_n:-?} built-in modules)"
+    elif [[ "$mods_rc" -eq 1 ]]; then
+        fail "grub.cfg insmods a module that is NOT built into the signed GRUB on the ISO (${mods_out##*: }); under Secure Boot shim refuses a module loaded from disk"
+    else
+        fail "the built-in modules of /EFI/boot/grubx64.efi could not be read: ${mods_out}"
+    fi
 fi
 if [[ -f "$VERIFY_REPO/core/lib/grub-merge.sh" && -f "$VERIFY_REPO/vendor/brand/tokens/tokens.sh" ]]; then
     # shellcheck source=../../../../core/lib/grub-merge.sh
@@ -1257,7 +1590,7 @@ check "dconf user profile reads the system 'local' db (without it local.d is ign
 check "wallpaper default comes from a schema override that sorts after Ubuntu's" bash -c "ls '$R'/usr/share/glib-2.0/schemas/ | grep -q -E '^9[0-9]_.*companion.*\.gschema\.override$'"
 check "wallpaper override points at the Companion wallpaper" bash -c "grep -h picture-uri '$R'/usr/share/glib-2.0/schemas/9*_*companion*.override | grep -q ci-os-wallpaper"
 # GNOME only loads *.xml; a dpkg-diverted "*.xml.disabled" is not offered.
-check "Ubuntu wallpaper collections are not offered in Settings" bash -c "! ls '$R'/usr/share/gnome-background-properties 2>/dev/null | grep -E '\\.xml\$' | grep -q -i -E 'ubuntu|noble|resolute'"
+check "Ubuntu wallpaper collections are not offered in Settings" bash -c "! ls '$R'/usr/share/gnome-background-properties 2>/dev/null | grep -E '\\.xml\$' | grep -q -i -E 'ubuntu|resolute'"
 
 section "7. Branding: live boot splash and live identity (initrd)"
 # build-iso.sh appends a small zstd-compressed cpio overlay to casper/initrd (the kernel unpacks concatenated
@@ -1307,10 +1640,10 @@ fi
 PLY_T="usr/share/plymouth/themes"
 if [[ -n "$found_overlay" ]]; then
     ovl_files="$(cd "$OVLX" && find . -type f | sed 's#^\./##' | LC_ALL=C sort | paste -sd' ' -)"
-    ovl_want="etc/casper.conf $PLY_T/bgrt/bgrt.plymouth $PLY_T/spinner/bgrt-fallback.png $PLY_T/spinner/spinner.plymouth $PLY_T/spinner/watermark.png $PLY_T/ubuntu-text/ubuntu-text.plymouth usr/share/plymouth/ubuntu-logo.png"
+    ovl_want="etc/casper.conf $PLY_T/bgrt/bgrt.plymouth $PLY_T/spinner/bgrt-fallback.png $PLY_T/spinner/spinner.plymouth $PLY_T/spinner/watermark.png $PLY_T/ubuntu-text/ubuntu-text.plymouth"
     ovl_want="$(printf '%s\n' $ovl_want | LC_ALL=C sort | paste -sd' ' -)"
     if [[ "$ovl_files" == "$ovl_want" ]]; then
-        pass "initrd overlay carries exactly the branded files: casper.conf, the bgrt, spinner and text-splash themes, the watermark, ubuntu-logo.png and bgrt-fallback.png"
+        pass "initrd overlay carries exactly the branded files: casper.conf, the bgrt, spinner and text-splash themes, the watermark and bgrt-fallback.png (the 26.04.1 initrd has no ubuntu-logo.png to replace)"
     else
         fail "initrd overlay files are not the expected set (have: ${ovl_files:-none}; want: $ovl_want)"
     fi
@@ -1398,7 +1731,7 @@ else
 fi
 OVL_TEXT="$OVLX/$PLY_T/ubuntu-text/ubuntu-text.plymouth"
 if [[ -f "$OVL_TEXT" ]]; then
-    check "text splash (initrd overlay) is titled Companion OS, not Ubuntu 24.04" file_has "$OVL_TEXT" '^title=Companion OS( [0-9][^ ]*)?$'
+    check "text splash (initrd overlay) is titled Companion OS, not Ubuntu 26.04" file_has "$OVL_TEXT" '^title=Companion OS( [0-9][^ ]*)?$'
     check "text splash (initrd overlay) is no longer aubergine (0x2c001e)" bash -c "! grep -q -i '0x2c001e' '$OVL_TEXT'"
     if [[ $CANON_OK -eq 1 ]]; then
         # black= is the ground the text console is cleared to: the canon's dark background, like the graphical themes.
@@ -1413,7 +1746,7 @@ if [[ -f "$OVL_TEXT" ]]; then
         fail "text splash title differs: initrd overlay '${ovl_title:-none}', installed system '${root_title:-none}'"
     fi
 else
-    fail "no ubuntu-text.plymouth in the initrd overlay (the safe-graphics splash is still 'Ubuntu 24.04' on aubergine)"
+    fail "no ubuntu-text.plymouth in the initrd overlay (the safe-graphics splash is still 'Ubuntu 26.04' on aubergine)"
 fi
 # bgrt-fallback.png: Ubuntu's own file is the 128 px logo in a circle of friends (this is its sha256).
 STOCK_BGRT_FALLBACK_SHA=0d4f041619618c5202a2c30509e2552fb96c283a86d27cb17bc356fe54a13215
@@ -1442,7 +1775,7 @@ fi
 # template that is diverted and branded.
 for f in spinner/bgrt-fallback.png spinner/watermark.png bgrt/bgrt.plymouth spinner/spinner.plymouth ubuntu-text/ubuntu-text.plymouth.in; do
     p="/$PLY_T/$f"
-    if divert_ok "$p" && in_listing " ${p//./\\.}\\.ubuntu-stock\$"; then
+    if divert_ok "$p" && stock_copy_listed "$p"; then
         pass "$f is dpkg-diverted (a plymouth package upgrade cannot restore Ubuntu's)"
     else
         fail "$f is not dpkg-diverted to $f.ubuntu-stock (a package upgrade would restore Ubuntu's file)"
@@ -1508,7 +1841,7 @@ else
     fail "no etc/casper.conf in the initrd overlay"
 fi
 # The overlay's bgrt.plymouth only matters if the live boot loads that theme. plymouthd takes it from default.plymouth in the
-# initrd (no plymouthd.conf there: the overlay adds none), so unpack the STOCK part of the initrd the way the kernel will see
+# initrd (the stock plymouthd.conf there names no theme, and the overlay adds none), so unpack the STOCK part of the initrd the way the kernel will see
 # it: the base ISO's initrd when given, else the first OVL_OFF bytes without the NUL padding the build added (0 to 3 bytes: the
 # last bytes that are NUL are only candidates, and the one cut unmkinitramfs accepts is the stock initrd).
 if [[ -n "$OVL_OFF" ]]; then
@@ -1529,16 +1862,25 @@ if [[ -n "$OVL_OFF" ]]; then
             done
         fi
         if [[ -n "$stock_ok" ]]; then
-            ST="$SX"; [[ -d "$SX/main" ]] && ST="$SX/main"
+            ST="$SX"   # (initramfs-tools 0.151's unmkinitramfs extracts every segment flat into the target; no early/ and main/ directories)
             if [[ "$(readlink "$ST/$PLY_T/default.plymouth" 2>/dev/null)" == "/$PLY_T/bgrt/bgrt.plymouth" ]]; then
                 pass "the initrd's default Plymouth theme is bgrt: the theme the overlay repaints is the one the live boot loads"
             else
                 fail "the initrd's default.plymouth is '$(readlink "$ST/$PLY_T/default.plymouth" 2>/dev/null || echo missing)', not the bgrt theme the overlay repaints"
             fi
-            if [[ ! -f "$ST/etc/plymouth/plymouthd.conf" ]] || grep -q -x 'Theme=bgrt' "$ST/etc/plymouth/plymouthd.conf"; then
-                pass "nothing in the initrd selects another Plymouth theme than bgrt (no plymouthd.conf, or Theme=bgrt)"
+            # What plymouthd's configuration selects, if anything. Ubuntu 26.04.1's own initrd HAS /etc/plymouth/plymouthd.conf, with comments
+            # only ("# Administrator customizations go in this file", "#[Daemon]"): no Theme= line, so default.plymouth (bgrt, above) applies.
+            # 24.04's initrd had no such file, and a check written for that treated an existing file that lacks a Theme=bgrt line as a failure:
+            # it failed on the first real 26.04.1 image. Only an ACTIVE Theme= line naming another theme is a defect.
+            ply_conf="$ST/etc/plymouth/plymouthd.conf"
+            ply_other="$(awk '/^[[:space:]]*Theme[[:space:]]*=/ { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); sub(/[[:space:]]+$/, "", v); if (v != "bgrt") print "Theme=" v }' "$ply_conf" 2>/dev/null | head -n 3 | tr '\n' ' ')"
+            if [[ -z "$ply_other" ]]; then
+                if [[ ! -f "$ply_conf" ]]; then ply_note="the initrd has no plymouthd.conf"
+                elif grep -q -E '^[[:space:]]*Theme[[:space:]]*=' "$ply_conf"; then ply_note="its plymouthd.conf says Theme=bgrt"
+                else ply_note="its plymouthd.conf names no theme, as in Ubuntu 26.04.1's own initrd"; fi
+                pass "nothing in the initrd selects another Plymouth theme than bgrt ($ply_note)"
             else
-                fail "the initrd's plymouthd.conf selects a theme other than bgrt: $(grep -h '^Theme=' "$ST/etc/plymouth/plymouthd.conf")"
+                fail "the initrd's plymouthd.conf selects a theme other than bgrt: ${ply_other% }"
             fi
             ply_plugin="$(find "$ST" -name two-step.so 2>/dev/null | head -n 1)"
             if [[ -n "$ply_plugin" ]] && grep -a -q 'UseFirmwareBackground' "$ply_plugin"; then
@@ -1559,11 +1901,12 @@ note "the kernel's acceptance of the appended archive is only proven by booting 
 # ── 8. md5sum.txt ───────────────────────────────────────────────────────────
 section "8. Disc integrity: md5sum.txt matches the files in the image (casper-md5check)"
 # casper-md5check.service, enabled in the live rootfs, runs casper-md5check over /md5sum.txt ("<md5>  ./<path>" per line) on every
-# live boot (24.04's GRUB has no menu entry for it; fsck.mode=skip skips it). It prints "mismatch" for every file whose hash differs
+# live boot (the 26.04.1 GRUB menu has no entry for it; fsck.mode=skip skips it). It prints "mismatch" for every file whose hash differs
 # and counts an error for every file it cannot open. The stock file lists the stock layers, the stock initrd, grub.cfg and
 # .disk/info, so it is wrong for every file the remaster changed or deleted (the image built from 584a867 had 14 mismatches,
 # 55 missing files and an unlisted background). md5sum-txt.sh verify streams each listed file out of the ISO (xorriso report_lba
-# for the extents, then dd | md5sum), so a 7.7 GB image needs no scratch space and takes under a minute (34 to 37 s measured).
+# for the extents, then dd | md5sum), so a multi-GB image needs no scratch space (measured: 34 to 37 s for a 7.7 GB image on a native Linux host;
+# 1 min 41 s for the 6.4 GB stock 26.04.1 ISO read through a Docker Desktop bind mount, with uutils' dd and md5sum).
 # verify MODELS casper-md5check; it is not casper's binary, and UNLISTED below is this script's own policy (casper ignores
 # a file that md5sum.txt does not list).
 MD5TXT_TOOL="$(dirname "${BASH_SOURCE[0]}")/md5sum-txt.sh"
@@ -1584,7 +1927,7 @@ if [[ -f "$MD5TXT_TOOL" ]]; then
         fi
         if [[ "$(md5_field missing)" == 0 ]]; then pass "no md5sum.txt entry names a file that is not in the image"
         else fail "$(md5_field missing) md5sum.txt entr(ies) name a file that is not in the image (the check fails on each)"; md5_show MISSING; fi
-        if [[ "$(md5_field unlisted)" == 0 ]]; then pass "every regular file the stock convention lists is in md5sum.txt (all but /md5sum.txt, /EFI and boot/grub subdirectories)"
+        if [[ "$(md5_field unlisted)" == 0 ]]; then pass "every regular file the stock convention lists is in md5sum.txt (all but /md5sum.txt, /boot.catalog and the BIOS boot image eltorito.img)"
         else fail "$(md5_field unlisted) regular file(s) of the image are not in md5sum.txt"; md5_show UNLISTED; fi
         if [[ "$(md5_field duplicate)" == 0 && "$(md5_field malformed)" == 0 ]]; then pass "md5sum.txt has no duplicate and no malformed line"
         else fail "md5sum.txt has $(md5_field duplicate) duplicate and $(md5_field malformed) malformed line(s)"; md5_show DUPLICATE; md5_show BADLINE; fi
@@ -1604,12 +1947,32 @@ else
 fi
 
 # ── known, unfixable by remastering ─────────────────────────────────────────
+section "9. The image fits the smallest Companion Stick boot slot"
+# `ci-stick flash` writes the ISO raw into the stick's CI-BOOT-A slot and refuses one that is larger ("boot image ... does not fit"). The slot is
+# the stick's usable space / 10, clamped to 8..=48 GiB (ci-stick-layout/1, stick/crates/ci-stick/src/layout.rs), so a 64 GB stick has 8 GiB
+# (8,589,934,592 bytes) and a 128 GB one 11 GiB. The stock 26.04.1 ISO is 6.48 GB; an image that grows past 8 GiB (Ollama's CUDA libraries, a
+# second language, the encryption variant's seed that remove_esb_seed deletes) could not go onto the 64 GB stick at all, and nothing else would
+# say so before someone flashes it. VERIFY_MAX_ISO_BYTES=<n> sets another limit (a build meant for bigger sticks only), 0 turns the check off.
+ISO_MAX_BYTES="${VERIFY_MAX_ISO_BYTES:-8589934592}"
+ISO_BYTES="$(stat -c %s "$ISO" 2>/dev/null || wc -c < "$ISO" | tr -d ' ')"
+if [[ ! "$ISO_MAX_BYTES" =~ ^[0-9]+$ ]]; then
+    fail "VERIFY_MAX_ISO_BYTES is not a number: '$ISO_MAX_BYTES'"
+elif [[ "$ISO_MAX_BYTES" -eq 0 ]]; then
+    note "the image size ($ISO_BYTES bytes) is not compared with a Stick boot slot (VERIFY_MAX_ISO_BYTES=0)"
+elif [[ ! "$ISO_BYTES" =~ ^[0-9]+$ ]]; then
+    fail "could not read the size of $ISO"
+elif [[ "$ISO_BYTES" -le "$ISO_MAX_BYTES" ]]; then
+    pass "the image is $ISO_BYTES bytes, within $ISO_MAX_BYTES (the 8 GiB boot slot of a 64 GB Companion Stick); $((ISO_MAX_BYTES - ISO_BYTES)) bytes to spare"
+else
+    fail "the image is $ISO_BYTES bytes, $((ISO_BYTES - ISO_MAX_BYTES)) over $ISO_MAX_BYTES (the 8 GiB boot slot of a 64 GB Companion Stick): ci-stick flash would refuse it"
+fi
+
 section "Known residual Ubuntu strings (cannot be changed by remastering; not counted as failures)"
-note "ISO volume id: '${PVD_VOLID:-unknown}' (casper/EFI rely on it)"
-note "/.disk/info is now: $(tr -d '\n' < "$ISOX/disk-info" 2>/dev/null) (field layout kept: casper, subiquity and pollinate parse it)"
-note "installer window text ('Welcome to Ubuntu'): Canonical snap ubuntu-desktop-bootstrap; flavour list is fixed (Ubuntu/Kubuntu/Lubuntu/Xubuntu/Edubuntu)"
+note "ISO volume id: '${PVD_VOLID:-unknown}' (casper/EFI rely on it, so it stays Ubuntu's)"
+note "/.disk/info is now: $(tr -d '\n' < "$ISOX/disk-info" 2>/dev/null) (the product is spelt Companion OS in it, as the installer's last page shows it; the stock field layout is otherwise kept for casper, subiquity and pollinate, see section 5)"
+note "installer window text ('Welcome to Ubuntu', 'Erase disk and install Ubuntu', the logo): Canonical snap ubuntu-desktop-bootstrap, fixed text; only its last page ('<product> is installed and ready to use') and the launcher's label come from /.disk/info"
 note "ID=ubuntu / DISTRIB_ID=Ubuntu / UBUNTU_CODENAME: required by apt, curtin and tooling"
-note "session file names (ubuntu.desktop, ubuntu-xorg.desktop, ...), DesktopNames=ubuntu, extension uuids (*@ubuntu.com), OnlyShowIn=ubuntu: ids the session and the shell look things up by; only their display names are Companion OS"
+note "session file name (ubuntu.desktop), DesktopNames=ubuntu, extension uuids (*@ubuntu.com), OnlyShowIn=ubuntu: ids the session and the shell look things up by; only their display names are Companion OS"
 
 printf '\n== Summary: %d passed, %d failed\n' "$PASS" "$FAIL"
 if [[ ${#SKIPPED[@]} -gt 0 ]]; then

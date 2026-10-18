@@ -4,17 +4,23 @@
 #
 # Why this exists. The live medium carries /md5sum.txt, and the live system checks it on EVERY boot: casper's
 # casper-md5check.service, enabled in the live rootfs, runs `/usr/lib/casper/casper-md5check /cdrom /cdrom/md5sum.txt`
-# (fsck.mode=skip on the kernel command line skips it; 24.04's GRUB has no menu entry for it). For every line
+# (fsck.mode=skip on the kernel command line skips it; the 26.04.1 GRUB menu has no entry for it). For every line
 # "<md5>  ./<path>" it opens the path under the medium's root, hashes it and prints "<path>: OK" or "<path>: mismatch", then
 # reports "errors found in N files" or "no errors found". build-iso.sh replaces the casper layers, the initrd, grub.cfg, loopback.cfg and .disk/info and adds a GRUB
 # background, so the stock md5sum.txt, copied through unchanged, is wrong for every one of them: the check failed on every
 # Companion OS image, and it would name files that the remaster deleted. This script rewrites it from the stock one.
 #
-# The convention of a stock Ubuntu md5sum.txt (24.04.5.1, read off the ISO: 448 entries, 1019 regular files):
-#   * a line is "<32 hex>  ./<path>", two spaces, LF-terminated, the order is the order `find` left (not sorted);
-#   * it lists every regular file EXCEPT: /md5sum.txt itself, everything under /EFI/, and everything in a SUBDIRECTORY of
-#     /boot/grub/ (fonts/, i386-pc/, x86_64-efi/); /boot/grub/grub.cfg and loopback.cfg are listed.
-# `check-stock` proves a base ISO still follows exactly that, so a changed Ubuntu does not slip through unnoticed.
+# The convention of the stock Ubuntu 26.04.1 md5sum.txt (read off the real ISO, sha256 601e30fb...da1f: 948 entries):
+#   * a line is "<32 hex>  ./<path>", two spaces, LF-terminated, and the lines are sorted by path in the C locale (byte order:
+#     ./.disk/, ./EFI/, ./boot/, ./casper/, ./dists/, ./pool/ ...). 24.04.5.1's file was in `find` order, so the order is not
+#     something casper relies on; it is the order the new file is written in;
+#   * it lists every regular file EXCEPT three: /md5sum.txt itself, /boot.catalog (the El Torito boot catalog, which the ISO
+#     writer makes) and /boot/grub/i386-pc/eltorito.img (the BIOS boot image: the ISO writer patches its boot-info-table with
+#     the image's own location, so its bytes change with every remaster). Unlike 24.04's file, the three Secure Boot files
+#     /EFI/boot/{bootx64,grubx64,mmx64}.efi and the 611 other files under /boot/grub/{fonts,i386-pc,x86_64-efi} ARE listed,
+#     with /boot/grub/grub.cfg and loopback.cfg.
+# `check-stock` proves a base ISO still follows exactly that, so a changed Ubuntu does not slip through unnoticed. (Run on a
+# 24.04 ISO it fails by design.)
 #
 # Usage:
 #   md5sum-txt.sh check-stock (--base-iso ISO | --stock-md5 FILE --stock-files FILE)
@@ -24,9 +30,10 @@
 #       Write the md5sum.txt of the image that results from taking the base ISO, deleting every --rm path (recursively),
 #       then mapping every --map (a file, or a directory with all it holds) in, in that order: the same order as
 #       `xorriso -rm_r ... -map ...`. The stock hash is kept for every file the maps do not touch, the hash is computed from
-#       SRC for every mapped file, entries of deleted files are dropped, new files are appended in sorted order and the
-#       excluded paths stay out. Stock order is kept. It runs check-stock first and exits non-zero without writing FILE on
-#       any problem: there is no fallback to the stale file. --stock-files is a list of /path lines (the regular files).
+#       SRC for every mapped file, entries of deleted files are dropped, new files are added and the excluded paths stay
+#       out. The whole list is written sorted by path in the C locale, as the stock one is. It runs check-stock first and
+#       exits non-zero without writing FILE on any problem: there is no fallback to the stale file. --stock-files is a list
+#       of /path lines (the regular files).
 #   md5sum-txt.sh verify ISO
 #       Read the image's /md5sum.txt and hash every listed file by STREAMING it out of the image (xorriso -find ... report_lba
 #       for the extents, then dd | md5sum; nothing is extracted to disk, so a 7.7 GB ISO needs no scratch space and takes under
@@ -46,14 +53,14 @@ err() { printf '%s: ERROR: %s\n' "$PROG" "$*" >&2; }
 die() { err "$*"; exit 1; }
 usage() { sed -n '/^# Usage:/,/^# Needs:/p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 
-# The awk the three commands share. excluded(): the paths a stock md5sum.txt leaves out (see the header).
+# The awk the three commands share. excluded(): the paths a stock md5sum.txt leaves out (see the header): exactly three.
 # parse_md5_line(): "<md5>  ./<path>" -> P_HASH, P_PATH ("/<path>"), or 0 when the line has another shape. A path with a
 # backslash is refused: md5sum -c writes such names escaped, and casper-md5check does not read that form.
 AWK_COMMON='
 function excluded(p) {
-    if (p == "/md5sum.txt") return 1
-    if (p ~ /^\/EFI\//) return 1
-    if (p ~ /^\/boot\/grub\/[^\/]+\/./) return 1
+    if (p == "/md5sum.txt") return 1                       # cannot hold its own hash
+    if (p == "/boot.catalog") return 1                     # the El Torito boot catalog (made by the ISO writer; xorriso reports it as no regular file)
+    if (p == "/boot/grub/i386-pc/eltorito.img") return 1   # the BIOS boot image: its boot-info-table is patched on every remaster
     return 0
 }
 function parse_md5_line(line,    h, sep, p) {
@@ -177,6 +184,7 @@ BEGIN {
         if (!parse_md5_line(line)) { problem("the base ISO md5sum.txt line " lineno " is not \"<md5>  ./<path>\": " line); continue }
         if (P_PATH in smd5) { problem("the base ISO md5sum.txt lists " P_PATH " twice"); continue }
         smd5[P_PATH] = P_HASH; sorder[++n] = P_PATH
+        if (n > 1 && P_PATH < sorder[n - 1]) unsorted++
     }
     close(md5f)
     if (n == 0) problem("the base ISO md5sum.txt is empty or unreadable")
@@ -198,7 +206,10 @@ BEGIN {
         printf "%s: ERROR: the base ISO does not follow the md5sum.txt convention this script was written against (see its header); review before remastering it\n", prog > "/dev/stderr"
         exit 1
     }
-    if (mode == "check") { printf "stock md5sum.txt convention holds: %d entries, %d regular files, %d excluded\n", n, ns, ns - n; exit 0 }
+    if (mode == "check") {
+        printf "stock md5sum.txt convention holds: %d entries, %d regular files, %d excluded, %s\n", n, ns, ns - n, (unsorted ? "NOT in C-locale path order (the new file is written sorted anyway)" : "sorted by path (C locale)")
+        exit 0
+    }
 
     while ((getline line < chf) > 0) { split(line, t, "\t"); if (!(t[2] in changed)) corder[++nc] = t[2]; changed[t[2]] = t[1] }
     close(chf)
@@ -212,13 +223,13 @@ BEGIN {
         p = sorder[i]
         if (!(p in final)) { dropped++; continue }
         if (p in changed) { h = changed[p]; rehashed++ } else { h = smd5[p]; kept++ }
-        print h "  ." p
+        print p "\t" h
         seen[p] = 1
     }
     for (i = 1; i <= nc; i++) {
         p = corder[i]
         if ((p in seen) || excluded(p)) continue
-        print changed[p] "  ." p > newf
+        print p "\t" changed[p] > newf
         seen[p] = 1; added++
     }
     close(newf)
@@ -230,7 +241,7 @@ BEGIN {
 
 cmd_check_stock() {
     load_stock
-    awk -v prog="$PROG" -v mode=check -v md5f="$T/stock.md5" -v filesf="$T/stock.files" "$STOCK_AWK" \
+    LC_ALL=C awk -v prog="$PROG" -v mode=check -v md5f="$T/stock.md5" -v filesf="$T/stock.files" "$STOCK_AWK" \
         || die "check-stock failed"
 }
 
@@ -276,7 +287,8 @@ cmd_regenerate() {
     awk -v prog="$PROG" -v mode=regenerate -v md5f="$T/stock.md5" -v filesf="$T/stock.files" \
         -v chf="$changed" -v rmf="$rm_list" -v newf="$T/new.lines" "$STOCK_AWK" > "$T/out.retained" \
         || die "could not write the md5sum.txt (nothing was written to $OUT)"
-    { cat "$T/out.retained"; LC_ALL=C sort -k 2 "$T/new.lines"; } > "$T/out.final"
+    # One list, sorted by path in the C locale like the stock file (paths hold no tab: the readers above refuse one).
+    { cat "$T/out.retained" "$T/new.lines"; } | LC_ALL=C sort -t "$(printf '\t')" -k 1,1 | awk -F '\t' '{ print $2 "  ." $1 }' > "$T/out.final"
     [[ -s "$T/out.final" ]] || die "the regenerated md5sum.txt is empty (nothing was written to $OUT)"
     # Every line, kept or computed, has to be what casper-md5check reads; a blank hash must not get through to the image.
     awk -v prog="$PROG" "$AWK_COMMON"'

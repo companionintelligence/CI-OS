@@ -34,8 +34,12 @@
 #   - C's directories carry trusted.overlay.* attributes (impure, origin) that the stock layers had on the builder's
 #     overlay upper directories and unsquashfs restored. They mean nothing in a delta layer, and an "opaque" one
 #     would hide B's files, so L does not take them over (rsync filter) and the comparison ignores them;
-#   - hard links between names of C (the snap blobs under snaps/ and seed/snaps/) are not kept in L: they would not
-#     survive a layer boundary anyway, and mksquashfs 4.6 does not keep links between directories in any layer.
+#   - hard links between names of C (every snap blob exists as var/lib/snapd/snaps/X.snap and var/lib/snapd/seed/snaps/X.snap, one
+#     inode) are not staged as links into L: a link cannot cross a layer boundary, and L's two names are plain files that mksquashfs
+#     stores once (it removes duplicate data). Inside B they stay links: mksquashfs 4.6.1 DOES keep a hard link between two
+#     directories (measured: a tree with A/x and B/y linked packs to nlink=2, also from an untouched overlayfs merged view); only
+#     a file that overlayfs copied up loses its link, which nothing in the table does to a snap blob. So B's `du` counts every blob
+#     once, and the size interval of verify-iso.sh has to allow for that (lo is a fraction of the listing bytes, which count both names).
 #
 # Nothing here is trusted until it is checked. ci_split_assert_base_tree is run on the merged view before B is
 # packed and on the packed B afterwards, ci_split_verify_layers mounts the three real squashfs layers, stacks
@@ -47,7 +51,7 @@
 # Interface (all return non-zero on failure and have logged why):
 #   ci_split_live_layer   <chroot> <out-base.squashfs> <out-live.squashfs> <result-dir> [<stock-layer-dir>]
 #   ci_split_verify_layers <chroot> <base.squashfs> <placeholder.squashfs> <live.squashfs> <result-dir>
-#   ci_split_write_metadata <casper-dir> <result-dir>      the .size and .manifest files of the three layers
+#   ci_split_write_metadata <casper-dir> <result-dir>      the .size, .manifest and .manifest.full files of the three layers
 #   ci_split_assert_base_tree <root> [<installer-snap>...]  the invariants B must keep, on any directory tree
 # Environment (all optional; the shipped build sets none of them):
 #   CI_SPLIT_MKSQUASHFS_OPTS  mksquashfs options for both layers (default "-comp xz -b 1M", the build's own)
@@ -82,28 +86,37 @@ CI_SPLIT_INSTALLER_SNAPS_FIXED="ubuntu-desktop-bootstrap"
 #=============================================================================
 # THE TABLE: what the stock live layer carries that the installed system must not have
 #=============================================================================
-# How it was derived (Ubuntu 24.04.5 base ISO, its three stock layers; tests/split-live-layer.sh group B1 repeats it):
-#   1. minimal.standard.live.squashfs lists 56 270 paths (unsquashfs -ll). 55 994 exist in neither lower layer.
-#   2. A package of the live layer owns all but 905 of those (the layer's /var/lib/dpkg/info/*.list, usr-merge aware).
-#      Those ~115 packages are the kernel, firmware, microcode, grub, shim, zfs, lvm2, mdadm, cryptsetup, the btrfs/xfs/jfs
-#      tools, gparted, bpf tools, input-method engines ... On a stock install curtin pulls the kernel and the bootloader
-#      from the ISO's pool and the installer offers the storage tools; this image carries them already, they are useful
-#      on the disk, and the design keeps them in B: nothing of them is in this table.
-#   3. Of the 905 paths that no package owns, 781 are dpkg's own bookkeeping files and the state a package that stays
-#      generated (modules.dep, /etc/default/grub, mdadm.conf, crypttab, the zfs rc links, alternatives, the deb-systemd-
-#      helper state, the AppArmor cache, python caches). The other 124 are live-only: written by livecd-rootfs for the live
-#      session or the installer, or the leftovers of casper and the installer snap. The rows below remove them.
-#   4. 66 paths the live layer REWROTE (the same path in a lower layer, other content): 38 are generated state (caches,
-#      the dpkg/debconf/ucf databases, logs) that the package scripts and triggers regenerate when the packages below are
-#      purged, 2 are whiteouts, 24 are snapd's preseed state (every layer holds a complete, independent preseed run), and
-#      two are live settings in files the installed system shares: /etc/cloud/cloud.cfg and systemd-networkd-wait-online.
-#      Those are the `restore` rows: they take the stock standard layer's version.
+# How it was derived (Ubuntu 26.04.1 base ISO, ubuntu-26.04.1-desktop-amd64.iso, its three stock layers; tests/split-live-layer.sh
+# group B1 repeats the audit on the real layers, and group B2 and the following run the whole split on the stock layers merged):
+#   1. minimal.standard.live.squashfs is THIN on 26.04.1: it lists 2 883 paths below the root (24.04.5's listed 56 270), because the kernel, firmware,
+#      bootloaders and disk tools moved into minimal.squashfs. 2 542 of the paths exist in neither lower layer, 342 rewrite or
+#      whiteout a lower path. 76 are character devices: 75 whiteouts (0:0) of dracut and of the dracut-built
+#      /boot/initrd.img (which is how only the live session ends up on initramfs-tools; see the header of build-iso.sh for what
+#      that does to the installed system), and lvm2's /dev/mapper/control.
+#   2. The live layer adds 51 packages and removes 2 (dracut, dracut-core): casper, finalrd, initramfs-tools, the storage tools
+#      (cryptsetup, lvm2, mdadm, btrfs, xfs, jfs, zfs), grub-efi-amd64 and shim-signed, gparted, the input-method engines,
+#      user-setup, localechooser-data, realmd, adcli and more. They own almost every path. The design keeps all of them in B
+#      except casper and finalrd, which are casper's own: nothing else is in this table.
+#   3. 497 of the 2 542 paths are owned by no package. 372 of those are dpkg's bookkeeping or the generated state of packages
+#      that stay (modules.dep, mdadm.conf, crypttab, the zfs rc links, xfs_scrub timers, alternatives, the AppArmor cache, python
+#      caches, lvm2's /dev/mapper/control), and 125 are live-only: written by livecd-rootfs for the live session or the
+#      installer, or the leftovers of casper and the installer snap. The rows below remove them. Five groups are new in 26.04
+#      and have no 24.04 counterpart: the polkit rule that grants snapd's
+#      configuration to every subject (10-allow-installer-wait-on-snap.rules, whose header says it is only available on the
+#      live system), the sysctl file that switches AppArmor's unprivileged-userns restriction off, the display-manager drop-in
+#      that waits for snapd seeding, the snapd drop-in (all lines commented), and the snapd seed of the TPM full-disk-encryption
+#      variant: seed/systems/enhanced-secureboot-desktop and the snap files it needs (pc-kernel, pc, a second firefox revision
+#      and two nvidia components, 0.66 GB) in seed/snaps, which seed.yaml does not name.
+#   4. The live layer REWRITES paths that a lower layer has: generated state (caches, the dpkg/debconf/ucf databases, logs) that
+#      the package scripts and triggers regenerate when the packages below are purged; snapd's preseed state (every layer holds a
+#      complete, independent preseed run); and two live settings in files the installed system shares: /etc/cloud/cloud.cfg and
+#      systemd-networkd-wait-online. Those are the `restore` rows: they take the stock standard layer's version.
 # The packages the table purges are casper's own; no other installed package depends on them (dpkg --purge, run without
-# --force-depends, refuses otherwise, and apt-get check must pass afterwards). casper's other two dependencies,
-# user-setup and localechooser-data, are inert data (debconf templates; the live user's group list is a debconf answer of
-# user-setup) and stay. The input-method engines (ibus-hangul, ibus-mozc, ibus-unikey, gtk-im-libthai and their libraries)
-# are live-layer packages too; they stay because typing Korean, Japanese, Vietnamese or Thai works on the installed system
-# without a network and without a language pack, and nothing breaks if they are there.
+# --force-depends, refuses otherwise, and apt-get check must pass afterwards). casper's other dependencies, user-setup and
+# localechooser-data, are inert data (debconf templates; the live user's group list is a debconf answer of user-setup) and stay.
+# The input-method engines (ibus-hangul, ibus-mozc, ibus-unikey, gtk-im-libthai and their libraries) are live-layer packages too;
+# they stay because typing Korean, Japanese, Vietnamese or Thai works on the installed system without a network and without a
+# language pack, and nothing breaks if they are there.
 #
 # Row format:  kind|argument[|argument]      '#' starts a comment line; the rows run top to bottom.
 #   purge|<package>...         dpkg --purge in the chroot (no --force-depends); every package must be installed
@@ -115,6 +128,8 @@ CI_SPLIT_INSTALLER_SNAPS_FIXED="ubuntu-desktop-bootstrap"
 #                              customize it); otherwise the restore would silently drop that from the installed system and the
 #                              split stops (ci_split_row_restore)
 #   installer-snaps|           delete every file of the installer-only snaps (names: ci_split_installer_snap_names)
+#   seed-orphans|              delete every file in var/lib/snapd/seed/snaps that the seed.yaml now in the rootfs does not name
+#                              (after the restore of seed.yaml: the blobs of snaps that are not part of the installed system's seed)
 #   schemas|                   glib-compile-schemas /usr/share/glib-2.0/schemas, then prove it is up to date
 #   rmnew|<glob>               remove matching files the rows above CREATED (C does not have them)
 ci_split_table() {
@@ -145,16 +160,17 @@ schemas|
 # ── 3. the installer: units, config, snap ────────────────────────────────────────────────────────────────────────
 # ubuntu-desktop-installer.service starts /snap/bin/ubuntu-desktop-bootstrap at every graphical session start. The
 # live layer enables it with a user-level wants link. subiquity_config.mount and the device drop-in that Wants= it
-# mount the autoinstall config disk of the live medium. /etc/subiquity/kernel-meta-package is read by subiquity from
-# the LIVE root (subiquity/server/controllers/kernel.py, base_model.root), never from the installed one.
+# mount the autoinstall config disk of the live medium. (24.04's live layer also carried /etc/subiquity/kernel-meta-package;
+# 26.04.1's has no /etc/subiquity at all: subiquity takes the kernel from the `kernel:` block of install-sources.yaml. The row
+# stays because it is harmless and a returning file would be read from the live root only.)
 rm|usr/lib/systemd/user/ubuntu-desktop-installer.service
 rm|etc/systemd/user/graphical-session.target.wants/ubuntu-desktop-installer.service
 rmdir|etc/systemd/user/graphical-session.target.wants
 rm|usr/lib/systemd/system/subiquity_config.mount
 rmgrep|etc/systemd/system/dev-disk-by*.device.d|subiquity_config.mount
 rm|etc/subiquity
-# The installer snap and the snap it needs as a base (names: the live seed minus the standard seed; today
-# ubuntu-desktop-bootstrap and core22), with everything snapd generated for them. The snapd state of the stock
+# The installer snap (names: the live seed minus the standard seed; on 26.04.1 only ubuntu-desktop-bootstrap, whose base core24
+# the installed system has too, so the base stays), with everything snapd generated for it. The snapd state of the stock
 # STANDARD layer is a complete, self-consistent preseed run of the snaps the installed system has (state.json,
 # seed.yaml, the snap cookies that state.json maps, the mount and AppArmor files); the live layer's is another
 # complete run that also covers the installer snap, with other cookies. Mixing them breaks the snap cookies, and
@@ -175,6 +191,12 @@ restore|var/lib/snapd/mount
 restore|var/lib/snapd/seccomp/bpf
 restore|var/lib/snapd/sequence
 restore|var/cache/snapd/aux
+# The live layer's snapd also carries the snap files of the TPM full-disk-encryption variant of the install: the UC-style seed
+# system seed/systems/enhanced-secureboot-desktop and, in seed/snaps, a pc-kernel, a pc gadget, a second firefox revision and two
+# nvidia components that no entry of the restored seed.yaml names (0.66 GB). This ISO ships no enhanced-secureboot layer, so
+# the installed system must not carry its seed either. Swept by what seed.yaml names, not by revision.
+rm|var/lib/snapd/seed/systems
+seed-orphans|
 
 # ── 4. live settings in files the installed system shares ────────────────────────────────────────────────────────
 # /etc/cloud/cloud.cfg of the live layer is the installer session's: default_user "installer" (unlocked, shell
@@ -205,12 +227,27 @@ rm|usr/lib/systemd/system/getty@tty1.service
 # enable link and the dangling local-fs link to a media-filesystem.mount that does not exist go with it.
 rm|usr/lib/systemd/system/udisks2-inhibit.service
 rm|usr/lib/systemd/system/graphical.target.wants/udisks2-inhibit.service
+rmdir|usr/lib/systemd/system/graphical.target.wants
 rm|usr/lib/systemd/system/local-fs.target.wants/media-filesystem.mount
-# SNAP_REEXEC=0: the live snapd never re-executes into the snapd snap (the installer runs from a read-only image);
-# an installed snapd should (stock behaviour).
-rm|usr/lib/systemd/system/snapd.service.d/no-reexec.conf
-rmdir|usr/lib/systemd/system/snapd.service.d
+# The live snapd's drop-in about re-execing into the snapd snap (26.04.1: etc/systemd/system/snapd.service.d/snapd-snap-reexec.conf,
+# every line commented out; 24.04's was usr/lib/systemd/system/snapd.service.d/no-reexec.conf with SNAP_REEXEC=0). Inert today,
+# but live-only, and it would turn into a setting the day Canonical un-comments a line.
+rm|etc/systemd/system/snapd.service.d/snapd-snap-reexec.conf
+rmdir|etc/systemd/system/snapd.service.d
 rmdir|usr/lib/systemd/system/local-fs.target.wants
+# New in 26.04, written by livecd-rootfs for the installer and found by the audit (B1), not by the 24.04 derivation:
+# - a polkit rule that lets EVERY subject manage snapd's configuration (io.snapcraft.snapd.manage-configuration); its own header
+#   says it is only available on the live system. On an installed system any local user could change snapd's settings.
+# - sysctl kernel.apparmor_restrict_unprivileged_userns = 0, which switches OFF the unprivileged-user-namespace restriction that
+#   Ubuntu enables by default; the installer snap needs it, an installed system should keep the default.
+# - a display-manager.service drop-in that makes GDM wait for snapd to finish seeding (the live session starts the installer
+#   from a seeded snap; the installed system's first boot should not hold the login screen back for it).
+rm|etc/polkit-1/rules.d/10-allow-installer-wait-on-snap.rules
+rmdir|etc/polkit-1/rules.d
+rmdir|etc/polkit-1
+rm|etc/sysctl.d/20-apparmor.conf
+rm|etc/systemd/system/display-manager.service.d/wait-for-snapd-seeding.conf
+rmdir|etc/systemd/system/display-manager.service.d
 # journald settings that make the journal readable by the old libsystemd inside the installer snap, and stop the live
 # session's log from being rate limited. The installed system has no such reader.
 rm|etc/systemd/journald.conf.d/no-rate-limit.conf
@@ -221,8 +258,9 @@ rmdir|etc/systemd/system/systemd-journald.service.d
 
 # ── 6. things the rows above made as a side effect ───────────────────────────────────────────────────────────────
 # dpkg's triggers may build an initrd for the kernel the BUILD HOST runs when it is the image's too (update-initramfs
-# -u); the live layer ships no initrd (livecd-rootfs deletes them: the ISO's casper/initrd is the live one), and the
-# installer's curtin generates the installed one. An initrd here would be built from the build host's state.
+# -u); the live layer ships no initrd (it whites out the dracut-built one the minimal layer has: the ISO's casper/initrd is the
+# live one), and the installer's curtin generates the installed one with update-initramfs, which on this merged base is
+# initramfs-tools' (see build-iso.sh). An initrd here would be built from the build host's state.
 rmnew|boot/initrd.img-*
 CI_SPLIT_TABLE
 }
@@ -233,7 +271,9 @@ ci_split_table_rows() {
 }
 
 # ci_split_validate_table: every row has a known kind and arguments of the right shape; a path is relative, has at
-# least two components and no '..' (a typo must not make the build delete /etc). Prints one line per problem.
+# least two components and no '..' (a typo must not make the build delete /etc), and is not below dev/, proc/, sys/ or run/: while the
+# table runs, those are the BUILD HOST's /dev, /proc and /sys bind-mounted into the chroot (and a private tmpfs for run/), so a row for
+# a path there would act on the host (rm|dev/mapper/control would delete the host's device-mapper node). Prints one line per problem.
 ci_split_validate_table() {
     local row kind arg1 arg2 p bad=0 n=0 rest
     while IFS= read -r row; do
@@ -249,13 +289,15 @@ ci_split_validate_table() {
                 p="$arg1"
                 if [[ -z "$p" || "$p" == /* || "$p" == *..* || "$p" != */* || "$p" == *" "* || -n "$arg2" ]]; then
                     echo "row $n: $kind needs one relative path of at least two components, no '..': $row"; bad=1
-                fi ;;
+                fi
+                case "$p" in dev/* | proc/* | sys/* | run/*) echo "row $n: $kind may not name a path below dev/, proc/, sys/ or run/ (the build host's mounts): $row"; bad=1 ;; esac ;;
             rmgrep)
                 p="$arg1"
                 if [[ -z "$p" || "$p" == /* || "$p" == *..* || "$p" != */* || -z "$arg2" ]]; then
                     echo "row $n: rmgrep needs a path glob and a text: $row"; bad=1
-                fi ;;
-            installer-snaps|schemas)
+                fi
+                case "$p" in dev/* | proc/* | sys/* | run/*) echo "row $n: rmgrep may not name a path below dev/, proc/, sys/ or run/ (the build host's mounts): $row"; bad=1 ;; esac ;;
+            installer-snaps|schemas|seed-orphans)
                 if [[ -n "$rest" ]]; then echo "row $n: $kind takes no argument: $row"; bad=1; fi ;;
             *) echo "row $n: unknown kind '$kind': $row"; bad=1 ;;
         esac
@@ -308,7 +350,7 @@ ci_split_seed_snaps() {
 
 # ci_split_installer_snap_names <live seed.yaml> <stock standard seed.yaml>: one snap name per line, the snaps the live
 # layer seeds that the installed system (the standard stack) does not, plus CI_SPLIT_INSTALLER_SNAPS_FIXED.
-# Dynamic, so a base ISO that moves the installer snap's base from core22 to something else needs no edit here.
+# Dynamic, so a base ISO that moves the installer snap's base from core24 to something else needs no edit here.
 ci_split_installer_snap_names() {
     local live="$1" std="$2" n
     {
@@ -373,7 +415,10 @@ ci_split_assert_base_tree() {
         usr/lib/systemd/system/subiquity_config.mount
         usr/lib/systemd/system/udisks2-inhibit.service usr/lib/systemd/system/graphical.target.wants/udisks2-inhibit.service
         usr/lib/systemd/system/getty@tty1.service
-        usr/lib/systemd/system/snapd.service.d/no-reexec.conf
+        etc/systemd/system/snapd.service.d/snapd-snap-reexec.conf
+        etc/polkit-1/rules.d/10-allow-installer-wait-on-snap.rules etc/sysctl.d/20-apparmor.conf
+        etc/systemd/system/display-manager.service.d/wait-for-snapd-seeding.conf
+        var/lib/snapd/seed/systems
         etc/systemd/journald.conf.d/no-rate-limit.conf
         etc/systemd/system/systemd-journald.service.d/no-compact.conf etc/systemd/system/systemd-journald.service.d/no-hardening.conf
     )
@@ -414,12 +459,22 @@ ci_split_assert_base_tree() {
     done
 
     # the snapd seed: every snap file seed.yaml names is in the base (snapd on the installed system refuses to seed otherwise, and a
-    # restore row that took a seed.yaml from one layer and snaps from another would leave exactly this)
+    # restore row that took a seed.yaml from one layer and snaps from another would leave exactly this) AND every snap file in
+    # seed/snaps is named by it (26.04.1's live layer drops the snap files of its TPM-encryption seed there: pc-kernel, pc, a second
+    # firefox revision, nvidia components; none is part of the installed system)
     if [[ -r "$root/var/lib/snapd/seed/seed.yaml" ]]; then
+        local seed_names
+        seed_names="$(sed -n 's/^[[:space:]-]*file:[[:space:]]*//p' "$root/var/lib/snapd/seed/seed.yaml" | tr -d '\r"'"'"'')"
         while IFS= read -r f; do
             [[ -n "$f" ]] || continue
             if [[ ! -f "$root/var/lib/snapd/seed/snaps/$f" ]]; then echo "var/lib/snapd/seed/seed.yaml names the snap file $f, which the base does not have"; bad=1; fi
-        done < <(sed -n 's/^[[:space:]-]*file:[[:space:]]*//p' "$root/var/lib/snapd/seed/seed.yaml" | tr -d '\r"'"'"'')
+        done <<<"$seed_names"
+        if [[ -d "$root/var/lib/snapd/seed/snaps" ]]; then
+            while IFS= read -r f; do
+                [[ -n "$f" ]] || continue
+                if ! grep -q -x -F -- "$f" <<<"$seed_names"; then echo "var/lib/snapd/seed/snaps/$f is in the base but no entry of seed.yaml names it"; bad=1; fi
+            done < <(cd "$root/var/lib/snapd/seed/snaps" && find . -mindepth 1 -maxdepth 1 ! -type d -print | sed 's#^\./##' | LC_ALL=C sort)
+        fi
     fi
 
     # cloud-init: the live copy creates the user "installer" with the installer's shell
@@ -566,8 +621,10 @@ ci_split_row_purge() { # <merged> <package>...
     local M="$1" p installed; shift
     installed="$(ci_split_status_pkgs "$M/var/lib/dpkg/status" | cut -f1)"
     for p in "$@"; do
-        if ! printf '%s\n' "$installed" | grep -qx -- "$p"; then
-            log_error "split: package $p is not installed in the rootfs: the table is stale for this base image"; return 1
+        # (a here-string, not a pipe: `printf | grep -q` under pipefail fails when grep exits on its first match before printf has written
+        # the whole list, which made a build stop with "package X is not installed" now and then)
+        if ! grep -qx -- "$p" <<<"$installed"; then
+            log_error "split: package $p is not installed in the rootfs: the table is stale for this base image ($(printf '%s\n' "$installed" | grep -c .) installed packages read from $M/var/lib/dpkg/status, $(wc -c < "$M/var/lib/dpkg/status" 2>/dev/null | tr -d ' ') bytes)"; return 1
         fi
     done
     log_info "split: dpkg --purge $*"
@@ -670,6 +727,18 @@ ci_split_row_installer_snaps() { # <merged> <stock standard view or ""> <origina
     log_info "split: installer snaps ($(printf '%s' "$names" | tr '\n' ' ' | sed 's/ $//')): $count paths removed"
 }
 
+ci_split_row_seed_orphans() { # <merged>
+    local M="$1" seed="$1/var/lib/snapd/seed/seed.yaml" snaps="$1/var/lib/snapd/seed/snaps" names f n=0
+    if [[ ! -r "$seed" ]]; then log_info "split: seed-orphans: no seed.yaml, nothing swept"; return 0; fi
+    [[ -d "$snaps" ]] || return 0
+    names="$(sed -n 's/^[[:space:]-]*file:[[:space:]]*//p' "$seed" | tr -d '\r"'"'"'')"
+    while IFS= read -r -d '' f; do
+        f="${f#./}"
+        if ! grep -q -x -F -- "$f" <<<"$names"; then rm -rf -- "${snaps:?}/${f:?}" || return 1; n=$((n + 1)); fi
+    done < <(cd "$snaps" && find . -mindepth 1 -maxdepth 1 ! -type d -print0)
+    log_info "split: seed-orphans: $n snap file(s) in seed/snaps that seed.yaml does not name removed"
+}
+
 ci_split_row_schemas() { # <merged>
     local M="$1"
     ci_split_chroot "$M" glib-compile-schemas /usr/share/glib-2.0/schemas \
@@ -707,6 +776,7 @@ ci_split_apply_table() {
             rmgrep)          ci_split_row_rmgrep "$M" "$arg1" "$arg2" || return 1 ;;
             restore)         ci_split_row_restore "$M" "$S" "$arg1" "$C" "$LV" || return 1 ;;
             installer-snaps) ci_split_row_installer_snaps "$M" "$S" "$C" || return 1 ;;
+            seed-orphans)    ci_split_row_seed_orphans "$M" || return 1 ;;
             schemas)         ci_split_row_schemas "$M" || return 1 ;;
             rmnew)           ci_split_row_rmnew "$M" "$C" "$arg1" || return 1 ;;
             *)               log_error "split: unknown table row: $row"; return 1 ;;
@@ -795,8 +865,9 @@ ci_split_build_live_tree() {
     fi
     rm -f "$stage/.ci-split-probe"
     chmod --reference="$C" "$stage" && chown --reference="$C" "$stage" || return 1
-    # No -H: a hard link between two names of C (the snap blobs under snaps/ and seed/snaps/) is not kept across
-    # layers anyway, and the squashfs deduplicates identical files; two plain files make L's own size a true figure.
+    # No -H: a hard link between two names of C (the snap blobs under snaps/ and seed/snaps/) cannot cross a layer boundary,
+    # and mksquashfs stores identical data once; two plain files make L's `du` count both names, which verify-iso.sh's size
+    # interval allows for (its lower bound leaves out one name of a pair, its upper bound counts both).
     rsync -aAX "--filter=-x trusted.overlay.*" --numeric-ids --from0 --files-from="$copy" "$C/" "$stage/" || { log_error "split: copying C's versions into L failed"; return 1; }
     while IFS= read -r -d '' w; do
         [[ ! -e "$stage/$w" && ! -L "$stage/$w" ]] || { log_error "split: /$w is both a whiteout and a copy in L"; return 1; }
@@ -948,9 +1019,11 @@ _ci_split_live_layer() {
 #=============================================================================
 
 # Files the live layer must hold: casper itself, so the layer is not a placeholder and the live session keeps the md5 check, and one
-# witness for each group of live-only pieces the base had taken out (finalrd, the initramfs configuration, the installer's user service,
-# subiquity's kernel-meta-package file): they are in the live layer and not simply gone. The installer snap's file in the seed
-# (name_<revision>.snap) has no fixed name; section 3g of verify-iso.sh checks that one.
+# witness for each group of live-only pieces the base had taken out (finalrd, the initramfs configuration, the installer's user
+# service): they are in the live layer and not simply gone. The installer snap's file in the seed (name_<revision>.snap) has no fixed
+# name; section 3g of verify-iso.sh checks that one. The 26.04 additions (the polkit rule, the sysctl file, the encryption seed system)
+# are deliberately NOT witnesses: a customization step may delete them from the rootfs altogether (the encryption seed is 0.66 GB the live
+# session does not use), and then they are in neither layer, which is fine; the stack-equals-rootfs comparison covers the rest.
 CI_SPLIT_LIVE_REQUIRED=(
     etc/casper.conf
     usr/lib/casper/casper-md5check
@@ -965,7 +1038,6 @@ CI_SPLIT_LIVE_REQUIRED=(
     etc/initramfs-tools/conf.d/default-layer.conf
     usr/share/glib-2.0/schemas/livecd-rootfs.gschema.override
     usr/lib/systemd/user/ubuntu-desktop-installer.service
-    etc/subiquity/kernel-meta-package
 )
 
 # ci_split_verify_layers <chroot> <base.squashfs> <placeholder.squashfs> <live.squashfs> <result-dir>
@@ -1023,8 +1095,17 @@ _ci_split_verify_layers() {
     if [[ "${CI_SPLIT_SIZE_TOTAL:-0}" -lt "$((CI_SPLIT_SIZE_BASE))" ]]; then log_error "split: the stack is smaller than its base layer (${CI_SPLIT_SIZE_TOTAL} < ${CI_SPLIT_SIZE_BASE} bytes)"; return 1; fi
 }
 
-# ci_split_write_metadata <casper dir> <result dir>: the per-layer .size files and the stock-shaped .manifest files, true for
-# the layers this image has. Needs the result dir of ci_split_live_layer and ci_split_verify_layers.
+# ci_split_manifest_full_file <package-lines-file> [<snap-lines-file>]: the stock "<layer>.manifest.full" shape: one
+# "name<TAB>version" line per installed package (a Multi-Arch: same package as name:arch), sorted, then one
+# "snap:name<TAB>channel<TAB>revision" line per seeded snap, in seed order. A full manifest is the whole stack up to that layer, not a diff.
+ci_split_manifest_full_file() {
+    if [[ -s "$1" ]]; then cat "$1"; fi
+    if [[ -n "${2:-}" && -s "${2:-}" ]]; then awk -F'\t' '{ print "snap:" $1 "\t" $2 "\t" $3 }' "$2"; fi
+    return 0
+}
+
+# ci_split_write_metadata <casper dir> <result dir>: the per-layer .size, .manifest and .manifest.full files and filesystem.size, true
+# for the layers this image has. Needs the result dir of ci_split_live_layer and ci_split_verify_layers.
 ci_split_write_metadata() {
     local casper="$1" res="$2" empty
     [[ -s "$res/sizes" && -s "$res/base.pkgs" && -s "$res/live.pkgs" ]] || { log_error "split: no results in $res to write metadata from"; return 1; }
@@ -1041,5 +1122,10 @@ ci_split_write_metadata() {
         # snaps the live layer seeds that the base does not
         LC_ALL=C awk -F'\t' 'NR == FNR { have[$1] = 1; next } !($1 in have) { print "+snap:" $1 "\t" $2 "\t" $3 }' "$res/base.snaps" "$res/live.snaps"
     } > "$casper/minimal.standard.live.manifest"
-    log_info "split: wrote minimal/minimal.standard/minimal.standard.live .size and .manifest and filesystem.size"
+    # The full manifests of the stack up to each layer (the stock ISO ships one per layer; the stock ones describe the stock
+    # layers and would be wrong here). minimal and minimal.standard are the base B (the placeholder adds nothing), the live one is C.
+    ci_split_manifest_full_file "$res/base.pkgs" "$res/base.snaps" > "$casper/minimal.manifest.full"
+    ci_split_manifest_full_file "$res/base.pkgs" "$res/base.snaps" > "$casper/minimal.standard.manifest.full"
+    ci_split_manifest_full_file "$res/live.pkgs" "$res/live.snaps" > "$casper/minimal.standard.live.manifest.full"
+    log_info "split: wrote minimal/minimal.standard/minimal.standard.live .size, .manifest and .manifest.full and filesystem.size"
 }

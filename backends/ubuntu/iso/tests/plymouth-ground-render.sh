@@ -24,7 +24,7 @@
 #
 # It changes /usr/share/plymouth and /etc/plymouth of the machine it runs on, so run it in a throw-away container:
 #
-#   docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash -c \
+#   docker run --rm -v "$PWD:/repo:ro" ubuntu:26.04 bash -c \
 #     'apt-get update -qq && apt-get install -y -qq plymouth plymouth-x11 plymouth-theme-spinner xvfb imagemagick bsdutils \
 #      && bash /repo/backends/ubuntu/iso/tests/plymouth-ground-render.sh'
 #

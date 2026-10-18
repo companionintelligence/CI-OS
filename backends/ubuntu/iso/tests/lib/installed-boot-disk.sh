@@ -23,6 +23,11 @@
 #   7  probe     a test-only systemd unit that reports the boot state on the serial console (conditional on ci.bootprobe)
 # Every check goes to OUT/checks.txt as "PASS|FAIL|WARN|INFO <id> <text>"; a FAIL is a defect of the installed system.
 #
+# The initramfs generator. Ubuntu 26.04.1's stock minimal layer is dracut based; this image's merged base is initramfs-tools based (the
+# live layer whites dracut out, see build-iso.sh), and curtin regenerates the initrd with update-initramfs. Step 5 runs exactly that,
+# audit_residue checks that the generator is initramfs-tools' (FAIL otherwise: with dracut's wrapper or none the initrd this test
+# builds is not the one an install gets) and that apt is pinned away from dracut (WARN).
+#
 # Options: --out DIR (required; bind-mounted from the host) --work DIR (scratch, default /work: use a Docker volume,
 #   not the container's own filesystem) --disk-size SIZE|auto (default auto: the view's size + 15% + 3 GiB, sparse) --user NAME (default citest)
 #   --kernels all|latest (default all) --apply-repair --emit-disk yes|no|auto (auto: only when no check FAILed)
@@ -263,8 +268,23 @@ audit_residue() { # audit_residue <root> <where>
     for f in "$r"/etc/subiquity "$r"/etc/cloud/cloud.cfg.d/06_quiet.cfg; do
         [[ -e "$f" ]] && hits="$hits ${f#"$r"}"
     done
+    # 26.04.1's live layer adds a polkit rule that grants snapd's configuration to every subject, the sysctl file that switches off AppArmor's
+    # unprivileged-userns restriction, a display-manager drop-in, a snapd drop-in and the snapd seed of the TPM-encryption variant.
+    for f in "$r"/etc/polkit-1/rules.d/10-allow-installer-wait-on-snap.rules "$r"/etc/sysctl.d/20-apparmor.conf \
+             "$r"/etc/systemd/system/display-manager.service.d/wait-for-snapd-seeding.conf "$r"/etc/systemd/system/snapd.service.d/snapd-snap-reexec.conf \
+             "$r"/var/lib/snapd/seed/systems "$r"/var/lib/snapd/seed/snaps/pc-kernel_*.snap "$r"/var/lib/snapd/seed/snaps/pc_*.snap; do
+        [[ -e "$f" ]] && hits="$hits ${f#"$r"}"
+    done
     if [[ -n "$hits" ]]; then check WARN installer-leftovers "$where: installer/live-session files in the installed system:$hits"
     else check PASS installer-leftovers "$where: no installer/live-session files"; fi
+    # The initramfs generator: initramfs-tools (the real update-initramfs curtin calls), no dracut; apt pinned away from dracut.
+    v="$(pkg_version "$r" initramfs-tools)"
+    if [[ -z "$v" ]]; then check FAIL initramfs-generator "$where: initramfs-tools is not installed: curtin would call dracut's update-initramfs wrapper or find none, and the installed initrd would not be the one this test builds"
+    elif [[ -n "$(pkg_version "$r" dracut)" ]]; then check FAIL initramfs-generator "$where: dracut $(pkg_version "$r" dracut) is installed beside initramfs-tools $v (they conflict; the base must be initramfs-tools based)"
+    else check PASS initramfs-generator "$where: initramfs-tools $v generates the initrd, dracut is not installed"; fi
+    if [[ -f "$r/etc/apt/preferences.d/ci-os-no-dracut" ]] && grep -q -E '^Pin-Priority:[[:space:]]*-1[[:space:]]*$' "$r/etc/apt/preferences.d/ci-os-no-dracut"; then
+        check PASS dracut-pin "$where: /etc/apt/preferences.d/ci-os-no-dracut keeps apt from installing dracut"
+    else check WARN dracut-pin "$where: no /etc/apt/preferences.d/ci-os-no-dracut with Pin-Priority -1: a later apt may try to swap initramfs-tools for dracut (ubuntu-desktop-minimal recommends it)"; fi
     # The live image's /etc/cloud/cloud.cfg names the live session's user as cloud-init's default user, with passwordless sudo: cloud-init
     # (enabled in the installed system) creates it on the first boot. The stock installed system has the stock cloud.cfg.
     if grep -qE '^[[:space:]]+name:[[:space:]]+installer[[:space:]]*$' "$r/etc/cloud/cloud.cfg" 2>/dev/null; then
@@ -403,7 +423,7 @@ EOF
 # ── 5  the initramfs, regenerated the way curtin does ────────────────────────────────────────────────────────────────
 KLIST=()
 for f in "$T"/boot/vmlinuz-*; do [[ -e "$f" ]] && KLIST+=("${f##*/vmlinuz-}"); done
-[[ ${#KLIST[@]} -gt 0 ]] || need "the base layer carries no kernel (no /boot/vmlinuz-*), so there is nothing to boot: a stock Ubuntu minimal.squashfs gets its kernel from the ISO's apt pool at install time, which this test does not do. Give it a layer stack that has the kernel (the Companion layers do), or use --quick for the static audit of the layer"
+[[ ${#KLIST[@]} -gt 0 ]] || need "the base layer carries no kernel (no /boot/vmlinuz-*), so there is nothing to boot. Ubuntu 26.04.1's minimal layer has its kernel (linux-image-7.0.0-30-generic) and so do the Companion layers; use --quick for the static audit of a layer that has none"
 # Newest first (version sort), so "latest" is the first one.
 SORTED=()
 while IFS= read -r k; do SORTED+=("$k"); done < <(printf '%s\n' "${KLIST[@]}" | sort -rV)

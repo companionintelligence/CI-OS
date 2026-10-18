@@ -14,8 +14,8 @@
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
 exec 2>/dev/null
-TTY=/dev/ttyS0
-say() { printf '%s\n' "$*" > "$TTY"; }
+TTY="${CI_PROBE_TTY:-/dev/ttyS0}"   # (the override is for the probe's own self-test, lib/selftest.sh)
+say() { printf '%s\n' "$*" >> "$TTY"; }   # (append: a device does not mind, and the self-test's TTY is a plain file)
 LIMIT="${CI_PROBE_LIMIT:-1200}"
 
 say "CI-PROBE: begin"
@@ -28,23 +28,32 @@ say "CI-PROBE: efi=$([ -d /sys/firmware/efi ] && echo yes || echo no) secureboot
 say "CI-PROBE: casper-package=$(dpkg-query -W -f='${Version}' casper 2>/dev/null || echo none)"
 say "CI-PROBE: display-manager=$(readlink -f /etc/systemd/system/display-manager.service 2>/dev/null || echo unset)"
 
+# The greeter's gnome-shell runs as the user of the greeter SESSION: "gdm" up to GDM 46 (Ubuntu 24.04), a dynamic user "gdm-greeter" (uid 60578 and the
+# like) since GDM 50 (Ubuntu 26.04). So the user is read from the session and not assumed: a probe that waited for gdm's gnome-shell on 26.04 never saw
+# it, sat out its whole limit (1200 s) with the greeter up from the first five minutes, and the screen had blanked by the time the host looked.
+greeter_uid=""
+greeter_shell_up() { [ -n "$greeter_uid" ] && pgrep -u "$greeter_uid" -x gnome-shell >/dev/null 2>&1; }
+
 start=$(date +%s)
 greeter=""
+up=""          # set only when the greeter's gnome-shell was seen alive and Plymouth had gone: a greeter SESSION that merely exists proves nothing
 lastbeat=0
 while :; do
     waited=$(( $(date +%s) - start ))
     if [ "$(systemctl is-active display-manager.service)" = active ]; then
-        # A session of class "greeter" is the GDM login screen (gdm-launch-environment); gnome-shell runs as the gdm user in it.
+        # A session of class "greeter" is the GDM login screen (gdm-launch-environment); gnome-shell runs as that session's user in it.
         for s in $(loginctl list-sessions --no-legend 2>/dev/null | awk '{ print $1 }'); do
             if [ "$(loginctl show-session "$s" -p Class --value 2>/dev/null)" = greeter ]; then
-                greeter="session $s type=$(loginctl show-session "$s" -p Type --value) state=$(loginctl show-session "$s" -p State --value)"
+                greeter_uid="$(loginctl show-session "$s" -p User --value 2>/dev/null)"
+                [ -n "$greeter_uid" ] || greeter_uid=gdm
+                greeter="session $s user=$(loginctl show-session "$s" -p Name --value 2>/dev/null) uid=$greeter_uid type=$(loginctl show-session "$s" -p Type --value) state=$(loginctl show-session "$s" -p State --value)"
                 break
             fi
         done
-        if [ -n "$greeter" ] && pgrep -u gdm -x gnome-shell >/dev/null 2>&1 && ! plymouth --ping >/dev/null 2>&1; then
+        if [ -n "$greeter" ] && greeter_shell_up && ! plymouth --ping >/dev/null 2>&1; then
             sleep 5
             # Still there after 5 s: not a greeter that crashed and is being respawned.
-            if pgrep -u gdm -x gnome-shell >/dev/null 2>&1; then break; fi
+            if greeter_shell_up; then up=1; break; fi
             greeter=""
         fi
     fi
@@ -85,9 +94,12 @@ say "CI-PROBE: sessions=$(loginctl list-sessions --no-legend 2>/dev/null | tr -s
 journalctl -b -p err --no-pager -o short 2>/dev/null | awk '{ $1 = $2 = $3 = $4 = ""; print }' | sed -e 's/^ *//' -e 's/\[[0-9]*\]//' | cut -c1-180 \
     | sort | uniq -c | sort -rn | head -15 | while IFS= read -r l; do say "CI-PROBE: journal-err $l"; done
 
-if [ -n "$greeter" ]; then
+# The verdict is the condition the loop broke on, not "a greeter session exists": at the limit that session may be there with its gnome-shell
+# not running (or Plymouth still up), and reporting OK for it would hide exactly the failures this probe is for (it reported OK at the limit
+# for a greeter it could not find, on 26.04).
+if [ -n "$up" ]; then
     say "CI-PROBE-OK gdm greeter up after ${waited}s ($greeter)"
 else
-    say "CI-PROBE-FAIL the GDM greeter did not come up within ${LIMIT}s (display-manager=$(systemctl is-active display-manager.service 2>&1))"
+    say "CI-PROBE-FAIL the GDM greeter did not come up within ${LIMIT}s (display-manager=$(systemctl is-active display-manager.service 2>&1), greeter session: ${greeter:-none}, its gnome-shell running: $(greeter_shell_up && echo yes || echo no), plymouth running: $(plymouth --ping >/dev/null 2>&1 && echo yes || echo no))"
 fi
 say "CI-PROBE: end"

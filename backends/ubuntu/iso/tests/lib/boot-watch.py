@@ -7,8 +7,8 @@
 QEMU must be given -serial file:LOG and -qmp unix:SOCK,server,nowait (the shell script does). The decision, from the serial console
 (the installed kernel command line has console=ttyS0 last, so the initramfs and systemd talk there) and the display:
 
-  PASS   the in-guest probe printed CI-PROBE-OK (display manager active, a greeter session, gnome-shell of the gdm user alive for
-         5 s, Plymouth gone) AND the screen shows a drawn picture (>= 64 colours, > 20% not black) within --grace seconds after it;
+  PASS   the in-guest probe printed CI-PROBE-OK (display manager active, a greeter session, the greeter session's gnome-shell alive for
+         5 s (user gdm up to GDM 46, gdm-greeter on 26.04), Plymouth gone) AND the screen shows a drawn picture (>= 64 colours, > 20% not black) within --grace seconds after it;
   FAIL   a known failure line on the serial console (the casper live-medium search, an initramfs shell, a panic, emergency mode),
          the probe's own CI-PROBE-FAIL, QEMU exiting early, or --timeout seconds without the greeter.
 

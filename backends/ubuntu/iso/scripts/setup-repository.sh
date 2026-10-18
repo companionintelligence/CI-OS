@@ -72,7 +72,7 @@ echo "[*] Creating reprepro configuration..."
 cat > "$REPO_ROOT/conf/distributions" << EOF
 Origin: CI-OS
 Label: CI-OS
-Codename: noble
+Codename: resolute
 Architectures: amd64 all
 Components: main
 Description: CI-OS Official Package Repository
@@ -173,13 +173,13 @@ echo "1. Configure SSL certificate:"
 echo "   sudo certbot --nginx -d packages.ci.computer"
 echo
 echo "2. Add packages to repository:"
-echo "   sudo reprepro -b $REPO_ROOT includedeb noble /path/to/package.deb"
+echo "   sudo reprepro -b $REPO_ROOT includedeb resolute /path/to/package.deb"
 echo
 echo "3. Reload nginx:"
 echo "   sudo systemctl reload nginx"
 echo
 echo "4. Client configuration (add to sources.list.d):"
-echo "   deb [signed-by=/usr/share/keyrings/ci-archive-keyring.gpg] https://packages.ci.computer/ubuntu noble main"
+echo "   deb [signed-by=/usr/share/keyrings/ci-archive-keyring.gpg] https://packages.ci.computer/ubuntu resolute main"
 echo
 echo "Public key available at:"
 echo "https://packages.ci.computer/ci-archive-keyring.asc"

@@ -7,10 +7,12 @@
 # regeneration is checked on a synthetic mini tree that has one of each kind of file:
 #
 #   changed    a mapped file whose content differs from the stock one (and one whose content is the same)
-#   new        a mapped file the stock image does not have (with a space in its name), appended in sorted order
+#   new        a mapped file the stock image does not have (with a space in its name, and one under /boot/grub/<subdir>)
 #   removed    a stock file under a removed directory; its entry has to go
-#   excluded   /md5sum.txt, /EFI, the subdirectories of /boot/grub: never listed, also when a map adds one
-#   unchanged  a stock file no map touches: its stock hash is kept, at its stock position
+#   excluded   exactly /md5sum.txt, /boot.catalog and /boot/grub/i386-pc/eltorito.img (the 26.04.1 convention): never listed, also
+#              when a map writes one; everything else, the /EFI files and the other files under /boot/grub/<subdir> too, IS listed
+#   unchanged  a stock file no map touches (also under /EFI and /boot/grub/<subdir>): its stock hash is kept
+#   order      the stock file here is deliberately NOT sorted; the new one is, by path in the C locale, like the real 26.04.1 file
 #
 # Part A drives the awk logic with hand-written lists (no xorriso; runs on a stock macOS under bash 3.2), including the
 # cases where a hash or a file listing FAILS (a read error must stop `regenerate`, never write a blank hash or drop a file).
@@ -22,6 +24,10 @@
 # see the bug. It also runs build-iso.sh's own check_base_md5sum and generate_iso on the mini image, with xorriso recorded and
 # md5sum-txt.sh shimmed, to show the new md5sum.txt is the last map of the xorriso run, that the finished image is read
 # back, and that a rejected image is quarantined. core/lib/check-repo.sh runs this file.
+#
+# The convention itself (the three exclusions, the sort order) was read off the real Ubuntu 26.04.1 ISO and is proved on it by hand:
+# `md5sum-txt.sh check-stock --base-iso ubuntu-26.04.1-desktop-amd64.iso` and `md5sum-txt.sh verify` on the same file. With
+# CI_TEST_STOCK_ISO=<that ISO> this test runs both too (Part C; about two minutes).
 #
 #   backends/ubuntu/iso/tests/md5sum-txt.sh
 #   docker run --rm -v "$PWD:/repo:ro" <image with xorriso> bash /repo/backends/ubuntu/iso/tests/md5sum-txt.sh
@@ -52,7 +58,7 @@ hash_of() { # hash_of "<content>": the md5 of the exact bytes (no newline added)
 }
 
 #=== Part A: the logic, on lists ================================================================================================
-# The stock image: path | content. The listing order of the stock md5sum.txt is deliberately NOT sorted.
+# The stock image: path | content. The listing order of the stock md5sum.txt here is deliberately NOT sorted (the real one is).
 STOCK_CONTENT() { # path -> content (the stock bytes)
     case "$1" in
         /casper/vmlinuz)              printf 'kernel-bytes' ;;
@@ -65,16 +71,19 @@ STOCK_CONTENT() { # path -> content (the stock bytes)
         /boot/grub/grub.cfg)          printf 'stock-grub' ;;
         /boot/grub/loopback.cfg)      printf 'stock-loopback' ;;
         /boot/memtest86+x64.bin)      printf 'memtest' ;;
-        /.disk/info)                  printf 'Ubuntu 24.04' ;;
+        /.disk/info)                  printf 'Ubuntu 26.04.1 LTS' ;;
+        /.disk/base_installable)      printf '' ;;
         /pool/main/a/a.deb)           printf 'deb-a' ;;
         /preseed/ubuntu.seed)         printf 'seed' ;;
-        *)                            printf 'excluded-%s' "$1" ;;
+        *)                            printf 'content-of-%s' "$1" ;;
     esac
 }
-ORDER=(/pool/main/a/a.deb /preseed/ubuntu.seed /boot/grub/grub.cfg /boot/grub/loopback.cfg /boot/memtest86+x64.bin
-       /casper/minimal.de.squashfs /casper/SHA256SUMS.gpg /casper/SHA256SUMS /casper/initrd /casper/minimal.squashfs
-       /casper/minimal.standard.squashfs /casper/vmlinuz /.disk/info)
-EXCLUDED=(/md5sum.txt /EFI/boot/bootx64.efi /boot/grub/fonts/unicode.pf2 /boot/grub/i386-pc/normal.mod /boot/grub/x86_64-efi/normal.mod)
+# listed in the stock md5sum.txt, in a deliberately scrambled order; the EFI file and the files under /boot/grub/<subdir> are listed
+ORDER=(/pool/main/a/a.deb /boot/grub/x86_64-efi/normal.mod /preseed/ubuntu.seed /boot/grub/grub.cfg /EFI/boot/bootx64.efi /boot/grub/loopback.cfg
+       /boot/memtest86+x64.bin /casper/minimal.de.squashfs /casper/SHA256SUMS.gpg /boot/grub/fonts/unicode.pf2 /casper/SHA256SUMS /casper/initrd
+       /casper/minimal.squashfs /boot/grub/i386-pc/normal.mod /casper/minimal.standard.squashfs /casper/vmlinuz /.disk/info /.disk/base_installable)
+# in the image, not in the md5sum.txt: the file itself, the El Torito boot image the remaster patches, and the boot catalog
+EXCLUDED=(/md5sum.txt /boot/grub/i386-pc/eltorito.img /boot.catalog)
 
 A="$WORK/a"; mkdir -p "$A"
 : > "$A/stock.md5"; : > "$A/stock.files"
@@ -95,27 +104,33 @@ printf 'a manifest' > "$N/casper/filesystem.manifest"       # new
 printf 'odd' > "$N/casper/odd name.txt"                     # new, with a space
 printf 'new-grub' > "$N/grub.cfg"
 printf 'png-bytes' > "$N/ci-os-bg.png"
-printf 'Companion-OS 24.04' > "$N/info"
-printf 'theme' > "$N/grub-themes/theme.txt"
+printf 'Companion OS 26.04.1 LTS' > "$N/info"
+printf 'theme' > "$N/grub-themes/theme.txt"             # new, under a /boot/grub subdirectory: listed
+printf 'patched-boot-image' > "$N/eltorito.img"          # a map onto an excluded path: the entry must stay out
 
-# The expected md5sum.txt, written out by hand from the facts above (not by the code under test).
+# The expected md5sum.txt, written out by hand from the facts above (not by the code under test), sorted by path in the C locale.
 {
-    printf '%s  ./pool/main/a/a.deb\n'              "$(hash_of deb-a)"
-    printf '%s  ./preseed/ubuntu.seed\n'            "$(hash_of seed)"
-    printf '%s  ./boot/grub/grub.cfg\n'             "$(hash_of new-grub)"          # changed
-    printf '%s  ./boot/grub/loopback.cfg\n'         "$(hash_of stock-loopback)"    # unchanged: stock hash, stock place
-    printf '%s  ./boot/memtest86+x64.bin\n'         "$(hash_of memtest)"
-    #                                               ./casper/minimal.de.squashfs and SHA256SUMS.gpg: removed, no line
-    printf '%s  ./casper/SHA256SUMS\n'              "$(hash_of new-sums)"
-    printf '%s  ./casper/initrd\n'                  "$(hash_of initrd+overlay)"
-    printf '%s  ./casper/minimal.squashfs\n'        "$(hash_of merged-rootfs)"
-    printf '%s  ./casper/minimal.standard.squashfs\n' "$(hash_of placeholder)"
-    printf '%s  ./casper/vmlinuz\n'                 "$(hash_of kernel-bytes)"
-    printf '%s  ./.disk/info\n'                     "$(hash_of 'Companion-OS 24.04')"
-    # new files, sorted by path
-    printf '%s  ./boot/grub/ci-os-bg.png\n'         "$(hash_of png-bytes)"
-    printf '%s  ./casper/filesystem.manifest\n'     "$(hash_of 'a manifest')"
-    printf '%s  ./casper/odd name.txt\n'            "$(hash_of odd)"
+    printf '%s  ./.disk/base_installable\n'            "$(hash_of '')"                 # unchanged (empty file)
+    printf '%s  ./.disk/info\n'                        "$(hash_of 'Companion OS 26.04.1 LTS')"   # changed
+    printf '%s  ./EFI/boot/bootx64.efi\n'              "$(hash_of 'content-of-/EFI/boot/bootx64.efi')"   # listed now, kept
+    printf '%s  ./boot/grub/ci-os-bg.png\n'            "$(hash_of png-bytes)"          # new
+    printf '%s  ./boot/grub/fonts/unicode.pf2\n'       "$(hash_of 'content-of-/boot/grub/fonts/unicode.pf2')"
+    printf '%s  ./boot/grub/grub.cfg\n'                "$(hash_of new-grub)"           # changed
+    printf '%s  ./boot/grub/i386-pc/normal.mod\n'      "$(hash_of 'content-of-/boot/grub/i386-pc/normal.mod')"
+    printf '%s  ./boot/grub/loopback.cfg\n'            "$(hash_of stock-loopback)"     # unchanged
+    printf '%s  ./boot/grub/themes/theme.txt\n'        "$(hash_of theme)"              # new, under a subdirectory: listed
+    printf '%s  ./boot/grub/x86_64-efi/normal.mod\n'   "$(hash_of 'content-of-/boot/grub/x86_64-efi/normal.mod')"
+    printf '%s  ./boot/memtest86+x64.bin\n'            "$(hash_of memtest)"
+    #                                                   ./casper/minimal.de.squashfs and SHA256SUMS.gpg: removed, no line
+    printf '%s  ./casper/SHA256SUMS\n'                 "$(hash_of new-sums)"
+    printf '%s  ./casper/filesystem.manifest\n'        "$(hash_of 'a manifest')"       # new
+    printf '%s  ./casper/initrd\n'                     "$(hash_of initrd+overlay)"
+    printf '%s  ./casper/minimal.squashfs\n'           "$(hash_of merged-rootfs)"
+    printf '%s  ./casper/minimal.standard.squashfs\n'  "$(hash_of placeholder)"
+    printf '%s  ./casper/odd name.txt\n'               "$(hash_of odd)"                # new, with a space
+    printf '%s  ./casper/vmlinuz\n'                    "$(hash_of kernel-bytes)"
+    printf '%s  ./pool/main/a/a.deb\n'                 "$(hash_of deb-a)"
+    printf '%s  ./preseed/ubuntu.seed\n'               "$(hash_of seed)"
 } > "$A/expected.md5"
 
 regen() { # regen <out> [extra args...]: the maps of build-iso.sh over the synthetic stock
@@ -123,16 +138,23 @@ regen() { # regen <out> [extra args...]: the maps of build-iso.sh over the synth
     bash "$H" regenerate --stock-md5 "$A/stock.md5" --stock-files "$A/stock.files" --out "$out" \
         --rm /casper \
         --map "$N/casper" /casper --map "$N/grub.cfg" /boot/grub/grub.cfg --map "$N/ci-os-bg.png" /boot/grub/ci-os-bg.png \
-        --map "$N/grub-themes" /boot/grub/themes --map "$N/info" /.disk/info "$@"
+        --map "$N/grub-themes" /boot/grub/themes --map "$N/eltorito.img" /boot/grub/i386-pc/eltorito.img \
+        --map "$N/info" /.disk/info "$@"
 }
 
-if bash "$H" check-stock --stock-md5 "$A/stock.md5" --stock-files "$A/stock.files" >/dev/null 2>&1; then
-    t_pass "check-stock: the synthetic stock follows the convention"
-else t_fail "check-stock rejected the synthetic stock"; fi
+if bash "$H" check-stock --stock-md5 "$A/stock.md5" --stock-files "$A/stock.files" > "$A/cs.out" 2>&1; then
+    t_pass "check-stock: the synthetic stock follows the convention (the EFI file and the /boot/grub/<subdir> files listed, the three exclusions not)"
+else t_fail "check-stock rejected the synthetic stock: $(head -c 300 "$A/cs.out")"; fi
+grep -q -F 'NOT in C-locale path order' "$A/cs.out" && t_pass "check-stock says that the (scrambled) synthetic stock is not sorted" \
+    || t_fail "check-stock did not note the unsorted synthetic stock: $(head -c 300 "$A/cs.out")"
+sort_note="$A/sorted-stock"; mkdir -p "$sort_note"
+LC_ALL=C sort -k 2 "$A/stock.md5" > "$sort_note/stock.md5"
+bash "$H" check-stock --stock-md5 "$sort_note/stock.md5" --stock-files "$A/stock.files" 2>&1 | grep -q -F 'sorted by path (C locale)' \
+    && t_pass "check-stock says that a sorted stock file is sorted" || t_fail "check-stock did not report a sorted stock file as sorted"
 
 if regen "$A/out.md5" 2> "$A/regen.err"; then
     if cmp -s "$A/expected.md5" "$A/out.md5"; then
-        t_pass "regenerate: changed, new, removed, excluded and unchanged files all come out as expected (stock order kept, new files sorted)"
+        t_pass "regenerate: changed, new, removed, excluded and unchanged files all come out as expected, sorted by path (the scrambled stock order is not kept)"
     else
         t_fail "regenerate: the md5sum.txt differs from the expected one:"; diff -u "$A/expected.md5" "$A/out.md5" || true
     fi
@@ -142,8 +164,12 @@ if ! cmp -s "$A/stock.md5" "$A/out.md5"; then t_pass "control: the regenerated f
 else t_fail "control: the regenerated file equals the stock one, the test cannot tell the two apart"; fi
 
 grep -q -F -- 'md5sum.txt' "$A/out.md5" && t_fail "md5sum.txt lists itself" || t_pass "md5sum.txt does not list itself"
-grep -q -E '\./(EFI|boot/grub/(fonts|i386-pc|x86_64-efi|themes))/' "$A/out.md5" && t_fail "an excluded path is listed (EFI or a boot/grub subdirectory)" \
-    || t_pass "nothing under /EFI or a boot/grub subdirectory is listed, also the file a map added there"
+grep -q -E '\./(boot\.catalog$|boot/grub/i386-pc/eltorito\.img$)' "$A/out.md5" && t_fail "an excluded path is listed (the boot catalog or the BIOS boot image)" \
+    || t_pass "the boot catalog and the BIOS boot image are not listed, also the file a map wrote at the latter's path"
+for want in ./EFI/boot/bootx64.efi ./boot/grub/fonts/unicode.pf2 ./boot/grub/i386-pc/normal.mod ./boot/grub/x86_64-efi/normal.mod ./boot/grub/themes/theme.txt; do
+    grep -q -F -- "  $want" "$A/out.md5" && t_pass "listed, as the 26.04.1 convention has it: $want" || t_fail "not listed: $want (the 24.04 convention left /EFI and the /boot/grub subdirectories out)"
+done
+LC_ALL=C sort -c -k 2 "$A/out.md5" 2>/dev/null && t_pass "the lines are sorted by path in the C locale" || t_fail "the lines are not sorted by path"
 grep -q -E 'minimal\.de\.squashfs|SHA256SUMS\.gpg' "$A/out.md5" && t_fail "an entry for a deleted file is still listed" || t_pass "entries of deleted files are dropped"
 awk '{print $2}' "$A/out.md5" | sort | uniq -d | grep -q . && t_fail "a path is listed twice" || t_pass "no path is listed twice"
 if grep -q -v -E '^[0-9a-f]{32}  \./.' "$A/out.md5"; then t_fail "a line is not '<md5>  ./<path>'"; else t_pass "every line is '<md5>  ./<path>'"; fi
@@ -223,8 +249,11 @@ try_stock() { # try_stock "<label>" "<error substring>" <md5 file content> <file
 }
 try_stock "a stock file its md5sum.txt does not list" "/extra.bin" "" $'/extra.bin\n'
 try_stock "a stock entry whose file is not in the image" "/ghost.bin" "$(hash_of g)  ./ghost.bin"$'\n' ""
-try_stock "a stock entry for a path this script treats as excluded" "/EFI/boot/bootx64.efi" "$(hash_of g)  ./EFI/boot/bootx64.efi"$'\n' ""
-try_stock "a malformed stock line" "line 14" "$(hash_of g) ./one-space.bin"$'\n' $'/one-space.bin\n'
+try_stock "a stock entry for a path this script treats as excluded (the BIOS boot image)" "/boot/grub/i386-pc/eltorito.img" "$(hash_of g)  ./boot/grub/i386-pc/eltorito.img"$'\n' ""
+try_stock "a stock entry for the md5sum.txt itself" "/md5sum.txt" "$(hash_of g)  ./md5sum.txt"$'\n' ""
+try_stock "an EFI file its md5sum.txt does not list (24.04's convention, which no longer holds)" "/EFI/boot/grubx64.efi" "" $'/EFI/boot/grubx64.efi\n'
+try_stock "a /boot/grub subdirectory file its md5sum.txt does not list (24.04's convention)" "/boot/grub/fonts/other.pf2" "" $'/boot/grub/fonts/other.pf2\n'
+try_stock "a malformed stock line" "line $(( ${#ORDER[@]} + 1 ))" "$(hash_of g) ./one-space.bin"$'\n' $'/one-space.bin\n'
 try_stock "a stock path listed twice" "twice" "$(hash_of d)  ./pool/main/a/a.deb"$'\n' ""
 { cat "$A/stock.files"; echo /extra.bin; } > "$A/extra.files"
 expect_fail "check-stock on the same problem" "/extra.bin" bash "$H" check-stock --stock-md5 "$A/stock.md5" --stock-files "$A/extra.files"
@@ -278,24 +307,74 @@ if dd if=/dev/null of=/dev/null iflag=skip_bytes,count_bytes count=0 status=none
     else t_pass "iso_stream_hash fails when the extents do not add up to the file size"; fi
 else printf 'info  GNU dd is not installed: the iso_stream_hash extent tests are skipped\n'; fi
 
+# The stock menus of Ubuntu 26.04.1 (boot/grub/grub.cfg and loopback.cfg of the real ISO), the shape build-iso.sh edits.
+STOCK_GRUB_CFG() {
+    cat <<'EOF'
+set timeout=30
+
+loadfont unicode
+
+set menu_color_normal=white/black
+set menu_color_highlight=black/light-gray
+
+menuentry "Try or Install Ubuntu" {
+    set gfxpayload=keep
+    linux  /casper/vmlinuz  --- quiet splash
+    initrd /casper/initrd
+}
+menuentry "Ubuntu (safe graphics)" {
+    set gfxpayload=keep
+    linux  /casper/vmlinuz nomodeset  --- quiet splash
+    initrd /casper/initrd
+}
+grub_platform
+if [ "$grub_platform" = "efi" ]; then
+menuentry 'Boot from next volume' {
+    exit 1
+}
+menuentry 'UEFI Firmware Settings' {
+    fwsetup
+}
+fi
+EOF
+}
+STOCK_LOOPBACK_CFG() {
+    cat <<'EOF'
+
+menuentry "Try or Install Ubuntu" {
+    set gfxpayload=keep
+    linux  /casper/vmlinuz  iso-scan/filename=${iso_path} --- quiet splash
+    initrd /casper/initrd
+}
+menuentry "Ubuntu (safe graphics)" {
+    set gfxpayload=keep
+    linux  /casper/vmlinuz nomodeset  iso-scan/filename=${iso_path} --- quiet splash
+    initrd /casper/initrd
+}
+EOF
+}
+
 #=== Part B: a real mini ISO ====================================================================================================
 for t in xorriso dd; do
     command -v "$t" >/dev/null 2>&1 || { printf 'info  %s is not installed: Part B (a real ISO through xorriso and verify) skipped\n' "$t"; SKIP_B=1; }
 done
 if [[ -z "${SKIP_B:-}" ]] && command -v md5sum >/dev/null 2>&1; then
     B="$WORK/b"; mkdir -p "$B/tree"
-    # The stock tree: every stock file, plus the stock md5sum.txt, plus a disc-sized-looking pool entry for good measure.
+    # The stock tree: every stock file (the real stock grub.cfg and loopback.cfg of 26.04.1 for the two menus), plus the stock md5sum.txt.
     for p in "${ORDER[@]}" "${EXCLUDED[@]}"; do
-        [[ "$p" == /md5sum.txt ]] && continue
+        [[ "$p" == /md5sum.txt || "$p" == /boot.catalog ]] && continue   # the catalog is made by xorriso below
         mkdir -p "$B/tree$(dirname "$p")"; STOCK_CONTENT "$p" > "$B/tree$p"
     done
     : > "$B/tree/.disk/base_installable"   # an empty file, like the real one
-    # A BIOS El Torito image where Ubuntu has it (under a /boot/grub subdirectory, so md5sum.txt leaves it out), so that the
+    STOCK_GRUB_CFG > "$B/tree/boot/grub/grub.cfg"; STOCK_LOOPBACK_CFG > "$B/tree/boot/grub/loopback.cfg"
+    # A BIOS El Torito image where Ubuntu has it (/boot/grub/i386-pc/eltorito.img, which md5sum.txt leaves out), so that the
     # remaster below runs with a boot image to carry over, as it does for the real image with `-boot_image any replay`.
     head -c 4096 /dev/zero | tr '\0' 'E' > "$B/tree/boot/grub/i386-pc/eltorito.img"
-    { cat "$A/stock.md5"; printf '%s  ./.disk/base_installable\n' "$(hash_of '')"; } > "$B/tree/md5sum.txt"
-    # check-stock needs the listed set to equal the file set: base_installable is now both in the tree and in md5sum.txt.
-    xorriso -as mkisofs -r -iso-level 3 -V MINI -b boot/grub/i386-pc/eltorito.img -no-emul-boot -boot-load-size 4 \
+    # The stock md5sum.txt of THIS tree, the way 26.04.1's is: every regular file but itself and the BIOS boot image, sorted by path (C locale).
+    ( cd "$B/tree" && find . -type f ! -path ./md5sum.txt ! -path ./boot/grub/i386-pc/eltorito.img | LC_ALL=C sort | while IFS= read -r f; do
+          printf '%s  %s\n' "$(md5sum < "$f" | cut -d' ' -f1)" "$f"; done ) > "$B/md5sum.stock"
+    cp "$B/md5sum.stock" "$B/tree/md5sum.txt"
+    xorriso -as mkisofs -r -iso-level 3 -V MINI -b boot/grub/i386-pc/eltorito.img -no-emul-boot -boot-load-size 4 -c boot.catalog \
         -o "$B/stock.iso" "$B/tree" >/dev/null 2>&1 \
         || { t_fail "could not build the mini stock ISO"; }
     if [[ -s "$B/stock.iso" ]]; then
@@ -394,7 +473,7 @@ if [[ -z "${SKIP_B:-}" ]] && command -v md5sum >/dev/null 2>&1; then
         # only defines functions. This is what tells that the new md5sum.txt is the LAST map of the xorriso run (a later map of
         # the same path would win), that the image is read back, and that a rejected image does not stay under its real name.
         G="$B/gen"; mkdir -p "$G/work/custom-iso/boot/grub" "$G/work/custom-iso/.disk" "$G/out" "$G/shim"
-        cp -R "$N/casper" "$G/work/custom-iso/casper"; cp "$N/grub.cfg" "$G/work/custom-iso/boot/grub/grub.cfg"
+        cp -R "$N/casper" "$G/work/custom-iso/casper"; STOCK_GRUB_CFG > "$G/work/custom-iso/boot/grub/grub.cfg"
         cp "$N/info" "$G/work/custom-iso/.disk/info"; cp "$N/ci-os-bg.png" "$G/work/ci-os-bg.png"
         cat > "$G/shim/md5sum-txt.sh" <<'SHIMEOF'
 #!/usr/bin/env bash
@@ -405,6 +484,8 @@ exec bash "${CI_TEST_REAL_MD5SUM_TXT:?}" "$@"
 SHIMEOF
         chmod +x "$G/shim/md5sum-txt.sh"
         run_generate() { # run_generate: build-iso.sh's generate_iso over $G (brand_live_grub is not under test: it needs the renderers)
+            # generate_iso edits the menu in place (titles, the automatic-install entry): every run starts from the stock one
+            STOCK_GRUB_CFG > "$G/work/custom-iso/boot/grub/grub.cfg"
             ( source "$HERE/../scripts/build-iso.sh"
               BASE_ISO="$B/stock.iso"; WORK_DIR="$G/work"; OUTPUT_DIR="$G/out"; CI_OS_VERSION=0.0-test; SCRIPT_DIR="$G/shim"
               export CI_TEST_SHIM_LOG="$G/shim.log" CI_TEST_REAL_MD5SUM_TXT="$H"
@@ -440,6 +521,20 @@ SHIMEOF
             [[ ! -e "$G/out/SHA256SUMS" && ! -e "$G/out/MD5SUMS" ]] && t_pass "generate_iso: the checksums of the earlier run are removed, none are written for the rejected image" \
                 || t_fail "generate_iso left checksums beside a rejected image (files: $(ls "$G/out" | tr '\n' ' '))"
         else t_fail "generate_iso failed on the mini image: $(tail -n 5 "$G/gen1.out")"; fi
+    fi
+fi
+
+#=== Part C: the real Ubuntu 26.04.1 ISO ======================================================================================
+# The convention this script encodes was read off the real ISO. With the ISO given, prove it again: check-stock must pass and
+# every one of the 948 entries must hash right (verify streams the whole 6.4 GB image, about two minutes).
+if [[ -n "${CI_TEST_STOCK_ISO:-}" ]]; then
+    if [[ ! -f "$CI_TEST_STOCK_ISO" ]]; then t_fail "CI_TEST_STOCK_ISO is not a file: $CI_TEST_STOCK_ISO"
+    elif ! command -v xorriso >/dev/null 2>&1; then t_fail "CI_TEST_STOCK_ISO is set but xorriso is not installed"
+    else
+        if out="$(bash "$H" check-stock --base-iso "$CI_TEST_STOCK_ISO" 2>&1)"; then t_pass "[real ISO] check-stock: $out"
+        else t_fail "[real ISO] check-stock failed: $(printf '%s' "$out" | head -n 3 | tr '\n' ' ')"; fi
+        if out="$(bash "$H" verify "$CI_TEST_STOCK_ISO" 2>&1)"; then t_pass "[real ISO] verify: $(printf '%s\n' "$out" | grep SUMMARY)"
+        else t_fail "[real ISO] verify failed: $(printf '%s' "$out" | tail -n 3 | tr '\n' ' ')"; fi
     fi
 fi
 

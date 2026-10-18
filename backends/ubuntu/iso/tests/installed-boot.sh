@@ -11,6 +11,9 @@
 # (root=UUID=..., no boot=) ran casper and dropped to "Unable to find a medium containing a live file system". It was found after a
 # seven-hour GUI install. This test finds it in minutes, without a GUI and without installing anything.
 #
+# The base is Ubuntu 26.04.1 (the only release this repo builds). Its installed system is initramfs-tools based, as the merged build
+# leaves it (build-iso.sh explains), which is what `update-initramfs -c -k all` below uses, as curtin does.
+#
 # What it does: takes the base layer an installer would install and builds a throw-away disk the way an install ends up
 # (lib/installed-boot-disk.sh, in a privileged Docker container): GPT, ESP + ext4 root filled from the layer, fstab, a user, kernel +
 # initrd regenerated in a chroot with update-initramfs -c -k all, UEFI GRUB through the shim (grub-install, update-grub), then
@@ -37,7 +40,7 @@
 # Options:
 #   --work DIR            result directory (default: a new directory under $TMPDIR; kept). Holds result.txt, checks.txt, timeline.txt,
 #                         serial.log, guest-report.txt, screenshots/, grub.cfg, build.log, the disk image if --keep-disk
-#   --image IMAGE         builder image (default: $CI_OS_BOOT_TEST_IMAGE or ubuntu:24.04). Needs losetup, mount, mkfs.ext4, mkfs.vfat,
+#   --image IMAGE         builder image (default: $CI_OS_BOOT_TEST_IMAGE or ubuntu:26.04). Needs losetup, mount, mkfs.ext4, mkfs.vfat,
 #                         sfdisk, blkid, e2fsck (+ python3 for --iso); on a stock ubuntu image the script apt-installs what is
 #                         missing (network needed). The container runs --privileged --platform linux/amd64.
 #   --docker-volume NAME  scratch volume for the disk image (default: a new one, removed at the end; a named one is kept)
@@ -53,7 +56,8 @@
 #   --strict              WARN checks (live-session leftovers that do not stop the boot) fail the test too
 #   --timeout SECS        give the boot this long (default 1800; TCG without KVM needs minutes)
 #   --grace SECS          after the probe says the greeter is up, wait this long for a drawn picture on the screen (default 120)
-#   --cpu MODEL           QEMU CPU (default Nehalem, the model that boots Ubuntu 24.04's desktop under TCG here; try Haswell)
+#   --cpu MODEL           QEMU CPU (default Nehalem). Nehalem booted the Ubuntu 24.04.5 desktop under TCG here and Haswell crashed GNOME Shell
+#                         there; NOT re-measured with Ubuntu 26.04.1's GNOME Shell 50 (no 26.04 image has been booted by this test yet)
 #   --memory MIB / --smp N   guest memory and CPUs (default 4096 / 4)
 #   --secure-boot         boot with the Secure Boot firmware and Microsoft keys enrolled (shim + signed GRUB + signed kernel)
 #   --ovmf-code FILE --ovmf-vars FILE   firmware (default: $CI_OS_OVMF_DIR or stick/tests/secureboot/out/firmware/OVMF_{CODE,VARS}_4M*.fd)
@@ -81,7 +85,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LIB="$HERE/lib"
 REPO_ROOT="$(cd "$HERE/../../../.." && pwd)"
 
-ISO="" CHROOT_VOL="" WORK="" IMAGE="${CI_OS_BOOT_TEST_IMAGE:-ubuntu:24.04}" VOLUME="" DISK_SIZE=auto KERNELS=all
+ISO="" CHROOT_VOL="" WORK="" IMAGE="${CI_OS_BOOT_TEST_IMAGE:-ubuntu:26.04}" VOLUME="" DISK_SIZE=auto KERNELS=all
 APPLY_REPAIR=0 QUICK=0 NO_BOOT=0 ALWAYS_BOOT=0 STRICT=0 TIMEOUT=1800 GRACE=120 CPU=Nehalem MEMORY=4096 SMP=4 SECURE=0 KEEP_DISK=0
 OVMF_CODE="" OVMF_VARS="" STOP_AFTER="" NET=0 BOOT_DISK=""
 LAYERS=()
