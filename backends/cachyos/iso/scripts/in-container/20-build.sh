@@ -12,13 +12,19 @@
 #   5. upstream's change_grub_version on the merged copy, then assert the pinned checkout is still pristine
 #   5b. check-owned.sh: does a package of the image ship a file the build adds? (exact, from the repositories' file lists; a
 #      conflict stops the build here instead of 8 minutes into pacstrap)
-#   6. stock mkarchiso; checksums, package list and build record next to the ISO
+#   6. stock mkarchiso; checksums, package list and build record next to the ISO. mkarchiso runs with a `mksquashfs` in front of the
+#      real one on its PATH (mksquashfs-gate.sh): when mkarchiso is about to squash the assembled airootfs, gate-calamares.sh checks
+#      that the installer in it starts (ldd -r on its ELF files, an offscreen start) and stops the build if it does not. The
+#      compatibility libraries that make it start on a rolling-release skew come from backends/cachyos/compat-libs.lock and are
+#      fetched, verified and staged by stage-compat-libs.sh in step 2 (risk R1, incident 2026-10-18)
 #
 # Environment (build-iso.sh sets these): CI_OS_VERSION (default 1.0), SOURCE_DATE_EPOCH (default: the pin's commit time),
 #   CI_OS_JOBS (mksquashfs threads), CI_OS_PIN (primary|fallback), CI_OS_REPO_ROOT (default: this checkout),
 #   CI_OS_OWNERSHIP_CHECK (error, the default | warn | off; see check-owned.sh), CI_OS_REPO_COMMIT, CI_OS_REPO_TREE,
 #   CI_OS_REPO_TREE_CHANGED|UNTRACKED|IGNORED (what build-iso.sh measured on the host about the working tree it copied in; the
 #   container has no .git; they are copied into the build record, 'unknown' when absent).
+#   CI_OS_COMPAT_LIBS=on|off (off: do not stage the compatibility libraries; the gate then has to fail on an image that needs them,
+#   this is how the gate was proven), CI_OS_COMPAT_REVIEW=warn|error, CI_OS_GATE_SMOKE_SECONDS (see gate-calamares.sh).
 # Test hooks: CI_OS_STOP_AFTER=overlay stops after step 5 (merged profile in $CI_OS_BUILD_DIR/archiso, no mkarchiso, no packages
 #   downloaded); CI_OS_STOP_AFTER=validate does that and then lets the stock mkarchiso read the profile inside a network-less
 #   namespace, which is archiso's nearest thing to a dry run: it validates the options, prints its settings (image name, volume
@@ -115,6 +121,13 @@ INSTALLER_STAGE="$CACHYOS_DIR/installer/render-installer-assets.sh"
 ci_log "2/6 render-installer-assets.sh -> $STAGING"
 CI_OS_STAGING_DIR="$STAGING" CI_OS_REPO_ROOT="$REPO" CI_OS_VERSION="$VERSION" CI_OS_BUILD_DAY="$BUILD_DAY" \
   bash "$INSTALLER_STAGE"
+# The libraries of the previous generation that cachyos-calamares-next still needs (compat-libs.lock). NOT optional either: a build
+# without them is exactly the ISO of 2026-10-18 whose installer did not start; CI_OS_COMPAT_LIBS=off exists to prove the gate.
+COMPAT_LOCK="$CACHYOS_DIR/compat-libs.lock"
+COMPAT_REPORT="$BUILD/compat-report.env"
+ci_log "2/6 stage-compat-libs.sh -> $STAGING"
+CI_OS_STAGING_DIR="$STAGING" CI_OS_COMPAT_LOCK="$COMPAT_LOCK" CI_OS_COMPAT_REPORT_FILE="$COMPAT_REPORT" \
+  bash "$SCRIPT_DIR/stage-compat-libs.sh" stage
 STAGING_DIGEST="$(ci_tree_digest "$STAGING")"
 
 # Provenance. The container holds a tar of the working tree, not a repository: stage-installer.sh therefore takes EVERY file of
@@ -202,6 +215,8 @@ build_info() { # build_info FILE: everything known before the ISO exists
     printf 'REPO_SUBSET_SHA256=%s\n' "$REPO_SUBSET_DIGEST"
     printf 'PAYLOAD_FILES=%s\n' "$PAYLOAD_FILES"
     printf 'PAYLOAD_SHA256=%s\n' "$PAYLOAD_DIGEST"
+    # what the compatibility step staged (stage-compat-libs.sh report; only KEY=VALUE lines of that shape are copied)
+    grep -E '^COMPAT_[A-Z0-9_]+=[A-Za-z0-9._,:+@/-]*$' "$COMPAT_REPORT" 2>/dev/null || printf 'COMPAT_LIBS=unknown\n'
     for t in archiso grub squashfs-tools libisoburn arch-install-scripts pacman cachyos-keyring; do
       printf 'TOOL_%s=%s\n' "$(printf '%s' "$t" | tr 'a-z-' 'A-Z_')" "$(tool_version "$t")"
     done
@@ -243,12 +258,23 @@ if [ "$STOP_AFTER" = overlay ]; then
 fi
 CI_OS_OWNERSHIP_CHECK="${CI_OS_OWNERSHIP_CHECK:-error}" WORK_ARCHISO_DIR="$WORK_PROFILE" UPSTREAM_ARCHISO_DIR="$UP/archiso" \
   bash "$SCRIPT_DIR/check-owned.sh"
+
+# The installer gate. Stock mkarchiso calls `mksquashfs <airootfs> <image>` by that bare name once the packages are installed, the
+# overlay is copied and the image is cleaned up; a program of that name that comes first on PATH sees the finished tree and can stop the
+# build before it is squashed, without editing the tool (the shim runs gate-calamares.sh, then execs the real mksquashfs).
+# The marker proves the shim ran: a profile that stops using mksquashfs (erofs) would otherwise skip the gate without a word.
+GATE_BIN="$BUILD/gate-bin"; GATE_MARKER="$BUILD/gate-calamares.passed"
+REAL_MKSQUASHFS="$(command -v mksquashfs || true)"
+[ -n "$REAL_MKSQUASHFS" ] || ci_die "mksquashfs not found: install squashfs-tools (mkarchiso needs it)"
+mkdir -p "$GATE_BIN"
+install -m 0755 "$SCRIPT_DIR/mksquashfs-gate.sh" "$GATE_BIN/mksquashfs"
+rm -f "$GATE_MARKER"
 if [ "$STOP_AFTER" = validate ]; then
   ci_log "CI_OS_STOP_AFTER=validate: mkarchiso reads the profile with no network; it has to stop at the package database sync"
   unshare --net true 2>/dev/null || ci_die "cannot create a network namespace here (unshare --net needs --privileged or --cap-add SYS_ADMIN)"
   VLOG="$BUILD/validate.log"; VWORK="$BUILD/work-validate"
   rc=0
-  unshare --net timeout 300 mkarchiso -v -w "$VWORK" -o "$OUT" "$WORK_PROFILE" > "$VLOG" 2>&1 || rc=$?
+  PATH="$GATE_BIN:$PATH" unshare --net timeout 300 mkarchiso -v -w "$VWORK" -o "$OUT" "$WORK_PROFILE" > "$VLOG" 2>&1 || rc=$?
   umount_under "$VWORK"
   grep -q "Image file name: *$ISO_FILE\$" "$VLOG" || { tail -n 25 "$VLOG" >&2; ci_die "mkarchiso did not accept the profile (no 'Image file name: $ISO_FILE' line); log: $VLOG"; }
   grep -q 'Installing packages to' "$VLOG" || { tail -n 25 "$VLOG" >&2; ci_die "mkarchiso stopped before it reached the package installation; log: $VLOG"; }
@@ -264,7 +290,9 @@ ci_log "6/6 mkarchiso ($(pacman -Q archiso)); the squashfs step prints nothing f
 MKLOG="$BUILD/mkarchiso.log"
 cd "$BUILD"
 set +e
-mkarchiso -v -w "$BUILD/work" -o "$OUT" "$WORK_PROFILE" 2>&1 | while IFS= read -r l; do printf '%(%T)T %s\n' -1 "$l"; done | tee "$MKLOG"
+CI_OS_REAL_MKSQUASHFS="$REAL_MKSQUASHFS" CI_OS_GATE_SCRIPT="$SCRIPT_DIR/gate-calamares.sh" CI_OS_GATE_MARKER="$GATE_MARKER" \
+CI_OS_COMPAT_LOCK="$COMPAT_LOCK" PATH="$GATE_BIN:$PATH" \
+  mkarchiso -v -w "$BUILD/work" -o "$OUT" "$WORK_PROFILE" 2>&1 | while IFS= read -r l; do printf '%(%T)T %s\n' -1 "$l"; done | tee "$MKLOG"
 rc=${PIPESTATUS[0]}
 set -e
 if [ "$rc" -ne 0 ]; then
@@ -274,8 +302,11 @@ if [ "$rc" -ne 0 ]; then
     ci_err "hint: a file in the overlay is also shipped by a package ('exists in filesystem'). Move it (see guard (b)), or handle it with a PostTransaction pacman hook."
   fi
   if grep -qi 'no space left' "$MKLOG"; then ci_err "hint: the docker VM is out of disk space (a build needs about 25 GiB)"; fi
+  if grep -q 'THE CALAMARES GATE FAILED' "$MKLOG"; then ci_err "the installer gate stopped the build before the image was squashed (see the lines above; fix: backends/cachyos/compat-libs.lock)"; fi
   exit "$rc"
 fi
+[ -s "$GATE_MARKER" ] || ci_die "mkarchiso finished but the installer gate never ran (no $GATE_MARKER): mkarchiso did not call mksquashfs through PATH, so the image was NOT checked. Extend mksquashfs-gate.sh for the new image type before shipping this ISO."
+ci_log "installer gate: $(cat "$GATE_MARKER")"
 
 iso="$OUT/$ISO_FILE"
 [ -f "$iso" ] || ci_die "mkarchiso succeeded but $ISO_FILE is not in $OUT (found: $(find "$OUT" -maxdepth 1 -type f | tr '\n' ' ')). The profile's iso_name/iso_version and the lock disagree."

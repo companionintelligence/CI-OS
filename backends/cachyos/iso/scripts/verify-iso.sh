@@ -29,7 +29,10 @@
 #       executable, sudoers drop-ins are 0440 and /etc/shadow is 0400; the slow-boot generator for virtual machines
 #       (companion-vm-timeouts) is there and executable;
 #   7.  build provenance (<iso>.build-info) when the build wrote it: upstream commit and base image digest equal
-#       upstream.lock; whether the working tree it was built from was clean (REPO_TREE);
+#       upstream.lock; whether the working tree it was built from was clean (REPO_TREE); the compatibility libraries of
+#       compat-libs.lock (risk R1: the installer in the image needs older libraries than the repositories ship today) are in the
+#       image byte for byte, and the build record carries the COMPAT_* keys of the step that put them there (a lock that lists no
+#       library any more is satisfied by an image that has none and a record that says 0);
 #   8.  integrity: the .sha256 next to the ISO matches it, and /arch/x86_64/airootfs.sha512 matches the squashfs.
 #
 # What is deliberately NOT asserted, because it is not ours to change (listed as KNOWN at the end): package, repository
@@ -45,13 +48,14 @@
 #                           initrd parity checks (section 2); without it they are listed under SKIPPED
 #   VERIFY_FETCH_UPSTREAM=1 fetch the pinned commit with git (network) when VERIFY_UPSTREAM_DIR is not set
 #   VERIFY_LOCK=FILE        upstream.lock (default: backends/cachyos/upstream.lock next to this script's repo)
+#   VERIFY_COMPAT_LOCK=FILE compat-libs.lock (default: backends/cachyos/compat-libs.lock next to this script's repo)
 #   VERIFY_GRUB_EXTRA_PARAMS="a=b c"  kernel parameters the overlay is allowed to ADD to the upstream kernel lines
 #   VERIFY_MIN_MB / VERIFY_MAX_MB     size sanity window (default 1500 / 6144); VERIFY_MIN_ENTRIES the least files the squashfs may hold (1000)
 #   VERIFY_SKIP_SFS_HASH=1  do not hash the squashfs against airootfs.sha512 (saves about 20 s)
 #   VERIFY_REQUIRE_ALL=1    fail if any group of checks had to be skipped (use it where the tools and the checkout
 #                           are expected to be there); without it they are listed under SKIPPED in the Summary
 #   VERIFY_REQUIRE_CLEAN=1  fail unless the build record says the ISO was built from a clean checkout (REPO_TREE=clean); without
-#                           it a dirty or unknown tree is only noted
+#                           it a dirty or unknown tree is only noted. Also fails a build whose compat-libs.lock review date had passed
 #
 # Needs: xorriso squashfs-tools (unsquashfs), awk sed grep od, sha256sum and sha512sum (or shasum);
 #        python3 with PyYAML for the Calamares YAML checks (Arch: python python-yaml; listed under SKIPPED without);
@@ -67,6 +71,16 @@
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
+
+# The compat lock helpers (iso/scripts/lib/compat-lock.sh) are shared with the build, so the verifier reads the lock exactly as the stager does.
+V_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -r "$V_SCRIPT_DIR/lib/compat-lock.sh" ]; then
+    # shellcheck source=lib/compat-lock.sh
+    . "$V_SCRIPT_DIR/lib/compat-lock.sh"
+    V_HAVE_COMPAT_LOCK=1
+else
+    V_HAVE_COMPAT_LOCK=0
+fi
 
 # ── decisions this script enforces (D1, D4, D6, D7) ─────────────────────────
 V_ISO_NAME_RE='^companion-os-plasma-[0-9]{4}\.[0-9]{2}\.[0-9]{2}-x86_64\.iso$'
@@ -865,6 +879,81 @@ v_check_buildinfo_iso() {
     bytes="$(v_kv_get "$bi" ISO_BYTES)"; sha="$(v_kv_get "$bi" ISO_SHA256)"
     if [ "$bytes" = "$(wc -c < "$iso" | tr -d ' ')" ]; then pass "build record: ISO_BYTES equals the file's size"; else fail "build record: ISO_BYTES is '${bytes:-<missing>}', the file has $(wc -c < "$iso" | tr -d ' ') bytes"; fi
     if [ "$sha" = "$(v_sha256 "$iso")" ]; then pass "build record: ISO_SHA256 equals the file's"; else fail "build record: ISO_SHA256 '${sha:-<missing>}' is not this file's hash"; fi
+}
+# v_check_compat_libs LOCK LISTING ROOT RECORD [SIDECAR]: risk R1, rolling-release drift (incident 2026-10-18: cachyos-calamares-next
+# was linked against boost 1.91 while the image had 1.92, and the installer did not start). compat-libs.lock names the older libraries
+# the image has to carry next to the current ones. LISTING is the normalised squashfs listing; ROOT holds the extracted library files
+# (v_sfs_extract_paths); RECORD is the build record inside the image, SIDECAR the one next to the ISO (optional).
+#   * every library of the lock is in the image as a regular file (not a link), readable by everybody, with the lock's sha256;
+#   * the record carries COMPAT_LIBS, COMPAT_PACKAGES, COMPAT_LOCK_SHA256, COMPAT_REVIEW_BY and COMPAT_REVIEW_OVERDUE, and they say
+#     what the lock says: the number of libraries, the packages, the lock's own hash, its review date. COMPAT_LIBS=off (a build made to
+#     prove the installer gate fails) and =unknown (no report of the step) are not an image to ship;
+#   * a lock that lists no library any more (retired, because [cachyos] rebuilt the installer) needs none in the image: the record
+#     then says COMPAT_LIBS=0.
+# A record with none of the keys is an image built before the step existed: it fails, because it cannot be told from one that skipped it.
+v_check_compat_libs() {
+    local lock="$1" l="$2" r="$3" rec="$4" side="${5:-}" problems nlib=0 pkg path sha mode got k v a b exp bad=0 kbad=0 name
+    name="$(basename "$lock")"
+    if [ "${V_HAVE_COMPAT_LOCK:-0}" != 1 ]; then fail "lib/compat-lock.sh is not next to verify-iso.sh: the compatibility libraries cannot be checked"; return 0; fi
+    if [ ! -f "$lock" ]; then fail "$name not found at $lock: cannot tell which compatibility libraries the image must carry"; return 0; fi
+    if ! problems="$(compat_lock_problems "$lock")"; then fail "$name is not a valid compat lock: $(printf '%s' "$problems" | tr '\n' ';')"; return 0; fi
+    nlib="$(compat_lock_libs "$lock" | grep -c .)"
+    if [ "$nlib" -eq 0 ]; then
+        pass "$name lists no compatibility library (retired): none is required in the image"
+    else
+        while read -r pkg path sha; do
+            [ -n "$path" ] || continue
+            mode="$(v_lst_mode "$l" "/$path")"
+            if [ -z "$mode" ]; then fail "/$path ($pkg) is not in the image: the installer that needs it does not start (risk R1; $name pins it)"; bad=$((bad + 1)); continue; fi
+            case "$mode" in
+                -*) ;;
+                *) fail "/$path is not a regular file in the image (mode $mode, target '$(v_lst_target "$l" "/$path")'): $name pins its bytes"; bad=$((bad + 1)); continue ;;
+            esac
+            if ! [[ "$mode" =~ ^-.{6}r ]]; then fail "/$path has mode $mode: not readable by every user, and the installer runs as one"; bad=$((bad + 1)); continue; fi
+            if [ ! -f "$r/$path" ]; then fail "/$path could not be extracted from the squashfs, so its hash was not checked"; bad=$((bad + 1)); continue; fi
+            got="$(v_sha256 "$r/$path")"
+            if [ "$got" != "$sha" ]; then fail "/$path has sha256 $got, $name pins $sha"; bad=$((bad + 1)); continue; fi
+        done <<EOF
+$(compat_lock_libs "$lock")
+EOF
+        [ "$bad" -eq 0 ] && pass "all $nlib compatibility librar$([ "$nlib" = 1 ] && echo y || echo ies) of $name are in the image, regular files with the pinned sha256"
+    fi
+    # the build record
+    if [ ! -s "$rec" ]; then fail "no build record inside the image: nothing says whether the compatibility step ran"; return 0; fi
+    for k in COMPAT_LIBS COMPAT_PACKAGES COMPAT_LOCK_SHA256 COMPAT_REVIEW_BY COMPAT_REVIEW_OVERDUE; do
+        if grep -q "^$k=" "$rec"; then :; else fail "the build record carries no $k: the image was built without the compatibility step, or before it existed"; kbad=$((kbad + 1)); fi
+    done
+    [ "$kbad" -eq 0 ] || return 0
+    v="$(v_kv_get "$rec" COMPAT_LIBS)"
+    case "$v" in
+        off) fail "build record: COMPAT_LIBS=off: this image was built with CI_OS_COMPAT_LIBS=off (the switch that proves the installer gate), it is not one to ship" ;;
+        unknown) fail "build record: COMPAT_LIBS=unknown: the compatibility step left no report" ;;
+        *[!0-9]*|'') fail "build record: COMPAT_LIBS='$v' is not a number" ;;
+        *) if [ "$v" = "$nlib" ]; then pass "build record: COMPAT_LIBS=$v equals the $nlib librar$([ "$nlib" = 1 ] && echo y || echo ies) of $name"
+           else fail "build record: COMPAT_LIBS=$v, but $name lists $nlib librar$([ "$nlib" = 1 ] && echo y || echo ies) (built with another lock?)"; fi ;;
+    esac
+    v="$(v_kv_get "$rec" COMPAT_LOCK_SHA256)"
+    if [ "$v" = "$(v_sha256 "$lock")" ]; then pass "build record: COMPAT_LOCK_SHA256 is the hash of $name"; else fail "build record: COMPAT_LOCK_SHA256 is '${v:-<empty>}', $name hashes to $(v_sha256 "$lock") (built with another lock?)"; fi
+    exp="$(compat_lock_packages "$lock" | awk '{ printf "%s%s-%s-%s", (n++ ? "," : ""), $1, $2, $3 }')"
+    v="$(v_kv_get "$rec" COMPAT_PACKAGES)"
+    if [ "$v" = "$exp" ]; then pass "build record: COMPAT_PACKAGES=${v:-<none>} equals the lock's"; else fail "build record: COMPAT_PACKAGES is '${v:-<empty>}', $name pins '${exp:-<none>}'"; fi
+    exp="$(compat_lock_review_by "$lock")"
+    v="$(v_kv_get "$rec" COMPAT_REVIEW_BY)"
+    if [ "$v" = "$exp" ]; then pass "build record: COMPAT_REVIEW_BY=${v:-<none>} equals the lock's"; else fail "build record: COMPAT_REVIEW_BY is '${v:-<empty>}', $name says '${exp:-<none>}'"; fi
+    v="$(v_kv_get "$rec" COMPAT_REVIEW_OVERDUE)"
+    case "$v" in
+        0) pass "build record: the compat lock was within its review date when the image was built" ;;
+        1) if [ "${VERIFY_REQUIRE_CLEAN:-0}" = 1 ]; then fail "build record: COMPAT_REVIEW_OVERDUE=1: $name was past its review date when this image was built (a release is built with CI_OS_COMPAT_REVIEW=error)"
+           else note "build record: COMPAT_REVIEW_OVERDUE=1: $name was past its review date ($(v_kv_get "$rec" COMPAT_REVIEW_BY)) when this image was built; VERIFY_REQUIRE_CLEAN=1 makes this a failure"; fi ;;
+        *) fail "build record: COMPAT_REVIEW_OVERDUE='$v' is neither 0 nor 1" ;;
+    esac
+    if [ -n "$side" ] && [ -s "$side" ]; then
+        for k in COMPAT_LIBS COMPAT_PACKAGES COMPAT_LOCK_SHA256 COMPAT_REVIEW_BY COMPAT_REVIEW_OVERDUE; do
+            a="$(v_kv_get "$rec" "$k")"; b="$(v_kv_get "$side" "$k")"
+            if grep -q "^$k=" "$side" && [ "$a" = "$b" ]; then pass "the record inside the image and the one next to it agree on $k"; else fail "$k differs: inside the image '${a:-<empty>}', next to it '${b:-<missing>}'"; fi
+        done
+    fi
+    return 0
 }
 # v_check_sha256_file SHAFILE ISO
 v_check_sha256_file() {
@@ -1824,6 +1913,12 @@ EOF
     else
         fail "a build record exists but $LOCK (upstream.lock) is missing: nothing to compare it with"
     fi
+    # Risk R1: the compatibility libraries of compat-libs.lock are in the image, and the record says the step that put them there ran.
+    local clock="${VERIFY_COMPAT_LOCK:-$repo_guess/compat-libs.lock}" clibs=""
+    if [ "$V_HAVE_COMPAT_LOCK" = 1 ] && [ -f "$clock" ]; then clibs="$(compat_lock_libs "$clock" 2>/dev/null | awk '{ print "/" $2 }' | tr '\n' ' ')"; fi
+    # shellcheck disable=SC2086
+    [ -z "$clibs" ] || v_sfs_extract_paths "$SQ" "$R" $clibs
+    v_check_compat_libs "$clock" "$L" "$R" "$R/usr/share/ci-os/iso-build-info" "$bi"
     local pk="${ISO%.iso}.pkgs.txt"
     if [ -s "$pk" ]; then
         v_check_pkgs_txt "$pk" "$ISOX/pkglist.txt"

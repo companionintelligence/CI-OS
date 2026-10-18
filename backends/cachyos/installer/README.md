@@ -36,9 +36,16 @@ Nothing generated is committed: the overlay at `/usr/share/ci-os/calamares` is a
 desktop icon "Install Companion OS"
   -> /usr/local/bin/calamares-online.sh                    (liveuser; log: /home/liveuser/companion-install.log, mode 600)
        1 live medium?                          no  -> stop (the installer repartitions disks)
-       2 keyring re-init, exactly as upstream  fail-> dialog "package repositories could not be reached", stop
-       3 newer cachyos-calamares-next?         download (pacman -Sw), unpack to a temp dir, run the guards on THAT;
-                                               passes -> pacman -S it;  fails -> keep the installer already on the ISO, say why
+       2 keyring, then sync                    no keyring -> pacman-key --init and --populate BEFORE the first sync; a working one is
+                                               kept (never deleted) and populated; an unusable one is repaired in place, or as a last
+                                               resort its CONTENTS are cleared in place (the directory is never removed or renamed: it
+                                               can be a mount point; public files are kept under /var/log for diagnosis).
+                                               Then pacman -Sy of both keyring packages; a keyring-class failure repairs the keyring
+                                               in place and tries the sync ONCE more. fail-> dialog that says keyring problem (a
+                                               restart does not help: download a newer ISO if it persists), mirror or connection
+                                               problem, or other; pacman's last error in the log, stop (incident 2026-10-18, F1)
+       3 newer cachyos-calamares-next?         download (pacman -Sw), unpack to a temp dir, run the guards on THAT and `ldd -r` on its
+                                               binary; passes -> pacman -S it;  fails -> keep the installer already on the ISO, say why
        4 guards on the installer in use        critical fail -> dialog, stop, nothing changed;  cosmetic -> WARN in the log
        5 overlay copied in (staged, then one cp), cosmetic patches, files compared back byte for byte
        6 pacman -Si of every required package  the base system (pacstrap.conf basePackages + the packages pacstrap adds in code,

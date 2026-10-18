@@ -17,8 +17,9 @@ stock `mkarchiso` in a throw-away amd64 container. Upstream is read, never writt
 5. `in-container/20-build.sh`: fetch the pinned commit and assert id, committer time and `archiso/` tree id; run
    `render-assets.sh` into a staging tree; replay upstream's generators into a *generated layer*; `in-container/apply-overlay.sh`
    merges everything and runs the guards; `in-container/check-owned.sh` checks, from the repositories' file lists, that no package of
-   the image ships a file the build adds (a conflict would abort pacstrap 8 minutes in); `mkarchiso -v`; write `.sha256`, `.pkgs.txt`,
-   `.build-info`.
+   the image ships a file the build adds (a conflict would abort pacstrap 8 minutes in); `mkarchiso -v` with the installer gate in front
+   of `mksquashfs` (see below); write `.sha256`, `.pkgs.txt`, `.build-info`. Before the overlay is merged, `in-container/stage-compat-libs.sh`
+   puts the libraries of `../../compat-libs.lock` into the staging layer (Arch Linux Archive, sha256 and signature checked).
 6. `build-iso.sh` copies the artifacts out, re-hashes the ISO on the host, prints the SHA256, removes the container and work volume.
    If the build finished but the copy-out did not (a failing `docker cp`, a hash mismatch), the container and the work volume are
    **kept** with the ISO inside, and the `docker cp ci-os-cachyos-build:/work/out/. DIR` command that takes it out is printed. A failed
@@ -36,6 +37,17 @@ exercises `check-owned.sh` on a crafted tree and then does the validate step (Do
 The date in the ISO name, the volume label, the boot UUID and the `CI_OS_BUILD` day comes from `SOURCE_DATE_EPOCH`, which `build-iso.sh`
 fixes once per run: the build day by default, `--source-date-epoch pin` for the pinned upstream commit's time (a stable file name for
 comparing builds), or an explicit number of seconds. A run that crosses midnight cannot disagree with itself (upstream issue #108).
+
+## The installer gate (risk R1)
+
+`20-build.sh` starts `mkarchiso` with `$BUILD/gate-bin` first on PATH, which holds `in-container/mksquashfs-gate.sh` under the name
+`mksquashfs`. Stock `mkarchiso` calls `mksquashfs <airootfs> <image>` by that bare name after the packages are installed, the profile's
+`airootfs/` is copied and the image is cleaned up, so the shim sees the finished tree: it runs `in-container/gate-calamares.sh` on it and
+execs the real `mksquashfs` only if that passes (`ldd -r` on every ELF file of `cachyos-calamares-next`, one library in two versions in the
+process of `/usr/bin/calamares`, an offscreen start of Calamares that has to stay up, the pinned compat libraries unchanged; all in a
+read-only bind mount, so the image is not touched). The shim writes `$BUILD/gate-calamares.passed`; `20-build.sh` fails the build when
+mkarchiso finishes without it (a profile that stopped using `mksquashfs` would otherwise skip the gate silently). The gate needs about
+a minute under Rosetta, most of it the offscreen start (`CI_OS_GATE_SMOKE_SECONDS`, default 20).
 
 ## Working tree provenance
 
@@ -58,7 +70,9 @@ back from `git ls-files` to `find` there, so every file of `core/headless/payloa
 
 ## Layers and precedence (apply-overlay.sh)
 
-upstream `archiso/` < overlay patches < **generated layer** (from `20-build.sh`) < `overlay/files/` < **staging layer** (`render-assets.sh`).
+upstream `archiso/` < overlay patches < **generated layer** (from `20-build.sh`) < `overlay/files/` < **staging layer** (`render-assets.sh`,
+`installer/render-installer-assets.sh`, and `in-container/stage-compat-libs.sh`, which adds the three older boost libraries of `compat-libs.lock`
+under `usr/lib`: guard (b) wants them in `overlay/package-owned-ok.txt`).
 
 The generated layer is what upstream's `prepare_profile()` would have written, so an overlay file at the same path wins:
 `airootfs/etc/{motd,version-tag,edition-tag,environment}`, `etc/pacman.d/cachyos-mirrorlist` (pinned commit, sha256 checked),

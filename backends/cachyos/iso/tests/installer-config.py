@@ -380,7 +380,7 @@ check("the hello hook removes the skeleton autostart and hides the menu entry",
 launcher = text(os.path.join(OVERLAY_FILES, "usr", "local", "bin", "calamares-online.sh"))
 code = strip_comments(launcher)
 check("the launcher never names a CachyOS web host or raw GitHub in code", not forbidden.search(code), [m for m in forbidden.findall(code)])
-check("the launcher keeps upstream's pieces: the keyring re-init, cachyos-calamares-next, pkexec-wrapper, calamares -D6",
+check("the launcher keeps upstream's pieces: the keyring populate, cachyos-calamares-next, pkexec-wrapper, calamares -D6",
       all(s in code for s in ("pacman-key --populate archlinux cachyos", "cachyos-calamares-next", "pkexec-wrapper calamares -D6", "timedatectl set-ntp true")))
 check("the launcher logs to /home/liveuser/companion-install.log", "/home/liveuser/companion-install.log" in launcher)
 check("the launcher has no set -e (errors are handled one by one) but uses set -u", re.search(r"^set -u$", launcher, re.M) and not re.search(r"^set -e", launcher, re.M))

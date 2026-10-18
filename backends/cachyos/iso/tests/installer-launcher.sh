@@ -16,6 +16,14 @@
 #   launcher    the whole script against stubs: current installer, a compatible update (installed), an incompatible update (the
 #               installer on the ISO is KEPT), an incompatible bundled installer (stops, nothing changed), a package that vanished
 #               (stops before Calamares), an unreachable repository, a non-live system, a dangerous keyring path, the dialogs
+#   keyring     the pacman keyring before the first database sync (incident 2026-10-18, F1): the stubs MODEL the defect (a pacman -Sy
+#               without a keyring fails with "Public keyring not found ... key is unknown"), so the cases are: no keyring, an empty
+#               directory, a working keyring (kept, never deleted, re-populated before the first sync), a broken one (repaired in place,
+#               or its CONTENTS cleared in place), network down, a keyring error at the sync (repaired in place, ONE retry), a 404 for a
+#               keyring package (a mirror problem, not a keyring problem), a failing pacman-key --init, an unclassified error. The
+#               keyring directory is modelled as a MOUNT POINT: removing or renaming the directory itself fails with EBUSY.
+#               MUTANTS of the launcher (the old order, the init after the sync, a rename-aside, an rm -rf of the directory, a glob that
+#               misses dot files, no retry, two retries, no stripping of package names, no pre-sync populate) that these cases must catch
 #
 #   backends/cachyos/iso/tests/installer-launcher.sh
 #
@@ -351,7 +359,7 @@ case "$1" in
       case " ${FAKE_MISSING:-} " in *" $n "*) echo "error: package '"'"'$n'"'"' was not found" >&2; rc=1 ;; esac
     done
     exit $rc ;;
-  -Sy) exit "${FAKE_SY_RC:-0}" ;;
+  -Sy) exec fake-pacman-sy "$@" ;;
   -Sw)
     [ "${FAKE_SW_RC:-0}" = 0 ] || exit "$FAKE_SW_RC"
     mkdir -p "$CI_OS_PKG_CACHE"; : > "$CI_OS_PKG_CACHE/cachyos-calamares-next-$FAKE_REPO_VER-x86_64.pkg.tar.zst"; exit 0 ;;
@@ -361,13 +369,87 @@ case "$1" in
     echo installed > "$FAKE_STATE/installed-candidate"; exit 0 ;;
 esac
 exit 0'
-stub pacman-key 'echo "pacman-key $*" >> "$FAKE_LOG"; if [ "$1" = --init ]; then if [ -e "$CI_OS_PACMAN_GNUPG_DIR" ]; then echo "keyring dir still existed at --init" >> "$FAKE_LOG"; fi; mkdir -p "$CI_OS_PACMAN_GNUPG_DIR"; fi; exit 0'
+# stub_from_stdin NAME: the body comes from a heredoc (quoting inside the stubs below would otherwise be unreadable).
+stub_from_stdin() { { printf '#!/bin/bash\n'; cat; } > "$W/bin/$1"; chmod +x "$W/bin/$1"; }
+# pacman-key: a keyring is "working" when $CI_OS_PACMAN_GNUPG_DIR/pubring.gpg is not empty and there is no file named "corrupt" in it.
+# --init creates it (and repairs a "corrupt" one only when FAKE_REPAIRABLE=1); FAKE_INIT_RC / FAKE_POPULATE_RC make a step fail.
+stub_from_stdin pacman-key <<'STUB'
+echo "pacman-key $*" >> "$FAKE_LOG"
+G="$CI_OS_PACMAN_GNUPG_DIR"
+case "$1" in
+  --list-keys)
+    if [ -s "$G/pubring.gpg" ] && [ ! -e "$G/corrupt" ]; then exit 0; fi
+    echo "gpg: error reading key: No public key" >&2; exit 2 ;;
+  --init)
+    if [ "${FAKE_INIT_RC:-0}" != 0 ]; then echo "==> ERROR: could not initialise the keyring" >&2; exit "$FAKE_INIT_RC"; fi
+    mkdir -p "$G"
+    [ -s "$G/pubring.gpg" ] || echo keys > "$G/pubring.gpg"
+    if [ -e "$G/corrupt" ] && [ "${FAKE_REPAIRABLE:-1}" = 1 ]; then rm -f "$G/corrupt"; fi
+    exit 0 ;;
+  --populate)
+    if [ "${FAKE_POPULATE_RC:-0}" != 0 ]; then echo "==> ERROR: could not populate the keyring" >&2; exit "$FAKE_POPULATE_RC"; fi
+    exit 0 ;;
+esac
+exit 0
+STUB
+# The keyring directory as a MOUNT POINT (FAKE_MOUNT=1, run_launcher's default): the directory itself can neither be removed nor
+# renamed (EBUSY); what is inside it can. rm, mv and rmdir hand everything else to the real tool. /etc/pacman.d/gnupg is a mount
+# point whenever pacman-init.service Requires= etc-pacman.d-gnupg.mount (archiso's releng profile does; the pinned CachyOS one ships
+# the unit but does not pull it in, so an upstream change could).
+stub_from_stdin rm <<'STUB'
+for a in "$@"; do
+  if [ "${FAKE_MOUNT:-0}" = 1 ] && [ -d "${CI_OS_PACMAN_GNUPG_DIR:-/nonexistent}" ] && [ "${a%/}" = "${CI_OS_PACMAN_GNUPG_DIR%/}" ]; then
+    echo "BUSY rm $a" >> "$FAKE_LOG"; echo "rm: cannot remove '$a': Device or resource busy" >&2; exit 1
+  fi
+done
+exec /bin/rm "$@"
+STUB
+stub_from_stdin rmdir <<'STUB'
+for a in "$@"; do
+  if [ "${FAKE_MOUNT:-0}" = 1 ] && [ -d "${CI_OS_PACMAN_GNUPG_DIR:-/nonexistent}" ] && [ "${a%/}" = "${CI_OS_PACMAN_GNUPG_DIR%/}" ]; then
+    echo "BUSY rmdir $a" >> "$FAKE_LOG"; echo "rmdir: failed to remove '$a': Device or resource busy" >&2; exit 1
+  fi
+done
+exec /bin/rmdir "$@"
+STUB
+stub_from_stdin mv <<'STUB'
+for a in "$@"; do
+  if [ "${FAKE_MOUNT:-0}" = 1 ] && [ -d "${CI_OS_PACMAN_GNUPG_DIR:-/nonexistent}" ] && [ "${a%/}" = "${CI_OS_PACMAN_GNUPG_DIR%/}" ]; then
+    echo "BUSY mv $a" >> "$FAKE_LOG"; echo "mv: cannot move '$a': Device or resource busy" >&2; exit 1
+  fi
+done
+exec /bin/mv "$@"
+STUB
+stub gpgconf 'echo "gpgconf $*" >> "$FAKE_LOG"; exit 0'
+# pacman -Sy: models the defect of 2026-10-18. Without a public keyring the [cachyos] database cannot be verified.
+# FAKE_SY_BAD_OUT / FAKE_SY_BAD_COUNT: the first N calls (default 1) fail with that output (a keyring error that goes away once the
+# keyring is repaired); $FAKE_STATE/sy-count counts the calls.
+stub_from_stdin fake-pacman-sy <<'STUB'
+n=0; [ ! -f "$FAKE_STATE/sy-count" ] || n="$(cat "$FAKE_STATE/sy-count")"; n=$((n + 1)); echo "$n" > "$FAKE_STATE/sy-count"
+if [ ! -s "$CI_OS_PACMAN_GNUPG_DIR/pubring.gpg" ]; then
+  echo "warning: Public keyring not found; have you run 'pacman-key --init'?" >&2
+  echo 'error: cachyos: key "882DCFE48E2051D48E2562ABF3B607488DB35A47" is unknown' >&2
+  echo "error: keyring is not writable" >&2
+  echo "error: failed to synchronize all databases (unexpected error)" >&2
+  exit 1
+fi
+if [ -n "${FAKE_SY_BAD_OUT:-}" ] && [ "$n" -le "${FAKE_SY_BAD_COUNT:-1}" ]; then printf '%s\n' "$FAKE_SY_BAD_OUT" >&2; exit 1; fi
+if [ "${FAKE_NET:-up}" = down ]; then
+  echo "error: failed retrieving file 'core.db' from geo.mirror.pkgbuild.com : Could not resolve host: geo.mirror.pkgbuild.com" >&2
+  echo "error: failed to synchronize all databases (unexpected error)" >&2
+  exit 1
+fi
+[ -z "${FAKE_SY_OUT:-}" ] || printf '%s\n' "$FAKE_SY_OUT" >&2
+exit "${FAKE_SY_RC:-0}"
+STUB
 stub timedatectl 'echo "timedatectl $*" >> "$FAKE_LOG"; exit 0'
 stub bsdtar 'echo "bsdtar $*" >> "$FAKE_LOG"; [ "${FAKE_BSDTAR_RC:-0}" = 0 ] || exit "$FAKE_BSDTAR_RC"; while [ $# -gt 0 ]; do [ "$1" = -C ] && dest="$2"; shift; done; cp -R "$FAKE_CANDIDATE"/. "$dest"/; exit 0'
 stub pkexec-wrapper 'echo "pkexec-wrapper $*" >> "$FAKE_LOG"; exit "${FAKE_CAL_RC:-0}"'
 stub kdialog 'echo "kdialog $*" >> "$FAKE_UI"; exit 0'
 stub notify-send 'echo "notify-send $*" >> "$FAKE_UI"; exit 0'
 stub curl 'echo "curl $*" >> "$FAKE_LOG"; exit 0'
+# ldd -r of the CANDIDATE installer: what FAKE_LDD_OUT holds (default: nothing wrong). The launcher runs it with LD_LIBRARY_PATH at the candidate.
+stub ldd 'echo "ldd $*" >> "$FAKE_LOG"; echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}" >> "$FAKE_LOG"; [ -z "${FAKE_LDD_OUT:-}" ] || printf "%s\n" "$FAKE_LDD_OUT"; exit 0'
 
 # run_launcher NAME [VAR=value ...]: a fresh copy of the fake installer in $W/r-NAME, the stubs, the launcher; sets L_RC.
 run_launcher() {
@@ -379,13 +461,14 @@ run_launcher() {
   env -i PATH="$W/bin:$PYDIR:/usr/bin:/bin:/usr/sbin:/sbin" HOME="$R" TMPDIR="$R" \
     CI_OS_OVERLAY_DIR="$OV" CI_OS_CALAMARES_ROOT="$R/root" CI_OS_INSTALL_LOG="$R/install.log" CI_OS_SUDO='' \
     CI_OS_PACMAN_GNUPG_DIR="$R/gnupg" CI_OS_PKG_CACHE="$R/cache" CI_OS_ALLOW_NON_LIVE=1 CI_OS_NONINTERACTIVE=1 \
+    CI_OS_KEYRING_DIAG_DIR="$R/diag" FAKE_MOUNT=1 \
     CI_OS_LOCK_FILE="$R/lock" CI_OS_LIVE_ROOT="$W/live" FAKE_LOG="$R/log" FAKE_UI="$R/ui" FAKE_STATE="$R/state" \
     FAKE_INSTALLED_VER=3.4.2-13 FAKE_REPO_VER=3.4.2-13 \
-    "$@" bash "$LAUNCHER" > "$R/out" 2>&1 && L_RC=0 || L_RC=$?
+    "$@" bash "${L_SCRIPT:-$LAUNCHER}" > "$R/out" 2>&1 && L_RC=0 || L_RC=$?
   L_DIR="$R"
 }
-# The keyring directory exists before the run (the stub checks that the launcher removed it first).
-seed_gnupg() { mkdir -p "$W/r-$1/gnupg"; echo old > "$W/r-$1/gnupg/old-key"; }
+# The live system's normal state: pacman-init.service made a working keyring at boot. old-key is a marker that it is the same one afterwards.
+seed_gnupg() { mkdir -p "$W/r-$1/gnupg"; echo old > "$W/r-$1/gnupg/old-key"; echo keys > "$W/r-$1/gnupg/pubring.gpg"; }
 
 # 1. happy path, installer current
 seed_gnupg happy
@@ -394,11 +477,10 @@ if [ "$HAVE_YAML" = 1 ]; then
   DESC="launcher: a current installer is not downloaded; the overlay is applied; Calamares starts through pkexec-wrapper (exit 0)"
   if [ "$L_RC" = 0 ] && ! grep -q -- '-Sw' "$L_DIR/log" && grep -q '^pkexec-wrapper calamares -D6' "$L_DIR/log" \
     && cmp -s "$OV/settings.conf" "$L_DIR/root/etc/calamares/settings.conf"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/out"; fi
-  DESC="launcher: upstream's key re-init order is kept (rm gnupg, pacman -Sy both keyrings, --init, --populate archlinux cachyos, NTP)"
+  DESC="launcher: a working keyring is kept (never deleted) and populated BEFORE the first sync: list, populate, NTP, one -Sy of both keyring packages, populate; no --init"
   seq="$(grep -E '^(pacman -Sy|pacman-key|timedatectl)' "$L_DIR/log" | tr '\n' ';')"
-  if [ "$seq" = "pacman -Sy --noconfirm archlinux-keyring cachyos-keyring;pacman-key --init;pacman-key --populate archlinux cachyos;timedatectl set-ntp true;" ]; then t_pass "$DESC"; else t_fail "$DESC"; fi
-  DESC="launcher: the old keyring directory was removed before the new one was made"
-  if [ ! -e "$L_DIR/gnupg/old-key" ] && ! grep -q 'still existed' "$L_DIR/log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+  if [ "$seq" = "pacman-key --list-keys;pacman-key --populate archlinux cachyos;timedatectl set-ntp true;pacman -Sy --noconfirm archlinux-keyring cachyos-keyring;pacman-key --populate archlinux cachyos;" ] \
+    && [ "$(cat "$L_DIR/gnupg/old-key")" = old ] && [ "$(cat "$L_DIR/gnupg/pubring.gpg")" = keys ]; then t_pass "$DESC"; else t_fail "$DESC ($seq)"; fi
   DESC="launcher: the log exists, is private (600) and names the preflight result"
   if [ -f "$L_DIR/install.log" ] && [ -n "$(find "$L_DIR/install.log" -perm 600)" ] && grep -q 'package preflight' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
   DESC="launcher: no CachyOS web host is contacted (no curl at all; nothing in the log mentions cachyos.org)"
@@ -434,6 +516,27 @@ if [ "$HAVE_YAML" = 1 ]; then
     && [ -f "$L_DIR/root/etc/calamares/scripts/detect-architecture" ] && grep -q '^pkexec-wrapper calamares' "$L_DIR/log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
   DESC="launcher: ... and the person is told why (message names the version) and where the log is"
   if grep -q '3.5.0-1' "$L_DIR/out" && grep -q 'install.log' "$L_DIR/out"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+  # 3b. a newer installer that passes the guards but does not LINK here (F2 on the install-day side: the package depends on boost-libs
+  # without a version, so a rebuild against a newer boost installs fine and does not start): the installer on the ISO is kept.
+  mkdir -p "$W/cand-bin"; cp -R "$W/cand-ok"/. "$W/cand-bin"/
+  mkdir -p "$W/cand-bin/usr/bin" "$W/cand-bin/usr/lib"; : > "$W/cand-bin/usr/bin/calamares"; : > "$W/cand-bin/usr/lib/libcalamares.so.3.5"
+  seed_gnupg lk1
+  run_launcher lk1 FAKE_REPO_VER=3.5.0-1 FAKE_CANDIDATE="$W/cand-bin"
+  DESC="launcher: a newer installer that links on this system is installed; ldd -r ran on ITS binary with LD_LIBRARY_PATH at its own libraries"
+  if [ "$L_RC" = 0 ] && [ -f "$L_DIR/state/installed-candidate" ] && grep -q '^ldd -r .*/usr/bin/calamares' "$L_DIR/log" && grep -q '^LD_LIBRARY_PATH=.*/usr/lib' "$L_DIR/log" \
+    && grep -q 'candidate installer links on this system' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/install.log" | tail -n 5; fi
+  seed_gnupg lk2
+  run_launcher lk2 FAKE_REPO_VER=3.5.0-1 FAKE_CANDIDATE="$W/cand-bin" FAKE_LDD_OUT="	libboost_python314.so.1.93.0 => not found"
+  DESC="launcher: a newer installer that needs a library this system lacks (libboost_python314.so.1.93.0 => not found) is NOT installed; the ISO's installer is kept and started"
+  if [ "$L_RC" = 0 ] && [ ! -f "$L_DIR/state/installed-candidate" ] && ! grep -q '^pacman -S --noconfirm cachyos-calamares-next' "$L_DIR/log" && grep -q '^pkexec-wrapper calamares' "$L_DIR/log" \
+    && grep -q 'libboost_python314.so.1.93.0 => not found' "$L_DIR/install.log" && grep -q 'does not link on this system.*KEEPING the installer on this ISO' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/install.log" | tail -n 6; fi
+  DESC="launcher: ... and the person is told why, with the version and the log path"
+  if grep -q '3.5.0-1' "$L_DIR/out" && grep -q 'needs libraries that this live system does not have' "$L_DIR/out" && grep -q 'install.log' "$L_DIR/out"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+  seed_gnupg lk3
+  run_launcher lk3 FAKE_REPO_VER=3.5.0-1 FAKE_CANDIDATE="$W/cand-bin" FAKE_LDD_OUT="undefined symbol: _ZN5boost6python6detail11init_moduleER11PyModuleDefPFvvE	(/usr/lib/libcalamares.so.3.5)"
+  DESC="launcher: an undefined symbol (the second F2 failure) keeps the installer on the ISO as well"
+  if [ "$L_RC" = 0 ] && [ ! -f "$L_DIR/state/installed-candidate" ] && grep -q 'undefined symbol: _ZN5boost6python6detail11init_module' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
 
   # 4. update disabled
   seed_gnupg off
@@ -492,8 +595,8 @@ fi
 
 # 7. repository unreachable
 seed_gnupg sy
-run_launcher sy FAKE_SY_RC=1
-DESC="launcher: an unreachable repository (pacman -Sy fails) stops with a clear message before anything else"
+run_launcher sy FAKE_NET=down
+DESC="launcher: an unreachable repository (pacman -Sy fails on the network) stops with a clear message before anything else"
 if [ "$L_RC" = 1 ] && ! grep -q '^pkexec-wrapper' "$L_DIR/log" && grep -q 'package repositories could not be reached' "$L_DIR/out"; then t_pass "$DESC"; else t_fail "$DESC"; fi
 
 # 8. not live
@@ -512,8 +615,8 @@ for bad in /etc /etc/pacman.d /; do
   mkdir -p "$W/r-kd"; : > "$W/r-kd/log"
   env -i PATH="$W/bin:/usr/bin:/bin" HOME="$W/r-kd" CI_OS_OVERLAY_DIR="$OV" CI_OS_INSTALL_LOG="$W/r-kd/install.log" CI_OS_SUDO= CI_OS_NONINTERACTIVE=1 \
     CI_OS_ALLOW_NON_LIVE=1 CI_OS_PACMAN_GNUPG_DIR="$bad" FAKE_LOG="$W/r-kd/log" FAKE_UI="$W/r-kd/ui" bash "$LAUNCHER" > "$W/r-kd/out" 2>&1 && L_RC=0 || L_RC=$?
-  DESC="launcher: refuses to delete '$bad' as the keyring directory"
-  if [ "$L_RC" = 1 ] && grep -q 'refusing to delete' "$W/r-kd/out"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+  DESC="launcher: refuses to use '$bad' as the keyring directory (the keyring step works inside it)"
+  if [ "$L_RC" = 1 ] && grep -q "refusing to use '$bad' as the pacman keyring directory" "$W/r-kd/out" && ! grep -q '^pacman' "$W/r-kd/log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
 done
 
 # 10. dialogs
@@ -549,6 +652,375 @@ env -i PATH="$W/bin:$PYDIR:/usr/bin:/bin" HOME="$W/r-hu" TMPDIR="$W/r-hu" DISPLA
   FAKE_UI="$W/r-hu/ui" FAKE_STATE="$W/r-hu" FAKE_INSTALLED_VER=3.4.2-13 FAKE_REPO_VER=3.4.2-13 bash "$LAUNCHER" > "$W/r-hu/out" 2>&1 || true
 DESC="dialog: on a desktop a passing notification tells the person the installer is being prepared (not a modal dialog)"
 if grep -q '^notify-send -a Companion OS installer Companion OS installer Preparing the installer' "$W/r-hu/ui" && ! grep -q '^kdialog' "$W/r-hu/ui"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$W/r-hu/ui"; fi
+
+# 13. the keyring (incident 2026-10-18, F1). The ISO of that day failed on every click, 20 s after it, with a dialog that blamed the
+# network: the launcher removed /etc/pacman.d/gnupg, ran `pacman -Sy` (which cannot verify the [cachyos] database without a keyring)
+# and only then `pacman-key --init`. The stubs above model exactly that failure, so these cases fail on the old order.
+echo "== launcher: the keyring is created BEFORE the first sync, a working one is never deleted (F1)"
+keys_seq() { grep -E '^(pacman -Sy|pacman-key|timedatectl)' "$1/log" | tr '\n' ';'; }
+SEQ_INIT_THEN_SYNC="pacman-key --init;pacman-key --populate archlinux cachyos;timedatectl set-ntp true;pacman -Sy --noconfirm archlinux-keyring cachyos-keyring;pacman-key --populate archlinux cachyos;"
+
+# check_no_keyring DIR RC: what a click on a live system with NO keyring must do. Used on the real launcher and on the mutants.
+check_no_keyring() {
+  local d="$1" rc="$2"
+  [ "$(keys_seq "$d")" = "$SEQ_INIT_THEN_SYNC" ] || return 1
+  [ -s "$d/gnupg/pubring.gpg" ] || return 1
+  if [ "$HAVE_YAML" = 1 ]; then [ "$rc" = 0 ] || return 1; fi
+  return 0
+}
+
+run_launcher k1                       # no gnupg directory at all
+DESC="keyring: none at all: pacman-key --init and --populate run BEFORE the first -Sy, which then succeeds (the click goes on)"
+if check_no_keyring "$L_DIR" "$L_RC"; then t_pass "$DESC"; else t_fail "$DESC ($(keys_seq "$L_DIR") rc=$L_RC)"; sed 's/^/      /' "$L_DIR/out" | tail -n 8; fi
+DESC="keyring: ... and the log says so (no keyring: creating it ... before any database is synced)"
+if grep -q 'no pacman keyring in .*creating it.*before any database is synced' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+mkdir -p "$W/r-k1b/gnupg"; run_launcher k1b          # the directory exists and is empty
+DESC="keyring: an empty directory counts as no keyring (same order)"
+if check_no_keyring "$L_DIR" "$L_RC"; then t_pass "$DESC"; else t_fail "$DESC ($(keys_seq "$L_DIR") rc=$L_RC)"; fi
+
+SEQ_HAPPY="pacman-key --list-keys;pacman-key --populate archlinux cachyos;timedatectl set-ntp true;pacman -Sy --noconfirm archlinux-keyring cachyos-keyring;pacman-key --populate archlinux cachyos;"
+check_populate_first() { [ "$(keys_seq "$1")" = "$SEQ_HAPPY" ]; }   # DIR: list, populate, NTP, the first sync, populate
+seed_gnupg k2; run_launcher k2
+DESC="keyring: a working keyring is populated (pacman-key --populate archlinux cachyos) BEFORE the first -Sy, not only after it"
+if check_populate_first "$L_DIR"; then t_pass "$DESC"; else t_fail "$DESC ($(keys_seq "$L_DIR"))"; fi
+DESC="keyring: a working keyring is not touched: same files, no --init, no move"
+if [ "$(cat "$L_DIR/gnupg/old-key")" = old ] && ! grep -q 'pacman-key --init' "$L_DIR/log" && ! ls "$L_DIR"/gnupg.broken.* >/dev/null 2>&1 \
+  && grep -q 'works: keeping it' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+seed_gnupg k3; : > "$W/r-k3/gnupg/corrupt"
+run_launcher k3 FAKE_REPAIRABLE=1
+DESC="keyring: a broken keyring that --init repairs is repaired IN PLACE (nothing set aside, the old files stay)"
+seq="$(keys_seq "$L_DIR")"
+if [ "$seq" = "pacman-key --list-keys;pacman-key --init;pacman-key --populate archlinux cachyos;pacman-key --list-keys;timedatectl set-ntp true;pacman -Sy --noconfirm archlinux-keyring cachyos-keyring;pacman-key --populate archlinux cachyos;" ] \
+  && [ "$(cat "$L_DIR/gnupg/old-key")" = old ] && ! ls "$L_DIR"/gnupg.broken.* >/dev/null 2>&1; then t_pass "$DESC"; else t_fail "$DESC ($seq)"; fi
+
+# A keyring that pacman-key --init can NOT repair (the "corrupt" marker survives it), with what a real one holds: a public keyring, a
+# trust database, dot files, a socket, private keys and a legacy secret ring. The directory is a mount point (FAKE_MOUNT=1): it can
+# not be renamed or removed, only emptied.
+seed_unrepairable() { # NAME
+  local g="$W/r-$1/gnupg"
+  seed_gnupg "$1"
+  : > "$g/corrupt"; echo trust > "$g/trustdb.gpg"; : > "$g/.gpg-v21-migrated"; : > "$g/S.gpg-agent"; echo ring > "$g/secring.gpg"
+  mkdir -p "$g/private-keys-v1.d" "$g/openpgp-revocs.d"; echo k > "$g/private-keys-v1.d/abc.key"; echo r > "$g/openpgp-revocs.d/abc.rev"
+}
+# check_unrepairable DIR RC: the contents are gone (dot files and directories too), the directory itself is still there and was never
+# renamed or removed (no BUSY line, nothing named gnupg.broken.*), a new keyring was made, and the click went on.
+check_unrepairable() {
+  local d="$1" rc="$2" g="$1/gnupg" f
+  [ -d "$g" ] || return 1
+  for f in old-key corrupt trustdb.gpg .gpg-v21-migrated S.gpg-agent secring.gpg private-keys-v1.d openpgp-revocs.d; do [ ! -e "$g/$f" ] || return 1; done
+  [ -s "$g/pubring.gpg" ] || return 1
+  if ls "$d"/gnupg.broken.* >/dev/null 2>&1; then return 1; fi
+  if grep -q '^BUSY' "$d/log"; then return 1; fi
+  if [ "$HAVE_YAML" = 1 ] && [ "$rc" != 0 ]; then return 1; fi
+  return 0
+}
+# check_diag_copy DIR: the public files of the old keyring are kept for diagnosis, the private ones are not.
+check_diag_copy() {
+  local c
+  c="$(ls -d "$1"/diag/ci-os-keyring-cleared.* 2>/dev/null | head -n 1)"
+  [ -n "$c" ] || return 1
+  [ "$(cat "$c/pubring.gpg" 2>/dev/null)" = keys ] && [ "$(cat "$c/trustdb.gpg" 2>/dev/null)" = trust ] || return 1
+  [ ! -e "$c/secring.gpg" ] && [ ! -e "$c/private-keys-v1.d" ] && [ ! -e "$c/S.gpg-agent" ] && [ ! -e "$c/openpgp-revocs.d" ] || return 1
+  [ "$(stat -c %a "$c" 2>/dev/null || stat -f %Lp "$c")" = 700 ]
+}
+
+seed_unrepairable k4
+run_launcher k4 FAKE_REPAIRABLE=0
+DESC="keyring: a keyring that cannot be repaired has its CONTENTS cleared in place (dot files, sockets, private keys, subdirectories); the directory itself is never renamed or removed, and the click goes on with a new keyring"
+if check_unrepairable "$L_DIR" "$L_RC" && grep -q '^pacman -Sy' "$L_DIR/log" && grep -q 'cleared the contents of .*gnupg (the directory itself was left in place)' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/install.log" | tail -n 8; ls -la "$L_DIR/gnupg" | sed 's/^/      /'; fi
+DESC="keyring: ... a stale gpg-agent is stopped first (gpgconf --homedir DIR --kill all)"
+if grep -q "^gpgconf --homedir $L_DIR/gnupg --kill all" "$L_DIR/log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+DESC="keyring: ... a copy of the PUBLIC files is kept for diagnosis (mode 700); private keys, the legacy secret ring and sockets are not copied"
+if check_diag_copy "$L_DIR" && grep -q 'kept [0-9]* public file(s) of the old keyring in .*diag/ci-os-keyring-cleared' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; ls -laR "$L_DIR/diag" 2>&1 | sed 's/^/      /'; fi
+
+# the same on a directory that is NOT a mount point: the in-place clearing does not depend on it
+seed_unrepairable k4b
+run_launcher k4b FAKE_REPAIRABLE=0 FAKE_MOUNT=0
+DESC="keyring: the same on an ordinary directory (not a mount point)"
+if check_unrepairable "$L_DIR" "$L_RC"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+# what the clearing refuses: a directory that is not called gnupg (this DELETES), and a symbolic link
+mkdir -p "$W/r-k4c/keys"; echo old > "$W/r-k4c/keys/old-key"; echo keys > "$W/r-k4c/keys/pubring.gpg"; : > "$W/r-k4c/keys/corrupt"
+run_launcher k4c FAKE_REPAIRABLE=0 CI_OS_PACMAN_GNUPG_DIR="$W/r-k4c/keys"
+DESC="keyring: it refuses to clear a directory that is not called gnupg: nothing is deleted, the click stops with the keyring dialog"
+if [ "$L_RC" = 1 ] && [ "$(cat "$L_DIR/keys/old-key")" = old ] && [ -e "$L_DIR/keys/corrupt" ] && grep -q "refusing to clear '.*/keys'" "$L_DIR/install.log" \
+  && grep -q 'not with your internet connection' "$L_DIR/out" && ! grep -q '^pkexec-wrapper' "$L_DIR/log"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/install.log" | tail -n 5; fi
+mkdir -p "$W/r-k4d/elsewhere"; echo old > "$W/r-k4d/elsewhere/old-key"; echo keys > "$W/r-k4d/elsewhere/pubring.gpg"; : > "$W/r-k4d/elsewhere/corrupt"
+ln -s "$W/r-k4d/elsewhere" "$W/r-k4d/gnupg"
+run_launcher k4d FAKE_REPAIRABLE=0
+DESC="keyring: it refuses to clear a symbolic link (the target keeps every file)"
+if [ "$L_RC" = 1 ] && [ "$(cat "$L_DIR/elsewhere/old-key")" = old ] && [ -e "$L_DIR/elsewhere/corrupt" ] && grep -q "refusing to clear '.*gnupg': it is a symbolic link" "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/install.log" | tail -n 5; fi
+
+seed_gnupg k5; run_launcher k5 FAKE_NET=down
+DESC="keyring: network down: the dialog text says the repositories could not be reached, not a keyring problem"
+if [ "$L_RC" = 1 ] && grep -q 'package repositories could not be reached' "$L_DIR/out" && ! grep -q 'not with your internet connection' "$L_DIR/out" && ! grep -q '^pkexec-wrapper' "$L_DIR/log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+DESC="keyring: network down is not retried and not repaired: one -Sy, no --init, the keyring files untouched"
+if [ "$(cat "$L_DIR/state/sy-count")" = 1 ] && ! grep -q 'pacman-key --init' "$L_DIR/log" && [ "$(cat "$L_DIR/gnupg/old-key")" = old ]; then t_pass "$DESC"; else t_fail "$DESC"; fi
+DESC="keyring: ... and the log classifies it as network, shows pacman's exact last error line and the line above it that says why"
+if grep -q 'classified as: network' "$L_DIR/install.log" && grep -q "Last pacman error: error: failed to synchronize all databases (unexpected error)" "$L_DIR/install.log" \
+  && grep -q "error and warning lines, in order: error: failed retrieving file 'core.db' from geo.mirror.pkgbuild.com : Could not resolve host" "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; grep -E 'classified|Last pacman' "$L_DIR/install.log" | sed 's/^/      /'; fi
+
+seed_gnupg k6; run_launcher k6 FAKE_SY_RC=1 FAKE_SY_OUT='error: cachyos: key "882DCFE48E2051D48E2562ABF3B607488DB35A47" is unknown
+error: failed to synchronize all databases (unexpected error)'
+DESC="keyring: a keyring error at the sync (unknown key) is reported as a KEYRING problem, not as a network problem"
+if [ "$L_RC" = 1 ] && grep -q 'not with your internet connection' "$L_DIR/out" && ! grep -q 'could not be reached' "$L_DIR/out" && grep -q 'classified as: keyring' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/out" | tail -n 4; fi
+
+run_launcher k7 FAKE_INIT_RC=1
+DESC="keyring: pacman-key --init failing stops at once as a keyring problem: no sync is attempted, the log carries the init error"
+if [ "$L_RC" = 1 ] && ! grep -q '^pacman -Sy' "$L_DIR/log" && grep -q 'not with your internet connection' "$L_DIR/out" && grep -q 'pacman-key --init failed: ==> ERROR: could not initialise the keyring' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/install.log" | tail -n 4; fi
+
+seed_gnupg k8; run_launcher k8 FAKE_SY_RC=1 FAKE_SY_OUT='error: failed to prepare transaction (could not satisfy dependencies)'
+DESC="keyring: an error that is neither keyring nor network is not retried either (one -Sy, no --init)"
+if [ "$(cat "$L_DIR/state/sy-count")" = 1 ] && ! grep -q 'pacman-key --init' "$L_DIR/log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+DESC="keyring: an error that is neither keyring nor network is reported as such (could not be updated), with pacman's line in the log"
+if [ "$L_RC" = 1 ] && grep -q 'could not be updated' "$L_DIR/out" && grep -q 'classified as: other' "$L_DIR/install.log" && grep -q 'Last pacman error: error: failed to prepare transaction' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+seed_gnupg k9; run_launcher k9 CI_OS_SKIP_KEYRING=1
+DESC="keyring: CI_OS_SKIP_KEYRING=1 skips the whole step as before (no pacman-key, no -Sy, no NTP)"
+if ! grep -qE '^(pacman -Sy|pacman-key|timedatectl)' "$L_DIR/log"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+
+# 13b. A 404 for a keyring PACKAGE is a mirror problem. `pacman -Sy archlinux-keyring cachyos-keyring` fails with the package file's name in
+# the error, and a classifier that looks for the word "keyring" called that a keyring problem and told the person that their internet
+# connection was fine. These are pacman's own lines for a mirror that lacks the file the database lists.
+KR404="error: failed retrieving file 'archlinux-keyring-20261015-1-any.pkg.tar.zst' from geo.mirror.pkgbuild.com : The requested URL returned error: 404
+warning: failed to retrieve some files
+error: failed to commit transaction (failed to retrieve some files)"
+check_404() { # DIR RC: reported as a network/mirror problem, one sync, no repair
+  local d="$1" rc="$2"
+  [ "$rc" = 1 ] || return 1
+  grep -q 'classified as: network' "$d/install.log" || return 1
+  grep -q 'package repositories could not be reached' "$d/out" || return 1
+  if grep -q 'not with your internet connection' "$d/out"; then return 1; fi
+  [ "$(cat "$d/state/sy-count")" = 1 ] || return 1
+  if grep -q 'pacman-key --init' "$d/log"; then return 1; fi
+  if grep -q '^pkexec-wrapper' "$d/log"; then return 1; fi
+  return 0
+}
+seed_gnupg k10; run_launcher k10 FAKE_SY_RC=1 FAKE_SY_OUT="$KR404"
+DESC="keyring: a 404 for archlinux-keyring-<version>.pkg.tar.zst at the sync is a NETWORK/mirror problem, not a keyring problem (dialog, classification, no repair, no retry)"
+if check_404 "$L_DIR" "$L_RC"; then t_pass "$DESC"; else t_fail "$DESC"; grep -E 'classified|Last pacman' "$L_DIR/install.log" | sed 's/^/      /'; tail -n 3 "$L_DIR/out" | sed 's/^/      /'; fi
+DESC="keyring: ... and the log keeps pacman's own last error line, with the package file name in it, verbatim"
+if grep -q "Last pacman error: error: failed to commit transaction (failed to retrieve some files)" "$L_DIR/install.log" \
+  && grep -q "pacman's error and warning lines, in order: error: failed retrieving file 'archlinux-keyring-20261015-1-any.pkg.tar.zst' from geo.mirror.pkgbuild.com : The requested URL returned error: 404" "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC"; grep -E 'classified|Last pacman|in order' "$L_DIR/install.log" | sed 's/^/      /'; fi
+
+# 13c. The classifier on its own (keys_strip and keys_classify are taken out of the launcher): the table says what each text is.
+getfn() { awk -v n="$2" '$0 ~ "^" n "\\(\\) \\{" { p = 1 } p { print } p && /^\}/ { exit }' "$1"; }
+classify_of() { # TEXT [LAUNCHER]: prints the kind
+  ( eval "$(getfn "${2:-$LAUNCHER}" keys_strip)"; eval "$(getfn "${2:-$LAUNCHER}" keys_classify)"; keys_classify "$1"; printf '%s' "$KEYS_KIND" )
+}
+KEY_UNKNOWN='error: cachyos: key "882DCFE48E2051D48E2562ABF3B607488DB35A47" is unknown'
+check_table() { # LAUNCHER: every row; prints the rows that are wrong
+  local bad=0 got n=0 l="$1"
+  while IFS='|' read -r want text; do
+    [ -n "$want" ] || continue
+    n=$((n + 1))
+    got="$(classify_of "$(printf '%b' "$text")" "$l")"
+    if [ "$got" != "$want" ]; then bad=$((bad + 1)); printf '      row %s: expected %s, got %s: %s\n' "$n" "$want" "$got" "$text"; fi
+  done <<'ROWS'
+network|error: failed retrieving file 'archlinux-keyring-20261015-1-any.pkg.tar.zst' from geo.mirror.pkgbuild.com : The requested URL returned error: 404
+network|error: failed retrieving file 'cachyos-keyring-20240331-1-any.pkg.tar.zst' from cdn.cachyos.org : The requested URL returned error: 503
+network|error: failed retrieving file 'archlinux-keyring-20261015-1-any.pkg.tar.zst.sig' from https://mirror.example.org/archlinux/core/os/x86_64/ : Could not resolve host: mirror.example.org
+network|error: failed to commit transaction (failed to retrieve some files)
+network|error: failed retrieving file 'keyring-tools-1.2-1-x86_64.pkg.tar.zst' from mirror.example.org : The requested URL returned error: 404
+network|:: Retrieving packages...\nerror: archlinux-keyring-20261015-1-any.pkg.tar.zst: HTTP/1.1 502 Bad Gateway
+network|error: failed retrieving file 'core.db' from geo.mirror.pkgbuild.com : Could not resolve host: geo.mirror.pkgbuild.com
+network|error: failed retrieving file 'extra.db' from mirror1 : Connection timed out after 10001 milliseconds
+keyring|error: cachyos: key "882DCFE48E2051D48E2562ABF3B607488DB35A47" is unknown\nerror: failed to synchronize all databases (unexpected error)
+keyring|error: archlinux-keyring: signature from "Packager <p@archlinux.org>" is unknown trust
+keyring|warning: Public keyring not found; have you run 'pacman-key --init'?\nerror: keyring is not writable
+keyring|error: failed to commit transaction (invalid or corrupted package (PGP signature))
+keyring|error: failed retrieving file 'extra.db' from mirror1 : Connection timed out after 10001 milliseconds\nerror: cachyos: key "882DCFE48E2051D48E2562ABF3B607488DB35A47" is unknown
+keyring|error: archlinux-keyring-20261015-1-any.pkg.tar.zst: keyring is not writable
+other|error: failed to prepare transaction (could not satisfy dependencies)
+other|error: failed to prepare transaction (could not satisfy dependencies)\n:: installing cachyos-keyring (20240331-1) breaks dependency 'cachyos-keyring-old'
+other|:: Synchronizing package databases...
+ROWS
+  [ "$bad" -eq 0 ]
+}
+DESC="classifier: network for a 404/5xx/DNS failure that names a keyring package; keyring for a key, a signature, a missing keyring (also when a mirror timed out on the way); other for the rest (17 texts)"
+if tbl="$(check_table "$LAUNCHER")"; then t_pass "$DESC"; else t_fail "$DESC"; printf '%s\n' "$tbl"; fi
+
+# 13d. A working keyring that pacman REJECTS at the sync (an unknown key, often a keyring made before the clock was right): repaired in
+# place, then exactly one more try. The stub fails the first -Sy and accepts the second.
+seed_gnupg k11; run_launcher k11 FAKE_SY_BAD_OUT="$KEY_UNKNOWN
+error: failed to synchronize all databases (unexpected error)" FAKE_SY_BAD_COUNT=1
+SEQ_RETRY="pacman-key --list-keys;pacman-key --populate archlinux cachyos;timedatectl set-ntp true;pacman -Sy --noconfirm archlinux-keyring cachyos-keyring;pacman-key --init;pacman-key --populate archlinux cachyos;pacman-key --list-keys;pacman -Sy --noconfirm archlinux-keyring cachyos-keyring;pacman-key --populate archlinux cachyos;"
+check_retry_ok() { # DIR RC
+  local d="$1" rc="$2"
+  [ "$(keys_seq "$d")" = "$SEQ_RETRY" ] || return 1
+  [ "$(cat "$d/state/sy-count")" = 2 ] || return 1
+  [ "$(cat "$d/gnupg/old-key")" = old ] || return 1
+  if ls "$d"/gnupg.broken.* >/dev/null 2>&1; then return 1; fi
+  if [ "$HAVE_YAML" = 1 ] && [ "$rc" != 0 ]; then return 1; fi
+  return 0
+}
+DESC="keyring: a keyring error at the first sync repairs the keyring IN PLACE (init, populate, list) and retries the sync once; the second try succeeds and the click goes on"
+if check_retry_ok "$L_DIR" "$L_RC" && grep -q 'the sync failed with a keyring error: repairing the keyring in place and trying the sync once more' "$L_DIR/install.log" \
+  && grep -q 'the pacman keyring was repaired in place' "$L_DIR/install.log"; then t_pass "$DESC"; else t_fail "$DESC ($(keys_seq "$L_DIR") rc=$L_RC)"; sed 's/^/      /' "$L_DIR/install.log" | tail -n 8; fi
+
+seed_gnupg k12; run_launcher k12 FAKE_SY_BAD_OUT="$KEY_UNKNOWN
+error: failed to synchronize all databases (unexpected error)" FAKE_SY_BAD_COUNT=9
+check_retry_once() { # DIR RC: a keyring error that survives the repair: exactly two syncs, one repair, then the dialog
+  local d="$1" rc="$2"
+  [ "$rc" = 1 ] || return 1
+  [ "$(cat "$d/state/sy-count")" = 2 ] || return 1
+  [ "$(grep -c 'pacman-key --init' "$d/log")" = 1 ] || return 1
+  if grep -q '^pkexec-wrapper' "$d/log"; then return 1; fi
+  grep -q 'classified as: keyring' "$d/install.log"
+}
+DESC="keyring: a keyring error that survives the repair is retried ONCE, not again: two syncs, one repair, then the keyring dialog (no Calamares)"
+if check_retry_once "$L_DIR" "$L_RC"; then t_pass "$DESC"; else t_fail "$DESC (syncs: $(cat "$L_DIR/state/sy-count"), rc=$L_RC)"; fi
+DESC="keyring: ... and the dialog says it is not the connection, that a restart does not help, and to run it again online or download a newer ISO"
+if grep -q 'not with your internet connection' "$L_DIR/out" && grep -q 'Restarting the computer does not help' "$L_DIR/out" && grep -q 'start the installer again' "$L_DIR/out" \
+  && grep -q 'this ISO is older than the keys the package repositories use now: download a newer Companion OS ISO' "$L_DIR/out" && ! grep -q 'restart the computer and try once more' "$L_DIR/out" \
+  && ! grep -q 'could not be reached' "$L_DIR/out"; then t_pass "$DESC"; else t_fail "$DESC"; tail -n 3 "$L_DIR/out" | sed 's/^/      /'; fi
+
+seed_gnupg k13; echo trust > "$W/r-k13/gnupg/trustdb.gpg"
+run_launcher k13 FAKE_SY_BAD_OUT="$KEY_UNKNOWN" FAKE_SY_BAD_COUNT=9 FAKE_INIT_RC=1
+DESC="keyring: when the repair after a failed sync fails too (init fails), the contents are cleared in place, the init is tried once more, and there is no second sync"
+if [ "$L_RC" = 1 ] && [ "$(cat "$L_DIR/state/sy-count")" = 1 ] && [ -d "$L_DIR/gnupg" ] && [ ! -e "$L_DIR/gnupg/old-key" ] && ! grep -q '^BUSY' "$L_DIR/log" \
+  && [ "$(grep -c 'pacman-key --init' "$L_DIR/log")" = 2 ] && grep -q 'not with your internet connection' "$L_DIR/out"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/install.log" | tail -n 8; fi
+
+# 13e. A usable keyring whose populate fails before the first sync is repaired (not trusted blindly)
+seed_gnupg k14; run_launcher k14 FAKE_POPULATE_RC=1
+DESC="keyring: a working keyring whose pre-sync populate fails is repaired before the sync (the dialog is the keyring one when that fails too)"
+if [ "$L_RC" = 1 ] && grep -q 'could not load the keys of the keyring packages: repairing it' "$L_DIR/install.log" && [ "$(cat "$L_DIR/state/sy-count" 2>/dev/null || echo 0)" = 0 ] \
+  && grep -q 'not with your internet connection' "$L_DIR/out"; then t_pass "$DESC"; else t_fail "$DESC"; sed 's/^/      /' "$L_DIR/install.log" | tail -n 6; fi
+
+# The mutants. A test that cannot fail proves nothing: the same no-keyring case must FAIL on the order of the old launcher and on the
+# right steps in the wrong order. Each mutant is the real launcher with only ONE function replaced (refresh_keys, or the function named).
+mutant() { # NAME [FUNCTION]: the new body of FUNCTION (default refresh_keys) comes from stdin; builds $W/mut-NAME.sh from the real launcher
+  { cat; } > "$W/mut-$1.fn"
+  awk -v fn="$W/mut-$1.fn" -v name="${2:-refresh_keys}" '
+    $0 ~ "^" name "\\(\\) \\{" { while ((getline l < fn) > 0) print l; skip = 1; next }
+    skip && /^\}/ { skip = 0; next }
+    !skip { print }' "$LAUNCHER" > "$W/mut-$1.sh"
+}
+# M1: the function of commit 6e7b0b5, the one that failed on 2026-10-18: delete, sync, then init.
+mutant m1 <<'FN'
+refresh_keys() {
+  local gnupg="${CI_OS_PACMAN_GNUPG_DIR:-/etc/pacman.d/gnupg}"
+  [ "${CI_OS_SKIP_KEYRING:-0}" = 1 ] && return 0
+  log "re-initialising the pacman keyring ($gnupg)"
+  $PRIV rm -rf "$gnupg"
+  $PRIV pacman -Sy --noconfirm archlinux-keyring cachyos-keyring >> "$LOG" 2>&1 || return 1
+  $PRIV pacman-key --init >> "$LOG" 2>&1 || return 1
+  $PRIV pacman-key --populate archlinux cachyos >> "$LOG" 2>&1 || return 1
+  timedatectl set-ntp true 2>/dev/null || true
+  return 0
+}
+FN
+# M2: everything right except that the init comes after the sync.
+mutant m2 <<'FN'
+refresh_keys() {
+  local gnupg="${CI_OS_PACMAN_GNUPG_DIR:-/etc/pacman.d/gnupg}" out rc=0
+  [ "${CI_OS_SKIP_KEYRING:-0}" = 1 ] && return 0
+  timedatectl set-ntp true 2>/dev/null || true
+  out="$($PRIV pacman -Sy --noconfirm archlinux-keyring cachyos-keyring 2>&1)" || rc=$?
+  printf '%s\n' "$out" >> "$LOG"
+  if [ "$rc" -ne 0 ]; then keys_classify "$out"; return 1; fi
+  if keyring_missing "$gnupg"; then keyring_init || return 1; fi
+  $PRIV pacman-key --populate archlinux cachyos >> "$LOG" 2>&1 || return 1
+  return 0
+}
+FN
+for m in m1 m2; do
+  if ! grep -q "^refresh_keys() {" "$W/mut-$m.sh" || cmp -s "$W/mut-$m.sh" "$LAUNCHER"; then t_fail "mutant $m was not built (refresh_keys() not found in the launcher)"; continue; fi
+  L_SCRIPT="$W/mut-$m.sh" run_launcher "mut$m"
+  DESC="mutant $m ($([ "$m" = m1 ] && echo 'the old order: delete, sync, init' || echo 'init after the sync')): the no-keyring check FAILS on it, as it must"
+  if ! check_no_keyring "$L_DIR" "$L_RC"; then t_pass "$DESC"; else t_fail "$DESC (the check passed on a launcher with the F1 defect)"; fi
+done
+
+# caught NAME FUNCTION CHECK SEEDER "what is wrong with it" [VAR=value ...]: build the mutant (body on stdin), run it on the case the
+# check belongs to, and require the CHECK to FAIL. SEEDER is called with the mutant's run name (: for none).
+caught() {
+  local name="$1" fn="$2" check="$3" seeder="$4" what="$5"; shift 5
+  mutant "$name" "$fn"
+  if ! grep -q "^$fn() {" "$W/mut-$name.sh" || cmp -s "$W/mut-$name.sh" "$LAUNCHER"; then t_fail "mutant $name was not built ($fn() not found in the launcher, or the mutant equals it)"; return 0; fi
+  if ! bash -n "$W/mut-$name.sh" 2>/dev/null; then t_fail "mutant $name has a syntax error"; return 0; fi
+  "$seeder" "mut$name"
+  L_SCRIPT="$W/mut-$name.sh" run_launcher "mut$name" "$@"
+  if ! "$check" "$L_DIR" "$L_RC"; then t_pass "mutant $name ($what): the check FAILS on it, as it must"; else t_fail "mutant $name ($what): the check PASSED on a launcher with that defect"; fi
+}
+BAD_SYNC="$KEY_UNKNOWN
+error: failed to synchronize all databases (unexpected error)"
+# in-place clearing (item: the directory can be a mount point)
+caught m3 keyring_clear check_unrepairable seed_unrepairable "the directory is renamed aside (mv) as before: EBUSY on a mount point" FAKE_REPAIRABLE=0 <<'FN'
+keyring_clear() {
+  local g="$1"
+  keyring_priv mv "$g" "$g.broken.$(date +%s)" >> "$LOG" 2>&1 || return 1
+  keyring_priv mkdir -p "$g"
+}
+FN
+caught m4 keyring_clear check_unrepairable seed_unrepairable "rm -rf of the directory itself, then mkdir" FAKE_REPAIRABLE=0 <<'FN'
+keyring_clear() {
+  keyring_priv rm -rf "$1" >> "$LOG" 2>&1 && keyring_priv mkdir -p "$1"
+}
+FN
+caught m5 keyring_clear check_unrepairable seed_unrepairable "a glob: dot files, the socket and nothing hidden is removed" FAKE_REPAIRABLE=0 <<'FN'
+keyring_clear() {
+  rm -rf "$1"/*
+  return 0
+}
+FN
+caught m5b keyring_clear check_unrepairable seed_unrepairable "find without -mindepth 1: it removes the directory itself too" FAKE_REPAIRABLE=0 <<'FN'
+keyring_clear() {
+  keyring_priv find "$1" -maxdepth 1 -exec rm -rf -- {} + >> "$LOG" 2>&1
+  keyring_priv mkdir -p "$1"
+}
+FN
+# the retry
+caught m6 keyring_sync_retry check_retry_ok seed_gnupg "no retry at all" FAKE_SY_BAD_OUT="$BAD_SYNC" FAKE_SY_BAD_COUNT=1 <<'FN'
+keyring_sync_retry() {
+  keyring_sync
+}
+FN
+caught m6b keyring_sync_retry check_404 seed_gnupg "every failure is repaired and retried, a 404 too" FAKE_SY_RC=1 FAKE_SY_OUT="$KR404" <<'FN'
+keyring_sync_retry() {
+  local g="$1"
+  keyring_sync && return 0
+  keyring_repair "$g" || return 1
+  keyring_sync
+}
+FN
+caught m7 keyring_sync_retry check_retry_once seed_gnupg "retried up to three times, not once" FAKE_SY_BAD_OUT="$BAD_SYNC" FAKE_SY_BAD_COUNT=9 <<'FN'
+keyring_sync_retry() {
+  local g="$1" i=0
+  keyring_sync && return 0
+  while [ "$KEYS_KIND" = keyring ] && [ "$i" -lt 3 ]; do
+    i=$((i + 1))
+    keyring_repair "$g" || return 1
+    keyring_sync && return 0
+  done
+  return 1
+}
+FN
+# the classification
+caught m8 keys_strip check_404 seed_gnupg "package file names are not stripped: the word keyring in a file name decides" FAKE_SY_RC=1 FAKE_SY_OUT="$KR404" <<'FN'
+keys_strip() {
+  printf '%s\n' "$1"
+}
+FN
+# the populate before the first sync
+caught m9 keyring_prepare check_populate_first seed_gnupg "a working keyring is kept but not populated before the first sync" <<'FN'
+keyring_prepare() {
+  local g="$1"
+  if keyring_missing "$g"; then
+    keyring_init || return 1
+  elif keyring_usable "$g"; then
+    log "the pacman keyring in $g works: keeping it"
+  else
+    keyring_repair "$g" || return 1
+  fi
+  return 0
+}
+FN
+DESC="classifier table: a classifier that does not strip package names FAILS the table (the rows that name a keyring package), as it must"
+if ! check_table "$W/mut-m8.sh" > /dev/null; then t_pass "$DESC"; else t_fail "$DESC"; fi
+DESC="mutant m1 reproduces the reported failure on the model: 'Public keyring not found' in the log and exit 1 after ~the same steps"
+if [ -f "$W/r-mutm1/install.log" ] && grep -q "Public keyring not found" "$W/r-mutm1/install.log" && [ "$(cat "$W/r-mutm1/out" 2>/dev/null | grep -c 'FATAL')" -ge 1 ]; then t_pass "$DESC"; else t_fail "$DESC"; fi
 
 echo
 printf '== %s passed, %s failed, %s skipped\n' "$PASS" "$FAIL" "$SKIP"

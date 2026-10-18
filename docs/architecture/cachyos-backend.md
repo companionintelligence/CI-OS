@@ -387,6 +387,137 @@ From the repo-reuse plan written before the build system existed, updated with w
 | Carry-over paths | Carry-over writes files such as `/etc/xdg/kcm-about-distrorc` and `/usr/share/color-schemes/CI-OS-Dark.colors` into the installed system after its packages. `overlay/package-owned-ok.txt` records that nothing in core, extra or the CachyOS packages the live image installs ships them (`pacman -F`, 2026-10-15); the installed system's package set (the netinstall groups, KDE, later versions) was not checked. A package that starts shipping one of them makes `pacman -Syu` abort with "exists in filesystem" until the copy is removed by hand. | Open; the ownership check should also run against the netinstall closure. |
 | Identity rewrite | `zz-ci-os-os-release` rewrites `/etc/os-release` and `/etc/lsb-release` whole on every trigger: a key added by an administrator or another tool is lost at the next `filesystem` update, and the ordering against CachyOS's hooks rests on file-name sort order and one build-time check. | Open; by design for now (decision D4 describes the files as ours). |
 
+<!-- BEGIN rolling-release-drift-incident-2026-10-18: written by the fix of that day; the docs phase may move or fold this subsection, nothing else of it is load-bearing -->
+### Rolling-release drift incident 2026-10-18 (F1, F2)
+
+The third Companion OS ISO (`companion-os-plasma-2026.10.18-x86_64.iso`, built from the clean commit `6e7b0b5`) was booted under
+QEMU/OVMF and its live desktop reached; the installer could not be started from it. Two defects, both found by clicking "Install
+Companion OS", both of the ISO and not of the capture. F2 is risk R1 (rolling-release drift) happening three days after the first
+build; F1 is an ordering bug of ours that F2 would have hidden. The capture record (screenshots, logs) is not in the repository.
+
+#### F1: the launcher deleted the keyring before it could verify anything
+
+`calamares-online.sh` ran `rm -rf /etc/pacman.d/gnupg`, then `pacman -Sy archlinux-keyring cachyos-keyring`, and only then
+`pacman-key --init` and `--populate`. Without a keyring pacman cannot verify the `[cachyos]` database (`Public keyring not found`,
+`cachyos: key "882DCFE4..." is unknown`, `keyring is not writable`, `failed to synchronize all databases`), so every click failed after
+about 20 seconds with "The package repositories could not be reached or their keys could not be set up. Connect to the internet and
+try again", although the network was fine, and every retry deleted the keyring again. It reproduces exactly with the real pacman in
+the builder container: the launcher's old function exits 1 with those four lines; the new one exits 0 from the same start state.
+
+**Fix** (`iso/overlay/files/airootfs/usr/local/bin/calamares-online.sh`, `refresh_keys`):
+
+* A working keyring is never deleted. Missing or empty (`/etc/pacman.d/gnupg`): `pacman-key --init`, then `--populate archlinux
+  cachyos`, **before** any database is synced. Present but unusable (no public keyring, or `pacman-key --list-keys` fails): repaired
+  in place with the same two steps; only if that does not help are its contents cleared in place and a new keyring made (an earlier
+  revision renamed the directory aside as `<dir>.broken.<epoch>`; see the follow-up fixes below). A dangerous directory (`/`, `/etc`, `/etc/pacman.d`) is refused.
+* Then the clock (`timedatectl set-ntp true`), then `pacman -Sy` of both keyring packages as before, then `--populate` again.
+* A failure is classified from pacman's own output as **keyring** (the dialog says it is not the internet connection), **network**
+  ("could not be reached") or **other** ("could not be updated"). The log has the classification, pacman's exact last error line, and
+  every `error:`/`warning:` line in order (the last line is usually the generic "failed to synchronize all databases"; the line above it says why).
+* `CI_OS_SKIP_KEYRING=1` still skips the whole step.
+
+Tests (`iso/tests/installer-launcher.sh`, section "the keyring"): the stubs **model the defect** (a `pacman -Sy` with no public keyring
+fails with the four lines above), so the cases fail on the old code: no keyring, empty directory, working keyring (same files, no
+`--init`), broken and repairable, broken and not repairable (cleared in place), network down, keyring error at the sync, `--init` failing,
+an unclassified error, skip. Two mutants of the launcher, built from the real file by replacing only `refresh_keys` (the old order, and
+the right steps with the init after the sync), must fail the no-keyring case; they do.
+
+#### F2: Calamares did not start: a boost soname skew between two repositories
+
+`cachyos-calamares-next` 3.4.2-13 (built 2026-08-13 00:24 UTC, still the current version in `[cachyos]`, depends on `boost-libs`
+without a version) needs `libboost_python314.so.1.91.0`. `boost-libs` 1.92.0-1 reached `[extra]` the same day, eleven hours later, and the
+image has 1.92. `calamares` exited 127 (`error while loading shared libraries`). Pointing the missing name at the 1.92 file (what the
+capture tried) gives `symbol lookup error: ... undefined symbol: _ZN5boost6python6detail11init_moduleER11PyModuleDefPFvvE`: the ABI
+changed. Reproduced without a VM: pacstrap of `cachyos-calamares-next` into a scratch root in the builder container, `ldd` and an offscreen
+start (`QT_QPA_PLATFORM=offscreen`; Rosetta runs it) give both failures; `tests/compat-gate-container.sh` keeps the commands.
+
+Options, with what was measured on 2026-10-18:
+
+| Option | Verdict |
+|---|---|
+| **Older boost libraries next to the current ones, from the Arch Linux Archive, pinned** | **Chosen.** Smallest: three files (`libboost_python314.so.1.91.0` and the two boost libraries it needs, `container` and `graph`; `readelf -d` shows nothing else of boost is needed), under file names that no package ships, so nothing is downgraded and nothing conflicts. The installer stays exactly as CachyOS built it. It retires itself: see below. |
+| Downgrade `boost-libs` to 1.91 | Rejected. `libtorrent-rasterbar`, pulled in by `clonezilla`, has a Python binding that needs `libboost_python314.so.1.92.0` (of the 1006 packages the 202 listed ones resolve to, only it and the installer depend on `boost-libs`). A downgrade would also need a local repository or a `pacman -U` step inside mkarchiso. |
+| Another Calamares package of `[cachyos]` | Rejected. All 19 `cachyos-calamares*` packages were built before the 1.92 bump (the newest is 2026-08-13 00:24), so none links against 1.92; the overlay is written for `-next` anyway. |
+| Pin `[core]`/`[extra]` to an Arch Linux Archive date (`archive.archlinux.org/repos/2026/08/12/` exists) | Rejected for this fix, still the long-term R1 mitigation. It makes the whole ISO months stale, and `[cachyos]` (829 packages) has no snapshots, so its newer packages would become the skewed side; the installed system and the launcher's `pacman -Sy` use the live repositories anyway. |
+| Build Calamares ourselves against 1.92 | Rejected: a fork of a package we do not maintain. |
+
+**Mechanism** (`backends/cachyos/compat-libs.lock`; one lock, its header says how to refresh it):
+
+1. `iso/scripts/in-container/stage-compat-libs.sh` (step 2 of `20-build.sh`, before the staging digest) fetches `boost-libs-1.91.0-2` from
+   `archive.archlinux.org` (the only external download source of this step; the URL must be exactly the canonical Archive path), checks
+   the package's sha256 against the pin, verifies the signature with `pacman-key --verify` (a missing `.sig` fails: `pacman -U` would let
+   an unsigned local file through), extracts only the three listed members (regular files, sha256 each), and writes them into the staging
+   layer at `/usr/lib/<name>`, mode 0644 (a shared object needs no execute bit, so no `file_permissions` entry). Nothing reaches the
+   staging tree unless everything verified. The build record gets `COMPAT_LIBS`, `COMPAT_PACKAGES`, `COMPAT_LOCK_SHA256`, `COMPAT_REVIEW_BY`.
+2. `overlay/package-owned-ok.txt` exempts the three paths from guard (b); `check-owned.sh` proves per build, from the repositories' file lists,
+   that no package of the image ships them. `ld.so` finds them in its default directory, no `ld.so.cache` entry is needed.
+3. `review-by 2026-12-01` in the lock: a build after it warns and records `COMPAT_REVIEW_OVERDUE=1`; `CI_OS_COMPAT_REVIEW=error` makes it a failure (use it for
+   a release). When `[cachyos]` rebuilds the installer against the boost of the day, the gate says so ("not needed by cachyos-calamares-next any more"):
+   replace the records by one `retired YYYY-MM-DD` line (a lock with no records at all is refused) and delete the three exemption lines.
+4. Refreshing (a different boost generation, a different installer): the gate names the missing soname; find the `boost-libs` of that generation in the
+   Archive; `stage-compat-libs.sh propose boost-libs <version> <soname>` in the builder prints the lock records (it refuses a package whose signature does not verify);
+   paste them, move `review-by`, add the exemption lines, run `iso/tests/installer-config.sh` and `build-iso.sh --stop-after validate`.
+
+**The gate**, so that the next skew fails the build and not the person at the desktop (`gate-calamares.sh`, `mksquashfs-gate.sh`):
+
+* Stock `mkarchiso` calls `mksquashfs <airootfs> <image>` by that bare name once the packages are installed, the profile's `airootfs/` is copied and the
+  image is cleaned up. `20-build.sh` starts `mkarchiso` with a shim named `mksquashfs` first on its PATH (only for that call): the shim runs the gate on the finished tree and
+  execs the real `mksquashfs` only if it passes. `mkarchiso` is not edited. `20-build.sh` fails the build if mkarchiso finishes without the gate's marker
+  (an image type that no longer calls `mksquashfs`, such as erofs, would otherwise skip the gate silently; a first argument that is not a directory fails closed).
+* The gate takes the ELF files that `cachyos-calamares-next` owns from the image's own pacman database (24 today, no hard-coded list) and runs `ldd -r` on each: no `not found`,
+  no `undefined symbol`, no `version ... not found`; no library in two versions inside the process of `/usr/bin/calamares`; then an offscreen start of Calamares (20 s by default) that
+  must still be running at the end, and in whose output a dynamic-linker error fails the gate even if the process survives. Everything that runs a program of the image runs in a read-only
+  bind mount of it (the image is left byte-identical; under Rosetta even its translation cache would otherwise land in `/root/.cache/rosetta`). The pinned libraries in the image must
+  still have their pinned sha256.
+* A failure prints the missing library or symbol, the ELF files that need it, whether the lock lists it (the compat step did not run) and where to fix it, and says that mkarchiso was stopped before the image was squashed.
+
+**Proof** (real packages, builder container, Rosetta; `iso/tests/compat-gate-container.sh` repeats it):
+
+| Image | Gate |
+|---|---|
+| nothing staged (`CI_OS_COMPAT_LIBS=off` has this effect) | **fails** (about a minute): `missing library libboost_python314.so.1.91.0` (24 ELF files), 57 undefined symbols in `libcalamares.so.3.4`, and the hint that the lock lists the library |
+| `libboost_python314.so.1.91.0` as a symlink to the 1.92 file | **fails**: `undefined symbol boost::python::detail::init_module(PyModuleDef&, void (*)())` from `ldd -r`, and the offscreen start's own `symbol lookup error` (exit 127) |
+| the three pinned libraries, staged by the real stager from the Archive (sha256 and signature checked) | **passes** (about a minute): 24 ELF files resolve, Calamares stays up for the 20 s start, the image is untouched, no process is left |
+| stock `mkarchiso` on a minimal profile (squashfs, `bios.syslinux`; `base`, `linux`, `mkinitcpio-archiso`, `syslinux`, `cachyos-calamares-next`), the shim first on PATH as `20-build.sh` sets it, **no** compat libraries | `mkarchiso` **exits 1** at the squash step with the gate's message in its output; no `airootfs.sfs`, no ISO, no marker |
+| the same profile with the three libraries in its `airootfs/` (copied before the packages, as in the real build) | `mkarchiso` **exits 0**: the gate passed inside it, `airootfs.sfs` (651 MB) and the ISO were written, the marker is there; the squashfs holds `libboost_*.so.1.91.0` (mode 0644) next to the 1.92 files |
+
+The offline tests (`iso/tests/compat-libs.sh`, `iso/tests/gate-calamares.sh`, run by `installer-config.sh` and so by `check-repo.sh`) cover the lock
+validator (a URL outside the Archive, a member that is not a versioned shared object, a path that leaves `usr/lib`, a bad hash, an unknown record ...), the stager (a changed
+package, a failed signature, a wrong member hash, a symlink, a missing member, a failed download each stage nothing), the shim, the wiring in `20-build.sh`, and every verdict of the gate on a fake image.
+Each check was mutation-tested: the stager with the sha check, the signature check or the atomic staging removed, and the gate with each of its checks removed, fail the tests that name them.
+
+**Install-day side.** The launcher's update step (`pacman -S cachyos-calamares-next` when the repository has a newer version) has the same hole in the other direction: the package
+depends on `boost-libs` without a version, so a rebuild against a newer boost than the ISO's installs fine and does not start. The launcher now unpacks the candidate's `usr/bin/calamares` and
+libraries too and runs `ldd -r` on it, with its own libraries first on `LD_LIBRARY_PATH`, before `pacman -S`; a candidate that does not link is not installed, the installer on the ISO (which the build gate proved) is kept, and the person is told.
+
+**What is not verified.** The full ISO has not been rebuilt or booted since this change. The gate ran inside the stock `mkarchiso` only on the minimal profile above. `20-build.sh` ran in the builder container
+as far as `CI_OS_STOP_AFTER=validate` (what `build-iso.sh --stop-after validate` runs inside; the container was ours and the repository was mounted read-only, because `build-iso.sh` has a fixed container name):
+the real stager fetched `boost-libs-1.91.0-2`, matched its sha256 and verified its signature, the staging layer went from 157 to 160 files, guards (a) to (e) passed with the three exemptions,
+`check-owned.sh` found no conflict among the 1006 packages the image installs, and stock `mkarchiso` accepted the profile with the shim first on PATH and stopped at the database sync. An offscreen start shows that Calamares starts and stays up; it does not drive its pages, and no Python job module is run.
+The gate and the proof ran under Rosetta, not on native x86-64. The keyring repair-in-place, clear-in-place and retry paths and the candidate link check are tested on stubs only (the mount point is modelled by stubs
+that answer EBUSY); the no-keyring path was also run against the real pacman. Only the installer is gated: other packages of `[cachyos]` built against older libraries would fail silently at their first use (a follow-up is to run `ldd -r` over every ELF of the `[cachyos]` packages in the
+image and warn). The compat libraries are not carried to the installed system (it has no Calamares). The endpoint table above still describes the launcher as removing the keyring (the row on `archlinux-keyring`) and
+lacks `archive.archlinux.org` (a build-time host, used only by `stage-compat-libs.sh`); both are for the docs phase. An "Install Companion OS" icon on the live desktop and panel (the capture found the entry only in the
+application menu) was not added: decision D6 says no desktop shortcut, and pinning it to the panel means patching the Plasma layout of `cachyos-kde-settings`; it is a follow-up.
+
+#### Follow-up fixes to F1 and F2 (the verifier's non-blocking findings, same day)
+
+Four changes to the above, each tested and each test made to fail on a broken copy first. (1) `keys_classify` strips URLs, package file names and the names of the two keyring
+packages before it looks for a keyring word, and knows `failed to retrieve some files` and HTTP 404/5xx: a 404 on `archlinux-keyring-*.pkg.tar.zst` is a mirror problem, not
+(as it was) a keyring problem. (2) A working keyring is also populated before the first `pacman -Sy`; a sync that fails with a keyring-class error repairs the keyring in
+place and is retried once (a network or other failure is not); the dialog no longer advises a restart, which rebuilds the same keyring from the same ISO, and says that a
+failure that persists means an ISO older than the repository keys, so a newer ISO. (3) A keyring that cannot be repaired has its contents cleared in place (`find`
+`-exec rm -rf` of the children, dot files included; a stale `gpg-agent` stopped first; the public files copied to `/var/log` for diagnosis; never the directory itself, and a
+path not ending in `/gnupg` or a symlink is refused) instead of being renamed aside, because the directory can be a mount point and `mv` then fails with EBUSY. As shipped it
+probably is none: the pinned profile has `etc-pacman.d-gnupg.mount` (a tmpfs) but its `pacman-init.service` does not `Require=` it as archiso's releng profile does, nothing
+else pulls it in, and the squashfs of the 2026-10-18 ISO has no such directory (`pacman-key --init` creates it); a one-line upstream change would make it one. (4)
+`verify-iso.sh` checks that the lock's libraries are in the image (regular file, the pinned sha256) and that the build record carries the five `COMPAT_*` keys and they agree
+with the lock, so that ISO (no keys, no libraries) fails it; the lock validator now accepts a lock whose records were replaced by one `retired YYYY-MM-DD` line (it refused
+the documented "delete the records", which would have failed the build of the retirement itself; an empty or header-only lock is still refused) and the check passes for such a
+lock with an image that has none. Not verified: no ISO was rebuilt or booted with these changes, and `findmnt /etc/pacman.d/gnupg` on a booted live system was not looked at
+(the statement about the mount rests on the unit files and the squashfs listing).
+<!-- END rolling-release-drift-incident-2026-10-18 -->
+
 ## What is not done
 
 * A Companion OS ISO has been built from this overlay and inspected statically (see [Test status](#test-status)); it has not been

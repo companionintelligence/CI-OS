@@ -60,7 +60,8 @@ the install. `.pkgs.txt` and `.build-info` record what a build got.
 
 `iso/scripts/verify-iso.sh` inspects a finished ISO without root and without booting it: the medium and its boot records, the
 boot menus, the identity and branding inside `airootfs.sfs`, the installer entry point, the package list, the Calamares overlay,
-file modes, the build record and the checksums. It prints `PASS` / `FAIL` / `info`, lists skipped groups at the end, and exits
+file modes, the build record, the compatibility libraries of `compat-libs.lock` (in the image byte for byte, and the `COMPAT_*` keys of
+the build record that says the step ran) and the checksums. It prints `PASS` / `FAIL` / `info`, lists skipped groups at the end, and exits
 non-zero if anything failed. It needs `xorriso`, `unsquashfs` and, for the Calamares YAML checks, `python3` with PyYAML.
 
 On a Mac, run it in the builder image; the ISO is bind-mounted read-only, the work directory stays in the container:
@@ -110,6 +111,10 @@ backends/cachyos/iso/tests/installer-config.sh    # installer overlay, launcher 
 backends/cachyos/iso/tests/verify-selftest.sh     # every check of verify-iso.sh, on fixtures (a good one and a broken one each)
 ```
 
+`installer-config.sh` also runs `compat-libs.sh` (the compatibility-library lock, its stager and the `mksquashfs` shim, with the
+network and the keyring stubbed) and `gate-calamares.sh` (the build-time installer gate, on a fake image with recorded `ldd` and
+start output), and `installer-launcher.sh` holds the keyring cases of the launcher (see [Rolling-release drift](#rolling-release-drift-the-compat-lock-and-the-installer-gate)).
+
 `overlay-brand.sh` checks the patches against the pinned upstream only when it can see a checkout: set
 `CACHYOS_UPSTREAM_ARCHISO=<CachyOS-Live-ISO checkout>/archiso` (or `CACHYOS_TEST_FETCH=1`, which fetches the pin); otherwise
 that part prints `SKIP`.
@@ -122,6 +127,7 @@ backends/cachyos/iso/tests/overlay-engine-container.sh   # the pipeline up to mk
 backends/cachyos/iso/tests/overlay-pacstrap.sh       # does the identity survive the CachyOS hooks in a real pacstrap
 backends/cachyos/iso/tests/overlay-hook-pacman.sh    # a real pacman runs the hook that hides CachyOS Hello (no network)
 backends/cachyos/iso/tests/overlay-menu-shot.sh      # screenshots of the two boot menus in QEMU
+backends/cachyos/iso/tests/compat-gate-container.sh  # the installer gate on the REAL packages: F2 reproduced, three mutations, the stock mkarchiso (about 10 minutes)
 ```
 
 `verify-mini-iso.sh` stops short of what takes the time (packages, `mkarchiso`): it fetches the pinned upstream, renders the assets,
@@ -137,10 +143,13 @@ overlay and the renderer produce; it can not show that the packages, the kernels
 backends/cachyos/
   README.md  NOTICE                      this file; provenance and what is not shipped
   upstream.lock                          every pin (upstream commit, builder image, key, mirrorlist) and the edition identity
+  compat-libs.lock                       the older-generation libraries the installer still needs (Archive, sha256), with a review date
   iso/
     scripts/build-iso.sh                 host entry point: one container, copy in, build, copy out, hash check
     scripts/in-container/                10-bootstrap.sh (repo + key), 20-build.sh (fetch pin, render, overlay, mkarchiso),
-                                         apply-overlay.sh (patches, files, packages, profiledef, guards)
+                                         apply-overlay.sh (patches, files, packages, profiledef, guards),
+                                         stage-compat-libs.sh (fetch, verify, stage the compat libraries), gate-calamares.sh and
+                                         mksquashfs-gate.sh (the installer gate, run by mkarchiso just before it squashes the image)
     scripts/render-assets.sh             renders the brand assets from vendor/brand + core/render at build time
     scripts/verify-iso.sh                this README, "Verify"
     docker/                              builder image: pinned Arch base, archiso, the CachyOS key (fingerprint checked)
@@ -153,6 +162,31 @@ backends/cachyos/
 ```
 
 Nothing generated is committed: the rendered brand assets, the staged installer overlay and the ISO are produced by a build.
+
+## Rolling-release drift: the compat lock and the installer gate
+
+The package set is rolling, so the live image can contain a package of `[cachyos]` that was built against an older library than the
+one `[extra]` has by now. On 2026-10-18 that was the installer itself: `cachyos-calamares-next` 3.4.2-13 needs
+`libboost_python314.so.1.91.0`, the image had boost 1.92, and Calamares did not start (risk R1, the incident is written up in
+[the architecture document](../../docs/architecture/cachyos-backend.md#rolling-release-drift-incident-2026-10-18-f1-f2)). Two mechanisms
+keep that from reaching a person:
+
+* **[`compat-libs.lock`](compat-libs.lock)** pins the old libraries (three `libboost_*.so.1.91.0` files from the Arch Linux Archive, by
+  sha256 of the package and of each file, with a review date). `in-container/stage-compat-libs.sh` fetches the package, checks the
+  hash and the package signature, and puts exactly those files into the staging layer, next to boost 1.92 and under other file names,
+  so nothing is downgraded. `overlay/package-owned-ok.txt` lists them for guard (b). `stage-compat-libs.sh propose PKG VERSION SONAME`
+  prints the records for a refresh; the header of the lock says how.
+* **The gate**: `20-build.sh` runs `mkarchiso` with a `mksquashfs` in front of the real one on its PATH. When `mkarchiso` is about to
+  squash the finished airootfs, `in-container/gate-calamares.sh` runs `ldd -r` on every ELF file of `cachyos-calamares-next` and starts
+  Calamares offscreen for a few seconds, in a read-only view of the image. Any missing library, undefined symbol, two versions of one
+  library in one process, or a start that does not stay up stops the build before the image is written, with a message that names the
+  library or symbol and points at the lock. `20-build.sh` also fails if the gate never ran.
+
+`CI_OS_COMPAT_LIBS=off` (environment of `20-build.sh`) stages nothing: it is how the gate was proven to fail. `CI_OS_COMPAT_REVIEW=error`
+turns a passed review date into a failure; use it for a release. When `[cachyos]` has rebuilt the installer and the libraries are not
+needed any more, replace the lock's records by one line, `retired YYYY-MM-DD` (a lock with no records at all is refused: that is what a
+truncated file looks like); the stager, the gate and `verify-iso.sh` then accept an image without the libraries and a build record
+that says `COMPAT_LIBS=0`.
 
 ## Pins and how to bump them
 
@@ -167,6 +201,8 @@ In short:
   `airootfs/usr/local/bin/calamares-online.sh`), run `iso/tests/overlay-engine.sh`, build, run `verify-iso.sh`, boot.
 * **Builder image**: `BASE_IMAGE` is the manifest-list digest of the official `archlinux` image (amd64 only).
 * **Mirrorlist**: `MIRRORLIST_REF` and `MIRRORLIST_SHA256` (the file upstream fetches from `raw/master`, fetched at a fixed commit).
+* **Compatibility libraries**: [`compat-libs.lock`](compat-libs.lock), its own file and format (see above). Not part of `upstream.lock`:
+  it is about the package set, which `upstream.lock` says it cannot pin.
 * **Installer**: the Calamares overlay is written against `cachyos-calamares-next 3.4.2-13` (branch `cachyos-dev` @ `199d715`).
   The launcher re-checks the package on install day (`installer/guards.list`) and keeps the ISO's own version if the new one no
   longer fits.
@@ -180,7 +216,7 @@ In short:
 | D3 | Pinned upstream commit `3215497` with `4937780` as the documented fallback. The builder image is pinned by digest. The live profile stays baseline x86-64 (generic `[cachyos]` repo only); the `cachyos-v3` repositories are never used in the build because they break under Rosetta. | `upstream.lock` |
 | D4 | `/etc/os-release`: `NAME="Companion OS"`, `PRETTY_NAME="Companion OS <ver>"`, `LOGO=ci-os-logo`, `VARIANT="Plasma (based on CachyOS)"`, the `CI_OS_*` keys of the Ubuntu edition, URLs on `ci.computer`. **`ID=cachyos` and `ID_LIKE=arch` stay**: CI-Hub's installers string-match `ID_LIKE=arch`. A later-sorting pacman hook (`zz-ci-os-os-release.hook`) rewrites the whole file after `cachyos-hooks`' own hook does. | `overlay/files/.../zz-ci-os-os-release.*`, `verify-iso.sh` section 3 |
 | D5 | Overlay format: `files/` merged onto a throw-away copy of upstream's `archiso/`, `patches/*.patch` (`git apply -p1`, exact context), `packages.add` / `packages.remove`, `profiledef.append.sh` (a `file_permissions` entry for every executable: mkarchiso drops modes). Files at paths a package owns need a PostTransaction hook or the package's `backup=`. | `iso/overlay/`, `in-container/apply-overlay.sh` |
-| D6 | Installer: our own `/usr/local/bin/calamares-online.sh` (re-inits keys, downloads the current `cachyos-calamares-next` and checks it against `installer/guards.list`, installs it only if it passes and otherwise keeps the installer on the ISO, then lays the Companion overlay from `/usr/share/ci-os/calamares` over it, guarded: fail closed for the package list and payload staging, fail open with a loud log for cosmetic strings), our own launcher entry (an Applications-menu entry "Install Companion OS": no autostart, no desktop shortcut), `cachyos-hello` hidden. GRUB forced, `efiBootloaderId=companion-os`, hostname `companion-os`, no `wiki.cachyos.org`, no upload to `paste.cachyos.org`, no GitHub-raw netinstall. | `installer/`, `verify-iso.sh` sections 3b and 5 |
+| D6 | Installer: our own `/usr/local/bin/calamares-online.sh` (makes sure the pacman keyring exists, works and is populated before the first sync: a working one is kept, a broken one is repaired in place and, as a last resort, emptied in place (its contents; the directory itself is never removed or renamed, it can be a mount point); a sync that fails on a key repairs the keyring and is tried once more; a failure is told apart as keys, mirror or connection, or other; downloads the current `cachyos-calamares-next` and checks it against `installer/guards.list`, installs it only if it passes and links on this system (`ldd -r`) and otherwise keeps the installer on the ISO, then lays the Companion overlay from `/usr/share/ci-os/calamares` over it, guarded: fail closed for the package list and payload staging, fail open with a loud log for cosmetic strings), our own launcher entry (an Applications-menu entry "Install Companion OS": no autostart, no desktop shortcut), `cachyos-hello` hidden. GRUB forced, `efiBootloaderId=companion-os`, hostname `companion-os`, no `wiki.cachyos.org`, no upload to `paste.cachyos.org`, no GitHub-raw netinstall. | `installer/`, `verify-iso.sh` sections 3b and 5 |
 | D7 | Live hardening, such as it is: `sshd.service` and `sshd.socket` masked and the `sshd_config.d` drop-in forbids root and password logins. The live session otherwise keeps upstream's posture: empty passwords for `root` and `liveuser`, passwordless sudo for `wheel` (the launcher uses it), a polkit rule that allows every action for `wheel`, user name `liveuser`. That is fine for a live medium and nothing here carries it to the installed system. The two masks do not cover the sockets that `systemd-ssh-generator` can create for sshd (a unix socket and, in a VM, AF_VSOCK); whether it creates them in this image was not checked, so the drop-in is the barrier. | `verify-iso.sh` section 3 |
 | D8 | Installed system: Calamares installs `docker`, `docker-compose`, `docker-buildx`, `jq`, `curl`, `openssl`, `tailscale`, `cloudflared`, `github-cli`, `ollama` and `ollama-vulkan` and the wireless-setup stack (`hostapd`, `dnsmasq`, `nginx`, `python-flask`, `gunicorn`, `iw`; see `installer/modules/packages_online.conf`), adds the `docker` group, stages the setup-portal payload and enables `docker`, `setup-backend` and `setup-network-monitor` (`nginx`, `hostapd-setup` and `dnsmasq-setup` stay disabled: the watcher starts them when the machine has no network); first boot runs `backends/arch/provision/provision.sh` through a thin wrapper that supplies `SUDO_USER`. `backends/arch/**` is not edited. | `installer/`, `provision/` |
 | D9 | Licensing: upstream scripts and profile are GPL-3.0. No CachyOS artwork, wallpaper, logo, GRUB theme or Plymouth animation enters this tree. Brand assets come from `vendor/brand` and `CI-Common` and are rendered at build time. | `NOTICE`, `verify-iso.sh` (artwork hashes) |
@@ -201,7 +237,8 @@ In short:
   Ollama listen on `0.0.0.0:11434` without authentication. This edition installs no host firewall. Details and a suggested fix:
   `installer/README.md`, "Known issue in the shared setup payload".
 * **Rolling.** The package set differs from build to build and again at install time. An ISO built weeks ago installs whatever the
-  repositories hold on install day.
+  repositories hold on install day. A skew inside the live image itself (the 2026-10-18 case) is now caught by the installer gate and
+  bridged by `compat-libs.lock`; the installed system is not covered by either, and the gate checks the installer only.
 * **No Secure Boot.** The standalone GRUB and the CachyOS kernels are unsigned. Installed systems can use user keys (`sbctl`); that
   is not wired.
 * **The Companion Stick cannot boot this ISO.** `ci-stick` writes the ISO's bytes fine, but its boot menu is built for casper and

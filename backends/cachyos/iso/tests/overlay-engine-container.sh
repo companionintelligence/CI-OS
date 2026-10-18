@@ -104,6 +104,13 @@ fi
 chk "every overlay file and symlink is in the merged profile with its content ($miss missing, $diffcount different)" test "$miss" = 0 -a "$diffcount" = 0
 smiss=0; if [ -d $ST ]; then while IFS= read -r f; do rel="${f#$ST/}"; if [ -L "$f" ]; then :; else same "$f" "$P/$rel" || smiss=$((smiss + 1)); fi; done < <(find $ST ! -type d); fi
 chk "every file rendered into the staging layer is in the merged profile ($smiss missing or different)" test "$smiss" = 0
+# the compatibility libraries (risk R1): fetched from the Arch Linux Archive by stage-compat-libs.sh, so they are in the profile with the lock's hashes
+cmiss=0; cn=0
+while read -r kind _ cpath csha _; do
+  [ "$kind" = lib ] || continue
+  cn=$((cn + 1)); [ -f "$P/airootfs/$cpath" ] && [ "$(sha256sum < "$P/airootfs/$cpath" | cut -d' ' -f1)" = "$csha" ] || cmiss=$((cmiss + 1))
+done < <(sed -e 's/#.*//' /work/repo/backends/cachyos/compat-libs.lock)
+chk "the $cn compatibility libraries of compat-libs.lock are in the merged profile with their pinned sha256 ($cmiss wrong or missing)" test "$cn" -ge 1 -a "$cmiss" = 0
 
 # profiledef.sh the way mkarchiso reads it: bash 5, associative file_permissions, SOURCE_DATE_EPOCH from the environment
 out="$(cd $P && SOURCE_DATE_EPOCH=$(git -C $U log -1 --format=%ct) bash -c 'declare -A file_permissions=(); source ./profiledef.sh; printf "%s|%s|%s|%s|%s\n" "$iso_name" "$iso_label" "$iso_version" "${#file_permissions[@]}" "$arch"; for k in "${!file_permissions[@]}"; do echo "FP $k ${file_permissions[$k]}"; done' 2>&1)"

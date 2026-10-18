@@ -710,6 +710,91 @@ printf 'some iso bytes\n' > "$WORK/x.iso"
 good "the build record's ISO size and hash describe the file" v_check_buildinfo_iso "$WORK/bi.iso" "$WORK/x.iso"
 printf 'ISO_BYTES=1\nISO_SHA256=00\n' > "$WORK/bi.iso2"
 bad "the build record's ISO size and hash describe another file" "ISO_BYTES is" v_check_buildinfo_iso "$WORK/bi.iso2" "$WORK/x.iso"
+
+#=== compatibility libraries (risk R1: compat-libs.lock, the image, the build record) ===========================================
+CL="$WORK/compat"; mkdir -p "$CL/root/usr/lib"
+printf 'FAKE-PYTHON' > "$CL/root/usr/lib/libboost_python314.so.1.91.0"
+printf 'FAKE-CONTAINER' > "$CL/root/usr/lib/libboost_container.so.1.91.0"
+printf 'FAKE-GRAPH' > "$CL/root/usr/lib/libboost_graph.so.1.91.0"
+cl_url=https://archive.archlinux.org/packages/b/boost-libs/boost-libs-1.91.0-2-x86_64.pkg.tar.zst
+cat > "$CL/compat-libs.lock" <<EOF
+# a compat lock
+review-by 2030-01-01
+package boost-libs 1.91.0-2 x86_64 $cl_url 62cfd278b0260bd2ce5c93f6ab4669d2eefe840eab19e2c3854762f295924655
+lib boost-libs usr/lib/libboost_python314.so.1.91.0 $(v_sha256 "$CL/root/usr/lib/libboost_python314.so.1.91.0")
+lib boost-libs usr/lib/libboost_container.so.1.91.0 $(v_sha256 "$CL/root/usr/lib/libboost_container.so.1.91.0")
+lib boost-libs usr/lib/libboost_graph.so.1.91.0 $(v_sha256 "$CL/root/usr/lib/libboost_graph.so.1.91.0")
+EOF
+for n in python314 container graph; do printf '%s\t%s\t%s\t%s\n' '-rw-r--r--' 10 "/usr/lib/libboost_$n.so.1.91.0" ''; done > "$CL/listing.good"
+printf '%s\t%s\t%s\t%s\n' 'drwxr-xr-x' 0 /usr/lib '' >> "$CL/listing.good"
+# the record the compat step writes into the build record (stage-compat-libs.sh report; 20-build.sh copies the five lines)
+cl_rec() { # FILE LOCK LIBS PACKAGES REVIEW_BY OVERDUE
+  printf 'CI_OS_VERSION=0.1.0\nCOMPAT_LIBS=%s\nCOMPAT_PACKAGES=%s\nCOMPAT_LOCK_SHA256=%s\nCOMPAT_REVIEW_BY=%s\nCOMPAT_REVIEW_OVERDUE=%s\n' "$3" "$4" "$(v_sha256 "$2")" "$5" "$6" > "$1"
+}
+cl_rec "$CL/rec.good" "$CL/compat-libs.lock" 3 boost-libs-1.91.0-2-x86_64 2030-01-01 0
+good "the three pinned compatibility libraries are in the image, byte for byte, and the build record says the step ran" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.good"
+ok_out "...and says how many" "PASS  all 3 compatibility libraries of compat-libs.lock are in the image"
+good "the record next to the ISO agrees with the one inside it" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.good" "$CL/rec.good"
+
+grep -v graph "$CL/listing.good" > "$CL/listing.nograph"
+bad "a pinned library missing from the image (the installer would not start)" "libboost_graph.so.1.91.0 \(boost-libs\) is not in the image" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.nograph" "$CL/root" "$CL/rec.good"
+sed 's|^-rw-r--r--\(.*\)libboost_graph.so.1.91.0\t$|lrwxrwxrwx\1libboost_graph.so.1.91.0\tlibboost_graph.so.1.92.0|' "$CL/listing.good" > "$CL/listing.link"
+bad "a pinned library that is a symlink to the current one (the failed attempt of 2026-10-18)" "libboost_graph.so.1.91.0 is not a regular file" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.link" "$CL/root" "$CL/rec.good"
+sed 's|^-rw-r--r--\(.*\)libboost_container|-rw-------\1libboost_container|' "$CL/listing.good" > "$CL/listing.mode"
+bad "a pinned library nobody but root can read" "libboost_container.so.1.91.0 has mode -rw-------" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.mode" "$CL/root" "$CL/rec.good"
+mkdir -p "$CL/root2/usr/lib"; cp "$CL/root/usr/lib/"* "$CL/root2/usr/lib/"; printf 'TAMPERED' > "$CL/root2/usr/lib/libboost_python314.so.1.91.0"
+bad "a pinned library with other bytes than the lock pins" "libboost_python314.so.1.91.0 has sha256 .*, compat-libs.lock pins" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root2" "$CL/rec.good"
+mkdir -p "$CL/root3/usr/lib"; cp "$CL/root/usr/lib/libboost_graph.so.1.91.0" "$CL/root/usr/lib/libboost_container.so.1.91.0" "$CL/root3/usr/lib/"
+bad "a library that was listed but could not be extracted (its hash was not checked)" "libboost_python314.so.1.91.0 could not be extracted" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root3" "$CL/rec.good"
+
+# the build record: ISO #3 of 2026-10-18 has none of the keys, and is the image whose installer did not start
+printf 'CI_OS_VERSION=0.1.0\nBUILD_DAY=20261018\n' > "$CL/rec.old"
+bad "a build record with no COMPAT_* keys (an image built before the step existed)" "carries no COMPAT_LIBS" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.old"
+grep -v COMPAT_REVIEW_OVERDUE "$CL/rec.good" > "$CL/rec.nooverdue"
+bad "a build record that lacks one of the five keys" "carries no COMPAT_REVIEW_OVERDUE" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.nooverdue"
+bad "no build record inside the image at all" "no build record inside the image" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/no-such-record"
+sed 's/^COMPAT_LIBS=.*/COMPAT_LIBS=off/' "$CL/rec.good" > "$CL/rec.off"
+bad "COMPAT_LIBS=off (the build that proves the gate fails)" "COMPAT_LIBS=off" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.off"
+sed 's/^COMPAT_LIBS=.*/COMPAT_LIBS=unknown/' "$CL/rec.good" > "$CL/rec.unknown"
+bad "COMPAT_LIBS=unknown (the step left no report)" "COMPAT_LIBS=unknown" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.unknown"
+sed 's/^COMPAT_LIBS=.*/COMPAT_LIBS=2/' "$CL/rec.good" > "$CL/rec.two"
+bad "COMPAT_LIBS says 2, the lock lists 3" "COMPAT_LIBS=2, but compat-libs.lock lists 3" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.two"
+sed 's/^COMPAT_LIBS=.*/COMPAT_LIBS=many/' "$CL/rec.good" > "$CL/rec.many"
+bad "COMPAT_LIBS that is not a number" "COMPAT_LIBS='many' is not a number" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.many"
+sed 's/^COMPAT_LOCK_SHA256=.*/COMPAT_LOCK_SHA256=0000000000000000000000000000000000000000000000000000000000000000/' "$CL/rec.good" > "$CL/rec.lockhash"
+bad "an image built with another lock than the repository's" "COMPAT_LOCK_SHA256 is '0000" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.lockhash"
+sed 's/^COMPAT_PACKAGES=.*/COMPAT_PACKAGES=boost-libs-1.90.0-1-x86_64/' "$CL/rec.good" > "$CL/rec.pkgs"
+bad "a record that names another package version than the lock" "COMPAT_PACKAGES is 'boost-libs-1.90.0-1-x86_64'" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.pkgs"
+sed 's/^COMPAT_REVIEW_BY=.*/COMPAT_REVIEW_BY=2029-01-01/' "$CL/rec.good" > "$CL/rec.by"
+bad "a record with another review date than the lock" "COMPAT_REVIEW_BY is '2029-01-01'" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.by"
+sed 's/^COMPAT_REVIEW_OVERDUE=.*/COMPAT_REVIEW_OVERDUE=1/' "$CL/rec.good" > "$CL/rec.overdue"
+good "a build past the review date is noted, not failed, by default" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.overdue"
+ok_out "...and the note says how to make it a failure" "info  build record: COMPAT_REVIEW_OVERDUE=1: compat-libs.lock was past its review date"
+bad "...and fails when a release is required" "COMPAT_REVIEW_OVERDUE=1" env_require_clean v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.overdue"
+sed 's/^COMPAT_REVIEW_OVERDUE=.*/COMPAT_REVIEW_OVERDUE=maybe/' "$CL/rec.good" > "$CL/rec.maybe"
+bad "COMPAT_REVIEW_OVERDUE that is neither 0 nor 1" "COMPAT_REVIEW_OVERDUE='maybe'" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.maybe"
+bad "the record next to the ISO disagrees with the one inside it" "COMPAT_LOCK_SHA256 differs" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.good" "$CL/rec.lockhash"
+bad "the record next to the ISO has no COMPAT_* keys" "COMPAT_LIBS differs" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.good" "$CL/rec.old"
+bad "no compat lock to compare with" "no-such.lock not found at" v_check_compat_libs "$CL/no-such.lock" "$CL/listing.good" "$CL/root" "$CL/rec.good"
+printf 'review-by soon\n' > "$CL/bad.lock"
+bad "an invalid compat lock" "is not a valid compat lock" v_check_compat_libs "$CL/bad.lock" "$CL/listing.good" "$CL/root" "$CL/rec.good"
+# shellcheck disable=SC2034  # read by v_check_compat_libs
+V_HAVE_COMPAT_LOCK=0
+bad "the lock helpers missing next to the verifier (never silently skipped)" "lib/compat-lock.sh is not next to verify-iso.sh" v_check_compat_libs "$CL/compat-libs.lock" "$CL/listing.good" "$CL/root" "$CL/rec.good"
+# shellcheck disable=SC2034  # read by v_check_compat_libs
+V_HAVE_COMPAT_LOCK=1
+
+# a lock that says no library is needed any more: an image with none, and a record that says 0, must PASS
+printf '# the header stays\nretired 2026-12-03\n' > "$CL/retired.lock"
+grep -v 'libboost' "$CL/listing.good" > "$CL/listing.none"
+cl_rec "$CL/rec.retired" "$CL/retired.lock" 0 "" "" 0
+good "a RETIRED lock (no library needed any more) passes with an image that has none and a record that says COMPAT_LIBS=0" v_check_compat_libs "$CL/retired.lock" "$CL/listing.none" "$CL/root3" "$CL/rec.retired" "$CL/rec.retired"
+ok_out "...and says so" "PASS  retired.lock lists no compatibility library \(retired\)"
+cl_rec "$CL/rec.retired3" "$CL/retired.lock" 3 boost-libs-1.91.0-2-x86_64 2030-01-01 0
+bad "a retired lock, but the record claims three libraries" "COMPAT_LIBS=3, but retired.lock lists 0" v_check_compat_libs "$CL/retired.lock" "$CL/listing.none" "$CL/root3" "$CL/rec.retired3"
+bad "a retired lock, but the record carries no COMPAT_* keys at all" "carries no COMPAT_LIBS" v_check_compat_libs "$CL/retired.lock" "$CL/listing.none" "$CL/root3" "$CL/rec.old"
+cl_rec "$CL/rec.retiredoff" "$CL/retired.lock" off "" "" 0
+bad "a retired lock, but the image was built with the step switched off" "COMPAT_LIBS=off" v_check_compat_libs "$CL/retired.lock" "$CL/listing.none" "$CL/root3" "$CL/rec.retiredoff"
 echo "$(v_sha256 "$WORK/x.iso")  x.iso" > "$WORK/x.iso.sha256"
 good "the .sha256 matches the ISO" v_check_sha256_file "$WORK/x.iso.sha256" "$WORK/x.iso"
 echo "0000000000000000000000000000000000000000000000000000000000000000  x.iso" > "$WORK/y.sha256"
@@ -989,6 +1074,15 @@ fi
 if [ "$("$VERIFY" 2>&1 | head -n 1 | grep -c usage)" = 1 ]; then t_pass "verify-iso.sh without arguments prints usage"; else t_fail "verify-iso.sh without arguments did not print usage"; fi
 "$VERIFY" "$WORK/does-not-exist.iso" >/dev/null 2>&1; rc=$?
 if [ "$rc" -eq 2 ]; then t_pass "verify-iso.sh exits 2 for a missing ISO"; else t_fail "verify-iso.sh exited $rc for a missing ISO, expected 2"; fi
+
+# The wiring of the compat check in verify_main (the functions above are driven on fixtures; this is the one line that runs them on a real
+# image, and verify-mini-iso.sh is the only run that goes through it): the lock's libraries are extracted from the squashfs, then the check
+# gets the listing, the extraction root, the record inside the image and the one next to the ISO.
+DESC="verify_main extracts the lock's libraries from the squashfs and runs v_check_compat_libs on the record inside the image and the one next to the ISO"
+if grep -q 'v_sfs_extract_paths "\$SQ" "\$R" \$clibs' "$VERIFY" && grep -q 'v_check_compat_libs "\$clock" "\$L" "\$R" "\$R/usr/share/ci-os/iso-build-info" "\$bi"' "$VERIFY" \
+  && [ "$(grep -n 'v_sfs_extract_paths "\$SQ" "\$R" \$clibs' "$VERIFY" | head -n 1 | cut -d: -f1)" -lt "$(grep -n 'v_check_compat_libs "\$clock"' "$VERIFY" | head -n 1 | cut -d: -f1)" ]; then t_pass "$DESC"; else t_fail "$DESC"; fi
+DESC="verify_main looks for compat-libs.lock next to upstream.lock's directory (backends/cachyos) unless VERIFY_COMPAT_LOCK says otherwise"
+if grep -q 'clock="\${VERIFY_COMPAT_LOCK:-\$repo_guess/compat-libs.lock}"' "$VERIFY"; then t_pass "$DESC"; else t_fail "$DESC"; fi
 
 printf '\n== Summary: %d passed, %d failed, %d skipped\n' "$T_PASS" "$T_FAIL" "$T_SKIP"
 [ "$T_FAIL" -eq 0 ]

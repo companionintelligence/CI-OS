@@ -7,7 +7,8 @@
 # not run. Everything else is the real thing:
 #
 #   1. the pinned upstream commit is fetched (the same fetch and tree-id check as in-container/20-build.sh)
-#   2. render-assets.sh and installer/render-installer-assets.sh render the staging tree (real rsvg-convert / ImageMagick)
+#   2. render-assets.sh and installer/render-installer-assets.sh render the staging tree (real rsvg-convert / ImageMagick), and the real
+#      stage-compat-libs.sh puts the compatibility libraries of compat-libs.lock into it (Arch Linux Archive; sha256 and signature checked)
 #   3. in-container/apply-overlay.sh merges patches, overlay files and staging onto upstream's archiso/ (guards (a) to (e))
 #   4. the merged airootfs becomes the root of a small squashfs: the pacman hooks' scripts are RUN on it (the os-release writer
 #      and the skel editor), file_permissions of the merged profiledef.sh are applied the way mkarchiso applies them, the
@@ -55,6 +56,7 @@ if [ "${CI_OS_MINI_INSIDE:-}" != 1 ]; then
         [ -n "$IMAGE" ] || die "no ci-os-cachyos-builder image: run backends/cachyos/iso/scripts/build-iso.sh once (it builds the image), or pass --image"
     fi
     args=(run --rm --platform linux/amd64 --cpus 4 --memory 8g -v "$REPO_ROOT:/repo:ro" -e CI_OS_MINI_INSIDE=1)
+    [ -z "${CI_OS_MINI_NAME:-}" ] || args+=(--name "$CI_OS_MINI_NAME")   # optional: name the container, so that it can be found and removed
     if [ -n "$OUT" ]; then mkdir -p "$OUT"; OUT="$(cd "$OUT" && pwd)"; args+=(-v "$OUT:/out"); fi
     echo "verify-mini-iso: running in $IMAGE (network needed: pacman and git)"
     exec docker "${args[@]}" "$IMAGE" bash /repo/backends/cachyos/iso/tests/verify-mini-iso.sh
@@ -101,6 +103,11 @@ CI_OS_STAGING_DIR="$STAGING" CI_OS_REPO_ROOT="$R2" CI_OS_VERSION="$VERSION" CI_O
 CI_OS_STAGING_DIR="$STAGING" CI_OS_REPO_ROOT="$R2" CI_OS_VERSION="$VERSION" CI_OS_BUILD_DAY="$DAY" \
     bash "$R2/backends/cachyos/installer/render-installer-assets.sh" >"$W/render-installer.log" 2>&1 || { tail -n 20 "$W/render-installer.log"; die "render-installer-assets.sh failed"; }
 [ -d "$STAGING/airootfs/usr/share/ci-os/calamares" ] || die "render-installer-assets.sh left no usr/share/ci-os/calamares in the staging tree"
+# The compatibility libraries of compat-libs.lock, staged by the REAL stager as 20-build.sh does right after the two calls above: the
+# real lock, the Arch Linux Archive, the package's sha256 and signature. verify-iso.sh then has to find them in the image byte for
+# byte, and the build record below carries the COMPAT_* lines of this report (network: archive.archlinux.org).
+CI_OS_STAGING_DIR="$STAGING" CI_OS_COMPAT_LOCK="$R2/backends/cachyos/compat-libs.lock" CI_OS_COMPAT_REPORT_FILE="$W/compat-report.env" \
+    bash "$R2/backends/cachyos/iso/scripts/in-container/stage-compat-libs.sh" stage >"$W/compat.log" 2>&1 || { tail -n 20 "$W/compat.log"; die "stage-compat-libs.sh failed"; }
 
 say "3/7 apply-overlay.sh onto the pinned archiso/ (guards a to e)"
 UPSTREAM_ARCHISO_DIR="$UP/archiso" OVERLAY_DIR="$R2/backends/cachyos/iso/overlay" WORK_ARCHISO_DIR="$PROFILE" SOURCE_DATE_EPOCH="$EPOCH" \
@@ -132,7 +139,8 @@ mkdir -p "$ROOT/home/liveuser"; cp -a "$ROOT/etc/skel/." "$ROOT/home/liveuser/"
 { echo CI_OS_EDITION=cachyos-plasma; echo "CI_OS_VERSION=$VERSION"; echo "BUILD_DAY=$DAY"; echo "SOURCE_DATE_EPOCH=$EPOCH"
   echo UPSTREAM_PIN=primary; for k in UPSTREAM_REPO UPSTREAM_SHA UPSTREAM_ARCHISO_TREE BASE_IMAGE MIRRORLIST_REF MIRRORLIST_SHA256 CACHYOS_KEY_FPR; do echo "$k=$(kv "$k")"; done
   echo "OVERLAY_SHA256=$(find "$R2/backends/cachyos/iso/overlay" -type f | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)"
-  echo "STAGING_SHA256=$(find "$STAGING" -type f | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)"; } > "$ROOT/usr/share/ci-os/iso-build-info"
+  echo "STAGING_SHA256=$(find "$STAGING" -type f | sort | xargs sha256sum | sha256sum | cut -d' ' -f1)"
+  grep -E '^COMPAT_[A-Z0-9_]+=[A-Za-z0-9._,:+@/-]*$' "$W/compat-report.env"; } > "$ROOT/usr/share/ci-os/iso-build-info"
 # modes: mkarchiso keeps 644 / 755 and only what file_permissions lists
 find "$ROOT" -type f -exec chmod 644 {} +
 declare -A file_permissions=()

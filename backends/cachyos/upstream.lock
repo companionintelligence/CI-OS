@@ -20,6 +20,8 @@
 # HOW TO BUMP THE MIRRORLIST: MIRRORLIST_REF is a commit of CachyOS/CachyOS-PKGBUILDS; MIRRORLIST_SHA256 must match the file at
 #   that commit (curl -fsSL https://raw.githubusercontent.com/CachyOS/CachyOS-PKGBUILDS/<ref>/<path> | sha256sum), or the build stops.
 #
+# One part of the package set IS pinned, separately: the few older-generation libraries the live image carries next to the current ones
+# (compat-libs.lock, risk R1). Everything else:
 # What is NOT pinned, and cannot be: the package set. archiso/pacman.conf installs from the rolling [cachyos], [core], [extra],
 # [multilib] repositories; there is no CachyOS snapshot service. The exact result is recorded in <iso>.pkgs.txt and <iso>.build-info.
 

@@ -13,6 +13,11 @@
 #                           redirects every lookup; the launcher end to end against stubs)
 #   installer-stage.sh      stage-installer.sh, stage-headless.sh (the payload PARITY test), the Calamares staging step, the
 #                           post-install fix-ups, the first-boot driver, the provisioning wrapper, on fixture directories
+#   compat-libs.sh          the compatibility libraries that keep the installer starting on a rolling-release skew (compat-libs.lock,
+#                           the stager's checks, the mksquashfs shim, the wiring in 20-build.sh; risk R1, incident 2026-10-18)
+#   gate-calamares.sh       the build-time gate that stops mkarchiso when the installer in the assembled image cannot start (every
+#                           verdict, on a fake image with recorded ldd and start output). The proof on the real packages is manual:
+#                           compat-gate-container.sh (Docker, network)
 #
 #   backends/cachyos/iso/tests/installer-config.sh
 #
@@ -39,6 +44,8 @@ run() {  # NAME COMMAND...
 run installer-config.py python3 -I "$HERE/installer-config.py"
 run installer-launcher.sh bash "$HERE/installer-launcher.sh"
 run installer-stage.sh bash "$HERE/installer-stage.sh"
+run compat-libs.sh bash "$HERE/compat-libs.sh"
+run gate-calamares.sh bash "$HERE/gate-calamares.sh"
 
 if [ "$rc" -eq 0 ]; then echo "installer-config.sh: all parts passed"; else echo "installer-config.sh: at least one part FAILED"; fi
 exit "$rc"

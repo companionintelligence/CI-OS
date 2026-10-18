@@ -15,3 +15,10 @@
 /etc/xdg/kcm-about-distrorc | read by KInfoCenter's About This System; kinfocenter ships no file of that name
 /usr/lib/systemd/system-generators/companion-vm-timeouts | a name of our own (companion-*); no package ships a generator of that name (re-check with pacman -F in the builder)
 /etc/xdg/autostart/ci-os-wallpaper.desktop | a name of our own (ci-os-*); no package ships an autostart entry of that name
+# The compatibility libraries of backends/cachyos/compat-libs.lock (risk R1; the staging layer adds them at build time, from the Arch
+# Linux Archive, sha256-pinned). Every lib record of that lock needs a line here (tests/compat-libs.sh checks it). They are the 1.91
+# generation of boost; boost-libs 1.92.0-1 ships libboost_*.so.1.92.0, so no package of the image ships these names (check-owned.sh
+# proves it per build from the repositories' file lists).
+/usr/lib/libboost_python314.so.1.91.0 | compat library for cachyos-calamares-next, from boost-libs 1.91.0-2 (compat-libs.lock); the 1.92 package ships .so.1.92.0 only
+/usr/lib/libboost_container.so.1.91.0 | needed by libboost_python314.so.1.91.0 (compat-libs.lock); the 1.92 package ships .so.1.92.0 only
+/usr/lib/libboost_graph.so.1.91.0 | needed by libboost_python314.so.1.91.0 (compat-libs.lock); the 1.92 package ships .so.1.92.0 only
