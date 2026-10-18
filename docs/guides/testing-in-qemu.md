@@ -139,16 +139,19 @@ Measured on a 12-core Apple-silicon Mac, QEMU TCG, 4 vCPUs, 6 GiB, host load 2.5
 
 | Step | Time | Source |
 |---|---|---|
-| Plasma live: QEMU start to GRUB menu | 2.2 to 2.7 s | [V] ISO #4 and #5 captures |
-| Plasma live: Enter in GRUB to first drawn frame | 4 min 05 s to 4 min 10 s; desktop settled 5 min 08 s to 6 min 35 s after Enter | [V] |
-| Plasma live: click "Install Companion OS" to the Calamares window | about 3 min (keyring, database sync, guards, overlay, package preflight) | [V] ISO #4 and #5 |
+| Plasma live: QEMU start to GRUB menu | 2.2 to 2.7 s | [V] ISO #4, #5 and #6 captures |
+| Plasma live: Enter in GRUB to first drawn frame | 4 min 05 s to 4 min 10 s (ISO #4, #5); 5 min 08 s on ISO #6 at host load 13 to 20; desktop settled 5 min 08 s to 6 min 38 s after Enter | [V] |
+| Plasma live: click "Install Companion OS" to the Calamares window | about 3 min (keyring, database sync, guards, overlay, package preflight); about 2 min 40 s on ISO #5 and #6 | [V] ISO #4, #5 and #6 |
 | Calamares install, "Install Now" to "completion: succeeded" | **22 min 09 s** (the whole stage with the page walk-through about 40 min); 47 jobs | [V] ISO #4 |
 | Installed Plasma, offline: power-on to GRUB / splash / greeter | 10.5 s / about 56 s / 113 s | [V] |
 | Installed Plasma: login to a drawn panel | 55 s offline; 93 s while the first-boot provisioning ran beside it | [V] |
 | `systemd-analyze` of the installed system | offline: 2.8 s kernel, 4.2 s initrd, 3 min 55 s userspace; online with provisioning (before the unit fix): 16 min 27 s userspace | [V] |
-| First-boot provisioning with a network (three Ollama models, about 18.8 GB) | **16 min 4.6 s** on ISO #4 (the 17.8 GB model alone about 10 min at 26 to 50 MB/s); **21 min 49 s** on ISO #5 (about 14 min at 20 to 29 MB/s plus about 3.5 min of digest check). Network speed decides | [V] |
+| First-boot provisioning with a network (three Ollama models, about 18.8 GB) | **16 min 4.6 s** on ISO #4 (the 17.8 GB model alone about 10 min at 26 to 50 MB/s); **21 min 49 s** on ISO #5 (about 14 min at 20 to 29 MB/s plus about 3.5 min of digest check); **21 min 19 s** on ISO #6. Network speed decides | [V] |
 | Installed Plasma (ISO #5), online, with provisioning running: `systemd-analyze` | 2.7 s kernel, 4.1 s initrd, 37.8 s userspace; graphical target after 37.8 s (ISO #4: 16 min 27 s) | [V] |
 | Calamares install on ISO #5 (the successful third attempt) | 23 min 20 s; two earlier attempts died at 2 percent after about 1 min 50 s each (the 30 s keyring limit, KI-20) | [V] |
+| Calamares install on ISO #6 (`ad37b64`, the first attempt) | **28 min 26 s** at host load 9 to 13: `create-pacman-keyring` 32 s, `pacstrap` 553 s, `packages` 717 s, `mkinitcpio` 120 s | [V] `docs/evidence/2026-10-18-plasma-iso6/calamares-jobs.txt` |
+| Installed Plasma (ISO #6), online, with provisioning running | GRUB menu 1.2 s after power-on, greeter 1 min 32 s after Enter in GRUB; `systemd-analyze` 3.2 s kernel, 4.2 s initrd, 43.9 s userspace; first-boot provisioning **21 min 18.9 s** | [V] `docs/ui/companion-os/plasma/CAPTURE.md` |
+| `verify-iso.sh` on the Plasma ISO #6 | about 84 s, 215 passed, 0 failed | [V] `docs/evidence/2026-10-18-plasma-iso6/verify.log` |
 | Retired baseline (Ubuntu 24.04.5): live ISO to a usable desktop | about 9.4 to 10 min | session notes, retired |
 | Retired baseline: installed disk to the GDM greeter (`installed-boot.sh`, Nehalem, 4 GB, no network) | 257 to 261 s | [V], retired |
 | Retired baseline: Ubuntu 24.04 GUI install (click Install to "Installation complete") | about 5 h 39 min, most of it in "Setting up the system" | [V] file times, retired |
@@ -180,7 +183,7 @@ On Apple silicon the script starts its builder container with `--platform linux/
 
 ## The full capture run, step by step
 
-The documentation screenshots and the "does it really install" evidence come from three stages on one VM. The recorded run is ISO #4 (and ISO #5, stage 1); the notes are in the session `CAPTURE.md` files and are summarised in [test-evidence.md](../architecture/test-evidence.md).
+The documentation screenshots and the "does it really install" evidence come from three stages on one VM. The latest recorded run is ISO #6, whose capture record, frames and text records are in the repository ([`docs/ui/companion-os/plasma/CAPTURE.md`](../ui/companion-os/plasma/CAPTURE.md), `docs/evidence/2026-10-18-plasma-iso6/`); the earlier runs (ISO #4, and ISO #5 with its three stages) have their notes only in the session `CAPTURE.md` files. All are summarised in [test-evidence.md](../architecture/test-evidence.md).
 
 1. **Live.** Start QEMU with the command above, stop the GRUB countdown, wait for the drawn desktop, take the live frames (GRUB, first frame, desktop, launcher, About, terminal). Start the installer **exactly as a user would**: launcher search, "Install Companion OS", Enter. No keyring initialisation by hand, no `CI_OS_SKIP_KEYRING`, no package installed by hand.
 2. **Install.** Page order of the Plasma edition (`backends/cachyos/installer/settings.conf`): Welcome, Location, Keyboard, Bootloader (GRUB is the only choice), Partitions, Packages, Users, Summary, Install, Finish. Choose Erase disk on the only disk. The slideshow is four text-only slides rotating every 20 seconds. Monitor read-only: a watcher that polls the guest agent every 120 seconds (Calamares log size and last job, free RAM, free space on the target, host free space) with a stall rule of "no change in percentage, status, log size and job line for 90 minutes". The stall rule never triggered. Finish with "Restart now" **unticked**, then `systemctl poweroff` through the guest agent.

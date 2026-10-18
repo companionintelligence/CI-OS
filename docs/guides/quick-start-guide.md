@@ -40,7 +40,7 @@ On Windows use Rufus (DD Image mode) or balenaEtcher (not tested here).
 **4. Install.**
 
 - Ubuntu edition: choose **Install Companion OS (automatic)**. The dialog names the disk and what is on it and shows a one-time password for the user `companion`. **Erase the disk and install** is the only action that writes anything; Enter never confirms. The machine turns itself off at the end: remove the stick, turn it on. Or choose **Try or Install Companion OS** for the interactive installer. [I]
-- Plasma edition: choose **Companion OS (Plasma)**, connect to the internet, open the application menu and start **Install Companion OS**, then follow Calamares: choose **Erase disk**, create your user, **Install**. It took 22 to 23 minutes on an emulated machine. [V]
+- Plasma edition: choose **Companion OS (Plasma)**, connect to the internet, open the application menu and start **Install Companion OS**, then follow Calamares: choose **Erase disk**, create your user, **Install**. It took 22 to 28 minutes on an emulated machine (a virtual machine, not real hardware). [V]
 
 **5. First boot.** Sign in. With a network the machine provisions itself in the background (Docker, Ollama, the tools and about 18.8 GB of models; 16 to 22 minutes on a fast link). Check:
 
@@ -96,7 +96,7 @@ When a machine has no connectivity it starts a hotspot `Companion-Setup-XXXX` (r
 
 | Symptom | First thing to try |
 |---|---|
-| Plasma install fails at about 2 percent with "failed to finish in 30 seconds" | Close and start **Install Companion OS** again (known defect KI-20: a 30 second default on the keyring step; a fix is in the working tree [I], not in any ISO built so far) |
+| Plasma install fails at about 2 percent with "failed to finish in 30 seconds" | Close and start **Install Companion OS** again (known defect KI-20 of ISO #5 and older: a 30 second default on the keyring step; fixed in `ad37b64`, and ISO #6 installed on its first attempt [V], in a virtual machine, once) |
 | Plasma install: "The package signing keys ... could not be set up or verified" | Get online and retry; if it persists the ISO is too old, use a newer one |
 | Ubuntu one-click: "No internal disk of at least 25 GB was found." | Use the normal installer, or a bigger internal disk |
 | First-boot setup says "Network not available" | It retries by itself every 15 minutes; or `sudo ci-os-setup` once online |

@@ -35,8 +35,10 @@ The same script is the `PR checks` GitHub workflow. A new file must be `git add`
   **ARM64** `ubuntu:26.04` container, the route that built the verified image; an amd64 one may fail (tar "Function not implemented"
   under Rosetta, cause not isolated). Recipe: `CLAUDE.md`.
 - The CachyOS ISO builds on any host with Docker.
-- Never run systemd as PID 1 in a privileged container, and never touch `/proc/sys/fs/binfmt_misc`: it wipes Docker Desktop's
-  Rosetta registrations.
+- Never run systemd as PID 1 in a privileged container or with `CAP_SYS_ADMIN`, and never touch `/proc/sys/fs/binfmt_misc`: a
+  privileged one wipes Docker Desktop's Rosetta registrations, and the capability alone lets a container mount the shared
+  `binfmt_misc` itself. A test that must boot systemd follows `backends/ubuntu/chroot/tests/first-boot-units-boot.sh`, the
+  reference implementation (unprivileged, no added capability, a gate that refuses first).
 
 ## Git discipline
 

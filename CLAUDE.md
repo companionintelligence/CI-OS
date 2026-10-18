@@ -130,8 +130,10 @@ docker rm -f ci-os-ubuild && docker volume rm ci-os-ubuild-vol
 ```
 
 The CachyOS build needs no such recipe: its builder image is `linux/amd64` and runs under Rosetta by design. Traps that have cost
-days: **never run systemd as PID 1 in a privileged container** (it wipes the Docker VM's Rosetta registrations; restart Docker
-Desktop); keep more than 40 GiB free on the Data volume (Time Machine local snapshots pin freed APFS space; `tmutil
+days: **never run systemd as PID 1 in a privileged container or with `CAP_SYS_ADMIN`** (a privileged one wipes the Docker VM's Rosetta
+registrations, and the capability alone lets a container mount the shared `binfmt_misc` itself; restart Docker Desktop to recover; a test
+that must boot systemd follows `backends/ubuntu/chroot/tests/first-boot-units-boot.sh`, the reference implementation: unprivileged, no
+added capability, a gate that refuses first); keep more than 40 GiB free on the Data volume (Time Machine local snapshots pin freed APFS space; `tmutil
 thinlocalsnapshots / <bytes> 4`); QEMU on Apple silicon is software emulation (TCG) only. Details: `docs/guides/building-on-a-mac.md`
 and `docs/guides/testing-in-qemu.md`.
 

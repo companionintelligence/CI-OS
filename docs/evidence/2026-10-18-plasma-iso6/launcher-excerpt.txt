@@ -1,0 +1,26 @@
+2026-10-18T19:32:21Z calamares-online.sh started (ISO version: 261018)
+2026-10-18T19:32:22Z System: UEFI
+2026-10-18T19:32:44Z the pacman keyring in /etc/pacman.d/gnupg works: keeping it, loading the keys of the keyring packages into it before the first sync
+2026-10-18T19:33:13Z syncing the package databases and updating archlinux-keyring and cachyos-keyring
+2026-10-18T19:34:27Z installer is current (3.4.2-13)
+2026-10-18T19:34:35Z guards: all critical checks passed (0 cosmetic warning(s))
+2026-10-18T19:34:37Z guards: all critical checks passed (0 cosmetic warning(s))
+2026-10-18T19:34:38Z overlay applied: settings.conf, 16 module file(s), branding companion
+2026-10-18T19:34:44Z package preflight: 194 required package(s) found
+2026-10-18T19:34:44Z starting Calamares
+
+# Calamares output relayed into the launcher log after "starting Calamares" (guest UTC). Only the requirement lines are copied, and trailing blanks are trimmed.
+# The welcome module reported 6 results and the partition module the seventh; all 7 were satisfied.
+19:35:00 [6]: void Calamares::RequirementsChecker::addCheckedRequirements(Calamares::Module*)
+    Got 6 requirement results from "welcome"
+19:35:21 [6]: void Calamares::RequirementsChecker::addCheckedRequirements(Calamares::Module*)
+    Got 1 requirement results from "partition"
+19:35:22 [6]: void Calamares::RequirementsModel::describe() const
+    Requirements model has 7 items
+    .. requirement 0 "storage" satisfied? true mandatory? false
+    .. requirement 1 "ram" satisfied? true mandatory? true
+    .. requirement 2 "power" satisfied? true mandatory? false
+    .. requirement 3 "internet" satisfied? true mandatory? true
+    .. requirement 4 "root" satisfied? true mandatory? false
+    .. requirement 5 "screen" satisfied? true mandatory? false
+    .. requirement 6 "partitions" satisfied? true mandatory? true

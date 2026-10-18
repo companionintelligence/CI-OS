@@ -156,9 +156,11 @@ These are the failures that cost time in the sessions. Each has a rule.
 
 A privileged container that boots systemd as PID 1 (for example, to test a unit file) **wipes the Docker VM's `binfmt_misc` registrations**, including the Rosetta and QEMU handlers. The amd64 containers and the x86-64 chroot of the Ubuntu build stop working until the registrations come back. [V]: this happened in a session while systemd tests ran in privileged containers; a watcher that polled every 45 seconds found all ten entries missing and re-registered them twice (08:28 and 08:29 on 2026-10-18).
 
+**`CAP_SYS_ADMIN` is not a safe middle way.** With `--cap-add SYS_ADMIN` and the engine's read-only `/proc/sys`, systemd's own `systemd-binfmt.service` stays out, but a container that has the capability can run `mount -t binfmt_misc` itself and gets the **shared** instance, read-write: on Docker Desktop 29.8.2 (kernel 7.0.14-linuxkit, arm64, cgroup v2) the superblock was the VM's own and the `rosetta` and `qemu-*` handlers were listed [V] (measured by the author of commit `f20d3a6`, recorded in the header of the test below). Without the capability the mount is refused (EPERM). So a systemd container gets neither `--privileged` nor `CAP_SYS_ADMIN`.
+
 Rules:
 
-1. Test units with `systemd-nspawn`, a non-privileged container, or a QEMU guest; do not use `--privileged` with `/sbin/init`.
+1. Test units with `systemd-nspawn`, a container with no added capability, or a QEMU guest; do not use `--privileged` or `--cap-add SYS_ADMIN` with `/sbin/init`. The reference implementation is `backends/ubuntu/chroot/tests/first-boot-units-boot.sh` (since `f20d3a6`): unprivileged by default (no added capability, the default seccomp profile, `--cgroupns=host`, a tmpfs `/run`), a gate that runs first and refuses if `/proc/sys` is writable or `binfmt_misc` can be mounted, the four binfmt and sysctl units masked in every container, a probe after every boot, and `--selftest` (43 checks, no Docker). Copy its containment block for any new test that needs systemd as PID 1.
 2. Before any long job, dump the registrations (read-only; the command enters the Docker VM's namespaces):
 
 ```bash

@@ -87,7 +87,7 @@ docker run --rm --platform linux/amd64 --cpus 4 --memory 8g \
     /repo/backends/cachyos/iso/scripts/verify-iso.sh "$(ls /iso/companion-os-plasma-*-x86_64.iso | head -n 1)"'
 ```
 
-Record the pass count and copy the `verify.log` into the run's directory of [`docs/evidence/`](../evidence/README.md). **Status:** on the first complete Ubuntu 26.04.1 image the verifier reported 393 passed, 0 failed in 34 seconds (2026-10-18, with `VERIFY_BASE_ISO` and `VERIFY_REQUIRE_CANON=1`). No log of a verifier run on Plasma ISO #4 or #5 was kept in the session records (the last recorded Plasma runs are 187 passed, 0 failed on ISO #2 and 182 passed, 1 failed on the first full build), so the run on the release candidate is **required**, not a formality, for both editions.
+Record the pass count and copy the `verify.log` into the run's directory of [`docs/evidence/`](../evidence/README.md). **Status:** on the first complete Ubuntu 26.04.1 image the verifier reported 393 passed, 0 failed in 34 seconds (2026-10-18, with `VERIFY_BASE_ISO` and `VERIFY_REQUIRE_CANON=1`). No log of a verifier run on Plasma ISO #4 or #5 was kept in the session records. The latest Plasma run is **215 passed, 0 failed on ISO #6** (about 84 s, 2026-10-18; `docs/evidence/2026-10-18-plasma-iso6/verify.log`), then 187 passed, 0 failed on ISO #2 and 182 passed, 1 failed on the first full build. A run on the release candidate is still **required**, not a formality, for both editions.
 
 ### 5. Size
 
@@ -152,7 +152,7 @@ bsdtar -xOf output/companion-os-1.0-amd64.iso .disk/info      # must start "Comp
 ```
 
 - any image built from a dirty tree, or without gate 4;
-- the Plasma test builds #1 to #5 (they were built to find defects), and any Plasma ISO that is **old**: the edition is a rolling release. The installer fetches current packages on install day and the live image carries the libraries of build day, so an old ISO fails when the repositories move (the boost skew found on 2026-10-18 had existed since 2026-08-13, two months before the first Companion OS ISO was built, and was first exposed when the installer was first launched on a booted ISO; the launcher's message for a key failure tells the person to download a newer ISO). Rebuild on the publication day, rerun gates 4, 6 and 7 the same day, and publish with an expiry note.
+- the Plasma test builds #1 to #6 (they were built to find defects; ISO #6 is built from a clean commit and passed the verifier, but it is still a test build, run only in a virtual machine), and any Plasma ISO that is **old**: the edition is a rolling release. The installer fetches current packages on install day and the live image carries the libraries of build day, so an old ISO fails when the repositories move (the boost skew found on 2026-10-18 had existed since 2026-08-13, two months before the first Companion OS ISO was built, and was first exposed when the installer was first launched on a booted ISO; the launcher's message for a key failure tells the person to download a newer ISO). Rebuild on the publication day, rerun gates 4, 6 and 7 the same day, and publish with an expiry note.
 
 ### 13. Checksums and signature
 

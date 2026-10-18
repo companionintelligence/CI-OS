@@ -188,7 +188,7 @@ caffeinate -i backends/cachyos/iso/scripts/build-iso.sh --out ./output --require
 | `--unprivileged` | `--cap-add SYS_ADMIN` instead of `--privileged`; proven only for a trimmed profile |
 | `--cache-volume NAME`, `--rebuild-image`, `--keep-container`, `--force` | See `--help` |
 
-**Output:** `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso`, `.iso.sha256`, `.pkgs.txt` (the packages of the live image) and `.build-info` (commit, tree state, upstream pin, builder image digest, repository database hashes, overlay and payload digests, compatibility libraries). Time: 25 to 26 minutes for ISO #4 and #5 [V]; the squashfs step prints nothing for about 11 minutes, which is not a hang. Disk: 25 GiB.
+**Output:** `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso`, `.iso.sha256`, `.pkgs.txt` (the packages of the live image) and `.build-info` (commit, tree state, upstream pin, builder image digest, repository database hashes, overlay and payload digests, compatibility libraries). Time: 25 to 26 minutes for ISO #4, #5 and #6 [V]; the squashfs step prints nothing for about 11 minutes, which is not a hang. Disk: 25 GiB.
 
 **Verify** (needs `xorriso`, `unsquashfs` and Python with PyYAML, so on a Mac run it in the builder image, with the ISO mounted read-only):
 
@@ -199,7 +199,7 @@ docker run --rm --platform linux/amd64 --cpus 4 --memory 8g \
     VERIFY_FETCH_UPSTREAM=1 /repo/backends/cachyos/iso/scripts/verify-iso.sh "$(ls /iso/companion-os-plasma-*-x86_64.iso | head -n 1)"'
 ```
 
-For a release add `VERIFY_REQUIRE_CLEAN=1 VERIFY_REQUIRE_ALL=1`. The last recorded runs are 187 passed, 0 failed (ISO #2) and 182 passed, 1 failed (the first full build) [V]; no log of a run on ISO #4 or #5 was kept.
+For a release add `VERIFY_REQUIRE_CLEAN=1 VERIFY_REQUIRE_ALL=1`. The latest recorded run is **215 passed, 0 failed on ISO #6** (`docs/evidence/2026-10-18-plasma-iso6/verify.log`), then 187 passed, 0 failed (ISO #2) and 182 passed, 1 failed (the first full build) [V]; no log of a run on ISO #4 or #5 was kept.
 
 **Rolling-release drift.** This edition is a rolling release: packages are current at build time and again at install time, so an ISO ages. The installer package of the day may need libraries the image does not have; the build therefore ships three pinned compatibility libraries (`backends/cachyos/compat-libs.lock`, review by 2026-12-01) and fails the build when the installer no longer links (`ldd -r` on every ELF of the Calamares package plus a 20 second offscreen start). Use `CI_OS_COMPAT_REVIEW=error` for a release build so an overdue review fails. Background and the incident: [cachyos-backend.md](../architecture/cachyos-backend.md#rolling-release-drift-incident-2026-10-18-f1-f2).
 

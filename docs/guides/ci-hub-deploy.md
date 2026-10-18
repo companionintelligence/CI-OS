@@ -16,7 +16,7 @@ No credential value appears on this page, and none may be added to it.
 | Caller | When | Result without credentials |
 |---|---|---|
 | Ubuntu `deploy_ci_hub()` in `backends/ubuntu/provision/provision.sh` (tier `core`, so at first boot) | every provisioning run, if Docker is installed | the script prints "CI-Hub not deployed" and **exits 0**; provisioning continues and reports success |
-| Arch `provision.sh` (the engine under CachyOS, `--step=ci-hub`), run by the CachyOS first-boot wrapper | first boot | the same message and exit 0. The ISO #4 and ISO #5 first boots skipped the deploy this way **[V]** (`cachyos-backend.md`) |
+| Arch `provision.sh` (the engine under CachyOS, `--step=ci-hub`), run by the CachyOS first-boot wrapper | first boot | the same message and exit 0. The ISO #4, #5 and #6 first boots skipped the deploy this way **[V]** (`cachyos-backend.md`) |
 | `pull-dev-manual.sh` at the repository root | by hand | a thin wrapper that exports `DEVICE_ID`, `API_KEY` and `TUNNEL_TOKEN` and runs `core/lib/ci-hub.sh`; it refuses to run without `DEVICE_ID` and `API_KEY` |
 
 So a machine can finish first boot "successfully" with no Hub on it. The check is whether the container exists (below).

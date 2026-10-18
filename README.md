@@ -52,12 +52,17 @@ The support policy and the full capability matrix are in [`docs/architecture/sup
 | Models | Ollama baked in; models pulled at first boot **[I]** | Ollama installed by the installer; three models pulled at first boot **[V]** |
 | Docker | Baked in, also in live sessions **[I]** | Installed system **[V]**; not on the live medium |
 | GPU, ROCm | ROCm from the Ubuntu archive and Strix Halo boot parameters, Strix Halo class only **[I]** | Vulkan Ollama; ROCm only on request **[I]**; no boot parameters **[N]** |
-| Status | Built from a clean checkout and statically verified (393 checks) **[V]**; a harness-assembled disk of the fix-pass image booted to the GDM greeter **[V]**; live session, installer runs and first boot pending | Live boot, install, installed boot and first boot ran end to end in QEMU twice (ISO #4, ISO #5) **[V]**, and ISO #5 shows the fixes of ISO #4's defects working **[V]**; the fix for the keyring step's 30 second limit **[I]** |
+| Status | Built from a clean checkout and statically verified (393 checks) **[V]**; a harness-assembled disk of the fix-pass image booted to the GDM greeter **[V]**; live session, installer runs and first boot pending | Live boot, install, installed boot and first boot ran end to end in QEMU three times (ISO #4, #5, #6) **[V]**; ISO #6 (`ad37b64`) installed on its first attempt with the keyring-step fix working, passed `verify-iso.sh` (215 passed, 0 failed) and ended first boot clean **[V]**. Virtual machine only, one run of the fix; open: highlight gaps, a CachyOS name in raw pacman output, the splash wording |
 
 <!-- figure: docs/ui/companion-os/ubuntu/NN-live-grub-boot-menu.png -->
 <!-- figure: docs/ui/companion-os/ubuntu/NN-live-desktop.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-live-grub-boot-menu.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-live-desktop.png -->
+![Boot menu on a navy background with the Companion mark and six entries; Companion OS (Plasma) is highlighted.](docs/ui/companion-os/plasma/01-live-grub-boot-menu.png)
+
+*Plasma edition: the boot menu of the live medium, captured in a virtual machine (QEMU, software emulation; not real hardware).*
+
+![The Plasma live desktop with a teal wallpaper and a panel along the bottom with app icons, tray and clock; no windows open.](docs/ui/companion-os/plasma/02-live-desktop.png)
+
+*Plasma edition: the settled live desktop, signed in as liveuser, captured in a virtual machine. All frames of the run, with the capture record, are in [`docs/ui/companion-os/plasma/`](docs/ui/companion-os/plasma/CAPTURE.md).*
 
 Caveats that apply to both: the shared setup portal is a stop-gap that needs a human security review; credentials found by the
 2026-10-12 review are still to be rotated; model pulls have no disk-space guard. See
@@ -113,8 +118,10 @@ docker rm -f ci-os-ubuild && docker volume rm ci-os-ubuild-vol
 ```
 
 The same commands, with the reasons for each step, are in [`docs/guides/building-on-a-mac.md`](docs/guides/building-on-a-mac.md#recipe);
-`CLAUDE.md` carries the same block, and the three are changed together. Never run systemd as PID 1 in that container (it wipes the Docker
-VM's Rosetta registrations; restart Docker Desktop to recover), and keep more than 40 GiB free on the Data volume.
+`CLAUDE.md` carries the same block, and the three are changed together. Never run systemd as PID 1 in that container, in any privileged
+container or with `CAP_SYS_ADMIN` (a privileged one wipes the Docker VM's Rosetta registrations, and the capability alone lets a container
+mount the shared `binfmt_misc` itself; restart Docker Desktop to recover; the reference implementation of a test that must boot systemd is
+`backends/ubuntu/chroot/tests/first-boot-units-boot.sh`), and keep more than 40 GiB free on the Data volume.
 [`.github/workflows/build-companion-os-iso.yml`](.github/workflows/build-companion-os-iso.yml) does the same in CI, in a privileged
 `ubuntu:26.04` container, and is manual-only.
 
@@ -146,13 +153,14 @@ docker run --rm --platform linux/amd64 --cpus 4 --memory 8g -v "$PWD:/repo:ro" -
 
 | | Ubuntu 26.04.1 | Plasma |
 |---|---|---|
-| Build time | **772 s** (12 min 52 s) from a clean checkout at `02c575e`; 860 s for the earlier build of a worktree snapshot during the fix pass. Both had every optional bake on and ran in a privileged ARM64 `ubuntu:26.04` container on an Apple-silicon Mac | 25 to 26 minutes under Rosetta on a lightly loaded Mac (ISO #4 26 min, ISO #5 25 min); 31 to 37 minutes on a loaded one; upstream's own CI needs about 18 minutes on a native runner |
+| Build time | **772 s** (12 min 52 s) from a clean checkout at `02c575e`; 860 s for the earlier build of a worktree snapshot during the fix pass. Both had every optional bake on and ran in a privileged ARM64 `ubuntu:26.04` container on an Apple-silicon Mac | 25 to 26 minutes under Rosetta on a lightly loaded Mac (ISO #4 26 min, ISO #5 25 min, ISO #6 about 26 min); 31 to 37 minutes on a loaded one; upstream's own CI needs about 18 minutes on a native runner |
 | Image size | 7,076,577,280 bytes (6.59 GiB); the Stick slot of a 64 GB stick is 8 GiB and `verify-iso.sh` fails above it | 3,217,129,472 bytes (3.0 GiB) |
-| Static verification | 393 passed, 0 failed, 0 skipped in 34 s, on the clean-checkout image **[V]** | 187 passed, 0 failed on ISO #2 **[V]**; the verifier has grown since, and no log of ISO #4 or #5 was kept |
-| Still to measure | A boot of the clean-checkout image (test-evidence U2 to U11) | A `verify-iso.sh` run on ISO #5 |
+| Static verification | 393 passed, 0 failed, 0 skipped in 34 s, on the clean-checkout image **[V]** | **215 passed, 0 failed on ISO #6** (84 s) **[V]**, log in [`docs/evidence/2026-10-18-plasma-iso6/`](docs/evidence/2026-10-18-plasma-iso6/verify.log); 187 passed on ISO #2; no log of ISO #4 or #5 was kept |
+| Still to measure | A boot of the clean-checkout image (test-evidence U2 to U11) | A second install run (the keyring result is one run), the Secure Boot variant of the firmware, any real hardware |
 
 The records of the 772 s build (build record, exit status, verifier log) and of the 860 s build's boot and verify are in
-[`docs/evidence/`](docs/evidence/README.md); the transcript of the 860 s build is not in the repository. The Plasma times are from
+[`docs/evidence/`](docs/evidence/README.md); the transcript of the 860 s build is not in the repository. The Plasma ISO #6 records
+(build record, verifier log, job timeline) are in `docs/evidence/2026-10-18-plasma-iso6/`; the earlier Plasma times are from
 `docs/architecture/cachyos-backend.md`.
 
 ---
@@ -215,16 +223,20 @@ The GRUB menu has two entries: **Try or Install Companion OS** and **Install Com
 
 ### Plasma edition
 
-1. Boot **Companion OS (Plasma)**. On a software-emulated VM the desktop takes about 4 minutes to its first frame **[V]**.
+1. Boot **Companion OS (Plasma)**. On a software-emulated VM the desktop takes 4 to 5 minutes to its first frame on a quiet host and 5 to 7 on a busy one (ISO #6: 5 min 08 s to the first frame, 6 min 38 s settled) **[V]**.
 2. Open the application menu and start **Install Companion OS**. The launcher first makes sure the pacman keyring works, checks the
    installer package against its guards, applies the Companion overlay and runs a package preflight (about 3 minutes **[V]**), then
    opens Calamares. The install is **online only**: it needs a working internet connection.
 3. Calamares pages: Welcome, Location, Keyboard, Bootloader (GRUB only), Partitions, Packages, Users, Summary, Install, Finish.
-4. The install took 22 min 9 s for 47 jobs on a 30 GiB virtual NVMe in QEMU (ISO #4) and 23 min 20 s on a 64 GiB one (ISO #5) **[V]**. On
-   ISO #5 two of three attempts died at 2 percent with "create-pacman-keyring failed to finish in 30 seconds" on the slow emulated host; if you see
-   that dialog, close it and start the installer again (KI-20, a fix is in the working tree **[I]**). Restart, remove the medium.
+4. The install took 22 min 9 s for 47 jobs on a 30 GiB virtual NVMe in QEMU (ISO #4), 23 min 20 s on a 64 GiB one (ISO #5) and 28 min 26 s on a 64 GiB one
+   (ISO #6) **[V]**. On ISO #5 two of three attempts died at 2 percent with "create-pacman-keyring failed to finish in 30 seconds" on the slow emulated
+   host. Commit `ad37b64` gives that step an explicit time limit, and ISO #6 passed it (32 seconds) on its first attempt, in one run **[V]**; on an older ISO,
+   if you see that dialog, close it and start the installer again (KI-20). Restart, remove the medium.
 
-<!-- figure: docs/ui/companion-os/plasma/NN-live-calamares-welcome.png -->
+![Welcome page of the Companion OS 1.0 installer with the page list on the left and American English chosen.](docs/ui/companion-os/plasma/07-live-calamares-welcome.png)
+
+*Plasma edition: the first page of the installer, started from the live session, captured in a virtual machine.*
+
 <!-- figure: docs/ui/companion-os/ubuntu/NN-install-one-click-confirmation.png -->
 
 Disk size: the installed system takes about 7.9 GiB and the model set adds about 18.8 GB (a 30 GiB disk ended 88 % full). Give the
@@ -248,7 +260,7 @@ Plasma edition 64 GiB or more. Step-by-step instructions, recovery and troublesh
 The `extended` tier (VS Code, Chromium, Homebrew, Companion Launcher) is never run at first boot. The Plasma first boot with a
 network took 16 min 4.6 s to pull the three models in the ISO #4 run, and ended "degraded" because of a defect (`ollama list` ran
 without `$HOME`). Commit `552063f` fixes it, and on ISO #5 the same step took 21 min 49 s, ended with status 0, wrote its marker and
-reported no "degraded" **[V]**.
+reported no "degraded" **[V]**; ISO #6 did the same in 21 min 19 s (exit 0, marker, all three models, a 301-line log) **[V]**.
 
 **Hotspot (headless setup).** A device with no screen reaches your Wi-Fi through a captive portal. When both Ethernet and Wi-Fi are
 down, `setup-network-monitor.service` starts an access point named `Companion-Setup-XXXX` (the suffix is random per start). Connect,
@@ -423,16 +435,16 @@ and [`docs/architecture/supported-targets.md`](docs/architecture/supported-targe
 
 | Area | Ubuntu 26.04.1 | Plasma (CachyOS) |
 |---|---|---|
-| Build | **[V]** clean checkout at `02c575e`, 772 s; fix-pass snapshot, 860 s | **[V]** five ISOs |
-| Static verifier | **[V]** 393 passed, 0 failed (both images) | **[V]** 187 passed on ISO #2; no log of ISO #4 or #5 |
-| Live session boots | GRUB menu under Secure Boot **[V]** (fix-pass image); GNOME desktop pending | **[V]** to the Plasma desktop under QEMU/OVMF |
-| Install to disk | pending; a harness-assembled disk of the fix-pass image (version 9.9, `dce9eb71...`, not a commit) booted to the GDM greeter in 230 s **[V]**; the clean-checkout image (`709b8485...`) has only the `--no-boot` checks | **[V]** ISO #4 22 min 9 s; ISO #5 23 min 20 s on its third attempt (two failed at the 30 s keyring limit, KI-20) |
-| First boot and models | pending | **[V]** ISO #4: models pulled in 16 min, ended "degraded" (defect); ISO #5: 21 min 49 s, status 0, no "degraded" |
+| Build | **[V]** clean checkout at `02c575e`, 772 s; fix-pass snapshot, 860 s | **[V]** six ISOs (#6 from the clean commit `ad37b64`) |
+| Static verifier | **[V]** 393 passed, 0 failed (both images) | **[V]** 215 passed, 0 failed on ISO #6; 187 on ISO #2; no log of ISO #4 or #5 |
+| Live session boots | GRUB menu under Secure Boot **[V]** (fix-pass image); GNOME desktop pending | **[V]** to the Plasma desktop under QEMU/OVMF (ISO #4, #5, #6; frames in [`docs/ui/companion-os/plasma/`](docs/ui/companion-os/plasma/CAPTURE.md)) |
+| Install to disk | pending; a harness-assembled disk of the fix-pass image (version 9.9, `dce9eb71...`, not a commit) booted to the GDM greeter in 230 s **[V]**; the clean-checkout image (`709b8485...`) has only the `--no-boot` checks | **[V]** ISO #4 22 min 9 s; ISO #5 23 min 20 s on its third attempt (two failed at the 30 s keyring limit, KI-20); ISO #6 28 min 26 s on its first attempt (keyring step 32 s under the explicit limit of the fix) |
+| First boot and models | pending | **[V]** ISO #4: models pulled in 16 min, ended "degraded" (defect); ISO #5: 21 min 49 s, status 0, no "degraded"; ISO #6: 21 min 19 s, status 0, three models, 301-line log |
 | Stick boot | stock ISO under Secure Boot to early systemd **[V]** | **[N]** |
 | Real hardware | **[N]** | **[N]** |
 
 Pending evidence: for the Ubuntu 26.04.1 image the live session, both installers, the boot of the clean-checkout image and first boot
-(test-evidence rows U2 to U11), and for Plasma a `verify-iso.sh` log and a run of the keyring-step fix. Each row says what confirms it in
+(test-evidence rows U2 to U11), and for Plasma the Secure Boot variant of the firmware, a second install run and any real hardware. Each row says what confirms it in
 [`test-evidence.md`](docs/architecture/test-evidence.md); [`supported-targets.md`](docs/architecture/supported-targets.md) maps the matrix to those rows.
 
 Retired on 2026-10-17 (restore tag `pre-retire-multidistro-2026-10-17`): Ubuntu 24.04, Linux Mint, Fedora, Bazzite and NixOS.

@@ -2,7 +2,7 @@
 
 > **Private & Confidential. Property of Lifescope Inc. Do not distribute.**
 
-State of 2026-10-18, late morning Pacific time (the evidence records were copied into `docs/evidence/` after the first version of this page). Supported targets: Companion OS on Ubuntu 26.04.1 LTS (resolute) and Companion OS on CachyOS (the "Plasma" edition). Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from the tag `pre-retire-multidistro-2026-10-17`).
+State of 2026-10-18, afternoon Pacific time (the evidence records were copied into `docs/evidence/` after the first version of this page; the Plasma ISO #6 run, finished at 14:01, was added last). Supported targets: Companion OS on Ubuntu 26.04.1 LTS (resolute) and Companion OS on CachyOS (the "Plasma" edition). Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from the tag `pre-retire-multidistro-2026-10-17`).
 
 This page records, per edition and per stage, what has been **run** and what came out. It is written so that a claim can be traced: to a test name in the repository, to a command in a guide, or to a session record. Where a row says "pending", the row also says what will confirm it. What is wrong or undecided is in [known-issues-and-decisions.md](known-issues-and-decisions.md); how to repeat a run is in [Testing in QEMU](../guides/testing-in-qemu.md) and [Building on a Mac](../guides/building-on-a-mac.md).
 
@@ -14,7 +14,7 @@ This page records, per edition and per stage, what has been **run** and what cam
 | **[I]** Implemented, not proven end to end | the code and its unit tests exist; no run shows the behaviour on the real target |
 | **[N]** Not implemented, or not checked | nothing exists, or nobody looked |
 
-**Where the records are.** Test names, counts and commands are in the repository. The text records of the October 2026 runs that matter most (build records, `verify-iso.sh` logs, installed-boot results, the sha256 of each image) are in [`../evidence/`](../evidence/README.md) and cited as `docs/evidence/<directory>/<file>`. The rest of the session records (the gate logs, the `CAPTURE.md` files, frames, guest journals) are still only in the session scratch directory of the 2026-10-17 and 2026-10-18 work, which is temporary storage and **not part of the repository**; they are cited as `<scratch>/...` and are copied into `docs/evidence/` (text) and `docs/ui/companion-os/` (frames and capture notes) by a later step. A row that cites only `<scratch>` is therefore the least durable kind of **[V]**. Credentials never appear in the records: the throwaway accounts used in VMs are not repeated anywhere.
+**Where the records are.** Test names, counts and commands are in the repository. The text records of the October 2026 runs that matter most (build records, `verify-iso.sh` logs, installed-boot results, the sha256 of each image) are in [`../evidence/`](../evidence/README.md) and cited as `docs/evidence/<directory>/<file>`. The records and the 29 frames of the **Plasma ISO #6 run** are in the repository: text in `docs/evidence/2026-10-18-plasma-iso6/`, frames, `MANIFEST.json` and the capture record in [`../ui/companion-os/plasma/`](../ui/companion-os/plasma/CAPTURE.md). The rest of the session records (the gate logs, the `CAPTURE.md` files and frames of the ISO #4 and ISO #5 runs, guest journals) are still only in the session scratch directory of the 2026-10-17 and 2026-10-18 work, which is temporary storage and **not part of the repository**; they are cited as `<scratch>/...` and are copied into `docs/evidence/` (text) and `docs/ui/companion-os/` (frames and capture notes) by a later step. A row that cites only `<scratch>` is therefore the least durable kind of **[V]**. Every frame is a screen capture of a QEMU virtual machine, not of real hardware; in the vocabulary of the public pages its label is "Tested in a virtual machine". Credentials never appear in the records: the throwaway accounts used in VMs are not repeated anywhere.
 
 ## Environment of record
 
@@ -24,7 +24,7 @@ This page records, per edition and per stage, what has been **run** and what cam
 | QEMU | Homebrew 11.1.2, TCG only (no KVM, no HVF for x86-64), `q35`, 4 vCPUs, 6144 MiB for Plasma runs |
 | Firmware | OVMF from Ubuntu `ovmf` 2024.02 (Plasma runs, Secure Boot off); 2025.11 (`ovmf-generic`, Stick Secure Boot run) |
 | Containers | privileged `ubuntu:26.04` (arm64, x86-64 chroot through Rosetta) for the Ubuntu build; the amd64 `archlinux` builder under Rosetta for Plasma |
-| Host load | 2.5 to 9 for the Plasma ISO #4 run; up to 33 at one point; other agents were building at the same time |
+| Host load | 2.5 to 9 for the Plasma ISO #4 run; up to 33 at one point; 9 to 37 for the ISO #6 run (another agent's QEMU at about 390 percent CPU throughout); other agents were building at the same time |
 | Physical hardware | **none** was used (see KI-17) |
 
 ## Summary
@@ -33,6 +33,7 @@ This page records, per edition and per stage, what has been **run** and what cam
 |---|---|---|---|---|---|---|---|---|
 | Plasma ISO #4 (`d7b3a7b`) | [V] 26 min | [N] no log kept | [V] 4 min to a desktop | [V] Calamares, 22 min | [V] | [V] ran, ended "degraded" (defect, fixed in source) | not supported | [N] |
 | Plasma ISO #5 (`552063f`) | [V] 25 min | [N] no log kept | [V] | [V] on the third attempt (23 min); two failed at 2 percent | [V] graphical target after 38 s | [V] 21 min 49 s, exit 0, all three models, no "degraded" | not supported | [N] |
+| Plasma ISO #6 (`ad37b64`, `5ab1fe2c...`) | [V] about 26 min | [V] 215 passed, 0 failed, 84 s | [V] 5 min 08 s to the first frame, 6 min 38 s to a settled desktop (host load 13 to 20) | [V] on the first attempt, 28 min 26 s | [V] greeter 1 min 32 s after Enter, graphical target after 43.9 s of userspace | [V] 21 min 19 s, exit 0, all three models, 301-line log | not supported | [N] |
 | Ubuntu 26.04.1 clean checkout (`02c575e`, `709b8485...`) | [V] 12 min 52 s | [V] 393 passed, 0 failed | pending (first frames exist) | pending | static checks [V] 25 PASS, 0 FAIL; boot pending (U2) | pending | pending (a themed GRUB menu draws under Secure Boot on the fix-pass image) | [N] |
 | Ubuntu 26.04.1 fix-pass snapshot (version 9.9, `dce9eb71...`, not a commit) | [V] 860 s | [V] 393 passed, 0 failed | pending | pending | [V] harness-assembled disk reached the GDM greeter in 230 s | pending | themed GRUB menu draws [V] | [N] |
 
@@ -108,7 +109,7 @@ Booting ISO #3 under QEMU/OVMF reached the live desktop, and clicking "Install C
 1. The launcher deleted the pacman keyring before initialising it, so every click ended after about 20 seconds with a misleading "repositories could not be reached" dialog.
 2. `cachyos-calamares-next` 3.4.2-13 is linked against boost 1.91 while the image carried 1.92: `calamares` exited 127 (`error while loading shared libraries: libboost_python314.so.1.91.0`).
 
-Fixed by `d7b3a7b`: keyring order and classification of failures, three pinned compatibility libraries from the Arch Linux Archive (`backends/cachyos/compat-libs.lock`), and a build gate that fails the build on the next skew. ISO #4 and ISO #5 then started the installer from a fresh boot with no hand work [V]. Details: [cachyos-backend.md](cachyos-backend.md#rolling-release-drift-incident-2026-10-18-f1-f2).
+Fixed by `d7b3a7b`: keyring order and classification of failures, three pinned compatibility libraries from the Arch Linux Archive (`backends/cachyos/compat-libs.lock`), and a build gate that fails the build on the next skew. ISO #4, ISO #5 and ISO #6 then started the installer from a fresh boot with no hand work [V]. Details: [cachyos-backend.md](cachyos-backend.md#rolling-release-drift-incident-2026-10-18-f1-f2).
 
 ### Plasma edition: ISO #5, all three stages
 
@@ -119,7 +120,28 @@ Source: `<scratch>/shots/plasma-v5/CAPTURE.md`. ISO `companion-os-plasma-2026.10
 - **Installed boot, online (one boot, NAT):** GRUB at 11 s, splash at about 46 s, greeter at 107 s; the password typed in the installer was accepted at the first login; panel drawn about 50 s after the login. `systemd-analyze`: 2.7 s kernel + 4.1 s initrd + 37.8 s userspace, **graphical.target after 37.8 seconds** (ISO #4: 16 min 27 s on the same kind of boot); `systemctl is-system-running` was `running` before, during and after the first-boot run and `systemctl --failed` was empty. About This System: "Companion OS 1.0", "Plasma (based on CachyOS)", kernel `7.2.11-1-cachyos`.
 - **First-boot provisioning:** `ci-os-first-boot-setup.service` was `active (running)` from 09:17:42 and ended 09:39:31, **21 min 49 s** later, `code=exited, status=0/SUCCESS`; `.first-boot-setup-done` written, no status file, no attempts file, `ollama list` showed `qwen3.6:27b`, `gemma3:1b` and `nomic-embed-text`. The 17.8 GB pull took about 14 minutes at 20 to 29 MB/s plus about 3.5 minutes of digest check. The log has **367 lines** (ISO #4: 14,052 lines, 1.9 MB); the unit's journal has 386 lines with no "blob data" entry; the closing lines are present. Root went from 8.4 GiB to 27 GiB used of 64 GiB (42 percent).
 - **Re-verification list:** items 2 to 7 are fixed and seen (Support link without an icon, bootloader page with the Companion mark and the GRUB row highlighted, package descriptions complete, no Cachy-Update entry or tray icon on the installed desktop, the first-boot unit running without holding the targets and ending cleanly, a short readable log). Item 1 is mostly fixed: progress bar, keyboard rows and package rows are visible; combo-box popups and the partition-page selection still have no highlight (KI-09).
-- **Still open after ISO #5:** the 30 second keyring limit (KI-20); one status line that names CachyOS (KI-08); the company lockup on the splash and the firmware entries in the installed GRUB menu (KI-08); log noise from the provisioner (a GDM warning on an edition that uses the Plasma Login Manager, a harmless corepack error, times printed in UTC); the retry timer stays scheduled after success, as a harmless no-op.
+- **Still open after ISO #5** (the state after the fixes of `ad37b64` is in the ISO #6 section below): the 30 second keyring limit (KI-20); one status line that names CachyOS (KI-08); the company lockup on the splash and the firmware entries in the installed GRUB menu (KI-08); log noise from the provisioner (a GDM warning on an edition that uses the Plasma Login Manager, a harmless corepack error, times printed in UTC); the retry timer stays scheduled after success, as a harmless no-op.
+
+### Plasma edition: ISO #6, the whole path on the first attempt
+
+Sources: `docs/evidence/2026-10-18-plasma-iso6/` (`run-record.txt`, `companion-os-plasma-2026.10.18-x86_64.build-info`, `verify.log`, `calamares-jobs.txt`, `calamares-keyring-excerpt.txt`, `launcher-excerpt.txt`, the two QEMU command lines, `SHA256SUMS`) and the capture record and 29 frames in [`docs/ui/companion-os/plasma/`](../ui/companion-os/plasma/CAPTURE.md) (`CAPTURE.md`, `MANIFEST.json`). ISO `companion-os-plasma-2026.10.18-x86_64.iso`, 3,217,129,472 bytes, sha256 `5ab1fe2c422fb8960a0dfd0c2f12f70460d13fb3eb9e13febab5ef2a41802d20`, built from the clean commit `ad37b64` (`REPO_TREE=clean`), upstream pin `3215497d`, 202 listed packages, 3 compatibility libraries; the installer gate passed; about 26 minutes from the build record's `SOURCE_DATE_EPOCH` to the end of `mkarchiso`. All **[V]**, and all in a QEMU TCG virtual machine on an Apple-silicon Mac: UEFI OVMF with Secure Boot off, 4 vCPUs, 6144 MiB, a 64 GiB virtual NVMe, user-mode NAT, host load 9 to 37 with another agent's VM running. Nothing ran on real hardware, on KVM or under the Secure Boot firmware.
+
+| Stage | What was shown | Evidence |
+|---|---|---|
+| Static verifier | `verify-iso.sh` in the builder image, the worktree mounted read-only, `VERIFY_FETCH_UPSTREAM=1`: **215 passed, 0 failed** in about 84 s, 15 `info` lines (the disclosed residual CachyOS and Arch strings), no skipped group. It includes the checks the fixes of `ad37b64` added (an explicit time limit on every `shellprocess` command, no CachyOS label on the install page, the GRUB menu switches). `git diff --stat ad37b64 8412662 -- backends/cachyos` was empty, so the verifier read the tree the ISO was built from | `verify.log`, `run-record.txt` |
+| Live boot | UEFI GRUB menu 2.6 s after power-on, first graphical frame **5 min 08 s** after Enter, desktop settled after 6 min 38 s (`systemd-analyze`: 15.5 s kernel + 3 min 21.5 s userspace; ISO #5 took 4 min 05 s at host load 6 to 9, this run's load was 13 to 20). No CachyOS logo in any live frame. `is-system-running` was `degraded` on the live medium (`systemd-time-wait-sync.service`, as on ISO #4 and #5) | frames 01 to 07, `CAPTURE.md` |
+| Installer start | From a fresh boot, by the application-menu entry "Install Companion OS", nothing done by hand: keyring kept and loaded, installer current (3.4.2-13), guards passed with 0 cosmetic warnings, overlay applied (16 module files), package preflight found 194 packages, 7 of 7 requirement checks, Calamares window about 2 min 40 s after the click | `launcher-excerpt.txt`, frames 06, 07 |
+| Install | **First attempt, no error dialog**: all 47 jobs, `completion: succeeded`, **28 min 26 s** from Install Now (12:47:04) to the end of the queue (13:15:30). Choices: Erase disk on the single 64 GiB NVMe, btrfs, GRUB, default packages. `create-pacman-keyring` ran **32 s**, longer than the 30 s default that killed two of three ISO #5 attempts, and passed under the explicit 3600 s limit of the shipped `shellprocess_initialize_pacman.conf` (job 13 as a whole 78 s). `pacstrap` 553 s, `packages` 717 s, `mkinitcpio` 120 s. The log has 58 `WARNING` lines, 1 `ERROR` line (sleep inhibit) and no "timed out" line. The status line at 35 percent read "Installing needed drivers for Companion OS..." (a frame of the capture, not in the exported set) | `calamares-jobs.txt`, `calamares-keyring-excerpt.txt`, frames 08 to 18 |
+| The target, read before shutdown | GPT with a 512 MiB ESP and a 63.5 GiB btrfs with the subvolumes `@`, `@home`, `@root`, `@srv`, `@cache`, `@tmp`, `@log` and `@/.snapshots`; 1144 packages including plasma-desktop 6.8.0, plasma-login-manager 6.8.0, docker 29.9.1 and ollama 0.40.6; no `cachy-update`, `arch-update`, `cachyos-welcome` or `cachyos-hello` package; `ci-os-first-boot-setup.service` and its timer enabled; the generated `grub.cfg` holds exactly Companion OS Linux, the Advanced options submenu, UEFI Firmware Settings and the Companion OS snapshots submenu | `CAPTURE.md` |
+| Installed boot (NAT) | The disk booted with no ISO in the machine. **The GRUB menu lists only Companion OS entries plus UEFI Firmware Settings**, although the virtual machine's firmware still held a UiApp, an EFI shell and an NVMe boot entry. Greeter **1 min 32 s** after Enter in GRUB; the password typed in the installer was accepted at the first login; the desktop was drawn about 70 s after it. `systemd-analyze` 3.246 s kernel + 4.199 s initrd + 43.901 s userspace, **graphical.target after 43.896 s** with provisioning running; `systemctl --failed` empty, `is-system-running` = `running`. No update notifier on the desktop or in the hidden tray popup, no welcome app. About this System: Companion OS 1.0, Plasma (based on CachyOS), Plasma 6.8.0, kernel 7.2.11-1-cachyos | frames 19 to 27 |
+| First boot | `ci-os-first-boot-setup` ended clean: **exit 0 after 21 min 18.9 s** (2 min 57 s CPU, 618.7 MB peak), `.first-boot-setup-done` written, `nomic-embed-text`, `gemma3:1b` and `qwen3.6:27b` listed, a 301-line log and 320 journal lines. The 17 GB pull ran at 15 to 35 MB/s. The root file system went from 8.34 GiB allocated to 26 GB used of 64 GB (42 percent). `docker --version` 29.9.1, `ollama --version` 0.40.6. `CI-Hub not deployed: REGISTRY_USERNAME/REGISTRY_PASSWORD not set` is expected (no registry credentials) | frames 28, 29, `CAPTURE.md` |
+| Shutdown | Clean, about 13 s from `systemctl poweroff` to QEMU exit | `CAPTURE.md` |
+
+**What the fixes of `ad37b64` showed (re-verification list).** Item 1, a first-attempt install past the keyring step: **fixed, seen once**. Item 2, the driver-job label: **fixed** ("Companion OS"); the raw pacman lines that name `cachyos` packages during the pacstrap and packages jobs are unchanged (KI-08). Item 3, highlights: **fixed for the zone popup and the radio buttons; three gaps remain** (the right-hand column of the language popup is nearly unreadable on the highlighted row, the filesystem drop-down has no highlight, the selected partition option has no row highlight; KI-09). Item 4, keyboard, package and progress pages: still right. Item 5, a clean installed GRUB menu: **fixed**. Item 6, no update notifier, a graphical target inside a minute, provisioning clean with a short log: **fixed**. Item 7, `verify-iso.sh` on the ISO: **done, 215 passed, 0 failed**.
+
+**Still open after ISO #6**, each with its known-issue entry: raw pacman output naming CachyOS packages in the install status line and the splash wording "COMPANION INTELLIGENCE" (KI-08, Low); the three highlight gaps (KI-09, Low); log noise (eight `chcon` lines in the install log, a corepack/pnpm stack trace, `[WARNING] gdm not detected` and a Node maintenance warning in the first-boot log), a greeter with no Companion mark, and installer copy that does not match the installed system (the Bootloader page says GRUB finds other operating systems while the installed system has that switched off) (KI-26, Low); the model gate has no data on this edition (a 6 GiB, GPU-less guest pulled the 17 GB model again, KI-01); and the Secure Boot variant, a second install run, offline install, BIOS boot, Wi-Fi and real hardware were not run.
+
+**What this does not prove.** One run is one run: the keyring step passed with a 32 s step under a limit that the old default would have failed, but a different load or a slower machine was not tried, so the fix is **[V] once**, in a virtual machine. The frames show the virtual hardware on purpose (QEMU CPU, llvmpipe, Standard PC Q35). The page behind the launcher entry "Companion Hub (browser)" was not tested because the Hub was not deployed.
 
 ### Ubuntu 26.04 image: build and static verification
 
@@ -198,7 +220,6 @@ A defect the port found by reading: host SSH keys were baked into the image by `
 | `sshd-keygen.service` after host keys were removed | unit text read | first boot |
 | About page rendering the SVG logo in GNOME 50, dock pin, zenity dialogs | static checks, strings of `gnome-control-center` | the desktop |
 | `casper-md5check` on the new `md5sum.txt` | text and sorting equal the stock file, `check-stock` agrees | a live boot (`journalctl -u casper-md5check`) |
-| Calamares keyring step, driver-job label and GRUB menu switches (uncommitted changes in the working tree at the time of writing) | overlay copies of three `shellprocess` configs with explicit time limits and the `shell-timeouts` guard (KI-20), a `patches.list` row for the driver job's label and `GRUB_DISABLE_BOOTNEXT` / `GRUB_DISABLE_OS_PROBER` in `grubcfg.conf` (KI-08); the installer tests of `iso/tests/installer-launcher.sh` | a Calamares install with them on a built ISO. Styling is fixed and seen on ISO #5 except two highlight gaps (KI-09) |
 | `ci_setup` library for the setup redesign | 471 tests | wiring into any service; a human security review of the stop-gap |
 | Model adapter and prefetch units | five test files, mutation suite (114 checks, 0 survivors) | a booted image, real systemd, real exFAT |
 | The four workflows | linted and read | none has run on GitHub |
@@ -231,52 +252,84 @@ The image exists (see above) and is statically verified. These rows turn "built"
 | U10 | The built ISO fits and boots from a Stick | `ci-stick flash` to a 64 GB image, boot with Secure Boot on | `flash` accepts the image (7,076,577,280 B in an 8 GiB slot); casper starts | flash plan, serial log | pending |
 | U11 | A physical machine | boot, install, first boot | as U7 or U6 plus U8 | notes and photos | pending (KI-17) |
 
-## Pending evidence for Plasma ISO #5
+## Pending evidence for the Plasma edition
 
-All three stages of the ISO #5 run are done (above). What is left:
+All three stages ran on ISO #4, #5 and #6 (above), and ISO #6 is the first with the fixes of commit `ad37b64`. The numbers are kept from the first version of this table (other pages cite "Plasma row 8", "9" and "10"). What is left:
 
 | # | Item | Status |
 |---|---|---|
-| 1 | Calamares progress bar visible; selected rows highlighted | mostly fixed: progress bar, keyboard and package rows; partition page and combo popups not (KI-09) |
-| 2 to 7 | Support link, bootloader page, package descriptions, no Cachy-Update, first-boot unit, first-boot log | fixed and seen ([V], above) |
-| 8 | `verify-iso.sh` on this ISO | **pending**: run the Mac command of the [release checklist](../guides/release-checklist.md#4-static-verifier-passes); no log of a run on ISO #4 or #5 was kept |
+| 1 | Calamares progress bar visible; selected rows highlighted | mostly fixed: progress bar, keyboard rows, package rows, the zone popup and the radio buttons are seen on ISO #6; **not fixed**: the right-hand column of the language popup (unreadable on the highlighted row), the filesystem drop-down (no highlight) and the selected partition option (no row highlight) (KI-09) |
+| 2 to 7 | Support link, bootloader page, package descriptions, no Cachy-Update, first-boot unit, first-boot log | fixed and seen again on ISO #6 ([V], above) |
+| 8 | `verify-iso.sh` on a Plasma ISO | **done** on ISO #6: 215 passed, 0 failed, `docs/evidence/2026-10-18-plasma-iso6/verify.log`. No log of ISO #4 or #5 was kept |
 | 9 | The Secure Boot variant of the firmware on this ISO | not tried: a refusal is expected, not observed (KI-04) |
-| 10 | The install on a fast and on a slow machine without the keyring timeout | the fix is in the working tree **[I]** (KI-20); pending a run of a built ISO with it |
+| 10 | The install on a fast and on a slow machine without the keyring timeout | **done once** in a virtual machine: ISO #6 installed on its first attempt and the keyring step took 32 s under the explicit limit (KI-20). Pending: a repeat, and a slow or old physical machine **[N]** |
+| 11 | A second full ISO #6 run, to turn "once" into a rate (install, installed boot, first boot) | pending; the first run's records are in `docs/evidence/2026-10-18-plasma-iso6/` |
+| 12 | The first-boot unit status and the done marker as a frame | pending: the capture frame carries two 32-digit systemd invocation identifiers and could not be exported untouched; a retake would use `systemctl show` for `ActiveState`, `Result` and `ExecMainStatus` (needs a provisioned disk) |
+| 13 | Any run on real hardware, on KVM, with Wi-Fi, several drives or a GPU, offline, or in BIOS mode | not run (KI-17) |
 
-Where the proof is: `<scratch>/shots/plasma-v5/CAPTURE.md` and the `live/`, `install/` and `installed/` frames.
+Where the proof is: `docs/evidence/2026-10-18-plasma-iso6/` and `docs/ui/companion-os/plasma/` (ISO #6); `<scratch>/shots/plasma-v5/CAPTURE.md` and its `live/`, `install/` and `installed/` frames (ISO #5, scratch only).
 
 ## Figures
 
-This is the **one table of figure names**. Frames exist for the Plasma edition and will be copied to `docs/ui/companion-os/plasma/` with their capture notes; the Ubuntu frames are being captured. Every commented-out placeholder in the documents uses the path scheme `docs/ui/companion-os/<edition>/NN-<slug>.png`: `NN` is written literally and stands for the number the capture step assigns (never a guessed number), and the slug is the first column below, whose first word is the stage (`live`, `install`, `installed`, `harness` for a disk the test harness assembled, `retired` for a retired-baseline frame). No image file is referenced until it exists.
+This is the **one table of figure names**. The 29 Plasma frames of the ISO #6 run are in [`docs/ui/companion-os/plasma/`](../ui/companion-os/plasma/CAPTURE.md), numbered in capture order (`NN-<slug>.png`, `NN` two digits), and the Plasma placeholders of the documents are now real images. The Ubuntu frames are being captured: a placeholder that is still commented out uses the path scheme `docs/ui/companion-os/<edition>/NN-<slug>.png`, where `NN` is written literally and stands for the number the capture step will assign (never a guessed number). The slug is the first column below, whose first word is the stage (`live`, `install`, `installed`, `first-boot` for the three names the public pages use for frames of the installed system, `harness` for a disk the test harness assembled, `retired` for a retired-baseline frame). No image file is referenced until it exists. Every Plasma frame is a screen capture of a virtual machine, not of real hardware (label: Tested in a virtual machine).
 
 | Slug | Edition | Shows | Used in |
 |---|---|---|---|
 | `live-grub-boot-menu` | both | the themed GRUB menu (Ubuntu: five entries including "Install Companion OS (automatic)") | README, installation guide, this page (row U4) |
 | `live-desktop` | both | the live desktop, settled | README, this page (row U3) |
-| `live-calamares-welcome` | plasma | the Calamares welcome page | README, installation guide |
+| `live-calamares-welcome` | plasma | the Calamares welcome page | README, installation guide, this page |
 | `live-dock-launcher` | ubuntu | the live session with the launcher first in the dock | one-click install |
 | `live-settings-about` | ubuntu | Settings > About with the Companion OS mark | port notes |
-| `install-partition-erase-disk-selected` | plasma | the partition page with Erase disk selected | installation guide |
-| `install-installing-late` | plasma | the install page late in the run | installation guide |
-| `install-finished` | plasma | the finish page | installation guide |
+| `install-partition-erase-disk` | plasma | the partition page with Erase disk selected (the capture's own name; the first draft of this table said `install-partition-erase-disk-selected`) | installation guide, this page |
+| `install-progress-late` | plasma | the install page at 85 percent (the first draft said `install-installing-late`) | installation guide, this page |
+| `install-finished` | plasma | the finish page | installation guide, this page |
 | `install-one-click-confirmation` | ubuntu | the confirmation dialog that names the disk and what is on it | README, installation guide, one-click install (row U7) |
 | `install-one-click-progress-window` | ubuntu | the progress window with the sign-in details | one-click install |
 | `install-installer-done-page` | ubuntu | the interactive installer's last page with the product name | port notes |
-| `installed-login-screen` | plasma | the greeter of the installed system | installation guide |
-| `installed-first-desktop` | both | the first desktop of the installed system | installation guide (row U8) |
+| `installed-login-screen` | plasma | the greeter of the installed system | installation guide, this page |
+| `installed-first-desktop` | both | the first desktop of the installed system | installation guide, this page (Ubuntu: row U8) |
 | `installed-about-this-system` | plasma | About This System | this page |
 | `harness-installed-greeter` | ubuntu | the harness-assembled disk at the branded GDM greeter | Ubuntu ISO layers |
 | `retired-installed-boot-no-medium` | ubuntu | the retired baseline's failure: the installed disk stopping at "Unable to find a medium containing a live file system" | Ubuntu ISO layers |
 
-<!-- figure: docs/ui/companion-os/plasma/NN-live-grub-boot-menu.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-live-desktop.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-live-calamares-welcome.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-install-partition-erase-disk-selected.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-install-installing-late.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-install-finished.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-installed-login-screen.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-installed-first-desktop.png -->
-<!-- figure: docs/ui/companion-os/plasma/NN-installed-about-this-system.png -->
+Plasma edition, ISO #6, all captured in a virtual machine (QEMU, software emulation). The full list of the 29 frames, with what each shows and when it was taken, is in [`CAPTURE.md`](../ui/companion-os/plasma/CAPTURE.md).
+
+![Boot menu on a navy background with the Companion mark and six entries; Companion OS (Plasma) is highlighted.](../ui/companion-os/plasma/01-live-grub-boot-menu.png)
+
+*The boot menu of the live medium, with the first entry selected and the countdown stopped.*
+
+![The Plasma live desktop with a teal wallpaper and a panel along the bottom with app icons, tray and clock; no windows open.](../ui/companion-os/plasma/02-live-desktop.png)
+
+*The settled live desktop, signed in as liveuser.*
+
+![Welcome page of the Companion OS 1.0 installer with the page list on the left and American English chosen.](../ui/companion-os/plasma/07-live-calamares-welcome.png)
+
+*The first page of the installer, started from the live session.*
+
+![Partitions page with Erase disk selected on a 64 GiB virtual NVMe drive, btrfs, and the planned EFI and system partitions.](../ui/companion-os/plasma/11-install-partition-erase-disk.png)
+
+*The Partitions page with Erase disk chosen; the only drive is a 64 GiB virtual NVMe disk. The selected option has a ring-and-dot radio but no row highlight (KI-09).*
+
+![Install page at 85 percent with the slide 'Companion OS' and the status line 'Running shell processes'.](../ui/companion-os/plasma/17-install-progress-late.png)
+
+*The Install page at 85 percent, near the end of a 28 min 26 s install.*
+
+![Finish page reading All done, saying Companion OS 1.0 has been installed, with an unticked Restart now box and a Done button.](../ui/companion-os/plasma/18-install-finished.png)
+
+*The Finish page. The install queue ended with `completion: succeeded` on the first attempt.*
+
+![Sign-in screen of the installed Plasma edition: user Companion Demo and an empty Password field over the wallpaper.](../ui/companion-os/plasma/21-installed-login-screen.png)
+
+*The sign-in screen of the installed system. The account is a throwaway test account made for the capture.*
+
+![The installed Plasma desktop after the first sign-in: wallpaper, a bottom panel with app icons and tray, and no windows open.](../ui/companion-os/plasma/23-installed-first-desktop.png)
+
+*The first desktop of the installed system, with no welcome window and no update notifier. First-boot setup was running in the background.*
+
+![About this System: Companion OS 1.0, Plasma (based on CachyOS), Plasma 6.8.0, kernel 7.2.11, and QEMU virtual hardware.](../ui/companion-os/plasma/26-installed-about-this-system.png)
+
+*About this System on the installed system; the hardware lines show the virtual machine it ran in.*
+
 <!-- figure: docs/ui/companion-os/ubuntu/NN-live-grub-boot-menu.png (pending, row U4) -->
 <!-- figure: docs/ui/companion-os/ubuntu/NN-live-desktop.png (pending, row U3) -->
 <!-- figure: docs/ui/companion-os/ubuntu/NN-install-one-click-confirmation.png (pending, row U7) -->

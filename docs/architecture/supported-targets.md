@@ -2,7 +2,7 @@
 
 > Private & Confidential. Property of Lifescope Inc. Do not distribute.
 > Policy page. Decision of 2026-10-17 (owner): "only support cachyos and ubuntu 26, retire 24".
-> Last checked against the tree and the evidence on 2026-10-18 (commit `02c575e` plus the uncommitted documentation work).
+> Last checked against the tree and the evidence on 2026-10-18 (commit `02c575e` for the Ubuntu rows, the Plasma ISO #6 run of the same day, built from `ad37b64`, for the Plasma rows, plus the uncommitted documentation work).
 
 Companion OS has two supported targets. Everything else is retired. This page is the single place that says what that means, what
 each target can and cannot do today, and how a target is added or brought back. The other documents link here instead of repeating
@@ -61,16 +61,16 @@ remaining capture records of the QEMU runs are still in a session scratch direct
 
 | Capability | Ubuntu 26.04.1 | CachyOS Plasma |
 |---|---|---|
-| Image build | **[V]** Clean checkout at `02c575e`: `build-iso.sh --clean` exited 0 after **772 s** (12 min 52 s) in a privileged ARM64 `ubuntu:26.04` container on an Apple-silicon Mac on 2026-10-18 and produced `companion-os-1.0-amd64.iso`, 7,076,577,280 bytes, sha256 `709b8485...f5cf` (`docs/evidence/2026-10-18-ubuntu-clean-02c575e/`). The earlier full build of a worktree snapshot during the fix pass (version string 9.9, `dce9eb71...6a11`) took 860 s and gave the same size. | **[V]** Five ISOs built, 2026-10-16 to 2026-10-18; every ISO whose size is recorded (#1, #2, #4, #5) is 3,217,129,472 bytes. 25 to 26 minutes on a lightly loaded host (ISO #4 26 min, ISO #5 25 min), 31 to 37 minutes under Rosetta on a loaded one (`cachyos-backend.md`, Test status). |
-| Static verification | **[V]** `verify-iso.sh` with `VERIFY_BASE_ISO` and `VERIFY_REQUIRE_CANON=1` on the clean-checkout image: 393 passed, 0 failed, 0 skipped in 34 s (`docs/evidence/2026-10-18-ubuntu-clean-02c575e/verify.log`); the same count on the fix-pass image. | **[V]** `verify-iso.sh`: 187 passed, 0 failed on ISO #2; the verifier has gained checks since (compatibility libraries, first-boot properties). **No `verify-iso.sh` log of ISO #4 or ISO #5 was kept**; pending (test-evidence, Plasma row 8). |
+| Image build | **[V]** Clean checkout at `02c575e`: `build-iso.sh --clean` exited 0 after **772 s** (12 min 52 s) in a privileged ARM64 `ubuntu:26.04` container on an Apple-silicon Mac on 2026-10-18 and produced `companion-os-1.0-amd64.iso`, 7,076,577,280 bytes, sha256 `709b8485...f5cf` (`docs/evidence/2026-10-18-ubuntu-clean-02c575e/`). The earlier full build of a worktree snapshot during the fix pass (version string 9.9, `dce9eb71...6a11`) took 860 s and gave the same size. | **[V]** Six ISOs built, 2026-10-16 to 2026-10-18; every ISO whose size is recorded (#1, #2, #4, #5, #6) is 3,217,129,472 bytes. 25 to 26 minutes on a lightly loaded host (ISO #4 26 min, ISO #5 25 min, ISO #6 about 26 min, from the clean commit `ad37b64`; `docs/evidence/2026-10-18-plasma-iso6/`), 31 to 37 minutes under Rosetta on a loaded one (`cachyos-backend.md`, Test status). |
+| Static verification | **[V]** `verify-iso.sh` with `VERIFY_BASE_ISO` and `VERIFY_REQUIRE_CANON=1` on the clean-checkout image: 393 passed, 0 failed, 0 skipped in 34 s (`docs/evidence/2026-10-18-ubuntu-clean-02c575e/verify.log`); the same count on the fix-pass image. | **[V]** `verify-iso.sh` on ISO #6: **215 passed, 0 failed**, no skipped group, about 84 s (`docs/evidence/2026-10-18-plasma-iso6/verify.log`); it includes the checks of the compatibility libraries, the first-boot properties and the explicit Calamares time limits. 187 passed, 0 failed on ISO #2. **No `verify-iso.sh` log of ISO #4 or ISO #5 was kept** (test-evidence, Plasma row 8: done for ISO #6). |
 | Size against the Stick slot | **[V]** 7,076,577,280 bytes against the 8 GiB (8,589,934,592) slot of a 64 GB stick; `verify-iso.sh` section 9 fails an image above it. | n/a, the Stick cannot boot this image. |
-| Live session boots | **[V]** The themed GRUB menu of the fix-pass image draws under the Secure Boot OVMF variant. The GNOME live desktop: **pending** (test-evidence U3, U4, U5). | **[V]** UEFI GRUB to the Plasma desktop under QEMU/OVMF with software emulation; first frame 4 min 10 s after Enter (ISO #4), 4 min 05 s (ISO #5). |
+| Live session boots | **[V]** The themed GRUB menu of the fix-pass image draws under the Secure Boot OVMF variant. The GNOME live desktop: **pending** (test-evidence U3, U4, U5). | **[V]** UEFI GRUB to the Plasma desktop under QEMU/OVMF with software emulation; first frame 4 min 10 s after Enter (ISO #4), 4 min 05 s (ISO #5), 5 min 08 s (ISO #6, a busier host; settled after 6 min 38 s). Frames: `docs/ui/companion-os/plasma/`. |
 | Installer | Canonical's installer (`ubuntu-desktop-bootstrap`, subiquity), plus "Install Companion OS (automatic)". | Calamares (`cachyos-calamares-next`) with a Companion overlay. Online only. |
-| Install to disk | **[I]** Pending (U6 interactive, U7 one-click). The installed-boot harness (`installed-boot.sh --iso`) builds a disk from the installer base layer the way an install ends up and booted it to the GDM greeter in 230 s **[V]**, on the **fix-pass snapshot image** (version 9.9, `dce9eb71...6a11`; `docs/evidence/2026-10-18-ubuntu-fixpass-9.9/installed-boot-result.txt`), not on the clean-checkout image; on that one only the `--no-boot` run was made (25 PASS). Neither is a run of the installer. | **[V]** ISO #4: all 47 Calamares jobs, "completion: succeeded", exec phase 22 min 9 s on a 30 GiB virtual NVMe, installed system boots to login and desktop. ISO #5: all 47 jobs in 23 min 20 s on the third attempt, installed boot **[V]** (`graphical.target` after 37.8 s); the first two attempts failed in `create-pacman-keyring` (30 second default, KI-20; see section 4). |
+| Install to disk | **[I]** Pending (U6 interactive, U7 one-click). The installed-boot harness (`installed-boot.sh --iso`) builds a disk from the installer base layer the way an install ends up and booted it to the GDM greeter in 230 s **[V]**, on the **fix-pass snapshot image** (version 9.9, `dce9eb71...6a11`; `docs/evidence/2026-10-18-ubuntu-fixpass-9.9/installed-boot-result.txt`), not on the clean-checkout image; on that one only the `--no-boot` run was made (25 PASS). Neither is a run of the installer. | **[V]** ISO #4: all 47 Calamares jobs, "completion: succeeded", exec phase 22 min 9 s on a 30 GiB virtual NVMe, installed system boots to login and desktop. ISO #5: all 47 jobs in 23 min 20 s on the third attempt, installed boot **[V]** (`graphical.target` after 37.8 s); the first two attempts failed in `create-pacman-keyring` (30 second default, KI-20; see section 4). ISO #6 (`ad37b64`): all 47 jobs in 28 min 26 s on the **first** attempt, the keyring step 32 s under its explicit limit; installed boot **[V]** (greeter 1 min 32 s after Enter, `graphical.target` after 43.9 s of userspace); one run, in a virtual machine. |
 | One-click automatic install | **[I]** 121 unit tests (`test_auto_install.py`, run by `check-repo.sh`); not yet driven on a booted ISO. Pending (U7). | **[N]** |
-| First-boot provisioning | **[I]** Pending (U8). | **[V]** ISO #4: pulled the three models in 16 min 4.6 s and ended "degraded" because of a defect. ISO #5 (the fix of commit `552063f`): 21 min 49 s, `status=0/SUCCESS`, `.first-boot-setup-done` written, no "degraded", a 367-line log (`test-evidence.md`, Plasma ISO #5). |
-| Docker | **[I]** Baked into the image and also meant to run in live sessions; not booted on 26.04. | **[V]** Installed system: `Docker version 29.9.1`, service enabled and running on a fresh install (ISO #4). The live medium has no Docker **[V]**. |
-| Models | **[I]** Ollama baked in (pinned tarball); models pulled at first boot; `qwen3.6:27b` only on a Strix Halo class machine, and then the model-fit gate applies on top. | **[V]** `nomic-embed-text`, `gemma3:1b` and `qwen3.6:27b` pulled on first boot (ISO #4 and ISO #5). The set takes about 18.8 GB; a 30 GiB disk ended 88 % full. |
+| First-boot provisioning | **[I]** Pending (U8). | **[V]** ISO #4: pulled the three models in 16 min 4.6 s and ended "degraded" because of a defect. ISO #5 (the fix of commit `552063f`): 21 min 49 s, `status=0/SUCCESS`, `.first-boot-setup-done` written, no "degraded", a 367-line log (`test-evidence.md`, Plasma ISO #5). ISO #6: 21 min 19 s, exit 0, the marker, all three models, a 301-line log (`test-evidence.md`, Plasma ISO #6). |
+| Docker | **[I]** Baked into the image and also meant to run in live sessions; not booted on 26.04. | **[V]** Installed system: `Docker version 29.9.1`, service enabled and running on a fresh install (ISO #4; the version again on ISO #6). The live medium has no Docker **[V]**. |
+| Models | **[I]** Ollama baked in (pinned tarball); models pulled at first boot; `qwen3.6:27b` only on a Strix Halo class machine, and then the model-fit gate applies on top. | **[V]** `nomic-embed-text`, `gemma3:1b` and `qwen3.6:27b` pulled on first boot (ISO #4, #5 and #6). The set takes about 18.8 GB; a 30 GiB disk ended 88 % full. |
 | Headless Wi-Fi setup (hotspot) | **[I]** `setup-device` package in the image; the QEMU hwsim harness was not run on 26.04. | **[I]** Payload staged by Calamares; units present on the installed system **[V]**; no access point has been brought up (the VM has no Wi-Fi). |
 | Companion Stick boot | **[V]** The stock 26.04.1 ISO boots from slot A under Secure Boot to early systemd; `stick/tests/qemu/run.sh` ends `RESULT: PASS` with 17 PASS lines in its summary and the Secure Boot A, B, C run (8 checks) passes. A Companion image on a Stick: **[I]**, pending (U10). | **[N]** The Stick's boot menu is built for casper (`stick/crates/ci-stick/src/bootcfg.rs:44-45,188`). |
 | Secure Boot | **[I]** Inherited from the base ISO (shim, Canonical GRUB, Canonical kernel); `verify-iso.sh` compares those binaries with the stock ISO. The themed menu of the fix-pass image draws under Secure Boot; a boot to the live system is pending (U9). | **[N]** Unsigned standalone GRUB and unsigned kernels. |
@@ -113,18 +113,21 @@ remaining capture records of the QEMU runs are still in a session scratch direct
   or more. No guard stops a model pull that does not fit the disk; the right place is `ci_os_model_gate_allows` in
   `core/lib/gpu-detect.sh` **[N]**. On this edition the RAM and GPU-memory part of that gate has no data on an installed system
   (`model-packs.yaml` is not staged), so `qwen3.6:27b` is pulled on every machine (KI-01 in `known-issues-and-decisions.md`).
-* **ISO #5 install attempts and the keyring step (KI-20).** On 2026-10-18 the first two Calamares attempts failed at 2 percent with
-  "create-pacman-keyring failed to finish in 30 seconds"; the third ran all 47 jobs **[V]**. The cause is established: the installer's own
+* **The keyring step (KI-20): fixed, seen once.** On ISO #5 (2026-10-18) the first two Calamares attempts failed at 2 percent with
+  "create-pacman-keyring failed to finish in 30 seconds"; the third ran all 47 jobs **[V]**. The cause was established: the installer's own
   `shellprocess_initialize_pacman.conf` gives that command no `timeout` key, so Calamares applies its 30 second default, and the step takes
-  about 28 seconds under software emulation (a real machine does it in a few seconds **[I]**). A fix is in the working tree **[I]**: overlay
-  copies of three stock `shellprocess` configs with explicit time limits and a `shell-timeouts` guard that fails the launcher when any command
-  of the install sequence has none. It has not been run on a built ISO.
+  about 28 to 32 seconds under software emulation (a real machine does it in a few seconds **[I]**). Commit `ad37b64` ships overlay copies of
+  three stock `shellprocess` configs with explicit time limits and a `shell-timeouts` guard that fails the launcher when any command of the
+  install sequence has none. **ISO #6 installed on its first attempt**, the step took 32 s and passed under the explicit limit **[V]**, in one
+  run in a virtual machine; a second run and any physical machine are still to do.
 * **Names that stay CachyOS.** `ID=cachyos`, `ID_LIKE=arch`, `VARIANT="Plasma (based on CachyOS)"`, kernel and package names.
   `ID_LIKE=arch` is what CI-Hub's installers match. The image, ISO file name and boot menus carry no CachyOS mark. Whether the
   name may be used publicly is an open decision (D1 in `backends/cachyos/README.md`, `NOTICE`).
-* **Cosmetic findings from the ISO #4 and #5 runs** (GRUB menu lists firmware leftovers on a VM, boot splash says "COMPANION INTELLIGENCE",
-  one "CachyOS" status line in the installer, Calamares theme polish, `ollama.service` disabled until first boot) are listed in
-  `known-issues-and-decisions.md` (KI-07 to KI-09); fixes for the firmware entries and the status line are in the working tree **[I]**.
+* **Cosmetic findings from the ISO #4, #5 and #6 runs** are listed in `known-issues-and-decisions.md` (KI-07 to KI-09, KI-26). Fixed and seen on
+  ISO #6 **[V]**: the GRUB menu no longer lists firmware leftovers, the install status line says "Companion OS" for the drivers job, the zone popup
+  and the radio buttons have highlights. Still open, all Low: the boot splash says "COMPANION INTELLIGENCE", raw pacman text in the install status
+  line names `cachyos` packages, three Calamares highlight gaps, log noise and a greeter without the Companion mark, and `ollama.service` is
+  disabled until first boot.
 
 ### Both
 
@@ -139,7 +142,7 @@ remaining capture records of the QEMU runs are still in a session scratch direct
 
 The pending rows of the matrix are [I] today. **There is one table that says what confirms each of them**, with the command, the pass
 condition and the place the proof will be written: [Pending evidence for the Ubuntu 26.04 image](test-evidence.md#pending-evidence-for-the-ubuntu-2604-image)
-(IDs U1 to U11) and [Pending evidence for Plasma ISO #5](test-evidence.md#pending-evidence-for-plasma-iso-5). This page keeps only the
+(IDs U1 to U11) and [Pending evidence for the Plasma edition](test-evidence.md#pending-evidence-for-the-plasma-edition). This page keeps only the
 mapping from the matrix rows to those IDs, so the two pages cannot disagree.
 
 | Matrix row | ID in `test-evidence.md` |
@@ -151,13 +154,15 @@ mapping from the matrix rows to those IDs, so the two pages cannot disagree.
 | Ubuntu: Secure Boot | U9 |
 | Ubuntu: a Companion image on a Stick | U10 |
 | Both: real hardware | U11 and KI-17 |
-| Plasma: static verification | Plasma row 8 (a `verify-iso.sh` log of ISO #4 or #5) |
+| Plasma: static verification | Plasma row 8: **done** for ISO #6 (215 passed, 0 failed); no log of ISO #4 or #5 exists |
 | Plasma: Secure Boot firmware refuses the unsigned GRUB | Plasma row 9 |
-| Plasma: install without the keyring timeout | Plasma row 10 (KI-20) |
+| Plasma: install without the keyring timeout | Plasma row 10 (KI-20): **done once** on ISO #6; row 11 asks for a second run |
+| Plasma: real hardware, KVM, offline, BIOS | Plasma row 13 and KI-17 |
 
 The Ubuntu image's build and static verification on a clean checkout are **done** (the matrix above; the stage that the capture's early
-notes called U0). The Plasma first-boot fix and the installer look are **seen on ISO #5** (the matrix above; test-evidence, Plasma ISO #5),
-so that ISO has no row here except the three above. As each pending row is run, its text records go into a new directory of
+notes called U0). The Plasma first-boot fix and most of the installer look are **seen on ISO #5**, and the keyring-step fix, the driver-job label, the
+clean installed GRUB menu and the verifier log are **seen on ISO #6** (the matrix above; test-evidence, Plasma ISO #5 and ISO #6), so the Plasma
+edition has no row here except those above. As each pending row is run, its text records go into a new directory of
 [`../evidence/`](../evidence/README.md) and the row moves from pending to [V] in `test-evidence.md` in the same change.
 
 ## 6. `backends/arch` is not a target

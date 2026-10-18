@@ -1,0 +1,35 @@
+Companion OS, Plasma edition, ISO #6: run record, 2026-10-18
+Every fact below is from a QEMU TCG virtual machine on an Apple-silicon Mac. No physical hardware was used. Evidence label: Tested in a virtual machine.
+
+image:    companion-os-plasma-2026.10.18-x86_64.iso, 3,217,129,472 bytes
+sha256:   5ab1fe2c422fb8960a0dfd0c2f12f70460d13fb3eb9e13febab5ef2a41802d20 (SHA256SUMS, the .iso.sha256 file and ISO_SHA256 of the build info agree; re-hashed before the run)
+commit:   ad37b64291bb46450195b122329d7e66155b495e, REPO_TREE=clean (0 changed, 0 untracked, 0 ignored); `git diff --stat ad37b64 8412662 -- backends/cachyos` (8412662 was the head
+          of the worktree the verifier ran from) was empty, so the verifier and the overlay it read are the ones the ISO was built from
+build:    backends/cachyos/iso/scripts/build-iso.sh in the amd64 builder container (ci-os-cachyos-builder:74d94e89adef) under Rosetta;
+          from the build info's SOURCE_DATE_EPOCH (18:49:38 UTC) to the end of mkarchiso (19:15:39 UTC) about 26 minutes; "installer gate: passed" (19:02:29 UTC);
+          202 listed packages, 3 compatibility libraries (boost-libs-1.91.0-2), COMPAT_REVIEW_OVERDUE=0, upstream pin 3215497d2e8c5fea90e185affcf973dfa2cf790b
+verify:   verify-iso.sh in the builder image, the worktree mounted read-only, VERIFY_FETCH_UPSTREAM=1; 12:18:09 to 12:19:33 PDT (about 84 s)
+          result: "== Summary: 215 passed, 0 failed" (verify.log, 255 lines; 15 info lines are the disclosed residual CachyOS and Arch strings; no group skipped)
+
+firmware: OVMF_CODE_4M.fd, Secure Boot off, with a per-VM copy of OVMF_VARS_4M.fd; both from Ubuntu 24.04 ovmf 2024.02-2ubuntu0.10. The Secure Boot variant was NOT tried.
+vm:       qemu-system-x86_64 11.1.2 (Homebrew), q35, TCG only, 4 vCPUs, 6144 MiB, user-mode NAT, a 64 GiB qcow2 on a virtual NVMe, no host mounts;
+          the command lines are qemu-cmdline-live-and-install.txt and qemu-cmdline-installed.txt (paths abbreviated)
+host:     load average 9 to 37 during the run (another agent's QEMU was running at about 390 percent CPU throughout)
+
+live:     GRUB menu 2.6 s after power-on; first graphical frame 5 min 08 s after Enter; desktop settled 6 min 38 s after Enter (systemd-analyze 15.5 s kernel + 3 min 21.5 s userspace)
+installer started from the application menu entry on a fresh boot, nothing done by hand (launcher-excerpt.txt, UTC): keyring kept, installer current (3.4.2-13),
+          guards passed with 0 cosmetic warnings, overlay applied, package preflight found 194 packages, Calamares window about 2 min 40 s after the click
+install:  FIRST attempt, no error dialog: all 47 jobs, "completion: succeeded", Install Now 12:47:04 PDT to the end of the queue 13:15:30 PDT = 28 min 26 s (calamares-jobs.txt)
+          create-pacman-keyring ran 32 s (15:48:13 to 15:48:45 guest time), longer than the stock 30 s default that killed two of three attempts on ISO #5,
+          and passed under the explicit 3600 s limit of the shipped config (calamares-keyring-excerpt.txt); target 64 GiB, Erase disk, btrfs, GRUB, default packages
+installed boot (NAT): GRUB menu 1.2 s after power-on; greeter 1 min 32 s after Enter in GRUB; systemd-analyze 3.246 s kernel + 4.199 s initrd + 43.901 s userspace = 51.348 s,
+          graphical.target after 43.896 s of userspace with first-boot provisioning running; login accepted with the password typed in the installer;
+          systemctl --failed empty, is-system-running = running; GRUB menu lists only Companion OS entries plus UEFI Firmware Settings
+first boot: ci-os-first-boot-setup finished clean: exit 0, .first-boot-setup-done written, nomic-embed-text, gemma3:1b and qwen3.6:27b present, 301-line log, 320 journal lines;
+          whole run 21 min 18.9 s (2 min 57 s CPU, ollama pulls at 15 to 35 MB/s); no update notifier, no welcome app; docker 29.9.1, ollama 0.40.6
+          root file system 26 GB used of 64 GB (42 percent) after the pulls
+shutdown: clean (about 13 s from systemctl poweroff to QEMU exit)
+
+frames:   29 PNG files (26 distinct) in docs/ui/companion-os/plasma/, with CAPTURE.md and MANIFEST.json
+not shown by this run: real hardware, Secure Boot, Wi-Fi, several drives, a GPU, an offline install, BIOS (syslinux) boot, the Hub running (no registry credentials were set),
+          a second install run of ISO #6 (the keyring result is one run at host load 9 to 13; ISO #4 and ISO #5 also installed, see docs/architecture/cachyos-backend.md), the pacman -Syu identity rewrite on an installed system, the setup portal

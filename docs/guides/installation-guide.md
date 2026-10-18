@@ -4,14 +4,14 @@ Private & Confidential. Property of Lifescope Inc. Do not distribute.
 
 Installing Companion OS on a computer, step by step, for both supported editions: Companion OS on Ubuntu 26.04.1 LTS and Companion OS on CachyOS (the "Plasma" edition). Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from the tag `pre-retire-multidistro-2026-10-17`); there is no install path for them.
 
-**What has been proven.** Evidence tags: **[V]** verified in a run, **[I]** implemented and unit-tested, not proven end to end, **[N]** not checked. Both editions were run under QEMU on an Apple-silicon Mac only; no physical machine has booted either (known issue KI-17).
+**What has been proven.** Evidence tags: **[V]** verified in a run, **[I]** implemented and unit-tested, not proven end to end, **[N]** not checked. Both editions were run under QEMU on an Apple-silicon Mac only; no physical machine has booted either (known issue KI-17). Every Plasma figure below comes from virtual machines under software emulation, and the ISO #6 figures from a single run.
 
 | Part | Plasma edition | Ubuntu 26.04.1 edition |
 |---|---|---|
-| ISO built and checked | [V] verifier run on ISO #2 (187 passed); ISO #4 and #5 built, no verifier log kept | [V] built from a clean checkout in 12 min 52 s, `verify-iso.sh` 393 passed, 0 failed |
-| Live boot | [V] desktop in about 4 minutes under emulation | pending |
-| Install | [V] Calamares to an installed system (22 to 23 minutes; ISO #5 needed three attempts, see Troubleshooting) | pending (both the one-click and the interactive path) |
-| Installed boot and first boot | [V] boots to a desktop in about 4 min 40 s; first-boot provisioning finished cleanly in 22 minutes (ISO #5) | pending |
+| ISO built and checked | [V] verifier run on ISO #6: 215 passed, 0 failed ([log](../evidence/2026-10-18-plasma-iso6/verify.log)); 187 passed on ISO #2; ISO #4 and #5 built, no verifier log kept | [V] built from a clean checkout in 12 min 52 s, `verify-iso.sh` 393 passed, 0 failed |
+| Live boot | [V] first frame 4 to 5 minutes after Enter in GRUB under emulation on a quiet host; 5 min 08 s, settled after 6 min 38 s, on a busy one (ISO #6) | pending |
+| Install | [V] Calamares to an installed system on ISO #4, #5 and #6 (22 to 28 minutes; ISO #6 on its first attempt in 28 min 26 s; ISO #5 needed three attempts, see Troubleshooting) | pending (both the one-click and the interactive path) |
+| Installed boot and first boot | [V] greeter 1 min 32 s after Enter in GRUB and a desktop about 70 seconds after the login (ISO #6); first-boot provisioning finished cleanly in 21 min 19 s (ISO #6; 21 min 49 s on ISO #5) | pending |
 
 The pending rows are listed with their proofs in [test-evidence.md](../architecture/test-evidence.md). Read the steps for the Ubuntu edition as the designed behaviour, confirmed against the code and the 26.04.1 installer but not yet on screen.
 
@@ -140,10 +140,13 @@ Use Rufus and choose **DD Image** mode if it asks, or balenaEtcher. Neither was 
    | Ubuntu | "Try or Install Companion OS", **"Install Companion OS (automatic)"**, "Companion OS (safe graphics)", then "Boot from next volume" and "UEFI Firmware Settings" (UEFI). The stock menu waits 30 seconds |
    | Plasma | "Companion OS (Plasma)", "(Plasma, LTS kernel)", "(Plasma, safe graphics)", UEFI Shell, UEFI Firmware Settings, System shutdown. It starts by itself after 6 seconds |
 
-<!-- figure: docs/ui/companion-os/plasma/NN-live-grub-boot-menu.png (Plasma edition GRUB menu) -->
+![Boot menu on a navy background with the Companion mark and six entries; Companion OS (Plasma) is highlighted.](../ui/companion-os/plasma/01-live-grub-boot-menu.png)
+
+*The boot menu of the Plasma edition live medium, with the first entry selected and the countdown stopped, captured in a virtual machine (Tested in a virtual machine).*
+
 <!-- figure: docs/ui/companion-os/ubuntu/NN-live-grub-boot-menu.png (pending: Ubuntu edition menu with the automatic entry) -->
 
-4. **Be patient.** Under emulation the Plasma live medium showed systemd status text, then about 90 seconds of black, then the desktop (4 minutes from Enter to the first drawn frame). Real hardware should be much faster (**[N]**). The live session logs in by itself: the Plasma user is `liveuser` with passwordless `sudo`; the Ubuntu live user is `companion`.
+4. **Be patient.** Under emulation the Plasma live medium showed systemd status text, then black (about 90 seconds on ISO #4 and #5), then the desktop: 4 minutes from Enter to the first drawn frame on ISO #4 and #5, 5 min 08 s on ISO #6 on a busier host (the desktop had settled after 6 min 38 s). Real hardware should be much faster (**[N]**). The live session logs in by itself: the Plasma user is `liveuser` with passwordless `sudo`; the Ubuntu live user is `companion`.
 
 ## Install the Ubuntu edition
 
@@ -175,7 +178,7 @@ What it refuses: the disk it booted from, the stick, any disk that carries a Com
 
 ## Install the Plasma edition
 
-*Verified under QEMU: an install from a fresh boot with nothing done by hand (ISO #4 and #5).*
+*Tested in a virtual machine (QEMU, software emulation, not real hardware): an install from a fresh boot with nothing done by hand on ISO #4, #5 and #6. ISO #6 installed on the first attempt.*
 
 1. Boot the stick (Secure Boot **off**), choose **Companion OS (Plasma)**, and wait for the desktop.
 2. **Make sure the computer is online.** The installer is an online installer: it downloads the system with `pacstrap` and the package groups, and the welcome page requires an internet connection (it checks `https://example.com`). Connect with the network icon in the panel.
@@ -184,7 +187,7 @@ What it refuses: the disk it booted from, the stick, any disk that carries a Com
 
    | Page | What to do |
    |---|---|
-   | Welcome | Choose the language. Requirements must show internet and memory satisfied |
+   | Welcome | Choose the language. The page shows no requirements list when everything is met: the launcher's log reported 7 of 7 requirement checks satisfied before the window opened |
    | Location | The map and zone are preselected from a GeoIP lookup; correct them if wrong (if the lookup fails the zone falls back to New York) |
    | Keyboard | Choose the layout |
    | Bootloader | GRUB is the only choice |
@@ -192,13 +195,24 @@ What it refuses: the disk it booted from, the stick, any disk that carries a Com
    | Packages | Defaults are fine (only "Firefox and language package" is ticked) |
    | Users | Name, user name, computer name, password. "Use the same password for the administrator account" is ticked by default |
    | Summary | Check the plan, then **Install**, then confirm "Continue with Installation?" |
-   | Install | 47 jobs behind a progress bar and a four-slide text slideshow. 22 to 23 minutes on emulation with fast mirrors |
+   | Install | 47 jobs behind a progress bar and a slideshow. 22 to 28 minutes on emulation with fast mirrors (28 min 26 s on ISO #6, host load 9 to 13) |
    | Finish | "All done." **Restart now** is unticked by default: tick it, or restart yourself, and remove the stick |
 
-<!-- figure: docs/ui/companion-os/plasma/NN-live-calamares-welcome.png (Calamares welcome page) -->
-<!-- figure: docs/ui/companion-os/plasma/NN-install-partition-erase-disk-selected.png (partition page, Erase disk) -->
-<!-- figure: docs/ui/companion-os/plasma/NN-install-installing-late.png (install progress) -->
-<!-- figure: docs/ui/companion-os/plasma/NN-install-finished.png (finish page) -->
+![Welcome page of the Companion OS 1.0 installer with the page list on the left and American English chosen.](../ui/companion-os/plasma/07-live-calamares-welcome.png)
+
+*The first page of the Plasma installer, started from the live session, captured in a virtual machine.*
+
+![Partitions page with Erase disk selected on a 64 GiB virtual NVMe drive, btrfs, and the planned EFI and system partitions.](../ui/companion-os/plasma/11-install-partition-erase-disk.png)
+
+*The Partitions page with Erase disk chosen; the only drive is a 64 GiB virtual NVMe disk, captured in a virtual machine. The selected option has a ring-and-dot radio button but no row highlight (KI-09).*
+
+![Install page at 85 percent with the slide 'Companion OS' and the status line 'Running shell processes'.](../ui/companion-os/plasma/17-install-progress-late.png)
+
+*The Install page at 85 percent, near the end of the run, captured in a virtual machine.*
+
+![Finish page reading All done, saying Companion OS 1.0 has been installed, with an unticked Restart now box and a Done button.](../ui/companion-os/plasma/18-install-finished.png)
+
+*The Finish page, with Restart now unticked as it is by default, captured in a virtual machine.*
 
 5. The installer takes the whole chosen disk. There is no one-click mode, no offline mode and no desktop chooser for this edition.
 
@@ -206,12 +220,25 @@ What it refuses: the disk it booted from, the stick, any disk that carries a Com
 
 ### Plasma edition
 
-GRUB shows "Companion OS Linux", "Advanced options for Companion OS Linux" and "Companion OS snapshots". A splash and the Plasma Login Manager greeter follow (107 to 113 seconds from power-on to the greeter under emulation); sign in with the account you made. The desktop is Plasma with the Companion theme; there is no welcome app. **About This System** says "Companion OS 1.0, Plasma (based on CachyOS)".
+GRUB shows "Companion OS Linux", "Advanced options for Companion OS Linux", "UEFI Firmware Settings" and "Companion OS snapshots", and on ISO #6 nothing else: the firmware leftovers of a virtual machine (UiApp, an EFI shell, the disk itself) no longer became menu entries. A splash and the Plasma Login Manager greeter follow (107 to 113 seconds from power-on to the greeter under emulation on ISO #4 and #5; 1 min 32 s from Enter in GRUB on ISO #6); sign in with the account you made. The splash reads "COMPANION INTELLIGENCE" (the company lockup), not "Companion OS" (KI-08). The greeter starts on a clock page and shows the password prompt after a key press. The desktop is Plasma with the Companion theme; there is no welcome app and no update notifier. **About This System** says "Companion OS 1.0, Plasma (based on CachyOS)".
 
-<!-- figure: docs/ui/companion-os/plasma/NN-installed-login-screen.png (the greeter) -->
-<!-- figure: docs/ui/companion-os/plasma/NN-installed-first-desktop.png (first desktop) -->
+![Installed boot menu on navy: Companion OS Linux selected, Advanced options, UEFI Firmware Settings, Companion OS snapshots.](../ui/companion-os/plasma/19-installed-grub-boot-menu.png)
 
-**First-boot provisioning** starts by itself (`ci-os-first-boot-setup.service`) as soon as the machine has a network: Docker is installed already; it sets up Ollama, the other tools and pulls the models. With a fast connection it took **16 to 22 minutes** for the three models on the test machine (16 min 5 s on ISO #4, 21 min 49 s on ISO #5). It runs in the background at low priority: the graphical target was reached 38 seconds after boot with the run in progress, and the desktop is usable from the first login. Without a network it waits about 3.5 minutes, exits quietly and tries again every 15 minutes, up to three automatic runs.
+*The boot menu of the installed Plasma edition, with the countdown stopped, captured in a virtual machine.*
+
+![Sign-in screen of the installed Plasma edition: user Companion Demo and an empty Password field over the wallpaper.](../ui/companion-os/plasma/21-installed-login-screen.png)
+
+*The sign-in screen of the installed Plasma edition, captured in a virtual machine. The account is a throwaway test account made for the capture.*
+
+![The installed Plasma desktop after the first sign-in: wallpaper, a bottom panel with app icons and tray, and no windows open.](../ui/companion-os/plasma/23-installed-first-desktop.png)
+
+*The first desktop of the installed Plasma edition, with no welcome window, captured in a virtual machine. First-boot setup was running in the background at this moment.*
+
+![About this System: Companion OS 1.0, Plasma (based on CachyOS), Plasma 6.8.0, kernel 7.2.11, and QEMU virtual hardware.](../ui/companion-os/plasma/26-installed-about-this-system.png)
+
+*About this System on the installed Plasma edition; the hardware lines show the virtual machine it ran in.*
+
+**First-boot provisioning** starts by itself (`ci-os-first-boot-setup.service`) as soon as the machine has a network: Docker is installed already; it sets up Ollama, the other tools and pulls the models. With a fast connection it took **16 to 22 minutes** for the three models on the test machine (16 min 5 s on ISO #4, 21 min 49 s on ISO #5, 21 min 19 s on ISO #6). It runs in the background at low priority: the graphical target was reached 38 seconds (ISO #5) and 44 seconds (ISO #6) into userspace with the run in progress, and the desktop is usable from the first login (about 70 seconds after the login under emulation on ISO #6). Without a network it waits about 3.5 minutes, exits quietly and tries again every 15 minutes, up to three automatic runs.
 
 ```bash
 systemctl status ci-os-first-boot-setup                  # running, or inactive when finished
@@ -221,7 +248,11 @@ sudo journalctl -u ci-os-first-boot-setup --no-pager -n 40
 ollama list                                              # the three models when it is done
 ```
 
-On the ISO #4 build provisioning always ended "degraded" although everything was installed (a `$HOME` problem) and held the boot targets for 16 minutes; both are fixed, and on ISO #5 the unit ended with exit status 0, wrote the done marker, left no status file and showed no "degraded" [V]. `sudo ci-os-setup` runs it again at any time.
+![Konsole listing three Ollama models: qwen3.6:27b, gemma3:1b and nomic-embed-text; disk 26G used of 64G.](../ui/companion-os/plasma/29-first-boot-models.png)
+
+*The three default models are present after first-boot setup on the installed Plasma edition, captured in a virtual machine. The frame does not show the service status or the done marker.*
+
+On the ISO #4 build provisioning always ended "degraded" although everything was installed (a `$HOME` problem) and held the boot targets for 16 minutes; both are fixed, and on ISO #5 the unit ended with exit status 0, wrote the done marker, left no status file and showed no "degraded" [V]. ISO #6 repeated that: exit 0 after 21 min 18.9 s, the marker written, all three models listed, a 301-line log [V]. A terminal on the installed system prints `Docker version 29.9.1` and `ollama version is 0.40.6`. `sudo ci-os-setup` runs it again at any time.
 
 ### Ubuntu edition
 
@@ -281,9 +312,10 @@ A pull that fails for lack of space leaves a partial download; free space and ru
 | Dialog: "The package repositories could not be reached, or a mirror did not have the files it should." | Network or mirror problem. Check the connection and try again in a few minutes |
 | Dialog: "The package repositories could not be updated. Try again in a few minutes." | An unclassified pacman error; the launcher log has pacman's exact last error line: `/home/liveuser/companion-install.log` |
 | "The installer was NOT started (nothing was changed on your disks)" | A guard or the package preflight failed closed. Try later or use a newer ISO |
-| "Installation Failed: command `bash /etc/calamares/scripts/create-pacman-keyring` failed to finish in 30 seconds" (at about 2 percent) | A known defect (KI-20): the keyring step has a 30 second limit (Calamares' default; the installer sets no `timeout`) and slow machines exceed it. Click Close, start **Install Companion OS** again; it passed on the third attempt in the run that hit it. The disk now holds a failed attempt's partitions: choose Erase disk again. A fix is in the working tree [I] and is not in any ISO built so far |
+| "Installation Failed: command `bash /etc/calamares/scripts/create-pacman-keyring` failed to finish in 30 seconds" (at about 2 percent) | A defect of ISO #5 and older (KI-20): the keyring step had a 30 second limit (Calamares' default; the installer set no `timeout`) and slow machines exceeded it. Click Close, start **Install Companion OS** again; it passed on the third attempt in the run that hit it. The disk now holds a failed attempt's partitions: choose Erase disk again. Fixed in commit `ad37b64`: on ISO #6 the same step took 32 seconds and the install passed on the first attempt, in one run in a virtual machine [V] |
 | `calamares` exits at once with `error while loading shared libraries: libboost_python314.so.1.91.0` | The ISO is older than the repositories' libraries and its compatibility libraries are missing: use a newer ISO (the build now stops on this) |
-| Status line "Installing needed drivers for CachyOS..." during the install | Upstream's label (KI-08); harmless. A patch that renames it is in the working tree [I] and is not in any ISO built so far |
+| Status line "Installing needed drivers for CachyOS..." during the install | Upstream's label on ISO #5 and older (KI-08); harmless. ISO #6 says "Installing needed drivers for Companion OS..." |
+| Status line shows pacman text that names CachyOS packages ("Updating CachyOS specific configuration.", "pacman: installing cachyos-alacritty-config...") for a few seconds | Raw output of the package manager during the `pacstrap` and `packages` jobs; harmless and still present on ISO #6 (KI-08) |
 | Log lines "Could not inhibit sleep", "chcon" not found, "Unit X does not exist" | Harmless; seen in every successful install |
 | Black screen for about 90 seconds on the live medium | Normal under emulation: the live medium has no boot splash. Wait. If the display stays black, try the "safe graphics" entry |
 | After the install, `ollama --version` prints two "no server" warnings | `ollama.service` is enabled by the first-boot setup (KI-07); it goes away when provisioning finishes |

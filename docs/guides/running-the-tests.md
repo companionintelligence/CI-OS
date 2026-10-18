@@ -64,7 +64,7 @@ cannot affect it; do not use it for a push.
 | Boot-media branding | `bash backends/ubuntu/iso/tests/boot-media-plymouth.sh` (`CI_TEST_STOCK_INITRD=<stock casper/initrd>` for the real initrd) | `brand_boot_media`, the initrd overlay, `.disk/info` | throw-away `ubuntu:26.04` container (`unmkinitramfs`, `cpio`, `zstd`) | manual |
 | Plymouth, placeholder layer | `bash backends/ubuntu/iso/tests/{plymouth-ground-render,placeholder-layer-modes}.sh`, `bash backends/ubuntu/desktop-theme/tests/plymouth-theme.sh` | what the real Plymouth plugin draws; layer modes; the rootfs Plymouth step | container; the command is in each header | manual |
 | Desktop-theme and chroot tests | `bash backends/ubuntu/desktop-theme/tests/{about-logo-svg,visible-names,about-logo-no-renderer,start-icon-from-mark}.sh`, `bash backends/ubuntu/chroot/tests/{no-dracut-pin,render-preflight}.sh`, `bash backends/ubuntu/headless-package/tests/netplan-keeps-networkmanager.sh`, `bash core/lib/tests/{divert-file,grub-nearest-color}.sh` | the About logo, the visible names, apt pinning, the render preflight, netplan, `dpkg-divert`, the nearest GRUB colour | throw-away `ubuntu:26.04` container (root, dpkg) for most; the command is in each header | manual |
-| First-boot units under systemd | `bash backends/ubuntu/chroot/tests/first-boot-units-boot.sh` | host keys and the rebrand unit with an installer-style machine-id (41 checks in the last run) | Docker; **it runs systemd as PID 1 in a privileged container (`docker create --privileged ... /sbin/init`)**: do not run it on Docker Desktop for Mac, see below | manual |
+| First-boot units under systemd | `bash backends/ubuntu/chroot/tests/first-boot-units-boot.sh` (`--selftest` runs only its containment logic: 43 checks, no Docker, about a second) | host keys and the rebrand unit with an installer-style machine-id (45 checks and 14 boots in the contained default, `f20d3a6`; the earlier privileged version reported 41) | Docker, cgroup v2; **it boots systemd as PID 1 in a contained container by default (no `--privileged`, no added capability, `CAP_SYS_ADMIN` deliberately not granted, a gate that refuses first)**, so it runs on Docker Desktop for Mac; `CI_OS_ALLOW_SYSTEMD_IN_PRIVILEGED=1` is the explicit override, see below | the run: manual; `--selftest`: gate |
 | Installed-system harness | `bash backends/ubuntu/iso/tests/installed-boot.sh --iso <ISO> [--no-boot]` | a disk assembled the way an install ends up, initrds regenerated, then booted in QEMU to the greeter (`--no-boot` stops after the 25 static checks: 413 s on the clean-checkout image; with a boot, 681 s on the fix-pass image) | privileged Docker (`--platform linux/amd64`) and QEMU | manual |
 | Whole image | `VERIFY_BASE_ISO=<stock ISO> VERIFY_REQUIRE_CANON=1 backends/ubuntu/iso/scripts/verify-iso.sh <ISO>` | 393 checks, sections 1 to 9 (34 s) | xorriso, squashfs-tools, zstd, cpio, python3 | manual, per image |
 
@@ -194,11 +194,25 @@ ignored by git. This container does not run systemd.
 
 ## Tests that start systemd as PID 1
 
-A privileged container that boots systemd as PID 1 wipes the Docker VM's Rosetta registrations on Docker Desktop for Mac (see
+A privileged container that boots systemd as PID 1 wipes the Docker VM's Rosetta registrations on Docker Desktop for Mac, and `CAP_SYS_ADMIN`
+alone lets a container mount the shared `binfmt_misc` itself (see
 [Building on a Mac](building-on-a-mac.md#never-run-systemd-as-pid-1-in-a-privileged-container)). `backends/ubuntu/chroot/tests/first-boot-units-boot.sh`
-is such a test by construction (its header asks for "privileged containers, cgroup v2" and it creates containers that run `/sbin/init`
-**[V]**: read in the file). That it was the trigger of the 2026-10-18 wipe is **[I]**, by timing only. Run it on a Linux Docker host or in a
-QEMU guest, not on Docker Desktop for Mac, or dump the registrations first and be ready to restart Docker Desktop. The CachyOS container
-tests say in their headers that they never do this, and `first-boot-drain-container.sh` refuses to start when systemd is PID 1.
+is such a test by construction (its containers run `/sbin/init`), and its first version ran them `--privileged`; that it was the trigger of the
+2026-10-18 wipes is **[I]**, by timing only. Since commit `f20d3a6` it is **contained by default [V]** (the commit's author ran it on Docker
+Desktop 29.8.2; not re-run for this page):
+
+- the default profile has no added capability, the default seccomp profile, `--cgroupns=host` and a tmpfs `/run`, and all its checks and boots pass in it. The
+  system ends `degraded` (`tmp.mount`, `systemd-resolved` and `netplan-configure` fail), and none of the units under test depends on them;
+- **`CAP_SYS_ADMIN` is deliberately not granted**: a container that has it can mount the shared `binfmt_misc` itself;
+- a gate runs before any systemd container exists, with the same flags and a plain shell, and stops the test with exit 1 if `/proc/sys` is writable,
+  a write to it is accepted, or `mount -t binfmt_misc` succeeds; the four binfmt and sysctl units are masked in every container, and every boot is probed again;
+- if the contained profile cannot boot systemd on an engine (cgroup v1, a hardened daemon) the test exits 2 and never falls back by itself. The override is
+  `CI_OS_ALLOW_SYSTEMD_IN_PRIVILEGED=1`, which runs the containers `--privileged` (the masks stay, the gate is skipped, and where the engine looks shared a banner
+  and a 10 second pause come first). **Do not set it on Docker Desktop, OrbStack, Colima or Rancher Desktop**: run the test on a Linux Docker host or in a QEMU
+  guest. That the masks alone keep the handlers safe in the override is not verified, on purpose;
+- `--selftest` runs the decision logic against canned probe reports and a fake `docker` (43 checks, 14 mutants killed) and is in `core/lib/check-repo.sh`.
+
+Use this script as the reference for any new test that needs systemd as PID 1. The CachyOS container tests say in their headers that they never do this,
+and `first-boot-drain-container.sh` refuses to start when systemd is PID 1.
 
 © Companion Intelligence, Lifescope Inc

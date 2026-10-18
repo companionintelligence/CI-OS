@@ -84,9 +84,11 @@ Design records. Each states its own status and evidence.
 |---|---|
 | [Test evidence](architecture/test-evidence.md) | What has been run, where, with what result and count, split into verified, implemented-unproven and not implemented, and the table of pending evidence for the Ubuntu 26.04 image. |
 | [Evidence records](evidence/README.md) | The small text records behind the verified rows: build records, verifier logs, installed-boot results and the sha256 of each image, with the rules for adding a run. |
-| [`ui/`](ui/) | Screenshots. `setup-portal-*.png` are the six states of the setup portal (used by the README). Edition screenshots are added under `ui/companion-os/` by a later step; the documents carry commented-out figure placeholders until then, and the one table of figure names is in the [Figures section of the test evidence page](architecture/test-evidence.md#figures). |
+| [`ui/`](ui/) | Screenshots. `setup-portal-*.png` are the six states of the setup portal (used by the README). Edition screenshots are under `ui/companion-os/`, indexed in [`ui/companion-os/README.md`](ui/companion-os/README.md). |
+| [`ui/companion-os/plasma/`](ui/companion-os/plasma/CAPTURE.md) | The Plasma edition capture of ISO #6 (2026-10-18): 29 frames of the live medium, the installer and the installed system, in a virtual machine, with `CAPTURE.md` (command lines, timings, what was fixed and found, hygiene checks) and `MANIFEST.json`. The Ubuntu frames are still to be captured; the documents carry commented-out placeholders for them, and the one table of figure names is in the [Figures section of the test evidence page](architecture/test-evidence.md#figures). |
 
-The text records of the main runs are in `docs/evidence/`. Frames, capture notes and the transcripts that are not copied yet are still in the
+The text records of the main runs are in `docs/evidence/`, and the records and frames of the Plasma ISO #6 run are in `docs/evidence/2026-10-18-plasma-iso6/` and
+`docs/ui/companion-os/plasma/`. The transcripts, frames and capture notes of the earlier runs that are not copied yet are still in the
 session scratch directory outside the repository; the documents quote what they showed and say so.
 
 ## Plans and specifications
@@ -127,6 +129,7 @@ session scratch directory outside the repository; the documents quote what they 
   links to an untracked one passes. Check by hand (`git status --short docs` lists untracked files, and a link scan of the tree finds a link that
   does not resolve). A document that `core/headless/tests/ci_setup` reads (`architecture/headless-setup.md`) is re-checked with
   `bash core/headless/tests/ci_setup/run.sh --quick`.
-* Figure placeholders are commented-out lines in the one scheme `docs/ui/companion-os/<edition>/NN-<slug>.png` with the slugs of the table in
-  [test-evidence.md](architecture/test-evidence.md#figures); `NN` is written literally.
+* A figure that waits for a frame is a commented-out line in the one scheme `docs/ui/companion-os/<edition>/NN-<slug>.png` with the slugs of the table in
+  [test-evidence.md](architecture/test-evidence.md#figures); `NN` is written literally. Once the frame exists the line becomes a real image with a relative path
+  and alt text. A frame of a virtual machine says so in its caption.
 * A record behind a **[V]** is copied into `docs/evidence/` (see its README); a path in a session scratch directory is not a durable source.

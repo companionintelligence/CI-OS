@@ -4,10 +4,10 @@ The live ISO installs Companion OS with Calamares, CachyOS' online installer (`c
 is not a copy of the ISO: Calamares `pacstrap`s it from the CachyOS and Arch repositories at install time. So everything
 that makes the result Companion OS has to be put there by the installer, and this directory is how.
 
-Status: written and unit-tested against the SHAPE of the pinned installer (3.4.2-13) and its real files. **Two full installations
-were run end to end (ISO #4 and ISO #5, QEMU/OVMF software emulation, 2026-10-18) and succeeded** (ISO #5 on its third attempt: the first two
-died on the keyring step's 30 second limit, see "What is not tested"). The fixes ISO #4 led to are seen working on ISO #5's installed system [V];
-the fix for the keyring limit and the driver-job label are in the working tree [I] and have not been run on a built ISO (see "What is not tested"
+Status: written and unit-tested against the SHAPE of the pinned installer (3.4.2-13) and its real files. **Three full installations
+were run end to end (ISO #4, ISO #5 and ISO #6, QEMU/OVMF software emulation, 2026-10-18) and succeeded** (ISO #5 on its third attempt: the first two
+died on the keyring step's 30 second limit, see "What is not tested"; ISO #6 on its first). The fixes ISO #4 led to are seen working on ISO #5's installed system [V];
+the fixes for the keyring limit and the driver-job label (commit `ad37b64`) are seen working on ISO #6 [V], in one run in a virtual machine (see "What is not tested"
 and `docs/architecture/cachyos-backend.md`, "Test status").
 
 ## What is where
@@ -197,7 +197,8 @@ guard"): the same safety, but an incompatible CachyOS release does not turn the 
     "alongside" choice is not removed. It stays reachable from the firmware's boot menu and from "UEFI Firmware Settings", and `GRUB_DISABLE_OS_PROBER=false` in
     `/etc/default/grub` plus `grub-mkconfig -o /boot/grub/grub.cfg` brings the scan back. That is a product decision (the open question is in `docs/architecture/known-issues-and-decisions.md`);
     setting only `GRUB_DISABLE_BOOTNEXT` would clean the menu and keep the scan. Seen: the real `31_efi_bootnext` of ISO #5, fed the VM's five firmware entries through a stand-in `efibootmgr`,
-    prints exactly the five "(EFI BootNext)" entries of the ISO #5 frame, and none with `GRUB_DISABLE_BOOTNEXT=true`.
+    prints exactly the five "(EFI BootNext)" entries of the ISO #5 frame, and none with `GRUB_DISABLE_BOOTNEXT=true`. **Seen on ISO #6 [V]** (commit `ad37b64`): the installed menu lists
+    exactly Companion OS Linux, Advanced options, UEFI Firmware Settings and Companion OS snapshots (frame 19 of `docs/ui/companion-os/plasma/`), although the virtual machine's firmware still held a UiApp, an EFI shell and an NVMe entry.
   - **The installer's look, two gaps left by ISO #5's stylesheet.** (1) The popups of the combo boxes (the zone list) showed no highlight for the current entry or under the
     pointer: the list-style popup is painted by a delegate that ignores every item rule of a stylesheet and draws focus with a translucent wash that is invisible on this
     window colour; no `QAbstractItemView` selection or hover rule changes it (offscreen, Qt 6.12, Breeze). The stylesheet switches the combo boxes to the menu-style popup (`combobox-popup: 1`), which it
@@ -206,7 +207,9 @@ guard"): the same safety, but an incompatible CachyOS release does not turn the 
     the sheet now (a ring in the muted outline colour, a sage ring with a sage dot and a gap when checked). The selected row of the partition choices is not highlighted: those rows are
     widgets (`PrettyRadioButton`), not an item view, and a stylesheet cannot colour a parent by the state of its child; the manual partition table (an item view) is highlighted.
     Frames to re-shoot after a rebuild: `install/02b` (zone popup), `install/05a` and `install/05b` (partition page: every radio button changed), `install/11b` (the 35 percent status line)
-    and `installed/01` (GRUB menu); the failure frame `install/09b` needs none.
+    and `installed/01` (GRUB menu); the failure frame `install/09b` needs none. **Re-shot on ISO #6 [V]** (`docs/ui/companion-os/plasma/CAPTURE.md`): the zone popup shows the current entry with a check mark and
+    the hovered entry highlighted, the radio buttons show a ring and a ring plus a dot when selected (frame 11), the status line reads "Installing needed drivers for Companion OS..." and the GRUB menu is clean. **Three gaps
+    remain (KI-09):** the right-hand column of the language popup is nearly unreadable on the highlighted row, the filesystem drop-down has no highlight, and the selected partition row has none (frame 11).
 - **No host firewall (UFW is not installed, the `enable-ufw` step is dropped).** Reasons: the Ubuntu edition ships `ufw` installed
   but disabled (`docs/architecture/tier-b-tools.md`, risk R4: CI-Hub's containers reach the host's Ollama on `0.0.0.0:11434`
   through the docker bridge, which a default-deny INPUT policy would block); the stock `enable-ufw` sets `default deny incoming`,
@@ -305,7 +308,7 @@ matches only the bare state words, while `nmcli` prints `connecting (getting IP 
 | Limine entry `/+CachyOS`, palette | `bootloader/main.py` | Limine is not offered |
 | `TARGET_OS_NAME="CachyOS"`, snapshot text | `scripts/*` | `patches.list` |
 | "... of CachyOS" in progress text | `modules/shellprocess-before-online.conf` | `patches.list` |
-| "Installing needed drivers for CachyOS..." (the label of the driver job, from 35 percent on) | `/usr/lib/calamares/modules/chwd/main.py` | `patches.list` **[I]**: added after ISO #5, in the working tree, not yet run; the new text has no translation, so it shows in English in every language |
+| "Installing needed drivers for CachyOS..." (the label of the driver job, from 35 percent on) | `/usr/lib/calamares/modules/chwd/main.py` | `patches.list` **[V]**: added in `ad37b64`; ISO #6 reads "Installing needed drivers for Companion OS..." at 35 percent; the new text has no translation, so it shows in English in every language |
 | `cachyos-hooks` rewrites `/etc/os-release` | pacman hook | `zz-ci-os-os-release` (brand overlay), re-checked by the fix-ups |
 | `cachyos-kde-settings` skeleton | package | `zz-ci-os-skel` (brand overlay) |
 
@@ -349,28 +352,27 @@ backends/cachyos/iso/tests/installer-config.sh        # runs the parts below; no
 
 ## What is not tested
 
-- Calamares ran once on this overlay (ISO #4: 47 jobs, `completion: succeeded`; frames and the session log are in the capture scratch, not in the
-  repository). What that run shows about the open questions of the first draft: the target holds the staged payload, the first-boot unit and the
+- Calamares has run on this overlay on three ISOs (#4, #5 and #6). On ISO #4 it ran 47 jobs to `completion: succeeded`; the frames and the session log of that run are in the capture scratch, not in the
+  repository. What that run shows about the open questions of the first draft: the target holds the staged payload, the first-boot unit and the
   carry-over (so `shellprocess` expanded `${ROOT}`/`${USER}` in these commands); `file://` as the only `groupsUrl` loaded and the always-on Plasma
   group installed (1148 packages on the target, including `plasma-desktop`, `docker`, `ollama`, `tailscale`); `services-systemd` enabled the units an
   earlier job staged (`ci-os-first-boot-setup.service`; Docker was running on the first boot). **Not shown:** that the `users` job creates the `docker`
   group before the packages job (not checked separately).
 - ISO #5 (with the fixes of `552063f`) ran all 47 jobs on its third attempt (23 min 20 s, `completion: succeeded`) [V]. The first two attempts stopped at
   job 13, `bash /etc/calamares/scripts/create-pacman-keyring` "failed to finish in 30 seconds": the stock `shellprocess_initialize_pacman.conf`
-  gives its command no `timeout`, so Calamares' default of 30 s applies, and the step takes about 28 s under QEMU/TCG (KI-20). **[I]** The fix is in the
-  working tree: overlay copies of the three stock `shellprocess` configs with an explicit `timeout` on every command (3600 s for the two commands that
+  gives its command no `timeout`, so Calamares' default of 30 s applies, and the step takes about 28 s under QEMU/TCG (KI-20). **The fix is in `ad37b64`:** overlay copies of the three stock `shellprocess` configs with an explicit `timeout` on every command (3600 s for the two commands that
   talk to mirrors, 600 s for the file's other commands), and the `shell-timeouts` guard, which judges the effective config of every `shellprocess` step
   of the sequence (rules in the header of `lib/ci-shellprocess.py`: an explicit limit on every command, at least 600 s for network and package tools and
   300 s for disk and initramfs tools, and a frozen copy still runs every command of the installer's file, in its order and with its `dontChroot`). It is covered by `iso/tests/installer-launcher.sh`
-  against a fake tree that holds the installer's real commands. **Not run:** a Calamares install with these copies, on any ISO.
-- Installed systems booted three times (ISO #4 twice, offline and on NAT; ISO #5 once, on NAT): GRUB, Plymouth and the greeter themes were seen working.
+  against a fake tree that holds the installer's real commands. **[V] once:** ISO #6 (built from `ad37b64`) ran all 47 jobs on its first attempt in 28 min 26 s; `create-pacman-keyring` took 32 s and passed under the explicit limit, and the session log has no "timed out" line (`docs/evidence/2026-10-18-plasma-iso6/`). **Not run:** a second install of ISO #6, or one on a slow physical machine.
+- Installed systems booted four times (ISO #4 twice, offline and on NAT; ISO #5 and ISO #6 once each, on NAT): GRUB, Plymouth and the greeter themes were seen working.
   Nothing was booted on KVM or real hardware, in BIOS mode or under Secure Boot.
 - `pacman -Sw` / `bsdtar` / `pacman -S` of a real newer installer package, and `pkexec-wrapper` with a real desktop.
 - `kdialog` is not in the live package list (checked in the built demo ISO: `libnotify` is). The launcher falls back to
   `notify-send` (critical urgency), which is easy to miss. Add `kdialog` to `iso/overlay/packages.add`.
 - The Arch provisioner itself (`backends/arch/provision/provision.sh`) had not run on CachyOS when the model check was written, so the check was
-  tested against a stand-in `ollama` (its `list` output and a server that comes up late or never). It has since run on the installed systems of ISO #4 and
-  ISO #5, against a real server: `ollama list` as root answered once `HOME` was set and the three models were found (status 0 on ISO #5) [V]. Still
+  tested against a stand-in `ollama` (its `list` output and a server that comes up late or never). It has since run on the installed systems of ISO #4,
+  ISO #5 and ISO #6, against a real server: `ollama list` as root answered once `HOME` was set and the three models were found (status 0 on ISO #5 and ISO #6) [V]. Still
   from the documentation and not seen: that a pull resumes after `systemctl stop`.
   The first-boot unit and the retry timer were checked with `systemd-analyze verify` (systemd 262 in the builder image: nothing but the
   emulation artefact below) and by the tests of their text. They have since run under systemd on ISO #5's installed system: `Type=exec` kept
@@ -378,7 +380,8 @@ backends/cachyos/iso/tests/installer-config.sh        # runs the parts below; no
 - The installer stylesheet was rendered offscreen with PySide6, the Breeze style and the CI-OS-Dark palette (the selected rows, the progress
   bar with its text, the netinstall tree, the bootloader page with the real picture), not in Calamares itself: the widget names come from the
   pinned package's strings and its stock stylesheet, not from a run. The same holds for the popup and radio rules of ISO #5's second look (the harness is not Calamares: the real
-  popup showed no highlight at all, the harness a faint one, so the fix is the menu-style popup that the stylesheet paints itself; whether it reads in the real window is what the re-shot `install/02b` shows).
+  popup showed no highlight at all, the harness a faint one, so the fix is the menu-style popup that the stylesheet paints itself). The real window of ISO #6 answers it: the zone popup reads (check mark and highlight) and the
+  radio buttons show their ring and dot, while the language popup's right-hand column and the filesystem drop-down still do not (KI-09).
 - The `settings-drift`, `list-drift` and `code-names` guards were tested on the recorded SHAPE of 3.4.2-13 and on edited copies of
   it (empty file, flow style, renamed key, comment on the header, added and removed items), with BSD awk 20200816 and gawk 5.4.1;
   not on a newer upstream release.

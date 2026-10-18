@@ -140,10 +140,12 @@ needs only Docker. Upstream is never edited.
 * **Limits.** Online install only; no Secure Boot; the Companion Stick cannot boot it (casper is hard-coded in
   `stick/crates/ci-stick/src/bootcfg.rs:44-45,188`); the live profile is baseline x86-64 (the `cachyos-v3` repositories fail under
   Rosetta).
-* **Status.** Built five times **[V]**; the static verifier passed on ISO #2 with 187 checks **[V]**. ISO #4 and ISO #5 each ran from a fresh boot
+* **Status.** Built six times **[V]**; the static verifier passed on ISO #2 with 187 checks and on ISO #6 with 215 **[V]**. ISO #4, ISO #5 and ISO #6 each ran from a fresh boot
   through the Calamares online install, the first boot of the installed system and first-boot provisioning in QEMU **[V]**; the defects the ISO #4
-  run found were fixed in `552063f` and are seen working on ISO #5 **[V]** (first boot 21 min 49 s, status 0, no "degraded"). Open: the keyring step's
-  30 second limit (KI-20, fix in the working tree **[I]**) and two installer highlight gaps (KI-09). No run on real hardware is recorded **[N]**.
+  run found were fixed in `552063f` and are seen working on ISO #5 **[V]** (first boot 21 min 49 s, status 0, no "degraded"), and the defects of the ISO #5 run
+  were fixed in `ad37b64` and are seen on ISO #6 **[V]** (the install passed on its first attempt with the keyring step at 32 s under its explicit limit, KI-20; a clean installed
+  GRUB menu; first boot 21 min 19 s, status 0). Open, all Low: three installer highlight gaps (KI-09), raw pacman text that names CachyOS packages and the splash wording (KI-08),
+  log and copy leftovers (KI-26). No run on real hardware is recorded **[N]**.
   [`test-evidence.md`](test-evidence.md) owns the status of every run.
 
 ## 7. The Arch provisioning engine (frozen, not a target)
