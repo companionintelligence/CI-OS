@@ -1,9 +1,12 @@
 #!/bin/bash
 # Companion OS: put the machine's administrators (members of 'sudo') in the 'docker' group.
 #
-# Why this exists: the installer (ubuntu-desktop-bootstrap / Subiquity 24.04.x) creates the first user with
+# Why this exists: the installer (ubuntu-desktop-bootstrap / Subiquity 26.04) creates the first user with
 # `useradd --groups <fixed list>,sudo`; the list is baked into the snap and 'docker' is not in it, and
 # /etc/adduser.conf is not consulted by useradd. So the group is granted here, offline, before any login.
+# (Only an autoinstall file can name more groups: identity.groups, in the 26.04 installer. The one-click installer,
+# ci-os-auto-install, does that; the interactive installer has no such page, so this oneshot stays for it, and for the
+# case where the group was not asked for.)
 # Idempotent and quick: safe to run on every boot (and from a .path unit).
 # Opt out: touch /etc/ci-os/no-docker-group
 set -u

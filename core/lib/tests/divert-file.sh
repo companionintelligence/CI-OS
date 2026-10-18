@@ -22,7 +22,7 @@
 # It installs a fake package into the dpkg database of the machine it runs on and diverts its files, so
 # run it in a throw-away container, with the repo mounted read-only:
 #
-#   docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash /repo/core/lib/tests/divert-file.sh
+#   docker run --rm -v "$PWD:/repo:ro" ubuntu:26.04 bash /repo/core/lib/tests/divert-file.sh
 #
 # (CI_TEST_ALLOW_HOST=1 overrides the container check on a disposable VM.) It removes the package again
 # on exit. Exit status is non-zero if any check fails; 2 if it cannot run here.

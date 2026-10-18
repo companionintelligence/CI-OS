@@ -7,15 +7,16 @@
 # render failure used to stop the whole apply at step 8 of 10: os-release and motd stayed unbranded
 # and the exit status was 1. Now, with no renderer:
 #
-#   live        the step warns, skips only the PNG replacement, still installs the ci-os-logo icon
-#               and exits 0, so the steps after it run;
+#   live        the step warns, skips only the PNG replacement, replaces the SVG pair (GNOME 50 shows the SVGs; they
+#               are a text substitution of the vendored one-colour mark and need no renderer), still installs the
+#               ci-os-logo icon and exits 0, so the steps after it run;
 #   image       an image build (CI_BRAND_IMAGE_BUILD=1) without the staged PNGs still fails: it must
-#               never ship Ubuntu's wordmark, and it leaves /usr/share/pixmaps alone.
+#               never ship Ubuntu's wordmark, and it leaves /usr/share/pixmaps alone (PNGs and SVGs).
 #
 # It changes /etc and /usr of the machine it runs on, so run it in a throw-away container that has
 # no renderer (the stock ubuntu image), with the repo mounted read-only:
 #
-#   docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash /repo/backends/ubuntu/desktop-theme/tests/about-logo-no-renderer.sh
+#   docker run --rm -v "$PWD:/repo:ro" ubuntu:26.04 bash /repo/backends/ubuntu/desktop-theme/tests/about-logo-no-renderer.sh
 #
 # (CI_TEST_ALLOW_HOST=1 overrides the container check on a disposable VM.) Exit status is non-zero if
 # any check fails; 2 if it cannot run here.
@@ -26,6 +27,10 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 THEME="$HERE/.."
+REPO="$(cd "$HERE/../../../.." && pwd)"
+# shellcheck source=../../../../vendor/brand/tokens/tokens.sh
+source "$REPO/vendor/brand/tokens/tokens.sh"
+MONO="$REPO/vendor/brand/logos/mark-mono.svg"
 
 PASS=0; FAIL=0
 t_pass() { PASS=$((PASS + 1)); printf 'PASS  %s\n' "$*"; }
@@ -60,17 +65,23 @@ expect "live: the ci-os-logo icon was installed" test -s /usr/share/icons/hicolo
 expect "live: the os-release step after it ran" out_has '=== os-release ==='
 expect "live: the motd step after it ran" out_has '=== motd ==='
 expect "live: os-release is branded" grep -q '^NAME="Companion OS"$' /etc/os-release
-expect "live: the About pixmaps were left alone (not diverted)" bash -c "[[ ! -e /usr/share/pixmaps/ubuntu-logo-text.png.ubuntu-stock ]]"
+expect "live: the About PNG pair was left alone (not diverted)" bash -c "[[ ! -e /usr/share/pixmaps/ubuntu-logo-text.png.ubuntu-stock ]]"
+expect "live: the light About SVG is the mark with the light canon primary" bash -c "[[ \"\$(sed 's/currentColor/$CI_LIGHT_PRIMARY/g' '$MONO')\" == \"\$(cat /usr/share/pixmaps/ubuntu-logo-text.svg)\" ]]"
+expect "live: the dark About SVG is the mark with the dark canon primary" bash -c "[[ \"\$(sed 's/currentColor/$CI_DARK_PRIMARY/g' '$MONO')\" == \"\$(cat /usr/share/pixmaps/ubuntu-logo-text-dark.svg)\" ]]"
+expect "live: neither SVG still says currentColor" bash -c "! grep -l currentColor /usr/share/pixmaps/ubuntu-logo-text.svg /usr/share/pixmaps/ubuntu-logo-text-dark.svg"
+expect "live: the two SVGs differ (one colour per mode)" bash -c "! cmp -s /usr/share/pixmaps/ubuntu-logo-text.svg /usr/share/pixmaps/ubuntu-logo-text-dark.svg"
 
 # The step on its own: the same.
 run bash "$THEME/45-about-logo.sh"
 expect "live: 45-about-logo.sh on its own exits 0" test "$RC" -eq 0
 
 # ── image build, nothing staged ─────────────────────────────────────────────
+SVGS_BEFORE="$(sha256sum /usr/share/pixmaps/ubuntu-logo-text.svg /usr/share/pixmaps/ubuntu-logo-text-dark.svg)"
 run env CI_BRAND_IMAGE_BUILD=1 bash "$THEME/45-about-logo.sh"
 expect "image: without the staged PNGs the step fails" test "$RC" -ne 0
 expect "image: it says why" out_has 'No pre-rendered About logo'
 expect "image: it left the About pixmaps alone" bash -c "[[ ! -e /usr/share/pixmaps/ubuntu-logo-text.png.ubuntu-stock ]]"
+expect "image: it did not touch the About SVGs either" test "$(sha256sum /usr/share/pixmaps/ubuntu-logo-text.svg /usr/share/pixmaps/ubuntu-logo-text-dark.svg)" = "$SVGS_BEFORE"
 
 echo
 echo "$PASS passed, $FAIL failed"

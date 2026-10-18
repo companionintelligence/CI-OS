@@ -8,7 +8,7 @@
 # 2. Removes Ubuntu telemetry and bloatware
 # 3. Installs CI-OS packages and branding
 # 4. Configures AMD GPU support (ROCm, drivers)
-# 5. Sets up Plymouth, GRUB themes, the dock start icon and the Settings > About logo
+# 5. Sets up Plymouth, GRUB themes, the dock start icon and the Settings > About logo (PNG and SVG)
 # 6. Pre-installs the wireless setup stack, Docker and the CI-Hub tooling (Step 10d)
 # 7. Pre-installs the optional tools: tailscale, cloudflared, gh, Ollama, Companion Launcher (Step 10e)
 #
@@ -34,6 +34,10 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
 # shellcheck source=../../../vendor/brand/tokens/tokens.sh
 source "$REPO_ROOT/vendor/brand/tokens/tokens.sh"
+# shellcheck source=../lib/os-release.sh
+source "$REPO_ROOT/backends/ubuntu/lib/os-release.sh"
+# shellcheck source=../lib/shell-theme.sh
+source "$REPO_ROOT/backends/ubuntu/lib/shell-theme.sh"
 
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
@@ -127,26 +131,30 @@ echo "[*] Step 1: Updating OS identity..."
 
 # IMPORTANT: The squashfs is both the live session AND the base that gets
 # copied to disk during installation. Subiquity/curtin rely on ID=ubuntu and
-# the base image's VERSION_ID (24.04 or 26.04) to configure apt sources, run
+# the base image's VERSION_ID (26.04) to configure apt sources, run
 # curthooks (update-initramfs, grub-install), and seed snaps correctly.
 # Setting ID=ci-os here breaks the installer toolchain. Instead, we:
 #  - Keep ubuntu-compatible IDs in os-release / lsb-release (live + initial install)
-#  - Keep the base image's version and codename, so a 26.04 ISO stays resolute
+#  - Keep the base image's version and codename (26.04, resolute)
 #  - Brand NAME and PRETTY_NAME as Companion OS (visible in Settings > About, neofetch, etc.)
 #  - Install a first-boot systemd service that rewrites the IDs to ci-os after
 #    the installer has finished and the system first boots into the desktop.
 
-# Save the pristine Ubuntu identity before branding overwrites it. ROCm and
-# apt look here so a 26.04 base is not mistaken for 24.04 noble.
-BASE_VERSION_ID="24.04"
-BASE_CODENAME="noble"
-if [[ -f "$CHROOT_PATH/etc/os-release" ]]; then
-    install -m 644 "$CHROOT_PATH/etc/os-release" "$CHROOT_PATH/etc/os-release.ubuntu-base"
-    _ver="$(grep -E '^VERSION_ID=' "$CHROOT_PATH/etc/os-release" | head -1 | cut -d= -f2 | tr -d '"')"
-    _code="$(grep -E '^VERSION_CODENAME=' "$CHROOT_PATH/etc/os-release" | head -1 | cut -d= -f2 | tr -d '"')"
-    [[ -n "$_ver" ]] && BASE_VERSION_ID="$_ver"
-    [[ -n "$_code" ]] && BASE_CODENAME="$_code"
+# Companion OS is built on Ubuntu 26.04 LTS (resolute) and nothing else. Read what the base says it is and stop, before
+# anything in the chroot has changed, if it is not that: a base of another release is not converted. There is no default
+# for a base that does not say (a chroot without /etc/os-release is not an extracted Ubuntu desktop image at all).
+if [[ ! -f "$CHROOT_PATH/etc/os-release" ]]; then
+    echo "[ERROR] $CHROOT_PATH/etc/os-release not found: this is not an extracted Ubuntu 26.04 desktop image." >&2
+    exit 1
 fi
+BASE_VERSION_ID="$(grep -E '^VERSION_ID=' "$CHROOT_PATH/etc/os-release" | head -1 | cut -d= -f2 | tr -d '"' || true)"
+BASE_CODENAME="$(grep -E '^VERSION_CODENAME=' "$CHROOT_PATH/etc/os-release" | head -1 | cut -d= -f2 | tr -d '"' || true)"
+if ! ci_os_base_is_supported "$BASE_VERSION_ID" "$BASE_CODENAME"; then
+    exit 1
+fi
+# Save the pristine Ubuntu identity before branding overwrites it. ROCm, apt and the Docker and Tailscale repositories
+# look here for the Ubuntu suite.
+install -m 644 "$CHROOT_PATH/etc/os-release" "$CHROOT_PATH/etc/os-release.ubuntu-base"
 echo "[*] Base Ubuntu identity: ${BASE_VERSION_ID} (${BASE_CODENAME})"
 
 # os-release and lsb-release (DISTRIB_ID=Ubuntu, so lsb_release -si / -sr return what the installer and apt
@@ -162,10 +170,22 @@ run_theme_step 50-os-release.sh
 # ---------------------------------------------------------------------------
 mkdir -p "$CHROOT_PATH/usr/lib/ci-os"
 
+# The version this image was built as, kept outside /etc/os-release for the rebrand below: that file is base-files' and
+# is what gets reset to Ubuntu's, and a writer that finds no CI_OS_VERSION in it falls back to 0.0.1.
+printf '%s\n' "$CI_OS_VERSION" > "$CHROOT_PATH/usr/lib/ci-os/version"
+chmod 0644 "$CHROOT_PATH/usr/lib/ci-os/version"
+
 cat > "$CHROOT_PATH/usr/lib/ci-os/first-boot-rebrand.sh" << 'REBRAND'
 #!/bin/bash
 # CI-OS first-boot branding refresh — keeps Ubuntu-compatible machine identity.
 set -euo pipefail
+
+# The version the image was built as (customize-chroot.sh writes it). It wins over whatever /etc/os-release says now.
+CI_OS_VERSION=""
+if [[ -r /usr/lib/ci-os/version ]]; then
+  CI_OS_VERSION="$(head -n 1 /usr/lib/ci-os/version)"
+fi
+export CI_OS_VERSION
 
 if [[ -f /usr/lib/ci-os/bootstrap/backends/ubuntu/lib/os-release.sh ]]; then
   # shellcheck source=/dev/null
@@ -173,10 +193,12 @@ if [[ -f /usr/lib/ci-os/bootstrap/backends/ubuntu/lib/os-release.sh ]]; then
   ci_os_write_branded_os_release /etc/os-release
   ci_os_write_branded_lsb_release /etc/lsb-release
 else
-  CI_OS_VERSION="$(grep '^CI_OS_VERSION=' /etc/os-release | cut -d= -f2 | tr -d '"' || true)"
+  if [[ -z "$CI_OS_VERSION" ]]; then
+    CI_OS_VERSION="$(grep '^CI_OS_VERSION=' /etc/os-release | cut -d= -f2 | tr -d '"' || true)"
+  fi
   CI_OS_VERSION="${CI_OS_VERSION:-1.0}"
-  UBUNTU_CODENAME="$(grep '^UBUNTU_CODENAME=' /etc/os-release | cut -d= -f2 | tr -d '"' || echo noble)"
-  UBUNTU_VER="$(grep '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"' || echo 24.04)"
+  UBUNTU_CODENAME="$(grep '^UBUNTU_CODENAME=' /etc/os-release | cut -d= -f2 | tr -d '"' || echo resolute)"
+  UBUNTU_VER="$(grep '^VERSION_ID=' /etc/os-release | cut -d= -f2 | tr -d '"' || echo 26.04)"
   cat > /etc/os-release << __EOF__
 NAME="Companion OS"
 VERSION="${UBUNTU_VER} LTS (Companion OS ${CI_OS_VERSION})"
@@ -196,6 +218,9 @@ LOGO=ci-os-logo
 __EOF__
 fi
 
+# The stamp is what keeps the unit from running again (its ConditionPathExists=!); disabling it as well is tidiness.
+install -d -m 0755 /var/lib/ci-os
+: > /var/lib/ci-os/.first-boot-rebrand-done
 systemctl disable ci-os-first-boot-rebrand.service
 echo "[CI-OS] First-boot branding refresh complete (ID=ubuntu, CI_OS_ID=ci-os)"
 REBRAND
@@ -209,10 +234,14 @@ Documentation=https://ci.computer
 After=local-fs.target
 Before=display-manager.service gdm.service
 ConditionPathExists=/usr/lib/ci-os/first-boot-rebrand.sh
-# Only run once — service disables itself on success
-ConditionFirstBoot=yes
+# Run once: the script writes this stamp when it is done (and disables the service). Not ConditionFirstBoot=yes:
+# subiquity copies the live session's /etc/machine-id into the new system, and a boot with a valid machine-id is not a
+# first boot to systemd (machine-id(5)), so on an installed machine that condition is false and the unit never ran.
+# Measured with systemd 259.5 as PID 1: the unit is skipped with an installer-style machine-id.
+ConditionPathExists=!/var/lib/ci-os/.first-boot-rebrand-done
 # NEVER run in the live USB session.
-# Ubuntu 24.04 does NOT pass boot=casper on the kernel command line, so
+# Ubuntu's ISO does NOT pass boot=casper on the kernel command line (measured on 26.04.1: the entries are
+# "linux /casper/vmlinuz --- quiet splash"; casper's initrd sets BOOT=casper itself), so
 # ConditionKernelCommandLine would silently pass. Instead we check for the
 # casper live-boot files on the ISO mount at /cdrom.
 ConditionPathExists=!/cdrom/casper/vmlinuz
@@ -267,6 +296,19 @@ cp "$CHROOT_PATH/etc/issue" "$CHROOT_PATH/etc/issue.net"
 echo "[+] OS identity updated"
 
 #=============================================================================
+# 1b. Pin the initramfs generator (before the first apt call below)
+#=============================================================================
+echo "[*] Step 1b: Pinning the initramfs generator (no dracut)..."
+
+# The merged base is an initramfs-tools system (the stock live layer removes dracut), but ubuntu-desktop-minimal
+# Recommends dracut and dracut Conflicts with initramfs-tools. The file keeps apt from ever swapping them. It goes in
+# before Step 2, the first step that runs apt-get in the chroot. See the file for why dracut-install is not in it.
+install -D -m 0644 "$SCRIPT_DIR/payload/apt/etc/apt/preferences.d/ci-os-no-dracut" \
+    "$CHROOT_PATH/etc/apt/preferences.d/ci-os-no-dracut"
+
+echo "[+] dracut and dracut-core are pinned to priority -1 (/etc/apt/preferences.d/ci-os-no-dracut)"
+
+#=============================================================================
 # 2. Remove Telemetry and Bloatware
 #=============================================================================
 echo "[*] Step 2: Removing telemetry and bloatware..."
@@ -310,7 +352,7 @@ apt-mark hold ubuntu-report popularity-contest apport whoopsie apport-symptoms l
 # service that runs AFTER installation is complete and snapd is fully running.
 
 # Remove bloatware debs (be conservative - only remove obvious bloat)
-# NOTE: thunderbird is a snap on 24.04, already removed from snap seed above.
+# NOTE: thunderbird is a snap on 26.04 (in the standard layer's seed); it is removed at first boot, see above.
 apt-get purge -y \
     aisleriot \
     gnome-mahjongg \
@@ -334,18 +376,11 @@ echo "[+] Telemetry and bloatware removed"
 echo "[*] Step 2b: Applying CI-OS GNOME Shell / GDM theme..."
 
 GRESOURCE_SRC="$REPO_ROOT/backends/ubuntu/packages/ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
-if [[ -f "$GRESOURCE_SRC" ]]; then
-    # Replace the top-level shell theme (desktop session)
-    install -m 644 -o root -g root "$GRESOURCE_SRC" \
-        "$CHROOT_PATH/usr/share/gnome-shell/gnome-shell-theme.gresource"
-    # Replace the Yaru variant (GDM alternatives chain points here)
-    mkdir -p "$CHROOT_PATH/usr/share/gnome-shell/theme/Yaru"
-    install -m 644 -o root -g root "$GRESOURCE_SRC" \
-        "$CHROOT_PATH/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource"
-    echo "[+] GDM/GNOME Shell theme applied"
-else
-    echo "[!] CI-OS gresource not found at $GRESOURCE_SRC — skipping theme"
-fi
+# The blob is the Ubuntu 26.04 Yaru theme recoloured (backends/ubuntu/packages/PROVENANCE-gnome-shell-theme.txt says from
+# what, and core/render/render-gnome-shell-gresource.sh refuses to rebuild it from anything else). It always replaces the
+# Yaru theme, which the ubuntu session and the GDM greeter load. It replaces the upstream GNOME theme too only if it
+# provides every resource that file does: see backends/ubuntu/lib/shell-theme.sh.
+ci_os_install_shell_theme "$GRESOURCE_SRC" "$CHROOT_PATH" || true
 
 #=============================================================================
 # 3. Install CI-OS Branding
@@ -454,19 +489,23 @@ if [[ "${WALLPAPER_EXT:-png}" != "png" ]]; then
 fi
 
 # Settings > Background should offer ours, not Ubuntu's collections. dpkg-divert so a package upgrade does
-# not bring them back.
-for xml in ubuntu-wallpapers.xml noble-wallpapers.xml resolute-wallpapers.xml; do
-    if [[ -f "$CHROOT_PATH/usr/share/gnome-background-properties/$xml" ]]; then
-        # A rebuild without --clean re-extracts the stock layers over this chroot: the stock xml and the stock
-        # diversions registry come back, but the .disabled file of the previous run (in no layer) stays, and
-        # dpkg-divert refuses to rename over it. The `|| true` below would hide that, and Settings > Background
-        # would offer Ubuntu's collections. With no diversion registered the xml is the fresh stock file, so the
-        # leftover is stale (the same reasoning as ci_divert_file in core/lib/theme-lib.sh).
-        if [[ -z "$(chroot_exec "dpkg-divert --list /usr/share/gnome-background-properties/$xml" 2>/dev/null)" ]]; then
-            rm -f "$CHROOT_PATH/usr/share/gnome-background-properties/$xml.disabled"
-        fi
-        chroot_exec "dpkg-divert --local --rename --divert /usr/share/gnome-background-properties/$xml.disabled --add /usr/share/gnome-background-properties/$xml" || true
+# not bring them back. Every *.xml of the directory except ours: the stock 26.04.1 image has ubuntu-wallpapers.xml and
+# resolute-wallpapers.xml (ubuntu-wallpapers-resolute), and a later release adds a file named after itself, so no
+# fixed list of names is kept.
+for xml_path in "$CHROOT_PATH"/usr/share/gnome-background-properties/*.xml; do
+    [[ -f "$xml_path" ]] || continue
+    xml="$(basename "$xml_path")"
+    [[ "$xml" == "ci-os-wallpapers.xml" ]] && continue
+    # A rebuild without --clean re-extracts the stock layers over this chroot: the stock xml and the stock
+    # diversions registry come back, but the .disabled file of the previous run (in no layer) stays, and
+    # dpkg-divert refuses to rename over it. The `|| true` below would hide that, and Settings > Background
+    # would offer Ubuntu's collections. With no diversion registered the xml is the fresh stock file, so the
+    # leftover is stale (the same reasoning as ci_divert_file in core/lib/theme-lib.sh).
+    if [[ -z "$(chroot_exec "dpkg-divert --list /usr/share/gnome-background-properties/$xml" 2>/dev/null)" ]]; then
+        rm -f "$CHROOT_PATH/usr/share/gnome-background-properties/$xml.disabled"
     fi
+    chroot_exec "dpkg-divert --local --rename --divert /usr/share/gnome-background-properties/$xml.disabled --add /usr/share/gnome-background-properties/$xml" \
+        || echo "[WARN] could not divert gnome-background-properties/$xml: Settings > Background may still offer it"
 done
 cat > "$CHROOT_PATH/usr/share/gnome-background-properties/ci-os-wallpapers.xml" << EOF
 <?xml version="1.0"?>
@@ -589,11 +628,12 @@ echo "[+] Dock start icon replaced"
 #=============================================================================
 echo "[*] Step 5c: Replacing the Settings > About logo..."
 
-# 45-about-logo.sh installs two PNGs over base-files' /usr/share/pixmaps/ubuntu-logo-text{,-dark}.png (the paths
-# gnome-control-center hard-codes) and the mark as the ci-os-logo icon that os-release LOGO= names. The PNGs are
-# the one-colour mark filled with the canon primary of each mode, rendered on the build host at the top of this
-# script (the chroot has no rsvg-convert) and handed to the step as an overlay. In an image build the step fails
-# without them rather than leave Ubuntu's wordmark.
+# 45-about-logo.sh installs the one-colour mark over base-files' /usr/share/pixmaps/ubuntu-logo-text{,-dark}.svg (the
+# files gnome-control-center 50 reads for Settings > About) and over the .png pair (the older reader, and the Plymouth
+# watermark's target), and the mark as the ci-os-logo icon that os-release LOGO= names. The mark is filled with the canon
+# primary of each mode. The SVGs are the vendored mark with its colour set (no renderer needed); the PNGs are rendered on
+# the build host at the top of this script (the chroot has no rsvg-convert) and handed to the step as an overlay. In an
+# image build the step fails without the PNGs rather than leave Ubuntu's wordmark.
 run_theme_step 45-about-logo.sh "$LOGO_RENDER_DIR/about"
 rm -rf "$LOGO_RENDER_DIR"
 
@@ -604,12 +644,13 @@ echo "[+] About logo replaced (light and dark)"
 #=============================================================================
 echo "[*] Step 5d: Renaming the visible Ubuntu display names..."
 
-# 60-visible-names.sh rewrites only the display strings the other steps leave on screen: the Name=/Comment= of the four
-# ubuntu*.desktop sessions in GDM's gear menu ("Companion OS", "Companion OS on Xorg"), of gnome-ubuntu-panel.desktop (the
-# Settings sidebar entry) and the "name" of the dock, AppIndicators and Tiling Assistant extensions. File names, uuids,
-# Exec=, DesktopNames= and the other required identifiers stay as shipped, and the step stops if an edit would change
-# any other line. The owning packages (ubuntu-session, gnome-control-center, the extension packages) are diverted first,
-# so an upgrade cannot bring the Ubuntu names back.
+# 60-visible-names.sh rewrites only the display strings the other steps leave on screen: the Name=/Comment= of the one
+# session Ubuntu 26.04 ships, /usr/share/wayland-sessions/ubuntu.desktop (GDM lists it as "Companion OS"; there is no
+# Xorg session and no second entry), of gnome-ubuntu-panel.desktop (the Settings sidebar entry) and the "name" of the
+# dock, AppIndicators and Tiling Assistant extensions. File names, uuids, Exec=, TryExec=, DesktopNames= and the other
+# required identifiers stay as shipped, and the step stops if an edit would change any other line. The owning packages
+# (ubuntu-session, gnome-control-center, gnome-shell-ubuntu-extensions) are diverted first, so an upgrade cannot bring the
+# Ubuntu names back.
 run_theme_step 60-visible-names.sh
 
 echo "[+] Session picker, Settings entry and extension names read Companion OS"
@@ -621,21 +662,24 @@ echo "[*] Step 6: Installing AMD GPU support..."
 
 cat > "$CHROOT_PATH/tmp/install-amd.sh" << 'EOFSCRIPT'
 #!/bin/bash
+set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 # Add AMD GPU PPA (if available) or use Ubuntu's default amdgpu driver
 # For ROCm, we'll document manual installation post-install due to kernel dependencies
 
-# Ensure amdgpu firmware is installed
+# Ensure amdgpu firmware is installed (both are in the stock image already; a failure here is not fatal)
 apt-get install -y linux-firmware amd64-microcode || true
 
-# Install AMD tools that are available in Ubuntu repos
+# The 64-bit Vulkan stack. One call of its own, and a failure is NOT hidden: this line used to list the :i386 libraries
+# too, and with `|| true` a single unavailable name made apt install none of them and the build went on without
+# Vulkan. The 32-bit libraries (mesa-vulkan-drivers:i386, libvulkan1:i386: 40 packages, about 150 MB) are left out on
+# purpose: i386 is only a configured foreign architecture of the stock image (the archive still serves them), and
+# Companion OS ships no 32-bit application, Wine or Steam. `apt install <name>:i386` works on a machine that wants them.
 apt-get install -y \
     mesa-vulkan-drivers \
-    mesa-vulkan-drivers:i386 \
     libvulkan1 \
-    libvulkan1:i386 \
-    vulkan-tools || true
+    vulkan-tools
 
 # Note: Full ROCm stack requires specific kernel versions and is best installed post-install
 # We'll create a helper script for that
@@ -650,7 +694,7 @@ rm "$CHROOT_PATH/tmp/install-amd.sh"
 mkdir -p "$CHROOT_PATH/usr/local/bin"
 cat > "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm" << 'EOFSCRIPT'
 #!/bin/bash
-# Delegates to the maintained Companion OS ROCm installer (Ubuntu codename + AMDGPU repo probe).
+# Delegates to the maintained Companion OS ROCm installer (ROCm from the Ubuntu 26.04 archive).
 set -euo pipefail
 if [[ $EUID -ne 0 ]]; then
   exec sudo "$0" "$@"
@@ -670,8 +714,8 @@ echo "[+] AMD GPU support configured (ROCm available via ci-os-install-rocm)"
 #=============================================================================
 # 7. Installer
 #=============================================================================
-# Nothing to configure, on purpose. The 24.04 installer is Canonical's ubuntu-desktop-bootstrap snap
-# (Flutter UI + Subiquity). Its FlavorService only accepts Ubuntu, Kubuntu, Lubuntu, Xubuntu and Edubuntu, so
+# Nothing to configure, on purpose. The installer is Canonical's ubuntu-desktop-bootstrap snap (rev 665 on 26.04.1;
+# base core24, classic confinement: a Flutter UI plus the Subiquity server). Its flavour list is fixed inside the snap, so
 # the window cannot be given another name or palette from the image. The whitelabel.yaml and slideshow this
 # step used to write under /usr/share/desktop-provision were never read by it.
 # What the image CAN control is the launcher label ("Install Companion OS ..."), which casper derives from
@@ -783,7 +827,7 @@ mkdir -p "$CHROOT_PATH/etc/apt/sources.list.d"
 cat > "$CHROOT_PATH/etc/apt/sources.list.d/companion-intelligence.list.disabled" << 'EOF'
 # CI-OS Official Package Repository
 # Uncomment when repository is available
-# deb [signed-by=/usr/share/keyrings/ci-archive-keyring.gpg] https://packages.ci.computer/ubuntu noble main
+# deb [signed-by=/usr/share/keyrings/ci-archive-keyring.gpg] https://packages.ci.computer/ubuntu resolute main
 EOF
 
 echo "[+] Package repository template created"
@@ -795,12 +839,18 @@ echo "[*] Step 10b: Pre-installing development packages..."
 
 cat > "$CHROOT_PATH/tmp/install-dev-packages.sh" << 'EOFSCRIPT'
 #!/bin/bash
+# set -e: a name that is not in the archive stops the build. This install used to end in `|| true`, which turns a single
+# unavailable package into "none of them installed" without a word.
+set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 
-# Core development tools (safe to install in chroot)
+# Core development tools. curl is first on purpose: the stock Ubuntu 26.04 desktop image does not have it (only the
+# libcurl libraries), and everything after this step that downloads something inside the chroot uses it.
+# Every name here was checked against the resolute archive.
 apt-get install -y \
+    curl \
     git \
     build-essential \
     ca-certificates \
@@ -816,7 +866,7 @@ apt-get install -y \
     tree \
     python3-pip \
     python3-venv \
-    openssh-server || true
+    openssh-server
 
 # Clean up after install
 apt-get clean
@@ -869,7 +919,8 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
-# curl and iw are not in the stock desktop image; ci-hub.sh and the hotspot scripts need them.
+# curl and iw are not in the stock desktop image (26.04.1); ci-hub.sh and the hotspot scripts need them. curl is installed
+# here, in this script, before the first line below that runs it (Step 10b installs it too, for the same reason).
 apt-get install -y --no-install-recommends curl iw ca-certificates gnupg
 
 # Docker Engine + Compose from Docker's apt repository: the same source as core/manifest/role-map/apt.yaml
@@ -916,11 +967,14 @@ chroot_exec "systemctl enable docker.service docker.socket containerd.service"
 #   ISO live session and in a Companion Stick live boot (the Stick runs the Hub and its models from the live OS).
 # - The live user gets the 'docker' group from casper. casper.conf has no USERGROUPS (casper ignores it); the
 #   live user's groups come from the debconf question passwd/user-default-groups that user-setup reads from the
-#   rootfs, so the group is appended there.
-# - The installer-created user cannot be put in 'docker' by the installer (ubuntu-desktop-bootstrap hands
-#   `useradd --groups` a list baked into the snap), so an offline oneshot adds the machine's administrators
-#   (members of 'sudo') to 'docker' at boot, before any session starts. `docker` membership is root-equivalent;
-#   opt out with: touch /etc/ci-os/no-docker-group
+#   rootfs, so the group is appended there. (Read in casper 26.04.2: casper-bottom/25adduser sets the passwd/*
+#   answers and runs `chroot /root /usr/lib/user-setup/user-setup-apply`.)
+# - The user the interactive installer creates cannot be put in 'docker' by the installer (ubuntu-desktop-bootstrap
+#   hands `useradd --groups` the list in the snap's users-and-groups file, adm cdrom dip lpadmin plugdev sambashare
+#   debian-tor libvirtd users lxd, plus sudo). The one-click installer asks for docker in its autoinstall file
+#   (identity.groups, see ci-os-auto-install). For every other install an offline oneshot adds the machine's
+#   administrators (members of 'sudo') to 'docker' at boot, before any session starts. `docker` membership is
+#   root-equivalent; opt out with: touch /etc/ci-os/no-docker-group
 # - In a live session "/" is an overlayfs, which overlay2/containerd cannot use as a data root, so a live-only
 #   oneshot bind-mounts /var/lib/docker and /var/lib/containerd from tmpfs (plain ISO) or the Stick's ext4
 #   CI-PERSIST volume. Inert on an installed system. See docs/architecture/docker-in-live-sessions.md.
@@ -1174,7 +1228,7 @@ else
         cat > "$CHROOT_PATH/etc/systemd/system/tailscaled.service.d/10-not-live.conf" << 'EOF'
 [Unit]
 # Companion OS: tailscaled belongs to the installed appliance, never to a casper live session (ISO or Companion Stick).
-# Stock Ubuntu 24.04 does not put boot=casper on the command line, so also test for the live medium at /cdrom.
+# The stock Ubuntu ISO does not put boot=casper on the command line (26.04.1), so also test for the live medium at /cdrom.
 ConditionPathExists=!/cdrom/casper/vmlinuz
 ConditionKernelCommandLine=!boot=casper
 EOF
@@ -1454,8 +1508,8 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 echo "[CI-OS] First-boot setup starting at $(date -u)$([[ "$MANUAL" == true ]] && echo ' (manual)')"
 
 # Bail out immediately if running in a live session (safety net)
-# Detect live session: Ubuntu 24.04 does NOT pass boot=casper on the kernel
-# command line. Instead casper mounts the boot medium at /cdrom. Check both
+# Detect live session: Ubuntu's ISO does NOT pass boot=casper on the kernel
+# command line (26.04.1). Instead casper mounts the boot medium at /cdrom. Check both
 # the mount point and the kernel BOOT_IMAGE path for maximum reliability.
 if [ -d /cdrom/casper ] || grep -q 'BOOT_IMAGE=/casper/' /proc/cmdline 2>/dev/null; then
     echo "[CI-OS] Live session detected — skipping first-boot setup."
@@ -1591,7 +1645,7 @@ Wants=network-online.target
 # only on success, and ci-os-first-boot-setup.timer retries while it's absent.
 ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
 # NEVER run in the live USB session.
-# Ubuntu 24.04 does NOT pass boot=casper on the kernel command line. Instead
+# Ubuntu's ISO does NOT pass boot=casper on the kernel command line (26.04.1). Instead
 # we detect the live session by checking for casper files on the ISO mount.
 ConditionPathExists=!/cdrom/casper/vmlinuz
 
@@ -1644,6 +1698,15 @@ echo "[+] Manual re-run available via: sudo ci-os-setup"
 #=============================================================================
 echo "[*] Step 11: Final cleanup..."
 
+# SSH host keys: openssh-server's postinst generated a set while this chroot was built (Step 10b). They would be the same on
+# every machine installed from this image, so the cleanup below removes them, and this drop-in makes the machine make its
+# own. It is installed first: the cleanup refuses to remove the keys unless it is in place. Why a drop-in and not the
+# stock sshd-keygen.service as it is: that unit has ConditionFirstBoot=yes, which is false on a machine installed from the
+# live USB (subiquity copies the live session's /etc/machine-id into the target), so the keys would never be made and
+# ssh.service would fail in `sshd -t`. See the file.
+install -D -m 0644 "$SCRIPT_DIR/payload/ssh/etc/systemd/system/sshd-keygen.service.d/10-ci-os-host-keys.conf" \
+    "$CHROOT_PATH/etc/systemd/system/sshd-keygen.service.d/10-ci-os-host-keys.conf"
+
 cat > "$CHROOT_PATH/tmp/final-cleanup.sh" << 'EOFSCRIPT'
 #!/bin/bash
 
@@ -1659,6 +1722,14 @@ rm -rf /var/tmp/*
 # Clean shell history
 rm -f /root/.bash_history
 rm -f /home/*/.bash_history
+
+# SSH host keys (see the install of the drop-in above): remove the set made while the image was built, but only with the
+# unit that makes a new one on each machine in place. `ssh-keygen -A` in that unit is `Before=ssh.service`.
+if [ ! -f /etc/systemd/system/sshd-keygen.service.d/10-ci-os-host-keys.conf ] || [ ! -f /usr/lib/systemd/system/sshd-keygen.service ]; then
+    echo "[ERROR] the sshd-keygen drop-in or openssh-server's sshd-keygen.service is missing: not removing the SSH host keys" >&2
+    exit 1
+fi
+rm -f /etc/ssh/ssh_host_*_key /etc/ssh/ssh_host_*_key.pub
 
 # Clean logs
 find /var/log -type f -exec truncate -s 0 {} \;

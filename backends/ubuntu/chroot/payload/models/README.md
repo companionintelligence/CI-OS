@@ -9,10 +9,10 @@ in `core/` or the shell backends requires ci-stick: they use it when it is there
 
 Status 2026-10-17: written and tested on fixtures and PATH stubs. The scripts target the images' bash 5; they are kept
 bash 3.2 clean so that the tests run on a stock Mac. The final state of the code ran all five test files and the
-mutation suite on the Mac (bash 3.2.57, BSD awk). Ubuntu 24.04 and 26.04 containers (bash 5.2.21 and 5.3.9, mawk) ran the
-tests on an earlier state of the code (before the prefetch .path unit, the forced/automatic offline split, the newline and
-empty-store hardening and the validator tests); the Docker daemon stopped answering afterwards, so the final state has not
-run on bash 5 yet: run `models-all.sh` in an Ubuntu 24.04 container before relying on it. **Nothing here has run on a booted image, with real systemd, a real exFAT volume, a real GPU or a real
+mutation suite on the Mac (bash 3.2.57, BSD awk). After the move to Ubuntu 26.04 as the only Ubuntu target the same state
+ran, as a normal user with a fake block device node, in an `ubuntu:26.04` container (bash 5.3.9, uutils coreutils 0.10,
+once with mawk and once with gawk): all five test files and `models-all.sh --mutation` (114 checks, 0 mutants survived)
+passed. **Nothing here has run on a booted image, with real systemd, a real exFAT volume, a real GPU or a real
 ci-stick.** The "Not verified" list at the end says exactly what that means.
 
 ## What is where
@@ -183,12 +183,12 @@ written by ci-stick.
 
 Facts: no backend ships `ci-stick` today; there is no musl build in the repo; the bundle plans `tools/linux-x86_64/ci-stick`
 on `CI-SHARED` (exFAT, mounted `noexec` by the selector, so it would have to be copied to tmpfs before it can run); the
-crate needs a C compiler and assembler for `ring`; Ubuntu 24.04 has glibc 2.39, and CachyOS (Arch) has a newer one.
+crate needs a C compiler and assembler for `ring`; Ubuntu 26.04 has glibc 2.43, and CachyOS (Arch) has a newer one.
 
 | Option | Good | Bad |
 |---|---|---|
 | A. Run the copy from the stick's own bundle (`CI-SHARED/tools/...`), after copying to `/run` | needs no image change; always the version of the stick | only on a booted or host-installing stick; nothing on an installed disk or on a plain ISO; needs the copy-to-tmpfs step and a signature check |
-| **B. Bake a pinned, prebuilt binary into the image** (`/usr/lib/ci-os/ci-stick`, sha256 in `tier-b-pins.env`), built by a release job on Ubuntu 24.04 | one rule for both ISOs and the installed system; the pattern Tier-B already uses for Ollama, Tailscale and the Launcher; reproducible; the image build needs no Rust | a release artifact to host and to refresh; a glibc floor of 2.39 (fine for Ubuntu 24.04 and Arch) |
+| **B. Bake a pinned, prebuilt binary into the image** (`/usr/lib/ci-os/ci-stick`, sha256 in `tier-b-pins.env`), built by a release job on Ubuntu 26.04 | one rule for both ISOs and the installed system; the pattern Tier-B already uses for Ollama, Tailscale and the Launcher; reproducible; the image build needs no Rust | a release artifact to host and to refresh; a glibc floor of 2.43 (the glibc of Ubuntu 26.04 itself; Arch is newer) |
 | C. Static musl build | runs on any host and in a minimal initramfs | needs a musl C toolchain for `ring` (or zig); one more target to test; not needed by the two ISOs |
 | D. Compile in the chroot or on the build host (`cargo build --release --locked`) | no artifact to host | the ISO build then depends on a Rust toolchain >= 1.75 and on crates.io; minutes added to every build; the lock must be honoured with `incompatible-rust-versions = fallback` |
 | E. A `.deb` / PKGBUILD in an apt/pacman repo | proper upgrades | a repository to run; heavy for one binary |
@@ -201,7 +201,7 @@ What a build step would pin in `core/manifest/tier-b-pins.env`, in the file's ow
 date bumped in the same commit); the values below are placeholders, there is no release yet:
 
 ```
-# ---- ci-stick (the Companion Stick CLI, stick/; prebuilt by the release job on Ubuntu 24.04, linux-x86_64, glibc >= 2.39)
+# ---- ci-stick (the Companion Stick CLI, stick/; prebuilt by the release job on Ubuntu 26.04, linux-x86_64, glibc >= 2.43)
 CI_STICK_VERSION=<crate version>
 CI_STICK_SOURCE_COMMIT=<40 hex: the commit of stick/ it was built from>
 CI_STICK_URL=<https URL of the release asset>

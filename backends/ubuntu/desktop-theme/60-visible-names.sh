@@ -2,8 +2,10 @@
 # The Ubuntu display names that are still on screen after the other steps and are safe to rename: the session
 # picker, the Settings sidebar entry and the names of the shell extensions.
 #
-# GDM's gear menu lists a session by the Name= of its file in /usr/share/{xsessions,wayland-sessions} ("Ubuntu",
-# "Ubuntu on Xorg", "Ubuntu on Wayland"), with Comment= under it. gnome-control-center labels its sidebar entries from
+# GDM's gear menu lists a session by the Name= of its file in /usr/share/wayland-sessions ("Ubuntu"), with Comment=
+# under it. Ubuntu 26.04 ships exactly one: wayland-sessions/ubuntu.desktop. There is no /usr/share/xsessions, no
+# ubuntu-xorg.desktop, no ubuntu-wayland.desktop and no Xorg server (read from the 26.04.1 desktop image), so there is
+# only one entry to rename and no "on Xorg" / "on Wayland" variants. gnome-control-center labels its sidebar entries from
 # the panels' own .desktop files: gnome-ubuntu-panel.desktop ("Ubuntu Desktop", NoDisplay, so it is no launcher but
 # still the sidebar label). The Extensions app lists the "name" of each metadata.json ("Ubuntu Dock", ...).
 #
@@ -13,12 +15,12 @@
 # Name[xx]=/Comment[xx]= line. software-properties-livepatch.desktop and ubuntu-advantage-notification.desktop are
 # NoDisplay entries nobody sees, so they stay too.
 #
-# Each file is owned by a package (ubuntu-session, gnome-control-center, the extension packages): ci_install_file
+# Each file is owned by a package (ubuntu-session, gnome-control-center, gnome-shell-ubuntu-extensions): ci_install_file
 # diverts the stock file to <path>.ubuntu-stock first, so an upgrade of the package unpacks Ubuntu's file to the
 # diverted name and ours stays. The edit is made on a copy before anything is diverted, so a file that needs no
 # change (renamed already, or a stock text this step does not know) is left alone and not diverted.
 #
-# On a live system any of the packages may be absent (not every desktop has the tiling extension) or newer than the
+# On a live system any of the packages may be absent (a desktop without the tiling extension) or newer than the
 # stock text known here, so a file this step cannot rename is reported and the step goes on. An image build is the base
 # ISO's own files, all of which verify-iso.sh requires to read Companion OS, so there the step ends by checking that every
 # one of them does, and fails if one is missing or kept a name it did not recognise: a "success" that ships Ubuntu's name
@@ -28,16 +30,11 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/theme-li
 require_root
 
 # Display lines only, each anchored to the whole stock text so that nothing else can match.
-SESSION_SED='s/^Name=Ubuntu$/Name=Companion OS/;s/^Name=Ubuntu on (Xorg|Wayland)$/Name=Companion OS on \1/;s/^Comment=This session logs you into Ubuntu$/Comment=This session logs you into Companion OS/'
+SESSION_SED='s/^Name=Ubuntu$/Name=Companion OS/;s/^Comment=This session logs you into Ubuntu$/Comment=This session logs you into Companion OS/'
 PANEL_SED='s/^Name=Ubuntu Desktop$/Name=Companion OS Desktop/;s/^Comment=Ubuntu Desktop Appearance Settings$/Comment=Companion OS Desktop Appearance Settings/'
 EXTENSION_SED='s/^([[:space:]]*"name"[[:space:]]*:[[:space:]]*")Ubuntu /\1Companion OS /'
 
-SESSION_FILES=(
-  /usr/share/xsessions/ubuntu.desktop
-  /usr/share/xsessions/ubuntu-xorg.desktop
-  /usr/share/wayland-sessions/ubuntu.desktop
-  /usr/share/wayland-sessions/ubuntu-wayland.desktop
-)
+SESSION_FILES=(/usr/share/wayland-sessions/ubuntu.desktop)
 PANEL_FILES=(/usr/share/applications/gnome-ubuntu-panel.desktop)
 EXTENSION_FILES=(
   /usr/share/gnome-shell/extensions/ubuntu-dock@ubuntu.com/metadata.json

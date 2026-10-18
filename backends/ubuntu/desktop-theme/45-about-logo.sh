@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 # Settings > About logo, the os-release LOGO= icon and the Hub launcher icon, from the vendored canon mark.
 #
-# gnome-control-center hard-codes /usr/share/pixmaps/ubuntu-logo-text.png (light mode) and
-# ubuntu-logo-text-dark.png (dark mode) for the logo at the top of Settings > About and ignores the
-# LOGO= key of os-release. base-files owns both files, so ci_install_file diverts the stock ones first
-# and a base-files upgrade cannot bring the Ubuntu wordmark back.
+# gnome-control-center hard-codes the logo at the top of Settings > About (light mode and dark mode) and ignores the
+# LOGO= key of os-release. GNOME 50 (Ubuntu 26.04, gnome-control-center 50.3) reads
+# /usr/share/pixmaps/ubuntu-logo-text.svg and ubuntu-logo-text-dark.svg (strings in the binary; there is no .png
+# name in it any more); the .png pair of the same names is still shipped (187x72 in 26.04.1) and read by older
+# versions. base-files owns all four files, so ci_install_file diverts the stock ones first and a base-files
+# upgrade cannot bring the Ubuntu wordmark back. BOTH pairs are replaced: with only the PNGs replaced, About kept
+# Ubuntu's wordmark on 26.04 and nothing failed.
 #
-# The PNGs are the one-colour mark (vendor/brand/logos/mark-mono.svg) at 192 px, filled with the canon
-# primary of each mode (CI_LIGHT_PRIMARY, CI_DARK_PRIMARY). The stock desktop image has no rsvg-convert
-# or ImageMagick, so an image build renders them on the build host (core/render/render-mark-png.sh) and
-# stages them in core/render/output/; with nothing staged (a live system) this step renders them itself.
+# The SVGs are the vendored one-colour mark (vendor/brand/logos/mark-mono.svg) with its currentColor set to the canon
+# primary of each mode (CI_LIGHT_PRIMARY, CI_DARK_PRIMARY): a text substitution, so they need no renderer and are
+# always installed. The PNGs are the same mark at 192 px (core/render/render-mark-png.sh). The stock desktop image has
+# no rsvg-convert or ImageMagick, so an image build renders them on the build host and stages them in
+# core/render/output/; with nothing staged (a live system) this step renders them itself.
 #
-# On a live system with neither renderer installed (apt-get install librsvg2-bin) the PNGs cannot be
-# drawn: the step warns, leaves Settings > About as it is, and still installs the ci-os-logo icon and the
-# Hub launcher icon, then exits 0 so apply-ci-os-desktop.sh goes on to os-release and motd. An image
+# On a live system with neither renderer installed (apt-get install librsvg2-bin) the PNGs cannot be drawn: the step
+# warns, replaces the SVG pair (which is what GNOME 50 shows) and leaves the PNG pair, still installs the ci-os-logo
+# icon and the Hub launcher icon, then exits 0 so apply-ci-os-desktop.sh goes on to os-release and motd. An image
 # build never degrades like that: without the staged PNGs it fails instead of shipping Ubuntu's wordmark.
 set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/core/lib/theme-lib.sh"
@@ -24,18 +28,23 @@ LIGHT_PNG_NAME="ci-os-about-logo.png"
 DARK_PNG_NAME="ci-os-about-logo-dark.png"
 PNG_DIR="$REPO_ROOT/core/render/output"
 MARK_SVG="$REPO_ROOT/vendor/brand/logos/mark.svg"
+MARK_MONO_SVG="$REPO_ROOT/vendor/brand/logos/mark-mono.svg"
 RENDER_MARK="$REPO_ROOT/core/render/render-mark-png.sh"
 ICON_DEST="/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
 HUB_DESKTOP="/usr/share/applications/ci-os-hub.desktop"
 
-if [[ ! -f "$MARK_SVG" ]]; then
-  log_error "Logo mark not found: $MARK_SVG (expected from the vendored brand bundle)"
-  exit 1
-fi
+for _mark in "$MARK_SVG" "$MARK_MONO_SVG"; do
+  if [[ ! -f "$_mark" ]]; then
+    log_error "Logo mark not found: $_mark (expected from the vendored brand bundle)"
+    exit 1
+  fi
+done
 
 RENDER_TMP=""
+SVG_TMP=""
 cleanup() {
   if [[ -n "$RENDER_TMP" ]]; then rm -rf "$RENDER_TMP"; fi
+  if [[ -n "$SVG_TMP" ]]; then rm -rf "$SVG_TMP"; fi
 }
 trap cleanup EXIT
 
@@ -63,9 +72,22 @@ if [[ ! -f "$PNG_DIR/$LIGHT_PNG_NAME" || ! -f "$PNG_DIR/$DARK_PNG_NAME" ]]; then
     fi
   fi
   if [[ $HAVE_PNGS -eq 0 ]]; then
-    log_warn "Settings > About keeps Ubuntu's wordmark; the rest of this step still applies. Re-run: apply-ci-os-desktop.sh --only about-logo"
+    log_warn "The About PNG pair keeps Ubuntu's wordmark (the SVG pair, which GNOME 50 shows, is replaced below); the rest of this step still applies. Re-run: apply-ci-os-desktop.sh --only about-logo"
   fi
 fi
+
+# --- the About SVGs: the one-colour mark with the canon primary of each mode (a text substitution: no renderer) ---------
+SVG_TMP="$(mktemp -d)"
+sed "s/currentColor/${CI_LIGHT_PRIMARY}/g" "$MARK_MONO_SVG" > "$SVG_TMP/ubuntu-logo-text.svg"
+sed "s/currentColor/${CI_DARK_PRIMARY}/g" "$MARK_MONO_SVG" > "$SVG_TMP/ubuntu-logo-text-dark.svg"
+for _svg in "$SVG_TMP"/ubuntu-logo-text.svg "$SVG_TMP"/ubuntu-logo-text-dark.svg; do
+  if grep -q 'currentColor' "$_svg" || ! grep -q '<svg' "$_svg"; then
+    log_error "Could not set the About logo colour in $MARK_MONO_SVG (no currentColor to replace, or not an SVG)"
+    exit 1
+  fi
+done
+ci_install_file "$SVG_TMP/ubuntu-logo-text.svg" /usr/share/pixmaps/ubuntu-logo-text.svg
+ci_install_file "$SVG_TMP/ubuntu-logo-text-dark.svg" /usr/share/pixmaps/ubuntu-logo-text-dark.svg
 
 if [[ $HAVE_PNGS -eq 1 ]]; then
   ci_install_file "$PNG_DIR/$LIGHT_PNG_NAME" /usr/share/pixmaps/ubuntu-logo-text.png
@@ -94,7 +116,7 @@ if command -v gtk-update-icon-cache >/dev/null 2>&1; then
 fi
 
 if [[ $HAVE_PNGS -eq 1 ]]; then
-  log_success "About logo (light + dark) and ci-os-logo icon installed from the canon mark"
+  log_success "About logo (SVG and PNG, light + dark) and ci-os-logo icon installed from the canon mark"
 else
-  log_success "ci-os-logo icon installed from the canon mark (About logo NOT replaced: no renderer)"
+  log_success "About logo (SVG, light + dark) and ci-os-logo icon installed from the canon mark (the PNG pair NOT replaced: no renderer)"
 fi

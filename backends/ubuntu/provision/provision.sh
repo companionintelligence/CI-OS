@@ -179,7 +179,7 @@ disable_stale_media_apt_sources() {
         fi
     done
 
-    # Handle deb822 source files (Ubuntu 24.04+ often uses *.sources).
+    # Handle deb822 source files (Ubuntu 26.04 uses *.sources).
     # Prefer in-place disable via "Enabled: no" to avoid apt filename warnings.
     for file in /etc/apt/sources.list.d/*.sources; do
         [[ -f "$file" ]] || continue
@@ -1695,7 +1695,8 @@ if tier_requested hardware; then
     bash "${SCRIPT_DIR}/../lib/strix-halo-boot-params.sh" || log_warning "strix-halo-boot-params.sh failed or was skipped; run it manually to enable large-GTT boot params on Strix Halo hardware."
 fi
 
-# Install LACT GPU monitor (latest release from GitHub)
+# Install LACT GPU monitor (latest release from GitHub). The .deb built for THIS Ubuntu release is chosen by its
+# series suffix (ubuntu-2604): see backends/ubuntu/lib/lact-release.sh.
 install_lact() {
     if command_exists lact; then
         log_info "LACT GPU monitor is already installed, skipping..."
@@ -1703,14 +1704,31 @@ install_lact() {
     fi
 
     log_info "Downloading and installing LACT GPU monitor..."
-    # Get latest .deb release URL from GitHub API
-    LACT_DEB_URL=$(curl -s https://api.github.com/repos/ilya-zlobintsev/LACT/releases/latest | grep browser_download_url | grep 'amd64.deb' | cut -d '"' -f 4 | head -n 1)
-    if [[ -z "$LACT_DEB_URL" ]]; then
-        log_error "Could not find LACT .deb package URL."
+    # shellcheck source=../lib/lact-release.sh
+    source "${SCRIPT_DIR}/../lib/lact-release.sh"
+    local lact_series_name release_json asset LACT_SHA256 got_sha
+    lact_series_name="$(lact_series)"
+    release_json="$(curl -fsSL --connect-timeout 20 --retry 2 https://api.github.com/repos/ilya-zlobintsev/LACT/releases/latest 2>/dev/null || true)"
+    asset="$(printf '%s' "$release_json" | lact_pick_asset "$lact_series_name" || true)"
+    if [[ -z "$asset" ]]; then
+        log_error "Could not find a LACT .deb for ${lact_series_name} in the latest release (no build for this Ubuntu release, or GitHub could not be reached)."
         return 1
     fi
+    LACT_DEB_URL="${asset%%$'\t'*}"
+    LACT_SHA256="${asset#*$'\t'}"
     TMP_DEB="/tmp/lact-latest.deb"
-    curl -L "$LACT_DEB_URL" -o "$TMP_DEB"
+    curl -fL --connect-timeout 30 --retry 2 "$LACT_DEB_URL" -o "$TMP_DEB"
+    if [[ -n "$LACT_SHA256" ]]; then
+        got_sha="$(sha256sum "$TMP_DEB" | awk '{print $1}')"
+        if [[ "$got_sha" != "$LACT_SHA256" ]]; then
+            log_error "LACT .deb sha256 does not match the release (got ${got_sha}, release says ${LACT_SHA256}); not installing"
+            rm -f "$TMP_DEB"
+            return 1
+        fi
+        log_info "LACT .deb sha256 verified against the release"
+    else
+        log_warning "The release lists no sha256 for ${LACT_DEB_URL}; installing without checksum verification"
+    fi
     apt-get install -y "$TMP_DEB" || dpkg -i "$TMP_DEB"
     rm -f "$TMP_DEB"
     log_success "LACT GPU monitor installed. Run 'lact-gui' to launch."

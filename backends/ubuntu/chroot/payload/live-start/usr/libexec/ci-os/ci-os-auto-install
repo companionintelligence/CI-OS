@@ -32,7 +32,8 @@ Usage:
                                      change nothing. Exit 0, or 3 when no safe disk exists
   ci-os-auto-install --disks         print the candidate/excluded disk table
   ci-os-auto-install --live-setup    desktop-session autostart hook: in a live session only, put the launcher on the
-                                     desktop and in the app grid; with ci.autoinstall=1 on the kernel command line
+                                     desktop, in the app grid and first in the dock (the 26.04 live session draws no
+                                     desktop icons); with ci.autoinstall=1 on the kernel command line
                                      (the boot menu's automatic entry) it also starts the install dialog
 Environment (tests only): CI_OS_AI_LSBLK_JSON, CI_OS_AI_CDROM_SOURCE, CI_OS_AI_LOOP_BACKING ("<device> <fstype>"),
 CI_OS_AI_CMDLINE read fixtures instead of the system.
@@ -41,7 +42,9 @@ Exit codes: 0 ok, 2 usage, 3 no safe target / medium unknown, 4 not a live sessi
 6 user cancelled (or another instance is open), 7 install failed.
 """
 import argparse
+import ast
 import fcntl
+import grp
 import html
 import json
 import os
@@ -54,17 +57,41 @@ import time
 
 MIN_DISK_BYTES = 25 * 1000 ** 3
 SERVER_UNIT = "snap.ubuntu-desktop-bootstrap.subiquity-server.service"
+# The stock installer window: the snap's launcher runs bin/ubuntu_bootstrap as the app command (command-chain bin/launcher),
+# so its command line starts with the snap path (checked in the 26.04.1 snap, rev 665: meta/snap.yaml and bin/launcher).
 CLIENT_PATTERN = r"^/snap/ubuntu-desktop-bootstrap/[^ ]*/ubuntu_bootstrap"
 SOCKET = "/run/subiquity/socket"
 RUN_DIR = "/run/ci-os-auto-install"
 AUTOINSTALL_PATH = os.path.join(RUN_DIR, "autoinstall.yaml")
 AUTOINSTALL_LINK = "/autoinstall.yaml"
 LAUNCHER_SRC = "/usr/share/ci-os/live/ci-os-auto-install.desktop"
+LAUNCHER_ID = "ci-os-auto-install.desktop"
 STICK_LABELS = ("CI-EFI", "CI-SHARED", "CI-BOOT-A", "CI-BOOT-B", "CI-CACHE", "CI-PERSIST", "writable", "casper-rw")
 # Mount points that mean "this session is running from / through this disk".
 MEDIUM_MOUNTS = ("/cdrom", "/isodevice", "/rofs", "/run/ci-os", "/run/live")
-BUSY_STATES = {"RUNNING", "POST_WAIT", "POST_RUNNING", "UU_RUNNING", "UU_CANCELLING", "DONE"}
+# The installer server's states, from ApplicationState in the 26.04.1 snap (ubuntu-desktop-bootstrap rev 665,
+# subiquity/common/types/__init__.py), in the order one run goes through them (server/controllers/install.py):
+#   STARTING_UP, CLOUD_INIT_WAIT, EARLY_COMMANDS   the server is starting; it is not ready for a request yet
+#   WAITING             idle, waiting for the answers. It is reported BEFORE the install and again AFTER curtin has
+#                       written the system, while the server waits for the post-install settings: the name alone does
+#                       not say which, so it is told apart by whether the new system is mounted at /target
+#   NEEDS_CONFIRMATION  everything is answered and the server waits for POST /meta/confirm
+#   RUNNING             the install itself (and the post-install work)
+#   UU_RUNNING          unattended-upgrades inside the new system
+#   LATE_COMMANDS       the late-commands of the autoinstall file
+#   DONE                installed
+#   ERROR, EXITED       failed / the server is exiting
+# An earlier revision of this tool listed POST_WAIT, POST_RUNNING and UU_CANCELLING; no such states exist, so the
+# post-install window (WAITING after curtin) and LATE_COMMANDS slipped through its "already installing" check.
 STARTUP_STATES = {"STARTING_UP", "CLOUD_INIT_WAIT", "EARLY_COMMANDS"}
+BUSY_STATES = {"RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"}
+IDLE_STATES = {"NEEDS_CONFIRMATION", "ERROR", "EXITED"}     # nothing is being written: restarting the server is safe
+INSTALL_STARTED = BUSY_STATES                               # the states that mean "the install was confirmed and is under way"
+AMBIGUOUS_STATE = "WAITING"
+FAILED_STATES = {"ERROR", "EXITED"}
+MOUNTINFO = "/proc/self/mountinfo"
+TARGET = "/target"                                          # where curtin mounts the system it installs
+CURTIN_PATTERN = r"(^|[ /])curtin( |$)"                     # "python3 -m curtin ...", ".../bin/curtin in-target ..."
 PW_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no 0/o/1/l/i: it is read off a screen and typed
 
 _lock_fd = None
@@ -328,14 +355,38 @@ def target_check_command(d):
     )
 
 
-def build_autoinstall(d, password_hash, *, username="companion", realname="Companion", hostname="companion-os"):
+def available_extra_groups():
+    """Groups the first user is added to on top of the installer's defaults: docker, when this image has the group.
+
+    The installer's own list (adm cdrom dip lpadmin plugdev sambashare debian-tor libvirtd users lxd, plus sudo) has no
+    docker, and the Docker engine is part of every Companion OS image. The autoinstall schema of the 26.04.1 installer
+    takes `identity.groups: {append: [...]}` (autoinstall-schema.json). useradd is given the names as they are and fails
+    on a group that does not exist in the new system, and the new system is a copy of this one: so the group is asked for
+    only when it exists here. Without it the oneshot ci-os-docker-group.service still adds the administrators to docker
+    at the first boot."""
+    groups = []
+    try:
+        grp.getgrnam("docker")
+        groups.append("docker")
+    except KeyError:
+        pass
+    return groups
+
+
+def build_autoinstall(d, password_hash, *, username="companion", realname="Companion", hostname="companion-os",
+                      extra_groups=None):
+    identity = {"realname": realname, "hostname": hostname, "username": username, "password": password_hash}
+    if extra_groups is None:
+        extra_groups = available_extra_groups()
+    if extra_groups:
+        identity["groups"] = {"append": list(extra_groups)}
     cfg = {
         "autoinstall": {
             "version": 1,
             "locale": "en_US.UTF-8",
             "keyboard": {"layout": "us"},
             "timezone": "geoip",
-            "identity": {"realname": realname, "hostname": hostname, "username": username, "password": password_hash},
+            "identity": identity,
             "storage": {"layout": {"name": "direct", "match": {"path": d["path"]}}},
             "refresh-installer": {"update": False},
             "drivers": {"install": False},
@@ -438,6 +489,50 @@ def wait_ready(timeout=180):
     return None
 
 
+def target_in_use():
+    """True when the new system is mounted at /target (or something is mounted below it).
+
+    curtin mounts the system it installs there and unmounts it at the very end, so a mounted /target means an install
+    has written, or is writing, to a disk. When the mount table cannot be read the answer is True (fail closed)."""
+    try:
+        with open(MOUNTINFO, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return True
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 5:
+            continue
+        mountpoint = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), fields[4])   # \040 is a space in mountinfo
+        if mountpoint == TARGET or mountpoint.startswith(TARGET + "/"):
+            return True
+    return False
+
+
+def curtin_running():
+    """True when a curtin process exists: the installer's disk work. pgrep that cannot run counts as running."""
+    try:
+        return sh(["pgrep", "-f", CURTIN_PATTERN]).returncode == 0
+    except OSError:
+        return True
+
+
+def is_busy(state):
+    """True when the installer must not be touched (no new autoinstall file, no restart of its server).
+
+    BUSY_STATES are busy. WAITING is busy when an install has written to a disk (/target is mounted) or curtin is running,
+    and idle otherwise (the installer just started, nothing answered). NEEDS_CONFIRMATION, ERROR and EXITED write nothing.
+    Anything else, including a state this tool has never heard of, counts as busy: a wrong "busy" costs one more click,
+    a wrong "idle" restarts the server in the middle of writing a disk."""
+    if state in BUSY_STATES:
+        return True
+    if state == AMBIGUOUS_STATE:
+        return target_in_use() or curtin_running()
+    if state in IDLE_STATES:
+        return False
+    return True
+
+
 def zenity_env():
     # ZENITY_OK / ZENITY_CANCEL / DIALOG_* can remap zenity's exit codes; the answer must mean what it says.
     return {k: v for k, v in os.environ.items() if not k.startswith(("ZENITY_", "DIALOG_"))}
@@ -521,6 +616,18 @@ def restart_server():
     sh(["sudo", "-n", "systemctl", "restart", SERVER_UNIT])
 
 
+def restart_if_idle():
+    """After a failure: restart the server so that it drops the autoinstall settings it loaded, unless it is installing.
+
+    A restart kills curtin. When the failure is only that the tool gave up waiting (the install is still going), the
+    install is left alone. A server whose state cannot be read is restarted: it is not answering."""
+    state = status().get("state")
+    if state and is_busy(state):
+        return False
+    restart_server()
+    return True
+
+
 def run_install(d, cfg_yaml, password):
     """Everything after the consent. Returns an exit code; always leaves no autoinstall file behind."""
     if sh(["sudo", "-n", "true"]).returncode != 0:
@@ -533,8 +640,9 @@ def run_install(d, cfg_yaml, password):
     if state is None:
         error_dialog("The installer is not ready. Wait a minute and try again, or use the normal installer.")
         return 5
-    if state in BUSY_STATES:
-        error_dialog("An installation is already running. Nothing was changed.")
+    if is_busy(state):
+        error_dialog("An installation is already running, or an earlier one left the new system mounted at /target. "
+                     "Nothing was changed. If nothing is installing, restart the computer from the USB stick to try again.")
         return 5
 
     confirmed = False
@@ -564,7 +672,7 @@ def run_install(d, cfg_yaml, password):
         sh(["pkill", "-f", CLIENT_PATTERN])      # the stock client would react to the server restarting
         restart_server()
         time.sleep(3)
-        state, _ = wait_for({"NEEDS_CONFIRMATION", "RUNNING", "POST_WAIT", "POST_RUNNING", "DONE", "ERROR", "EXITED"}, 600)
+        state, _ = wait_for({"NEEDS_CONFIRMATION"} | INSTALL_STARTED | FAILED_STATES, 600)
         if state == "NEEDS_CONFIRMATION":
             # Last look at the disks, after everything the user could have changed while the dialog was open.
             disks2, known2 = classify(flatten(load_lsblk().get("blockdevices", [])), cdrom_source(), backing_for(cdrom_source()))
@@ -575,10 +683,10 @@ def run_install(d, cfg_yaml, password):
             if code != 200:
                 raise RuntimeError(f"the installer refused to start (HTTP {code})")
             confirmed = True
-            state, _ = wait_for({"RUNNING", "POST_WAIT", "POST_RUNNING", "DONE", "ERROR", "EXITED"}, 180)
-            if state not in ("RUNNING", "POST_WAIT", "POST_RUNNING", "DONE"):
+            state, _ = wait_for(INSTALL_STARTED | FAILED_STATES, 180)
+            if state not in INSTALL_STARTED:
                 raise RuntimeError(f"the installer did not start after it was confirmed (state: {state})")
-        elif state in ("RUNNING", "POST_WAIT", "POST_RUNNING", "DONE"):
+        elif state in INSTALL_STARTED:
             confirmed = True
         else:
             raise RuntimeError(f"the installer did not accept the automatic install settings (state: {state})")
@@ -589,11 +697,11 @@ def run_install(d, cfg_yaml, password):
             state = status().get("state")
             if state != shown and state:
                 shown = state
-                say({"RUNNING": "Installing Companion OS… this takes a while", "POST_WAIT": "Finishing up…",
-                     "POST_RUNNING": "Finishing up…", "UU_RUNNING": "Applying updates…"}.get(state, f"Installer state: {state}"))
+                say({"RUNNING": "Installing Companion OS… this takes a while", "WAITING": "Finishing up…",
+                     "LATE_COMMANDS": "Finishing up…", "UU_RUNNING": "Applying updates…"}.get(state, f"Installer state: {state}"))
             if state == "DONE":
                 break
-            if state in ("ERROR", "EXITED"):
+            if state in FAILED_STATES:
                 raise RuntimeError("the install failed")
             time.sleep(5)
         else:
@@ -602,7 +710,7 @@ def run_install(d, cfg_yaml, password):
         if prog is not None:
             prog.terminate()
         remove_autoinstall()
-        restart_server()                          # drop the loaded autoinstall settings: the next start is a clean one
+        restart_if_idle()                         # drop the loaded autoinstall settings: the next start is a clean one
         after = ("The disk may be partly or completely erased." if confirmed else "Nothing was erased.")
         error_dialog(f"The automatic install did not finish: {exc}.\n\n{after} Details: /var/log/installer/. "
                      "You can try the normal installer from the desktop icon.")
@@ -614,6 +722,29 @@ def run_install(d, cfg_yaml, password):
             "--text=" + esc("Companion OS is installed.\n\nWhen the computer turns off, remove the USB stick, then turn it on.\n\n"
                             f"Sign in as companion with the one-time password\n{password}")])
     return 0
+
+
+def pin_to_dock(desktop_id=LAUNCHER_ID):
+    """Put the launcher first in the dock's favourites (gsettings org.gnome.shell favorite-apps). True when it is there.
+
+    The live session of Ubuntu 26.04 has no desktop icons to find the launcher by: livecd-rootfs ships a schema override
+    in the live layer with disabled-extensions=['ding@rastersoft.com'] (read from the 26.04.1 image), so the file in
+    ~/Desktop is never drawn. The dock is, and the stock installer sits in it already. Best effort: a failure is only logged."""
+    try:
+        got = sh(["gsettings", "get", "org.gnome.shell", "favorite-apps"])
+        if got.returncode != 0:
+            return False
+        text = str(got.stdout).strip()
+        favourites = ast.literal_eval(text[4:] if text.startswith("@as ") else text)     # "@as []" is how an empty list prints
+        if not isinstance(favourites, list) or not all(isinstance(f, str) for f in favourites):
+            return False
+        if desktop_id in favourites:
+            return True
+        done = sh(["gsettings", "set", "org.gnome.shell", "favorite-apps", repr([desktop_id] + favourites)])
+        return done.returncode == 0
+    except (OSError, ValueError, SyntaxError) as exc:
+        print(f"ci-os-auto-install: could not pin the launcher to the dock: {exc}", file=sys.stderr)
+        return False
 
 
 def live_setup():
@@ -631,6 +762,7 @@ def live_setup():
             sh(["gio", "set", dst, "metadata::trusted", "true"])
         except OSError as exc:
             print(f"ci-os-auto-install: could not place the launcher in {folder}: {exc}", file=sys.stderr)
+    pin_to_dock()
     if "ci.autoinstall=1" in read_cmdline().split():
         return interactive()
     return 0

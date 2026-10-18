@@ -1,0 +1,56 @@
+{
+  "tag_name": "v0.10.1",
+  "published_at": "2026-08-29T15:30:29Z",
+  "assets": [
+    {
+      "name": "io.github.ilya_zlobintsev.LACT.flatpak",
+      "size": 6460864,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/io.github.ilya_zlobintsev.LACT.flatpak"
+    },
+    {
+      "name": "lact-0.10.1-0-x86_64.pkg.tar.arch.zst",
+      "size": 4983903,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/lact-0.10.1-0-x86_64.pkg.tar.arch.zst"
+    },
+    {
+      "name": "lact-0.10.1-0.amd64.debian-13.deb",
+      "size": 3784048,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/lact-0.10.1-0.amd64.debian-13.deb"
+    },
+    {
+      "name": "lact-0.10.1-0.amd64.ubuntu-2404.deb",
+      "size": 4068116,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/lact-0.10.1-0.amd64.ubuntu-2404.deb"
+    },
+    {
+      "name": "lact-0.10.1-0.amd64.ubuntu-2604.deb",
+      "size": 4055378,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/lact-0.10.1-0.amd64.ubuntu-2604.deb"
+    },
+    {
+      "name": "lact-headless-0.10.1-0-x86_64.pkg.tar.arch.zst",
+      "size": 3649999,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/lact-headless-0.10.1-0-x86_64.pkg.tar.arch.zst"
+    },
+    {
+      "name": "lact-headless-0.10.1-0.amd64.debian-13.deb",
+      "size": 2828256,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/lact-headless-0.10.1-0.amd64.debian-13.deb"
+    },
+    {
+      "name": "lact-headless-0.10.1-0.amd64.ubuntu-2404.deb",
+      "size": 3039972,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/lact-headless-0.10.1-0.amd64.ubuntu-2404.deb"
+    },
+    {
+      "name": "lact-headless-0.10.1-0.amd64.ubuntu-2604.deb",
+      "size": 3026902,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/lact-headless-0.10.1-0.amd64.ubuntu-2604.deb"
+    },
+    {
+      "name": "lact.pubkey",
+      "size": 681,
+      "browser_download_url": "https://github.com/ilya-zlobintsev/LACT/releases/download/v0.10.1/lact.pubkey"
+    }
+  ]
+}

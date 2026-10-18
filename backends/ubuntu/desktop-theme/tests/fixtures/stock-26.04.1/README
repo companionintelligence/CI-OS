@@ -1,0 +1,11 @@
+The five files 60-visible-names.sh renames, byte for byte as the stock Ubuntu 26.04.1 desktop image ships them
+(ubuntu-26.04.1-desktop-amd64.iso, sha256 601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f,
+casper/minimal.squashfs, read 2026-10-17). Package owners, from var/lib/dpkg/info/*.list of that layer:
+
+  usr/share/wayland-sessions/ubuntu.desktop                                  ubuntu-session
+  usr/share/applications/gnome-ubuntu-panel.desktop                          gnome-control-center
+  usr/share/gnome-shell/extensions/ubuntu-dock@ubuntu.com/metadata.json      gnome-shell-ubuntu-extensions
+  usr/share/gnome-shell/extensions/ubuntu-appindicators@ubuntu.com/...       gnome-shell-ubuntu-extensions
+  usr/share/gnome-shell/extensions/tiling-assistant@ubuntu.com/...           gnome-shell-ubuntu-extensions
+
+The image has no /usr/share/xsessions, no ubuntu-xorg.desktop and no ubuntu-wayland.desktop.

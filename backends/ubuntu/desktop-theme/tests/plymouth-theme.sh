@@ -29,7 +29,7 @@
 # It changes /usr/share/plymouth of the machine it runs on, so run it in a throw-away container with the Plymouth
 # themes, a renderer and the repo mounted read-only:
 #
-#   docker run --rm --platform linux/amd64 -v "$PWD:/repo:ro" ubuntu:24.04 bash -c \
+#   docker run --rm --platform linux/amd64 -v "$PWD:/repo:ro" ubuntu:26.04 bash -c \
 #     'apt-get update -qq && apt-get install -y -qq plymouth-theme-spinner plymouth-theme-ubuntu-text imagemagick librsvg2-bin \
 #      && bash /repo/backends/ubuntu/desktop-theme/tests/plymouth-theme.sh'
 #
@@ -193,7 +193,7 @@ dpkg --configure --pending >/dev/null 2>&1
 set -e
 expect "after the lsb-release trigger the text theme is still titled Companion OS 7.3 (regenerated from our template)" \
     grep -q -x 'title=Companion OS 7.3' "$TEXT"
-expect "...and has no aubergine and no 'Ubuntu 24.04'" bash -c "! grep -qi '0x2c001e' '$TEXT' && ! grep -q 'title=Ubuntu' '$TEXT'"
+expect "...and has no aubergine and no Ubuntu title" bash -c "! grep -qi '0x2c001e' '$TEXT' && ! grep -q 'title=Ubuntu' '$TEXT'"
 # A reinstall unpacks the same files an upgrade would. Best effort: it needs the network.
 set +e
 apt-get install --reinstall -y -qq plymouth plymouth-theme-spinner plymouth-theme-ubuntu-text >"$WORK/reinstall.log" 2>&1

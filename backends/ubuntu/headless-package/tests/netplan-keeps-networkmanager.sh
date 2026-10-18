@@ -11,9 +11,13 @@
 # plus the repo's 50-setup-mode.yaml and asserts the file is still written and
 # that eth0 still gets its networkd DHCP definition.
 #
+# The stock file is fixtures/01-network-manager-all.yaml, byte for byte the one in
+# the Ubuntu 26.04.1 desktop image (/etc/netplan, mode 0600, not owned by a
+# package). netplan.io is 1.2 there.
+#
 # Needs root and the Ubuntu archive (installs netplan.io), so run it in a
 # throwaway container:
-#   docker run --rm -v "$PWD":/repo:ro ubuntu:24.04 \
+#   docker run --rm -v "$PWD":/repo:ro ubuntu:26.04 \
 #       bash /repo/backends/ubuntu/headless-package/tests/netplan-keeps-networkmanager.sh
 #
 # Exit status is non-zero if any check fails.
@@ -24,10 +28,12 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SETUP_YAML="$HERE/../netplan/50-setup-mode.yaml"
+STOCK_YAML="$HERE/fixtures/01-network-manager-all.yaml"
 [[ -f "$SETUP_YAML" ]] || { echo "not found: $SETUP_YAML" >&2; exit 2; }
+[[ -f "$STOCK_YAML" ]] || { echo "not found: $STOCK_YAML" >&2; exit 2; }
 
 if ! command -v netplan >/dev/null 2>&1; then
-    [[ "$(id -u)" -eq 0 ]] || { echo "netplan is not installed and this is not root; run it in an ubuntu:24.04 container" >&2; exit 2; }
+    [[ "$(id -u)" -eq 0 ]] || { echo "netplan is not installed and this is not root; run it in an ubuntu:26.04 container" >&2; exit 2; }
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
     apt-get install -y -qq --no-install-recommends netplan.io >/dev/null
@@ -40,10 +46,15 @@ PASS=0; FAIL=0
 pass() { PASS=$((PASS + 1)); printf 'PASS  %s\n' "$*"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL  %s\n' "$*"; }
 
+if grep -qx '  renderer: NetworkManager' "$STOCK_YAML"; then
+    pass "the stock file of the 26.04.1 image sets the global renderer NetworkManager"
+else
+    fail "the stock fixture no longer sets the global renderer NetworkManager"
+fi
+
 mkdir -p "$ROOT/etc/netplan"
-# The file Ubuntu 24.04 Desktop ships (byte for byte what the ISO's rootfs has).
-printf '# Let NetworkManager manage all devices on this system\nnetwork:\n  version: 2\n  renderer: NetworkManager\n' \
-    > "$ROOT/etc/netplan/01-network-manager-all.yaml"
+# The file Ubuntu 26.04.1 Desktop ships (byte for byte what the ISO's rootfs has).
+cp "$STOCK_YAML" "$ROOT/etc/netplan/01-network-manager-all.yaml"
 cp "$SETUP_YAML" "$ROOT/etc/netplan/50-setup-mode.yaml"
 # postinst does the same; netplan warns about group/world-readable files.
 chmod 600 "$ROOT"/etc/netplan/*.yaml

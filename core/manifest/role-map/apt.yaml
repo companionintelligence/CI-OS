@@ -76,11 +76,12 @@ chromium:
 rocm:
   install_method: script
   script: install-rocm-driver.sh
-  note: "ROCm 7.2.4, delegates to backends/ubuntu/lib/install-rocm-driver.sh"
+  note: "ROCm from the Ubuntu 26.04 archive (rocm, rocminfo, rocm-smi; ROCm 7.1), inbox amdgpu, delegates to backends/ubuntu/lib/install-rocm-driver.sh"
 
 lact:
   install_method: github_release_deb
   repo: "ilya-zlobintsev/LACT"
+  # The asset is chosen by the Ubuntu series in its name (lact-<version>-<rev>.amd64.ubuntu-2604.deb): backends/ubuntu/lib/lact-release.sh.
 
 ollama:
   install_method: curl_script

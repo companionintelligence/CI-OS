@@ -19,7 +19,7 @@
 # Run it where there is NO rsvg-convert and no ImageMagick, e.g. the stock ubuntu image, with the repo
 # mounted read-only (it needs no root and writes only to a temp directory):
 #
-#   docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash /repo/backends/ubuntu/chroot/tests/render-preflight.sh
+#   docker run --rm -v "$PWD:/repo:ro" ubuntu:26.04 bash /repo/backends/ubuntu/chroot/tests/render-preflight.sh
 #
 # Exit status is non-zero if any check fails; 2 if it cannot run here.
 #

@@ -5,9 +5,11 @@ Run: python3 backends/ubuntu/chroot/tests/test_auto_install.py
 Needs python3-yaml, which yamllint (check-repo.sh) already needs.
 The helper is extensionless, so it is loaded by path.
 """
+import ast
 import importlib.machinery
 import importlib.util
 import io
+import itertools
 import json
 import os
 import re
@@ -249,6 +251,39 @@ class AutoinstallTests(unittest.TestCase):
         text = ai.dump_yaml({"autoinstall": self.cfg}, mask_hash=True)
         self.assertNotIn("$6$", text)
         self.assertIn("not shown", text)
+
+    def test_docker_group_is_appended_to_the_installers_defaults_when_the_image_has_it(self):
+        # identity.groups is in the 26.04.1 installer's autoinstall schema as {append: [...]} (keeps the default groups) or
+        # {override: [...]} (replaces them): append is the one that cannot take sudo away from the first user.
+        cfg = ai.build_autoinstall(self.target, "$6$salt$hash", extra_groups=["docker"])["autoinstall"]
+        self.assertEqual(cfg["identity"]["groups"], {"append": ["docker"]})
+        self.assertEqual(set(cfg["identity"]), {"realname", "hostname", "username", "password", "groups"})
+        self.assertNotIn("override", cfg["identity"]["groups"])
+
+    def test_no_groups_key_without_extra_groups(self):
+        cfg = ai.build_autoinstall(self.target, "$6$salt$hash", extra_groups=[])["autoinstall"]
+        self.assertNotIn("groups", cfg["identity"])
+
+    def test_extra_groups_default_to_the_groups_this_image_has(self):
+        with mock.patch.object(ai.grp, "getgrnam", return_value=object()):
+            self.assertEqual(ai.available_extra_groups(), ["docker"])
+            cfg = ai.build_autoinstall(self.target, "$6$salt$hash")["autoinstall"]
+            self.assertEqual(cfg["identity"]["groups"], {"append": ["docker"]})
+        with mock.patch.object(ai.grp, "getgrnam", side_effect=KeyError("docker")):
+            # useradd fails on a group the new system lacks, and the new system is a copy of this one: ask for none
+            self.assertEqual(ai.available_extra_groups(), [])
+            cfg = ai.build_autoinstall(self.target, "$6$salt$hash")["autoinstall"]
+            self.assertNotIn("groups", cfg["identity"])
+
+    def test_identity_matches_the_installers_schema(self):
+        # autoinstall-schema.json of the 26.04.1 installer: identity allows exactly these keys, requires username,
+        # hostname and password, and takes groups as a list or {override|append: list}
+        schema_keys = {"realname", "username", "hostname", "password", "groups"}
+        cfg = ai.build_autoinstall(self.target, "$6$salt$hash", extra_groups=["docker"])["autoinstall"]
+        self.assertTrue(set(cfg["identity"]) <= schema_keys)
+        self.assertTrue({"username", "hostname", "password"} <= set(cfg["identity"]))
+        groups = cfg["identity"]["groups"]
+        self.assertTrue(isinstance(groups, list) or set(groups) <= {"override", "append"})
 
     def test_yaml_roundtrips(self):
         import yaml
@@ -611,6 +646,175 @@ class FakePopen:
         self.terminated = True
 
 
+# The states of ApplicationState in the 26.04.1 installer snap (ubuntu-desktop-bootstrap rev 665, subiquity/common/types/__init__.py).
+# A state name used by the helper that is not in this list is a bug (POST_WAIT, POST_RUNNING and UU_CANCELLING were).
+SUBIQUITY_STATES = ["STARTING_UP", "CLOUD_INIT_WAIT", "EARLY_COMMANDS", "NEEDS_CONFIRMATION", "WAITING", "RUNNING", "UU_RUNNING",
+                    "LATE_COMMANDS", "DONE", "ERROR", "EXITED"]
+
+
+class StateGuardTests(unittest.TestCase):
+    """is_busy(): the rule that stops a second click from restarting an installer that is writing a disk."""
+
+    def busy(self, state, target=False, curtin=False):
+        with mock.patch.object(ai, "target_in_use", return_value=target), mock.patch.object(ai, "curtin_running", return_value=curtin):
+            return ai.is_busy(state)
+
+    def test_the_sets_use_only_states_the_installer_has(self):
+        for name in ("STARTUP_STATES", "BUSY_STATES", "IDLE_STATES", "INSTALL_STARTED", "FAILED_STATES"):
+            self.assertLessEqual(getattr(ai, name), set(SUBIQUITY_STATES), name)
+        self.assertIn(ai.AMBIGUOUS_STATE, SUBIQUITY_STATES)
+
+    def test_every_state_is_accounted_for_exactly_once(self):
+        groups = [ai.STARTUP_STATES, ai.BUSY_STATES, ai.IDLE_STATES, {ai.AMBIGUOUS_STATE}]
+        union = set().union(*groups)
+        self.assertEqual(union, set(SUBIQUITY_STATES))
+        self.assertEqual(sum(len(g) for g in groups), len(union), "a state is in two groups")
+
+    def test_the_busy_set_is_exactly_what_the_installer_does_while_it_writes(self):
+        self.assertEqual(ai.BUSY_STATES, {"RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"})
+        for gone in ("POST_WAIT", "POST_RUNNING", "UU_CANCELLING"):
+            self.assertNotIn(gone, ai.BUSY_STATES)
+            self.assertNotIn(gone, ai.INSTALL_STARTED)
+
+    def test_busy_states_are_busy_whatever_the_mounts_say(self):
+        for state in ("RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"):
+            for target in (False, True):
+                for curtin in (False, True):
+                    self.assertTrue(self.busy(state, target, curtin), f"{state} target={target} curtin={curtin}")
+
+    def test_idle_states_are_idle_whatever_the_mounts_say(self):
+        # NEEDS_CONFIRMATION: nothing is written yet. ERROR and EXITED: it stopped; restarting the server is how to retry.
+        for state in ("NEEDS_CONFIRMATION", "ERROR", "EXITED"):
+            for target in (False, True):
+                for curtin in (False, True):
+                    self.assertFalse(self.busy(state, target, curtin), f"{state} target={target} curtin={curtin}")
+
+    def test_waiting_is_idle_before_the_install_and_busy_after_curtin(self):
+        self.assertFalse(self.busy("WAITING", target=False, curtin=False))      # the installer has just started
+        self.assertTrue(self.busy("WAITING", target=True, curtin=False))        # curtin wrote the system and unmounted nothing yet
+        self.assertTrue(self.busy("WAITING", target=False, curtin=True))        # curtin is running
+        self.assertTrue(self.busy("WAITING", target=True, curtin=True))
+
+    def test_waiting_costs_no_mount_check_for_the_other_states(self):
+        with mock.patch.object(ai, "target_in_use", side_effect=AssertionError("asked")), \
+                mock.patch.object(ai, "curtin_running", side_effect=AssertionError("asked")):
+            self.assertTrue(ai.is_busy("RUNNING"))
+            self.assertFalse(ai.is_busy("ERROR"))
+
+    def test_startup_states_and_unknown_states_count_as_busy(self):
+        # wait_ready() never hands these to run_install; if one arrives anyway, the server is not touched.
+        for state in ("STARTING_UP", "CLOUD_INIT_WAIT", "EARLY_COMMANDS", "POST_WAIT", "POST_RUNNING", "UU_CANCELLING",
+                      "SOMETHING_NEW", "", None):
+            self.assertTrue(self.busy(state), repr(state))
+
+    def test_wait_ready_skips_the_startup_states(self):
+        answers = iter([{"state": "STARTING_UP"}, {"state": "CLOUD_INIT_WAIT"}, {"state": "EARLY_COMMANDS"}, {}, {"state": "WAITING"}])
+        with mock.patch.object(ai, "status", side_effect=lambda: next(answers)), mock.patch.object(ai.time, "sleep", lambda s: None):
+            self.assertEqual(ai.wait_ready(timeout=60), "WAITING")
+
+    def test_wait_ready_gives_up_without_an_answer(self):
+        with mock.patch.object(ai, "status", return_value={}), mock.patch.object(ai.time, "sleep", lambda s: None), \
+                mock.patch.object(ai.time, "time", side_effect=itertools.count(0, 50)):
+            self.assertIsNone(ai.wait_ready(timeout=100))
+
+
+class TargetInUseTests(unittest.TestCase):
+    """target_in_use() reads the mount table for /target."""
+
+    def check(self, text):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "mountinfo")
+            write_text(path, text)
+            with mock.patch.object(ai, "MOUNTINFO", path):
+                return ai.target_in_use()
+
+    ROOT = "25 1 0:22 / / rw,relatime - overlay overlay rw\n"
+    CDROM = "40 25 8:3 / /cdrom ro,relatime - iso9660 /dev/sda3 ro\n"
+
+    def test_the_live_session_alone_is_not_the_target(self):
+        self.assertFalse(self.check(self.ROOT + self.CDROM))
+
+    def test_a_mounted_target_is_in_use(self):
+        self.assertTrue(self.check(self.ROOT + "90 25 259:2 / /target rw,relatime - ext4 /dev/nvme0n1p2 rw\n"))
+
+    def test_something_mounted_below_the_target_is_in_use(self):
+        self.assertTrue(self.check(self.ROOT + "91 25 259:1 / /target/boot/efi rw - vfat /dev/nvme0n1p1 rw\n"))
+
+    def test_look_alikes_are_not_the_target(self):
+        self.assertFalse(self.check(self.ROOT + "92 25 0:50 / /targets rw - tmpfs tmpfs rw\n93 25 0:51 / /mnt/target rw - tmpfs tmpfs rw\n"
+                                    "94 25 0:52 / /run/target rw - tmpfs tmpfs rw\n"))
+
+    def test_octal_escapes_in_other_mount_points_do_not_confuse_it(self):
+        self.assertFalse(self.check(self.ROOT + "95 25 0:53 / /media/ci/My\\040Disk rw - ext4 /dev/sdb1 rw\n"))
+        self.assertTrue(self.check(self.ROOT + "96 25 0:54 / /target/home/a\\040b rw - ext4 /dev/nvme0n1p3 rw\n"))
+
+    def test_malformed_lines_are_skipped(self):
+        self.assertFalse(self.check("short\n\n" + self.ROOT))
+
+    def test_an_unreadable_mount_table_counts_as_in_use(self):
+        with mock.patch.object(ai, "MOUNTINFO", "/nonexistent/mountinfo"):
+            self.assertTrue(ai.target_in_use())
+
+
+class CurtinRunningTests(unittest.TestCase):
+    def test_the_pattern_matches_how_the_installer_starts_curtin(self):
+        pat = re.compile(ai.CURTIN_PATTERN)
+        for cmdline in (
+                "/snap/ubuntu-desktop-bootstrap/665/usr/bin/python3.12 -m curtin --showtrace -vvv --set json:reporting={} install /run/c.yaml",
+                "/snap/ubuntu-desktop-bootstrap/665/usr/bin/python3.12 /snap/ubuntu-desktop-bootstrap/665/bin/curtin in-target --target=/target -- chage -d 0 companion",
+                "curtin in-target --target=/target -- chage -d 0 companion",
+                "python3 -m curtin block-meta simple"):
+            self.assertTrue(pat.search(cmdline), cmdline)
+
+    def test_the_pattern_leaves_this_tool_and_the_server_alone(self):
+        pat = re.compile(ai.CURTIN_PATTERN)
+        for cmdline in (
+                "/usr/bin/python3 /usr/libexec/ci-os/ci-os-auto-install",
+                "/snap/ubuntu-desktop-bootstrap/665/usr/bin/python3.12 -m subiquity.cmd.server --use-os-prober",
+                "/snap/ubuntu-desktop-bootstrap/665/bin/ubuntu_bootstrap --try-or-install",
+                "vim curtin-notes.txt",
+                "less /var/log/installer/curtin_event.123.json",
+                "/snap/ubuntu-desktop-bootstrap/665/lib/python3.12/site-packages/curtin/commands/install.py"):
+            self.assertFalse(pat.search(cmdline), cmdline)
+
+    def test_pgrep_answers(self):
+        with mock.patch.object(ai, "sh", return_value=subprocess.CompletedProcess([], 0, "123\n", "")) as run:
+            self.assertTrue(ai.curtin_running())
+            self.assertEqual(run.call_args[0][0], ["pgrep", "-f", ai.CURTIN_PATTERN])
+        with mock.patch.object(ai, "sh", return_value=subprocess.CompletedProcess([], 1, "", "")):
+            self.assertFalse(ai.curtin_running())
+
+    def test_pgrep_that_cannot_run_counts_as_running(self):
+        with mock.patch.object(ai, "sh", side_effect=FileNotFoundError("pgrep")):
+            self.assertTrue(ai.curtin_running())
+
+
+class RestartIfIdleTests(unittest.TestCase):
+    """After a failure the server is restarted to drop the settings it loaded, unless that would kill an install."""
+
+    def run_it(self, state, target=False, curtin=False):
+        restarted = []
+        with mock.patch.object(ai, "status", return_value={"state": state} if state else {}), \
+                mock.patch.object(ai, "target_in_use", return_value=target), mock.patch.object(ai, "curtin_running", return_value=curtin), \
+                mock.patch.object(ai, "restart_server", lambda: restarted.append(1)):
+            result = ai.restart_if_idle()
+        return result, restarted
+
+    def test_a_server_that_is_installing_is_not_restarted(self):
+        for state in ("RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"):
+            self.assertEqual(self.run_it(state), (False, []), state)
+        self.assertEqual(self.run_it("WAITING", target=True), (False, []))
+        self.assertEqual(self.run_it("WAITING", curtin=True), (False, []))
+
+    def test_an_idle_or_failed_server_is_restarted(self):
+        for state in ("NEEDS_CONFIRMATION", "ERROR", "EXITED"):
+            self.assertEqual(self.run_it(state), (True, [1]), state)
+        self.assertEqual(self.run_it("WAITING"), (True, [1]))
+
+    def test_a_server_that_does_not_answer_is_restarted(self):
+        self.assertEqual(self.run_it(None), (True, [1]))
+
+
 class RunInstallTests(unittest.TestCase):
     """run_install with the installer's API, systemd and sudo replaced by recorders."""
 
@@ -621,10 +825,20 @@ class RunInstallTests(unittest.TestCase):
         self.popen = FakePopen()
         self.errors = []
         self.api_calls = []
+        self.waited = []          # the sets of states wait_for() was asked to wait for, in order
 
-    def go(self, states, post_code=200, ready="WAITING", in_the_way=False, disks_ok=True, sudo_ok=True):
-        """`states`: successive installer states returned by wait_for / status()."""
+    def go(self, states, post_code=200, ready="WAITING", in_the_way=False, disks_ok=True, sudo_ok=True, target_mounted=False,
+           curtin=False, slow_install=False):
+        """`states`: the installer states, in the order the server reports them. wait_for() polls through them until one is
+        in the set it was asked for (as the real one does); status() hands out what is left, one per call.
+        `target_mounted`: True/False, or a list of the successive answers of target_in_use() (the last one repeats)."""
         states = list(states)
+        mounted = list(target_mounted) if isinstance(target_mounted, (list, tuple)) else [target_mounted]
+        asked = []
+
+        def fake_target_in_use():
+            asked.append(1)
+            return mounted[min(len(asked), len(mounted)) - 1]
 
         def fake_run(cmd, **kw):
             self.log.append(("run", cmd))
@@ -634,23 +848,37 @@ class RunInstallTests(unittest.TestCase):
             self.log.append(("sh", cmd))
             return subprocess.CompletedProcess(cmd, 0 if sudo_ok or cmd[-1] != "true" else 1, "", "")
 
+        seen = []                                   # the states already handed out; the server stays in the last one
+
         def fake_wait_for(wanted, timeout, poll=3):
-            st = states.pop(0)
-            return st, {"state": st}
+            self.waited.append(set(wanted))
+            last = None
+            while states:
+                last = states.pop(0)
+                seen.append(last)
+                if last in wanted:
+                    return last, {"state": last}
+            return last, {}
 
         def fake_api(method, path, data=None, timeout=20):
             self.api_calls.append((method, path, data))
             return (post_code, "") if method == "POST" else (200, "{}")
 
         def fake_status():
+            if not states:
+                return {"state": seen[-1] if seen else "ERROR"}
+            seen.append(states[0])
             return {"state": states.pop(0) if len(states) > 1 else states[0]}
 
         devs = [stick(), nvme()] if disks_ok else [stick(), nvme(size=1)]
-        with Env(devs, "/dev/sda3"), \
+        clock = mock.patch.object(ai.time, "time", side_effect=itertools.count(0, 5 * 3600)) if slow_install else mock.patch.object(ai.time, "time", wraps=ai.time.time)
+        with Env(devs, "/dev/sda3"), clock, \
                 mock.patch.object(ai.subprocess, "run", fake_run), \
                 mock.patch.object(ai.subprocess, "Popen", return_value=self.popen), \
                 mock.patch.object(ai, "sh", fake_sh), \
                 mock.patch.object(ai.time, "sleep", lambda s: None), \
+                mock.patch.object(ai, "target_in_use", fake_target_in_use), \
+                mock.patch.object(ai, "curtin_running", return_value=curtin), \
                 mock.patch.object(ai, "wait_ready", return_value=ready), \
                 mock.patch.object(ai, "wait_for", fake_wait_for), \
                 mock.patch.object(ai, "status", fake_status), \
@@ -665,6 +893,10 @@ class RunInstallTests(unittest.TestCase):
     def wrote(self):
         return any(c[0] == "run" and "tee" in c[1] for c in self.log)
 
+    def restarts(self):
+        """How often the server was restarted. A normal run restarts it once, to load the autoinstall file."""
+        return self.log.count(("restart",))
+
     def test_success_confirms_exactly_once_and_cleans_up(self):
         rc = self.go(["NEEDS_CONFIRMATION", "RUNNING", "DONE"])
         self.assertEqual(rc, 0)
@@ -674,6 +906,29 @@ class RunInstallTests(unittest.TestCase):
         self.assertTrue(self.popen.terminated)
         self.assertEqual(self.errors, [])
 
+    def test_a_whole_real_run_through_every_state(self):
+        # the order install.py reports them, the idle WAITING first and the post-install WAITING in the middle
+        rc = self.go(["WAITING", "NEEDS_CONFIRMATION", "RUNNING", "WAITING", "RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(self.errors, [])
+        said = " ".join(self.popen.lines)
+        for text in ("Installing Companion OS", "Finishing up", "Applying updates"):
+            self.assertIn(text, said)
+        self.assertEqual(len([c for c in self.api_calls if c[0] == "POST"]), 1)
+
+    def test_the_waits_ask_for_every_state_that_can_follow(self):
+        # polling every few seconds can miss a short state, so each wait names ALL the states that mean "past this point"
+        self.assertEqual(self.go(["NEEDS_CONFIRMATION", "RUNNING", "DONE"]), 0)
+        started = {"RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"}
+        failed = {"ERROR", "EXITED"}
+        self.assertEqual(self.waited, [{"NEEDS_CONFIRMATION"} | started | failed, started | failed])
+
+    def test_an_install_that_is_already_confirmed_is_followed_not_confirmed_again(self):
+        # a kernel command line with the word `autoinstall` skips the confirmation: the server goes straight to RUNNING
+        rc = self.go(["RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"])
+        self.assertEqual(rc, 0)
+        self.assertEqual([c for c in self.api_calls if c[0] == "POST"], [])
+
     def test_progress_text_keeps_the_sign_in_details(self):
         self.go(["NEEDS_CONFIRMATION", "RUNNING", "DONE"])
         self.assertTrue(self.popen.lines)
@@ -681,11 +936,38 @@ class RunInstallTests(unittest.TestCase):
         self.assertTrue(all(line.count("\n") == 1 for line in self.popen.lines))   # one line each: "# text\n"
 
     def test_busy_installer_is_never_touched(self):
-        for busy in ("RUNNING", "POST_RUNNING", "DONE", "UU_RUNNING"):
+        for busy in ("RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"):
             self.log.clear()
             self.assertEqual(self.go([], ready=busy), 5, busy)
             self.assertFalse(self.wrote(), busy)
-            self.assertNotIn(("restart",), self.log, busy)
+            self.assertEqual(self.restarts(), 0, busy)
+            self.assertTrue(any("already running" in e for e in self.errors), busy)
+            self.errors.clear()
+
+    def test_the_post_install_window_is_busy(self):
+        # WAITING after curtin has written the system: the state the old guard missed
+        for kw in ({"target_mounted": True}, {"curtin": True}, {"target_mounted": True, "curtin": True}):
+            self.log.clear()
+            self.assertEqual(self.go([], ready="WAITING", **kw), 5, kw)
+            self.assertFalse(self.wrote(), kw)
+            self.assertEqual(self.restarts(), 0, kw)
+            self.assertEqual(self.api_calls, [], kw)
+
+    def test_unknown_states_are_never_touched(self):
+        for odd in ("POST_WAIT", "POST_RUNNING", "UU_CANCELLING", "SOMETHING_NEW", "STARTING_UP"):
+            self.log.clear()
+            self.assertEqual(self.go([], ready=odd), 5, odd)
+            self.assertFalse(self.wrote(), odd)
+            self.assertEqual(self.restarts(), 0, odd)
+
+    def test_idle_installers_are_taken_over(self):
+        # the installer has just started (WAITING, nothing mounted), is at the confirmation, or stopped after a failure
+        for idle in ("WAITING", "NEEDS_CONFIRMATION", "ERROR", "EXITED"):
+            self.log.clear()
+            self.errors.clear()
+            self.assertEqual(self.go(["NEEDS_CONFIRMATION", "RUNNING", "DONE"], ready=idle), 0, idle)
+            self.assertTrue(self.wrote(), idle)
+            self.assertEqual(self.errors, [], idle)
 
     def test_installer_not_ready_writes_nothing(self):
         self.assertEqual(self.go([], ready=None), 5)
@@ -705,7 +987,7 @@ class RunInstallTests(unittest.TestCase):
         self.assertEqual([c for c in self.api_calls if c[0] == "POST"], [])
         self.assertIn("Nothing was erased", self.errors[0])
         self.assertIn(("remove",), self.log)
-        self.assertIn(("restart",), self.log)
+        self.assertEqual(self.restarts(), 2)        # one to load the settings, one to drop them again
 
     def test_refused_confirmation_is_a_failure_not_an_hours_long_wait(self):
         rc = self.go(["NEEDS_CONFIRMATION"], post_code=500)
@@ -718,8 +1000,31 @@ class RunInstallTests(unittest.TestCase):
         self.assertEqual(rc, 7)
         self.assertIn("partly or completely erased", self.errors[0])
         self.assertIn(("remove",), self.log)
-        self.assertIn(("restart",), self.log)
+        self.assertEqual(self.restarts(), 2)        # ERROR is idle: the second restart drops the loaded settings
         self.assertTrue(self.popen.terminated)
+
+    def test_giving_up_on_a_slow_install_does_not_restart_the_server_under_it(self):
+        # the tool stops waiting after 4 hours, but the installer is still RUNNING: a restart would kill curtin mid-write
+        rc = self.go(["NEEDS_CONFIRMATION", "RUNNING", "RUNNING"], slow_install=True)
+        self.assertEqual(rc, 7)
+        self.assertIn("did not finish in 4 hours", self.errors[0])
+        self.assertIn("partly or completely erased", self.errors[0])
+        self.assertIn(("remove",), self.log)         # our files go: a crash must not leave an autoinstall behind
+        self.assertEqual(self.restarts(), 1)         # only the one that loaded the settings
+
+    def test_a_confirmation_that_never_took_effect_restarts_an_idle_server_only(self):
+        # after the confirm the server reports WAITING (not a started state): with nothing mounted it is idle and is restarted,
+        # with the new system mounted it is installing and is left alone
+        rc = self.go(["NEEDS_CONFIRMATION", "WAITING"])
+        self.assertEqual(rc, 7)
+        self.assertIn("did not start after it was confirmed (state: WAITING)", self.errors[0])
+        self.assertEqual(self.restarts(), 2)
+        self.log.clear()
+        self.errors.clear()
+        # not mounted when the tool starts (idle installer), mounted by the time it gives up
+        rc = self.go(["NEEDS_CONFIRMATION", "WAITING"], target_mounted=[False, True])
+        self.assertEqual(rc, 7)
+        self.assertEqual(self.restarts(), 1)
 
     def test_server_that_rejects_the_settings_is_a_failure_before_any_confirm(self):
         rc = self.go(["ERROR"])
@@ -821,6 +1126,64 @@ class LiveSetupTests(unittest.TestCase):
             inter.assert_not_called()
 
 
+class PinToDockTests(unittest.TestCase):
+    """The live session of 26.04 has no desktop icons (ding@rastersoft.com is disabled by the live layer): the dock is the place."""
+
+    def run_pin(self, get_out, get_rc=0, set_rc=0, side_effect=None):
+        calls = []
+
+        def fake_sh(cmd, **kw):
+            calls.append(cmd)
+            if cmd[1] == "get":
+                return subprocess.CompletedProcess(cmd, get_rc, get_out, "")
+            return subprocess.CompletedProcess(cmd, set_rc, "", "")
+        with mock.patch.object(ai, "sh", side_effect=side_effect or fake_sh):
+            result = ai.pin_to_dock()
+        return result, calls
+
+    def test_the_launcher_goes_first_and_the_others_stay(self):
+        ok, calls = self.run_pin("['ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop', 'firefox_firefox.desktop']\n")
+        self.assertTrue(ok)
+        self.assertEqual(calls[1], ["gsettings", "set", "org.gnome.shell", "favorite-apps",
+                                    "['ci-os-auto-install.desktop', 'ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop', 'firefox_firefox.desktop']"])
+
+    def test_already_pinned_changes_nothing(self):
+        ok, calls = self.run_pin("['ci-os-auto-install.desktop', 'firefox_firefox.desktop']\n")
+        self.assertTrue(ok)
+        self.assertEqual(len(calls), 1)          # only the read
+
+    def test_an_empty_list_prints_as_at_as(self):
+        ok, calls = self.run_pin("@as []\n")
+        self.assertTrue(ok)
+        self.assertEqual(calls[1][-1], "['ci-os-auto-install.desktop']")
+
+    def test_failures_are_not_exceptions(self):
+        self.assertFalse(self.run_pin("", get_rc=1)[0])                       # no session bus
+        self.assertFalse(self.run_pin("garbage (", get_rc=0)[0])               # not a list
+        self.assertFalse(self.run_pin("[1, 2]\n")[0])                         # not strings
+        self.assertFalse(self.run_pin("['a.desktop']", set_rc=1)[0])           # set refused
+        self.assertFalse(self.run_pin("", side_effect=FileNotFoundError("gsettings"))[0])
+
+    def test_live_setup_pins_in_a_live_session_and_only_there(self):
+        with tempfile.TemporaryDirectory() as td:
+            launcher = os.path.join(td, "launcher.desktop")
+            write_text(launcher, "[Desktop Entry]\nName=x\n")
+            home = os.path.join(td, "home")
+            os.makedirs(home)
+            with mock.patch.dict(os.environ, {"HOME": home, "CI_OS_AI_CMDLINE": "boot=casper quiet"}), \
+                    mock.patch.object(ai, "LAUNCHER_SRC", launcher), \
+                    mock.patch.object(ai.os.path, "exists", side_effect=lambda p: p == "/cdrom/casper/vmlinuz" or os.path.lexists(p)), \
+                    mock.patch.object(ai, "sh"), mock.patch.object(ai, "pin_to_dock") as pin:
+                self.assertEqual(ai.live_setup(), 0)
+                pin.assert_called_once_with()
+            with mock.patch.dict(os.environ, {"HOME": home, "CI_OS_AI_CMDLINE": "root=/dev/nvme0n1p2 ro quiet"}), \
+                    mock.patch.object(ai, "LAUNCHER_SRC", launcher), \
+                    mock.patch.object(ai.os.path, "exists", side_effect=lambda p: False if p == "/cdrom/casper/vmlinuz" else os.path.lexists(p)), \
+                    mock.patch.object(ai, "pin_to_dock") as pin:
+                self.assertEqual(ai.live_setup(), 0)
+                pin.assert_not_called()
+
+
 class LockTests(unittest.TestCase):
     def test_second_instance_is_refused(self):
         with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": td}):
@@ -859,10 +1222,35 @@ class SourceRulesTests(unittest.TestCase):
         self.assertNotIn("shell=True", self.src)
         self.assertNotRegex(self.src, r"\bmkfs\b|\bwipefs\b|\bsgdisk\b|\bparted\b|\bdd\s+if=")
 
-    def test_no_zenity_options_that_24_04_does_not_have(self):
-        # zenity 4.0.1 (Ubuntu 24.04) rejects --class and --name: every dialog, including the confirmation, would fail.
+    # Long options in the helper that belong to something other than zenity: its own command line (argparse), curl, blockdev,
+    # curtin in-target.
+    NOT_ZENITY = {"--plan", "--disks", "--live-setup", "--max-time", "--unix-socket", "--getsize64", "--target"}
+
+    def test_every_zenity_option_exists_in_the_zenity_of_the_image(self):
+        # zenity 4.0.1 rejected --class and --name: every dialog, including the confirmation, failed. The list is
+        # `zenity --help-all` of zenity 4.2.1-1, the version in the Ubuntu 26.04.1 desktop image.
+        with open(os.path.join(HERE, "fixtures", "zenity-4.2.1-options.txt"), encoding="utf-8") as fh:
+            known = {line.strip() for line in fh if line.startswith("--")}
+        self.assertIn("--radiolist", known)
+        self.assertNotIn("--class", known)
+        used = set()
+        for node in ast.walk(ast.parse(self.src)):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                used.update(re.findall(r"(?<![\w-])--[a-z][a-z0-9-]*", node.value))
+        used -= self.NOT_ZENITY
+        self.assertTrue({"--question", "--default-cancel", "--list", "--progress", "--pulsate"} <= used)
+        self.assertEqual(sorted(used - known), [], "options the image's zenity does not have")
         self.assertNotIn("--class", self.src)
         self.assertNotIn("--name=", self.src)
+
+    def test_no_state_name_that_the_installer_does_not_have(self):
+        # every upper-case state name in a string of the helper is one the installer reports
+        names = set()
+        for node in ast.walk(ast.parse(self.src)):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and re.fullmatch(r"[A-Z][A-Z_]{3,}", node.value):
+                names.add(node.value)
+        looks_like_state = {n for n in names if n in set(SUBIQUITY_STATES) or n.startswith(("POST_", "UU_", "LATE_")) or n.endswith("_WAIT")}
+        self.assertEqual(sorted(looks_like_state - set(SUBIQUITY_STATES)), [])
 
     def test_the_run_dir_is_made_with_sudo_only(self):
         self.assertNotIn("os.makedirs(RUN_DIR", self.src)                  # /run is root's; the unprivileged user cannot

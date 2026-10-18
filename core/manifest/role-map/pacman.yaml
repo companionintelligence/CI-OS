@@ -140,12 +140,12 @@ rocm:
   packages: [rocm-hip-sdk]
   note: >-
     CONFIRMED official `extra` package (archlinux.org/packages/extra/any/rocm-hip-sdk),
-    currently 7.2.4-1 — the SAME version Ubuntu's backend pins for Strix Halo
-    (backends/ubuntu/lib/install-rocm-driver.sh), by coincidence of Arch's
-    current `extra` snapshot rather than by design. Unlike Ubuntu's pinned
-    install, Arch is rolling-release: this installs whatever `extra` resolves
-    to at run time, with no version pin (pinning would need the Arch Linux
-    Archive, not attempted here). A real, non-stubbed implementation.
+    currently 7.2.4-1. Arch is rolling-release: this installs whatever `extra`
+    resolves to at run time, with no version pin (pinning would need the Arch
+    Linux Archive, not attempted here). The Ubuntu backend takes the ROCm of the
+    Ubuntu 26.04 archive instead (backends/ubuntu/lib/install-rocm-driver.sh,
+    ROCm 7.1); the two are not kept at the same version. A real, non-stubbed
+    implementation.
 
 lact:
   install_method: pacman

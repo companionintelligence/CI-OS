@@ -41,7 +41,11 @@ flask_kind="$(python3 -B -c '
 import sys
 try:
     import flask
-    print("real Flask " + getattr(flask, "__version__", "?"))
+    try:
+        from importlib.metadata import version
+        print("real Flask " + version("flask"))      # flask.__version__ is deprecated (removed in Flask 3.2)
+    except Exception:
+        print("real Flask")
 except ImportError:
     print("stand-in (real Flask is not installed here; standin/flask.py)")
 ')"

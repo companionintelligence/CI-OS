@@ -36,7 +36,7 @@
 # Recoverable: Re-run after any failure. Steps are idempotent; use --no-headless
 # or --no-rebrand to skip completed parts.
 #
-# Requires: Ubuntu 24.04 (or compatible), root/sudo
+# Requires: Ubuntu 26.04 LTS, root/sudo
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================

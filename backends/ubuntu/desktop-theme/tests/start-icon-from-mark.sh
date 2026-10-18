@@ -21,7 +21,7 @@
 # It changes /usr/share of the machine it runs on, so run it in a throw-away container, with the repo mounted
 # read-only:
 #
-#   docker run --rm -v "$PWD:/repo:ro" ubuntu:24.04 bash /repo/backends/ubuntu/desktop-theme/tests/start-icon-from-mark.sh
+#   docker run --rm -v "$PWD:/repo:ro" ubuntu:26.04 bash /repo/backends/ubuntu/desktop-theme/tests/start-icon-from-mark.sh
 #
 # (CI_TEST_ALLOW_HOST=1 overrides the container check on a disposable VM.) Exit status is non-zero if any check
 # fails; 2 if it cannot run here.

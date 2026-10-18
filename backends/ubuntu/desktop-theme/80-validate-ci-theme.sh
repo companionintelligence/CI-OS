@@ -130,10 +130,10 @@ if [[ -f "/etc/os-release" ]]; then
         check_pass "CI_OS_ID=ci-os branding field present"
     fi
 
-    if grep -qE '^UBUNTU_CODENAME=(noble|resolute|jammy)' /etc/os-release 2>/dev/null; then
-        check_pass "UBUNTU_CODENAME set to a real Ubuntu suite"
+    if grep -qE '^UBUNTU_CODENAME=resolute$' /etc/os-release 2>/dev/null; then
+        check_pass "UBUNTU_CODENAME is resolute, the Ubuntu 26.04 suite apt and the vendor repositories expect"
     else
-        check_warn "UBUNTU_CODENAME missing or set to marketing codename 'ci'"
+        check_warn "UBUNTU_CODENAME is not resolute (missing, or the marketing codename 'ci')"
     fi
 else
     check_fail "/etc/os-release not found"
@@ -238,8 +238,7 @@ log_info "Checking session picker, Settings entry and extension names..."
 
 NAMES_SEEN=0
 NAMES_STOCK=0
-for names_file in /usr/share/xsessions/ubuntu.desktop /usr/share/xsessions/ubuntu-xorg.desktop \
-    /usr/share/wayland-sessions/ubuntu.desktop /usr/share/wayland-sessions/ubuntu-wayland.desktop \
+for names_file in /usr/share/wayland-sessions/ubuntu.desktop \
     /usr/share/applications/gnome-ubuntu-panel.desktop \
     /usr/share/gnome-shell/extensions/{ubuntu-dock,ubuntu-appindicators,tiling-assistant}@ubuntu.com/metadata.json; do
     [[ -f "$names_file" ]] || continue
@@ -338,6 +337,19 @@ for about_pair in "ubuntu-logo-text.png:light:$CI_LIGHT_PRIMARY" "ubuntu-logo-te
         canon_png_check "Settings > About logo $about_logo ($about_mode mode)" "/usr/share/pixmaps/$about_logo" solid "${about_fill#\#}"
     else
         check_warn "Settings > About logo is still Ubuntu's: $about_logo (needs rsvg-convert or ImageMagick: apt-get install librsvg2-bin, then apply-ci-os-desktop.sh --only about-logo)"
+    fi
+done
+
+# The SVG pair is what GNOME 50's Settings > About reads (the .png pair above is the older reader): the one-colour mark
+# with currentColor set to the canon primary of each mode, no currentColor left.
+for about_pair in "ubuntu-logo-text.svg:light:$CI_LIGHT_PRIMARY" "ubuntu-logo-text-dark.svg:dark:$CI_DARK_PRIMARY"; do
+    about_logo="${about_pair%%:*}"; about_rest="${about_pair#*:}"; about_mode="${about_rest%%:*}"; about_fill="${about_rest##*:}"
+    if [[ ! -f "/usr/share/pixmaps/$about_logo" ]]; then
+        check_warn "Settings > About SVG logo not found: /usr/share/pixmaps/$about_logo"
+    elif grep -qi "fill:${about_fill}" "/usr/share/pixmaps/$about_logo" 2>/dev/null && ! grep -q 'currentColor' "/usr/share/pixmaps/$about_logo" 2>/dev/null; then
+        check_pass "Settings > About SVG logo $about_logo ($about_mode mode) is the mark in $about_fill"
+    else
+        check_warn "Settings > About SVG logo is still Ubuntu's: $about_logo (run: apply-ci-os-desktop.sh --only about-logo)"
     fi
 done
 

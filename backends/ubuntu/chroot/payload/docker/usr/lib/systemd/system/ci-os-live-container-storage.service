@@ -2,7 +2,7 @@
 Description=Companion OS live session: backing store for Docker and containerd
 Documentation=file:///usr/share/doc/ci-os/live-docker.md
 # Live sessions only (plain ISO and Companion Stick). /cdrom is where casper mounts the boot medium; the stock
-# Ubuntu 24.04 live session has no boot=casper on its command line, so the medium is the reliable marker.
+# Ubuntu live session (26.04.1) has no boot=casper on its command line, so the medium is the reliable marker.
 ConditionPathExists=/cdrom/casper/vmlinuz
 Before=containerd.service docker.service
 

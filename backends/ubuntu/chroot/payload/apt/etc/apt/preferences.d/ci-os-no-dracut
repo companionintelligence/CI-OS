@@ -1,0 +1,14 @@
+# Companion OS: apt must never swap the initramfs generator of this system.
+#
+# The stock Ubuntu 26.04 desktop image installs dracut (it Conflicts with initramfs-tools). Its live layer swaps dracut out
+# for initramfs-tools, and the base image Companion OS installs from is the live system's view of it: an initramfs-tools
+# system (casper needs that generator, and so does the install-time update-initramfs the installer runs). ubuntu-desktop-minimal
+# Recommends dracut, so without this file a later `apt install` or upgrade could pull dracut back in and remove
+# initramfs-tools, and the next kernel update would build a different kind of initrd than the one that was tested.
+#
+# Priority -1 means "never install". Only the generator itself is pinned: dracut and dracut-core. dracut-install is
+# NOT: it is a helper that initramfs-tools-core depends on, so pinning it would freeze it at the installed version and
+# keep its security updates out (measured with `apt-get -s dist-upgrade` on 26.04).
+Package: dracut dracut-core
+Pin: release *
+Pin-Priority: -1
