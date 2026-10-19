@@ -139,9 +139,11 @@ check() { # check "<label>" <command...>
 # ── extract what we need ────────────────────────────────────────────────────
 echo "ISO: $ISO ($(du -h "$ISO" | cut -f1))"
 ISOX="$WORK/iso"; mkdir -p "$ISOX"
+# loopback.cfg in its own run: the arm64 ISO has none, and an -extract of an absent path aborts the rest of its xorriso command line
+# (the first arm64 verify stopped with "could not extract /casper/minimal.squashfs" for this reason).
+xorriso -osirrox on -indev "$ISO" -extract /boot/grub/loopback.cfg "$ISOX/loopback.cfg" >/dev/null 2>&1
 xorriso -osirrox on -indev "$ISO" \
     -extract /boot/grub/grub.cfg "$ISOX/grub.cfg" \
-    -extract /boot/grub/loopback.cfg "$ISOX/loopback.cfg" \
     -extract /.disk/info "$ISOX/disk-info" \
     -extract /casper/initrd "$ISOX/initrd" \
     -extract /casper/install-sources.yaml "$ISOX/install-sources.yaml" \
@@ -740,8 +742,10 @@ casper_kernel_lines() { # casper_kernel_lines <menu>: the `linux /casper/vmlinuz
 }
 stock_kernel_line() { # a squeezed kernel line on stdin is the stock shape: only the words the stock menus use, and the one Companion adds
     awk '{ bad = ($1 != "linux" || $2 != "/casper/vmlinuz")
-           for (i = 3; i <= NF && $i != "---"; i++) if ($i != "nomodeset" && $i != "iso-scan/filename=${iso_path}" && $i != "ci.autoinstall=1") bad = 1
-           if ($i != "---" || $(i + 1) != "quiet" || $(i + 2) != "splash" || NF != i + 2) bad = 1
+           for (i = 3; i <= NF && $i != "---"; i++) if ($i != "nomodeset" && $i != "$cmdline" && $i != "iso-scan/filename=${iso_path}" && $i != "ci.autoinstall=1") bad = 1
+           # after the "---": quiet splash, and on the arm64 stock menu also console=tty0
+           if ($i != "---" || $(i + 1) != "quiet" || $(i + 2) != "splash") bad = 1
+           else if (NF != i + 2 && !(NF == i + 3 && $(i + 3) == "console=tty0")) bad = 1
            exit bad }'
 }
 
@@ -957,6 +961,9 @@ else pass "minimal.manifest does not list casper"; fi
 # carries the layer path in its own configuration), and a parameter such as boot= or layerfs-path= is how a change to
 # the layer layout gets "fixed" in the menu instead of in the layers. The one Companion addition is ci.autoinstall=1.
 for menu in grub.cfg loopback.cfg; do
+    if [[ ! -s "$ISOX/$menu" && "$menu" == loopback.cfg && "$VARCH" == arm64 ]]; then
+        note "$menu: the arm64 ISO has none (it is a GRUB-from-a-file feature of the x86-64 image)"; continue
+    fi
     if [[ ! -s "$ISOX/$menu" ]]; then fail "could not extract $menu from the ISO"; continue; fi
     klines="$(casper_kernel_lines "$ISOX/$menu")"
     nk="$(printf '%s\n' "$klines" | grep -c . || true)"; nbad=0
@@ -976,6 +983,8 @@ if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
             stock="$(casper_kernel_lines "$BASEMENU/$menu" | sort -u)"
             if [[ "$ours" == "$stock" ]]; then pass "$menu: the kernel lines equal the base ISO's (apart from ci.autoinstall=1)"
             else fail "$menu: the kernel lines differ from the base ISO's"; fi
+        elif [[ "$menu" == loopback.cfg && "$VARCH" == arm64 && ! -s "$BASEMENU/$menu" && ! -s "$ISOX/$menu" ]]; then
+            note "$menu: neither the base ISO nor this one has it (arm64): nothing to compare"
         else
             fail "$menu: could not compare the kernel lines with the base ISO's"
         fi
@@ -1047,7 +1056,12 @@ else
 fi
 check "/etc/issue is Companion OS" file_has "$R/etc/issue" 'Companion OS'
 check "installed-system hostname is companion-os" file_has "$R/etc/hostname" '^companion-os$'
-check "GRUB_DISTRIBUTOR is Companion OS" file_has "$R/etc/default/grub" '^GRUB_DISTRIBUTOR="Companion OS"'
+if [[ "$VARCH" == arm64 && ! -e "$R/etc/default/grub" ]]; then
+    note "GRUB_DISTRIBUTOR: the arm64 base image has no /etc/default/grub (the installer installs GRUB); the installed GRUB names itself from os-release: $(sed -n 's/^NAME=//p' "$R/etc/os-release" | head -1)"
+    check "arm64: os-release NAME is Companion OS (what the installed GRUB's GRUB_DISTRIBUTOR reads)" grep -q -x 'NAME="Companion OS"' "$R/etc/os-release"
+else
+    check "GRUB_DISTRIBUTOR is Companion OS" file_has "$R/etc/default/grub" '^GRUB_DISTRIBUTOR="Companion OS"'
+fi
 check "live session host name is not 'ubuntu'" bash -c "! grep -q -E '^export HOST=\"ubuntu\"' '$CASPER_CONF'"
 check "live session user is not 'ubuntu'" bash -c "! grep -q -E '^export USERNAME=\"ubuntu\"' '$CASPER_CONF'"
 check "casper keeps BUILD_SYSTEM=Ubuntu (casper logic depends on it)" file_has "$CASPER_CONF" '^export BUILD_SYSTEM="Ubuntu"'
@@ -1595,7 +1609,9 @@ fi
 
 # The installed system's GRUB background is rendered by the same script and must be the same kind of file.
 GRUB_BG_ROOT="$R/usr/share/pixmaps/ci-os-grub-bg.png"
-if [[ -f "$GRUB_BG_ROOT" ]] && png_is "$GRUB_BG_ROOT"; then
+if [[ "$VARCH" == arm64 && ! -e "$R/etc/default/grub" ]]; then
+    note "installed-system GRUB background: not made on arm64 (no GRUB in the base image to configure)"
+elif [[ -f "$GRUB_BG_ROOT" ]] && png_is "$GRUB_BG_ROOT"; then
     d="$(png_depth "$GRUB_BG_ROOT")"
     if [[ "$d" == 8 ]]; then pass "installed-system GRUB background (/usr/share/pixmaps/ci-os-grub-bg.png) has 8-bit depth"; else fail "installed-system GRUB background has IHDR bit depth ${d:-unknown} (want 8)"; fi
 else
@@ -1927,7 +1943,9 @@ if [[ -n "$OVL_OFF" ]]; then
 fi
 # The no-tool fallback in render-grub-background.sh leaves a ~17 byte placeholder, so check the size too.
 grub_bg_size="$(awk '$NF == "/usr/share/pixmaps/ci-os-grub-bg.png" {print $3; exit}' "$LISTING")"
-if [[ -n "$grub_bg_size" && "$grub_bg_size" -ge 5000 ]]; then
+if [[ "$VARCH" == arm64 && ! -e "$R/etc/default/grub" ]]; then
+    note "GRUB background image of the installed system: not made on arm64 (the live menu's background is /boot/grub/ci-os-bg.png, checked above)"
+elif [[ -n "$grub_bg_size" && "$grub_bg_size" -ge 5000 ]]; then
     pass "GRUB background image is installed (${grub_bg_size} bytes)"
 else
     fail "GRUB background image is missing or a placeholder (${grub_bg_size:-absent} bytes): build host lacks rsvg-convert/imagemagick?"
