@@ -10,7 +10,7 @@ and the gates. This file only restates the rules every agent tool must follow.
 
 Builds, themes and provisions **Companion OS**, the Companion Intelligence appliance OS, for exactly two supported targets:
 **Companion OS on Ubuntu 26.04.1 LTS (resolute)**, in `backends/ubuntu/`, and **Companion OS on CachyOS (Plasma edition)**, in
-`backends/cachyos/`. Shared logic is in `core/`; the Companion Stick CLI is in `stick/` (Rust, first-class inside `stick/` only).
+`backends/cachyos/`. The Ubuntu target is built for **amd64 and arm64** (`build-iso.sh --arch`; arm64 became a supported architecture on 2026-10-19, see `docs/architecture/arm64.md`); the Plasma edition is x86-64 only. Shared logic is in `core/`; the Companion Stick CLI is in `stick/` (Rust, first-class inside `stick/` only).
 `backends/arch/` is **not a target**: it is the frozen pacman provisioning engine under CachyOS (change it only on an explicit
 decision). Policy, capability matrix and evidence tags: `docs/architecture/supported-targets.md`. Documentation index:
 `docs/README.md`. Design: `docs/architecture/multi-distro-design.md`.

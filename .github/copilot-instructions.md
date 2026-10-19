@@ -8,7 +8,7 @@ by Lifescope Inc.
 `AGENTS.md` restates the rules below.
 
 - CI-OS builds and provisions the appliance OS (**Companion OS**, no hyphen) for exactly two supported targets: Ubuntu 26.04.1 LTS
-  (`backends/ubuntu/`) and CachyOS, Plasma edition (`backends/cachyos/`). Shared logic is in `core/`; the Companion Stick CLI is in
+  (`backends/ubuntu/`) and CachyOS, Plasma edition (`backends/cachyos/`). The Ubuntu target is built for **amd64 and arm64** (`build-iso.sh --arch`; arm64 became a supported architecture on 2026-10-19, see docs/architecture/arm64.md); the Plasma edition is x86-64 only. Shared logic is in `core/`; the Companion Stick CLI is in
   `stick/` (Rust, inside `stick/` only). `backends/arch/` is the frozen provisioning engine under CachyOS, not a target: do not edit it.
 - Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from tag `pre-retire-multidistro-2026-10-17`; do not re-add them as new files). The check script rejects their names.
 - Policy and the capability matrix with evidence tags (**[V]** verified, **[I]** implemented not proven, **[N]** not implemented):

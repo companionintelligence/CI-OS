@@ -27,7 +27,8 @@ spellings ("CI OS", "Companion Ubuntu", ...) in `backends/`, `core/` and `.githu
 | Backend | `backends/ubuntu/` | `backends/cachyos/` (+ `backends/arch/` as its engine) |
 | Mechanism | remaster the stock 26.04.1 Desktop ISO: merge its squashfs layers, customise in a chroot, split into installer base and live layer, repack | pinned CachyOS-Live-ISO (archiso) profile + overlay, stock `mkarchiso` in a Docker container; Calamares online installer |
 | Build host | root on Ubuntu 26.04 (stops on any other host) | any host with Docker |
-| Stick boot / Secure Boot / one-click install | yes / inherited from the base ISO / yes, unproven | no / no / no |
+| Architectures | amd64, and arm64 since 2026-10-19 (`--arch arm64`; Companion Capture is x86-64 only; `docs/architecture/arm64.md`) | x86-64 only |
+| Stick boot / Secure Boot / one-click install | yes (amd64) / inherited from the base ISO / yes, unproven | no / no / no |
 
 The policy, the full capability matrix, the evidence tags (**[V]** verified, **[I]** implemented not proven, **[N]** not
 implemented) and the restore recipe are in `docs/architecture/supported-targets.md`. Read the caveats there before you claim that
@@ -88,6 +89,7 @@ No single one: apt/dpkg on Ubuntu, pacman on CachyOS (through `backends/arch/`).
 
 ```bash
 # Build the Ubuntu ISO: root, on Ubuntu 26.04 with Yaru installed (build-iso.sh stops on any other host)
+# arm64: add --arch arm64 and give the arm64 desktop ISO (cdimage.ubuntu.com) as --base-iso; see docs/architecture/arm64.md
 sudo ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso ./ubuntu-26.04.1-desktop-amd64.iso
 VERIFY_BASE_ISO=./ubuntu-26.04.1-desktop-amd64.iso backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-*.iso
 

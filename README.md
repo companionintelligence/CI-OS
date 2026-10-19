@@ -10,7 +10,7 @@ Companion OS uses the [PolyForm Noncommercial License 1.0.0](LICENSE.md). See th
 
 ## What Companion OS is
 
-1. Companion OS is the operating system of the Companion Intelligence appliance: a private, local-first AI memory box that runs on an ordinary x86-64 PC.
+1. Companion OS is the operating system of the Companion Intelligence appliance: a private, local-first AI memory box that runs on an ordinary x86-64 PC (the Ubuntu edition also builds for arm64, see [`docs/architecture/arm64.md`](docs/architecture/arm64.md)).
 2. It comes in two editions, both live-and-installer ISOs: one on **Ubuntu 26.04.1 LTS** (GNOME) and a **Plasma edition based on CachyOS**.
 3. A first-boot step provisions Docker, Ollama with three local models, CI Hub and the network tools. A machine with no screen is reached through a Wi-Fi setup hotspot.
 4. The **Companion Stick** (`ci-stick`) turns a USB stick into a bootable, verifiable carrier for the Ubuntu edition, its installers and its model packs.
@@ -41,7 +41,7 @@ The support policy and the full capability matrix are in [`docs/architecture/sup
 |---|---|---|
 | Base | The stock Ubuntu 26.04.1 LTS Desktop ISO, repacked. GNOME 50, one Wayland session. | The pinned CachyOS-Live-ISO profile (archiso) plus a Companion overlay. KDE Plasma 6. |
 | Backend | `backends/ubuntu/` | `backends/cachyos/` (runs `backends/arch/` on first boot) |
-| Image | `companion-os-<version>-amd64.iso`, 7,076,577,280 bytes in both full builds **[V]** | `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso`, 3,217,129,472 bytes **[V]** |
+| Image | `companion-os-<version>-amd64.iso`, 7,076,577,280 bytes in both full builds **[V]**; `-arm64.iso` for arm64 (supported since 2026-10-19, [`arm64.md`](docs/architecture/arm64.md)) | `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso`, 3,217,129,472 bytes **[V]** |
 | Build host | Ubuntu 26.04 as root; a privileged container on a Mac | Any host with Docker |
 | Package source | Ubuntu archive at build time, vendor apt repositories with pinned keys | CachyOS and Arch repositories, rolling, on build day and again on install day |
 | Installer | Canonical's installer, plus "Install Companion OS (automatic)" | Calamares, online only |

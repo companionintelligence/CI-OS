@@ -2,6 +2,7 @@
 
 > Private & Confidential. Property of Lifescope Inc. Do not distribute.
 > Policy page. Decision of 2026-10-17 (owner): "only support cachyos and ubuntu 26, retire 24".
+> Decision of 2026-10-19 (owner, in chat, asked whether arm64 should be promoted from experimental to a supported target): "yes". arm64 is a second architecture of the Ubuntu target, not a third target ([section 2](#2-what-supported-means), [`arm64.md`](arm64.md)).
 > Last checked against the tree and the evidence on 2026-10-18 (commit `02c575e` for the Ubuntu rows, the Plasma ISO #6 run of the same day, built from `ad37b64`, for the Plasma rows, plus the uncommitted documentation work).
 
 Companion OS has two supported targets. Everything else is retired. This page is the single place that says what that means, what
@@ -28,7 +29,8 @@ single owner of the status of a run: this page quotes it, it does not restate it
 | Backend | `backends/ubuntu/` | `backends/cachyos/`, with `backends/arch/` as its frozen provisioning engine |
 | Base | The stock Ubuntu 26.04.1 Desktop ISO (`resolute`, sha256 `601e30fb...da1f`), repacked. 26.04.0 and every 24.04 image are not bases. | The pinned CachyOS-Live-ISO profile (archiso, commit `3215497d`, fallback `4937780`) plus a Companion overlay, built with the stock `mkarchiso` |
 | Desktop | GNOME 50, one Wayland session | KDE Plasma 6 with `plasma-login-manager` |
-| Image | `companion-os-<version>-amd64.iso` | `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso` |
+| Architectures | **amd64** (the reference) and **arm64** (since 2026-10-19; one image per architecture; Companion Capture has no arm64 build) | x86-64 only |
+| Image | `companion-os-<version>-amd64.iso`, `companion-os-<version>-arm64.iso` | `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso` |
 | Build entry point | `backends/ubuntu/iso/scripts/build-iso.sh`, as root on Ubuntu 26.04 | `backends/cachyos/iso/scripts/build-iso.sh`, any host with Docker |
 | Verifier | `backends/ubuntu/iso/scripts/verify-iso.sh` | `backends/cachyos/iso/scripts/verify-iso.sh` |
 | Where the details live | [`backends/ubuntu/iso/README.md`](../../backends/ubuntu/iso/README.md), [`ubuntu-iso-layers.md`](ubuntu-iso-layers.md) | [`backends/cachyos/README.md`](../../backends/cachyos/README.md), [`cachyos-backend.md`](cachyos-backend.md) |
@@ -50,6 +52,8 @@ A target is supported when the repository does all of the following for it, and 
 5. **It is the subject of maintenance.** A defect in a supported target is fixed in this repository; documentation, workflows and
    tests follow the target.
 
+For an architecture the five points apply to its image: arm64 meets them with the gaps that [`arm64.md`](arm64.md#gaps-against-the-five-points) names (no CI job, no fixture self-test of the verifier's arm64 branches, one run on one host).
+
 "Supported" does **not** mean released, signed, hosted or proven on real hardware. No Companion OS image is published today and no
 run on physical hardware is recorded for either target ([N]; see [known issues](known-issues-and-decisions.md)).
 
@@ -63,6 +67,7 @@ remaining capture records of the QEMU runs are still in a session scratch direct
 |---|---|---|
 | Image build | **[V]** Clean checkout at `02c575e`: `build-iso.sh --clean` exited 0 after **772 s** (12 min 52 s) in a privileged ARM64 `ubuntu:26.04` container on an Apple-silicon Mac on 2026-10-18 and produced `companion-os-1.0-amd64.iso`, 7,076,577,280 bytes, sha256 `709b8485...f5cf` (`docs/evidence/2026-10-18-ubuntu-clean-02c575e/`). The earlier full build of a worktree snapshot during the fix pass (version string 9.9, `dce9eb71...6a11`) took 860 s and gave the same size. | **[V]** Six ISOs built, 2026-10-16 to 2026-10-18; every ISO whose size is recorded (#1, #2, #4, #5, #6) is 3,217,129,472 bytes. 25 to 26 minutes on a lightly loaded host (ISO #4 26 min, ISO #5 25 min, ISO #6 about 26 min, from the clean commit `ad37b64`; `docs/evidence/2026-10-18-plasma-iso6/`), 31 to 37 minutes under Rosetta on a loaded one (`cachyos-backend.md`, Test status). |
 | Static verification | **[V]** `verify-iso.sh` with `VERIFY_BASE_ISO` and `VERIFY_REQUIRE_CANON=1` on the clean-checkout image: 393 passed, 0 failed, 0 skipped in 34 s (`docs/evidence/2026-10-18-ubuntu-clean-02c575e/verify.log`); the same count on the fix-pass image. | **[V]** `verify-iso.sh` on ISO #6: **215 passed, 0 failed**, no skipped group, about 84 s (`docs/evidence/2026-10-18-plasma-iso6/verify.log`); it includes the checks of the compatibility libraries, the first-boot properties and the explicit Calamares time limits. 187 passed, 0 failed on ISO #2. **No `verify-iso.sh` log of ISO #4 or ISO #5 was kept** (test-evidence, Plasma row 8: done for ISO #6). |
+| arm64 image (the second architecture of the Ubuntu target) | **[V]** built natively twice, verified (436 passed, 0 failed), live desktop, one-click install, installed boot, first-boot provisioning with Hub up, all in QEMU with HVF on an Apple-silicon Mac, 2026-10-19 (`docs/evidence/2026-10-19-ubuntu-arm64/`, [`arm64.md`](arm64.md)). Companion Capture is absent (no arm64 build). Secure Boot, real hardware, the Stick and CI are **[N]**. | **[N]** x86-64 only. |
 | Size against the Stick slot | **[V]** 7,076,577,280 bytes against the 8 GiB (8,589,934,592) slot of a 64 GB stick; `verify-iso.sh` section 9 fails an image above it. | n/a, the Stick cannot boot this image. |
 | Live session boots | **[V]** The themed GRUB menu of the fix-pass image draws under the Secure Boot OVMF variant. The GNOME live desktop: **pending** (test-evidence U3, U4, U5). | **[V]** UEFI GRUB to the Plasma desktop under QEMU/OVMF with software emulation; first frame 4 min 10 s after Enter (ISO #4), 4 min 05 s (ISO #5), 5 min 08 s (ISO #6, a busier host; settled after 6 min 38 s). Frames: `docs/ui/companion-os/plasma/`. |
 | Installer | Canonical's installer (`ubuntu-desktop-bootstrap`, subiquity), plus "Install Companion OS (automatic)". | Calamares (`cachyos-calamares-next`) with a Companion overlay. Online only. |
@@ -91,6 +96,7 @@ remaining capture records of the QEMU runs are still in a session scratch direct
   image **[V]**. An amd64 `ubuntu:26.04` container is "may fail": on 2026-10-17 one on Docker Desktop for Apple silicon failed with GNU tar
   1.35 "Function not implemented" under Rosetta (`stick/tests/secureboot/build-in-container.sh` checks for it first), and on 2026-10-18 another
   one ran `installed-boot.sh --no-boot` to the end (25 PASS). The trigger was not isolated **[N]**.
+* **arm64** is a supported architecture of this target since 2026-10-19, with the limits of [`arm64.md`](arm64.md): QEMU/HVF only, no Secure Boot or hardware run, no `ci-stick` support, no Capture, no CI job, and the installed system reads "degraded" on non-Snapdragon machines (`pd-mapper.service`, KI-28).
 * **The installer window stays Ubuntu's.** It is Canonical's snap; "Welcome to Ubuntu" and the roundel are inside it. The launcher
   label and the last page read "Companion OS" through `/.disk/info`. The one-click path uses its own progress window.
 * **Installer base layer and live layer.** The image is split so that the installed system never receives live-only content

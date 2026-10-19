@@ -39,7 +39,7 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 | KI-25 | The `docker` group is root-equivalent for every `sudo` member of the installed system | decision | Medium | owner to assign |
 | KI-26 | Plasma edition leftovers found by the ISO #6 run: log noise, a greeter without the Companion mark, installer copy that does not match the installed system | defect, cosmetic | Low | owner to assign |
 | KI-27 | First install of the clean-checkout Ubuntu image (2026-10-18): the first graphical login failed twice while the first boot was still working, boot stayed "not finished" for 30+ minutes, the desktop-icons process was relaunched every 4 s, and the first-run screens and login text still carry Ubuntu branding | defect, gap | High (login) to Low (branding) | owner to assign |
-| KI-28 | The arm64 build of the Ubuntu edition (experimental): built, verified (436/0), installed in 12 min and booted natively on an Apple-silicon Mac; the system reads `degraded` on non-Snapdragon hardware, Capture is absent, Secure Boot and real hardware are unproven, and whether it becomes a supported target is undecided | gap, decision | Medium | owner to assign |
+| KI-28 | The arm64 build of the Ubuntu edition (a supported architecture since 2026-10-19): built, verified (436/0), installed in 12 min and booted natively on an Apple-silicon Mac; the system reads `degraded` on non-Snapdragon hardware, Capture is absent, Secure Boot, real hardware, Stick support and a CI job are missing | gap, decision | Medium | owner to assign |
 
 ## KI-01 Model pulls have no disk-space guard
 
@@ -354,7 +354,7 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 | No CI builds arm64 | the workflow is x86-64 and manual | GitHub-hosted arm64 runners for a private repository: unverified |
 | Hub on arm64 needs Docker Compose 2.33+ (Hub's own requirement); the image bakes Docker's current Compose | the Hub containers ran | |
 
-**Decision needed.** Whether arm64 becomes a supported target ([supported-targets.md](supported-targets.md#8-how-a-target-is-added-or-brought-back) lists what that needs), and which arm64 hardware to test first.
+**Decided 2026-10-19 (owner, in chat):** arm64 is a supported architecture of the Ubuntu target ([supported-targets.md](supported-targets.md)); the gaps are listed in [arm64.md](arm64.md#gaps-against-the-five-points). **Still open:** which arm64 hardware to test first, a fixture self-test of the verifier's arm64 branches, a CI job that builds arm64, and a safe condition for `pd-mapper.service` (a wrong one would break audio on a Snapdragon X).
 
 ## Also open, kept in their source pages
 

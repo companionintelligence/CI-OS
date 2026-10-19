@@ -1,7 +1,7 @@
 # Companion OS on arm64
 
 > **Private & Confidential. Property of Lifescope Inc. Do not distribute.**
-> State of 2026-10-19. **An experimental build option, not a supported target** (the policy is [supported-targets.md](supported-targets.md); section 8 there says what a promotion needs). Evidence tags: **[V]** run and seen, **[I]** implemented, not run, **[N]** not done.
+> State of 2026-10-19. **A supported architecture of the Ubuntu 26.04.1 target since 2026-10-19** (owner decision; the policy is [supported-targets.md](supported-targets.md)). Supported means the five points of its section 2, with the gaps listed [below](#gaps-against-the-five-points); it does not mean proven on real hardware. Evidence tags: **[V]** run and seen, **[I]** implemented, not run, **[N]** not done.
 
 `build-iso.sh --arch arm64` remasters Canonical's **Ubuntu 26.04.1 desktop arm64** ISO the way the amd64 build remasters the amd64 one. The result is the same product on an arm64 machine: the Companion dock, links and welcome page, the one-click installer, the first-boot setup, Companion Hub started headless, and Ollama with the small models. One piece is missing: **Companion Capture publishes no Linux arm64 build**, so an arm64 image does not bake it.
 
@@ -55,4 +55,16 @@ To boot it on an Apple-silicon Mac at near-native speed: `qemu-system-aarch64 -m
 * **Real hardware** [N]: Snapdragon X, Ampere, Raspberry Pi 5 or a Mac under another hypervisor. Nothing here ran on any of them (KI-17 applies to arm64 too).
 * **Companion Stick** [N]: `ci-stick` and its boot chain are x86-64 (`stick/crates/ci-stick/src/host.rs` says arm64 boot images are not built). An arm64 ISO can be written to a USB stick by other means; `ci-stick flash` will not take it.
 * **GitHub Actions** [N]: no workflow builds arm64; the existing one is x86-64 and gated to manual dispatch.
-* **The amd64 image from the same branch** has to be rebuilt and verified (the commands above with `--arch amd64` or none) before this is merged into an amd64 release.
+* **The amd64 image from the same branch**: rebuilt from `331df4d` and verified, **444 passed, 0 failed** (`../evidence/2026-10-19-ubuntu-amd64-331df4d/`) [V]. It was not booted; the amd64 desktop shortcuts have still not been seen to render [I].
+
+## Gaps against the five points
+
+The five points of [supported-targets.md, section 2](supported-targets.md#2-what-supported-means), for the arm64 image:
+
+| Point | State |
+|---|---|
+| 1. It builds | **[V]** a documented command (above); built twice natively, 19 min each. |
+| 2. Verified without booting | **[V]** `verify-iso.sh` reads the architecture from the volume id and passed 436 checks on the arm64 image. **Gap [N]:** the arm64 branches of the verifier (EFI names, the no-GRUB case, the `$cmdline` menu line, Capture expected absent) have no good-and-broken fixture self-test; they were exercised only by the real image. |
+| 3. Fast tests in the gate | **[V]** the architecture handling of `customize-chroot.sh` is pinned by `customize-chroot-checks.sh` (section 11, mutation-tested), and the new first-boot and welcome scripts have their own suites. **Gap [N]:** no job builds an arm64 image; the build is run by hand. |
+| 4. Limits written | **[V]** this page and KI-28. |
+| 5. Maintenance | A defect in the arm64 image is fixed here. **Gap:** with no CI job for arm64, a change that breaks only the arm64 build is found by the next hand build, so rebuild it before a release. |
