@@ -1,0 +1,19 @@
+2026-10-19T23:12:25Z | Power on with the stick image: the boot menu
+2026-10-19T23:12:49Z | Choose "Install Companion OS (automatic)"
+2026-10-19T23:13:05Z | The live system starts (about two minutes)
+2026-10-19T23:14:30Z | Canonical's installer opens first. Close it: the one-click dialog is behind it
+2026-10-19T23:14:54Z | One dialog: the disk, what is on it, the language, keyboard and time zone
+2026-10-19T23:14:59Z | "Language, keyboard, time zone...": type to search
+2026-10-19T23:15:46Z | The confirmation names the choice. One click installs
+2026-10-19T23:15:56Z | Installing (about 11 minutes, sped up)
+2026-10-19T23:27:34Z | The installed system starts for the first time
+2026-10-19T23:28:36Z | The sign-in screen is in German
+2026-10-19T23:28:56Z | Sign in with the one-time password, then choose your own
+2026-10-19T23:29:56Z | The desktop is German too; the Companion welcome page opens
+2026-10-19T23:30:58Z | First-boot setup: waiting for the internet
+2026-10-19T23:31:14Z | Setting up Companion OS in the background
+2026-10-19T23:31:44Z | Step 1 of 7: preparing the system
+2026-10-19T23:31:59Z | Step 5 of 7: the AI models (the longest step)
+2026-10-19T23:32:29Z | Step 7 of 7: Companion Hub
+2026-10-19T23:33:13Z | Companion OS is ready, 2 min 11 s after the setup started
+2026-10-19T23:34:39Z | -

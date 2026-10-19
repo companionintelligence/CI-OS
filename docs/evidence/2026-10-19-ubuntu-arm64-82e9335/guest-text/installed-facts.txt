@@ -1,0 +1,92 @@
+== image
+PRETTY_NAME="Companion OS 1.0"
+VERSION_ID="26.04"
+== locale (session)
+LANG=de_DE.UTF-8
+LANGUAGE=
+LC_CTYPE="de_DE.UTF-8"
+== localectl
+System Locale: LANG=de_DE.UTF-8
+    VC Keymap: (unset)
+   X11 Layout: de
+    X11 Model: pc105
+== /etc/default/locale
+LANG=de_DE.UTF-8
+== /etc/default/keyboard
+XKBMODEL="pc105"
+XKBLAYOUT="de"
+XKBVARIANT=""
+== time zone
+Europe/Berlin
+Europe/Berlin
+yes
+Di 20. Okt 01:37:59 CEST 2026
+== language packs
+language-pack-de language-pack-de-base language-pack-en language-pack-en-base 
+== locales generated
+de_DE.utf8 en_US.utf8 
+== autoinstall file left behind?
+ls: cannot access '/autoinstall.yaml': No such file or directory
+-r-------- 1 root root 3040 Oct 20 01:23 /var/log/installer/autoinstall-user-data
+== subiquity: what the installer applied
+grep: /var/log/installer/autoinstall-user-data: Keine Berechtigung
+== setup status file
+-rw-r--r-- 1 root root 79 Oct 20 01:33 /var/lib/ci-os/setup-status
+state=done
+step=7
+steps=7
+title=Companion OS is set up
+detail=
+time=1792452788
+== marker
+Mo 19. Okt 23:33:08 UTC 2026
+== ready stamp
+-rw-rw-r-- 1 companion companion 0 Oct 20 01:33 /home/companion/.config/ci-os/setup-ready-shown
+== setup-progress is installed
+-rw-r--r-- 1 root root  244 Oct 20 00:46 /etc/xdg/autostart/ci-os-setup-progress.desktop
+-rwxr-xr-x 1 root root 3811 Oct 20 00:47 /usr/lib/ci-os/bootstrap/core/lib/setup-status.sh
+-rwxr-xr-x 1 root root 5008 Oct 20 00:46 /usr/libexec/ci-os/setup-progress
+== setup-progress process now
+== sha256 of the shipped scripts
+4ef5663ac17fa823d892dad2177484f051f32a0c3b3b698e07e36b0b8e2731b0  /usr/libexec/ci-os/setup-progress
+6d3aa72989a72f3338a8181ab582ae54c7690ffb25eb0c5276799c638f47ee4f  /usr/lib/ci-os/bootstrap/core/lib/setup-status.sh
+c7e5439d90ca336512dc291672cd53909b2967a0b21847821d31cb837a0dbde8  /etc/xdg/autostart/ci-os-setup-progress.desktop
+== ci-os-info
+======================================
+  Companion OS System Information
+======================================
+
+OS: Companion OS 1.0
+Version: 26.04
+Codename: resolute
+
+Kernel: 7.0.0-38-generic
+
+Companion
+  Setup:    finished Mo 19. Okt 23:33:08 UTC 2026
+  Hub:      answering at http://10.0.2.15:5002
+            or http://companion-os.local:5002
+  Models:   gemma3:1b, nomic-embed-text:latest
+  Disk:     19G used of 62G (32%)
+  Health:   1 failed service(s); list them with: systemctl --failed
+
+AMD GPU Information:
+No AMD GPU detected
+
+User groups: companion adm cdrom sudo dip plugdev users lpadmin lxd docker
+
+======================================
+For support: https://ci.computer/support
+======================================
+== first-boot log head/tail
+[CI-OS] First-boot setup starting at Mo 19. Okt 23:30:57 UTC 2026
+[CI-OS] Waiting for network...
+[CI-OS] Network available.
+[0;34m[INFO][0m No desktop user to configure; GNOME power mode stays at its default.
+[CI-OS] First-boot setup completed at Mo 19. Okt 23:33:08 UTC 2026
+[CI-OS] Log saved to /var/log/ci-os-first-boot-setup.log
+== journal: first-boot unit
+2026-10-20T01:30:57+02:00 companion-os systemd[1]: Starting ci-os-first-boot-setup.service - Companion OS first-boot development environment setup...
+2026-10-20T01:33:08+02:00 companion-os systemd[1]: ci-os-first-boot-setup.service: Consumed 10.247s CPU time over 2min 11.002s wall clock time, 798.2M memory peak.
+== failed units
+● pd-mapper.service loaded failed failed Qualcomm PD mapper service

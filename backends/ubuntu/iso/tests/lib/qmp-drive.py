@@ -7,6 +7,7 @@
                                              QMP_LAYOUT=de types for a guest whose keyboard is German (QWERTZ): QMP sends physical keys, so
                                              the text needs y and z swapped, "-" on the slash key, ":" on shift+dot and so on
   qmp-drive.py - keys LAYOUT "some text"     print the key sequence `type` would send (no VM needed): what the layout tests read
+QMP_CLICK_LOG=FILE appends "epoch x y w h" for every click, double click and right click: make-video.py draws a ring there
   qmp-drive.py SOCK click X Y [WxH]          move the (absolute) pointer to pixel X,Y of a WxH screen (default 1024x768) and click
   qmp-drive.py SOCK dclick X Y [WxH]         double click
   qmp-drive.py SOCK rclick X Y [WxH]         right click
@@ -102,6 +103,13 @@ class Qmp:
         self.call('input-send-event', events=[{'type': 'btn', 'data': {'button': 'left', 'down': down}}])
 
 
+def log_click(x, y, w, h):
+    path = __import__('os').environ.get('QMP_CLICK_LOG')
+    if path:
+        with open(path, 'a') as fh:
+            fh.write('%d %d %d %d %d\n' % (time.time(), x, y, w, h))
+
+
 def png_size(path):
     with open(path, 'rb') as fh:
         head = fh.read(24)
@@ -134,6 +142,7 @@ def main():
         w, h = (int(v) for v in (rest[2] if len(rest) > 2 else '1024x768').split('x'))
         q.abs_move(x, y, w, h)
         if cmd == 'click':
+            log_click(x, y, w, h)
             time.sleep(0.2)
             q.button(True)
             time.sleep(0.1)
@@ -142,6 +151,7 @@ def main():
         x, y = int(rest[0]), int(rest[1])
         w, h = (int(v) for v in (rest[2] if len(rest) > 2 else '1024x768').split('x'))
         q.abs_move(x, y, w, h)
+        log_click(x, y, w, h)
         time.sleep(0.2)
         for _ in range(2):
             q.button(True); time.sleep(0.06); q.button(False); time.sleep(0.08)
@@ -149,6 +159,7 @@ def main():
         x, y = int(rest[0]), int(rest[1])
         w, h = (int(v) for v in (rest[2] if len(rest) > 2 else '1024x768').split('x'))
         q.abs_move(x, y, w, h)
+        log_click(x, y, w, h)
         time.sleep(0.2)
         q.call('input-send-event', events=[{'type': 'btn', 'data': {'button': 'right', 'down': True}}])
         time.sleep(0.1)

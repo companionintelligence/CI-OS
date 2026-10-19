@@ -61,8 +61,14 @@ chosen in the dialog. Records: [`docs/evidence/2026-10-19-ubuntu-arm64-b124745/`
   banner is on several frames. A terminal is open in 17 to 19: it ran the in-guest monitor of the run and shows a command to the host's text channel, not a credential.
 * Frame 19 is the ready message of the image. It had no "Open" button although the script asked for one (`notify-send -A` is refused by this image's notification server); commit `c8de040` removed
   the button and changed the wording, and frame 19b shows that wording on the same guest. 19b is not a first boot of a new image.
-* The banners for "waiting for the internet" and "needs attention" were sent (`notifications-sent.txt`) but not photographed: a script started from a terminal had its banners held back by GNOME.
+* The banner for "needs attention" was sent (`notifications-sent.txt`) but not photographed: a script started from a terminal had its banners held back by GNOME. The one for "waiting for the internet" is frame 20 of the next run.
 * The keyboard of the guest was German for the whole sign-in; the harness typed for it with `QMP_LAYOUT=de` (`test_qmp_layouts.py`).
+
+## Third run of the day for these frames: the fix image (frames 20 to 23)
+
+Image of commit `82e9335` (sha256 `e43e2066...e86ac`; `verify-iso.sh` 446 passed, 0 failed), installed fresh, recorded from power-on for the first-run video; records in
+[`docs/evidence/2026-10-19-ubuntu-arm64-82e9335/`](../../../evidence/2026-10-19-ubuntu-arm64-82e9335/). Frames 20 to 23 are recording-loop frames and a screenshot of the first boot: "waiting for the internet",
+step 1 of 7, the ready message with the final wording, and that message in the notification list. They carry no credential. Frame 22 replaces 19b as the picture of the final wording.
 
 ## Safety
 
