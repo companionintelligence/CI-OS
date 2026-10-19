@@ -38,6 +38,8 @@ source "$REPO_ROOT/vendor/brand/tokens/tokens.sh"
 source "$REPO_ROOT/backends/ubuntu/lib/os-release.sh"
 # shellcheck source=../lib/shell-theme.sh
 source "$REPO_ROOT/backends/ubuntu/lib/shell-theme.sh"
+# shellcheck source=../lib/dock-favorites.sh
+source "$REPO_ROOT/backends/ubuntu/lib/dock-favorites.sh"
 
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
@@ -418,6 +420,18 @@ picture-options='zoom'
 [org/gnome/desktop/screensaver]
 picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
 picture-options='zoom'
+EOF
+
+# The dock (the left GNOME bar): Ubuntu's default pins Firefox, Thunderbird, LibreOffice Writer, App Center and Help. The
+# list is backends/ubuntu/chroot/dock-favorites.txt. It goes into the local dconf db, not a schema override: Ubuntu's own
+# favorite-apps is set per desktop session (10_ubuntu-settings.gschema.override), which an unscoped 9x_ override does not
+# beat, while a system db value does (the user profile above reads it) and applies to the live session and the installed
+# system alike. A user's own pin or unpin still wins, as it lives in the user db.
+DOCK_FAVORITES_VALUE="$(dock_favorites_value "$REPO_ROOT/backends/ubuntu/chroot/dock-favorites.txt")" \
+    || { echo "[ERROR] backends/ubuntu/chroot/dock-favorites.txt is not a valid dock list" >&2; exit 1; }
+cat > "$CHROOT_PATH/etc/dconf/db/local.d/02-ci-os-dock" << EOF
+[org/gnome/shell]
+favorite-apps=$DOCK_FAVORITES_VALUE
 EOF
 
 # ── Configure GDM (login screen) branding ──────────────────────────────────

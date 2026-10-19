@@ -248,6 +248,7 @@ for suite in \
   "first-boot-units containment self-test|bash backends/ubuntu/chroot/tests/first-boot-units-boot.sh --selftest" \
   "headless package dependencies|bash backends/ubuntu/headless-package/tests/control-depends.sh" \
   "gnome-shell theme overlay|bash backends/ubuntu/lib/tests/shell-theme.sh" \
+  "dock favourites list|bash backends/ubuntu/lib/tests/dock-favorites.sh" \
   "gresource provenance|bash core/render/tests/gresource-provenance.sh" \
   "live GRUB menu modules|bash backends/ubuntu/iso/tests/grub-live-menu-modules.sh" \
   "untracked-file guard|bash core/lib/tests/untracked-deps.sh"; do

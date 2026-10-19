@@ -1592,6 +1592,30 @@ check "wallpaper override points at the Companion wallpaper" bash -c "grep -h pi
 # GNOME only loads *.xml; a dpkg-diverted "*.xml.disabled" is not offered.
 check "Ubuntu wallpaper collections are not offered in Settings" bash -c "! ls '$R'/usr/share/gnome-background-properties 2>/dev/null | grep -E '\\.xml\$' | grep -q -i -E 'ubuntu|resolute'"
 
+# The dock (the left GNOME bar): the image's default is the list in backends/ubuntu/chroot/dock-favorites.txt, written by
+# customize-chroot.sh into the local dconf db. Checked against the same list, so editing the list and not rebuilding fails here.
+DOCK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../chroot"
+DOCK_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../lib/dock-favorites.sh"
+if [[ -f "$DOCK_DIR/dock-favorites.txt" && -f "$DOCK_LIB" ]]; then
+    # shellcheck source=../../lib/dock-favorites.sh
+    source "$DOCK_LIB"
+    DOCK_WANT="$(dock_favorites_value "$DOCK_DIR/dock-favorites.txt" 2>/dev/null || true)"
+    DOCK_FILE="$R/etc/dconf/db/local.d/02-ci-os-dock"
+    check "dock default is written to the local dconf db (02-ci-os-dock)" test -s "$DOCK_FILE"
+    dock_file_is_the_list() { [[ -n "$DOCK_WANT" ]] && grep -qxF -- "favorite-apps=$DOCK_WANT" "$DOCK_FILE"; }
+    check "dock default is exactly the committed list" dock_file_is_the_list
+    # dconf compiles local.d into one binary file; the ids are stored as plain strings, so a stale or failed
+    # 'dconf update' (the build tolerates its failure) shows up as a missing id here.
+    for _d in 'Companion Hub.desktop' 'companion-capture.desktop' 'net.nokyan.Resources.desktop' 'org.gnome.Ptyxis.desktop'; do
+        check "dock default is compiled into the local dconf db: $_d" grep -aqF "$_d" "$R/etc/dconf/db/local"
+    done
+    for _d in firefox_firefox.desktop thunderbird_thunderbird.desktop libreoffice-writer.desktop snap-store_snap-store.desktop org.gnome.Yelp.desktop; do
+        check "dock default does not pin $_d" bash -c "! grep -qF '$_d' '$DOCK_FILE'"
+    done
+else
+    skip "dock default (backends/ubuntu/chroot/dock-favorites.txt or backends/ubuntu/lib/dock-favorites.sh not found next to this script)"
+fi
+
 section "7. Branding: live boot splash and live identity (initrd)"
 # build-iso.sh appends a small zstd-compressed cpio overlay to casper/initrd (the kernel unpacks concatenated
 # archives in order and later files win). unmkinitramfs stops after the first compressed segment, so it cannot

@@ -120,8 +120,9 @@ Edit the source, not the image. Where things live now:
 | To change | Edit |
 |---|---|
 | OS identity files (`/etc/os-release`, `lsb-release`, `/etc/issue`) | `backends/ubuntu/lib/os-release.sh` (one writer, used by the build and the post-install re-skin) |
-| Branding, wallpapers, dock, Plymouth, MOTD | `backends/ubuntu/desktop-theme/*.sh` and `vendor/brand/` (tokens and logos); assets in `assets/` and `core/render/inputs/` |
+| Branding, wallpapers, the dock's start icon, Plymouth, MOTD | `backends/ubuntu/desktop-theme/*.sh` and `vendor/brand/` (tokens and logos); assets in `assets/` and `core/render/inputs/` |
 | Packages installed into the image | Step 10b (development packages), 10d (wireless stack, Docker, CI-Hub tooling) and 10e (optional tools) of `backends/ubuntu/chroot/customize-chroot.sh`; the tool list and versions in `core/manifest/ecosystem.yaml` and `core/manifest/tier-b-pins.env` |
+| Which apps are pinned in the dock (the left GNOME bar) | `backends/ubuntu/chroot/dock-favorites.txt`, one desktop-file id per line; `customize-chroot.sh` writes it to `/etc/dconf/db/local.d/02-ci-os-dock` and `verify-iso.sh` checks the image against the same list. The test is `backends/ubuntu/lib/tests/dock-favorites.sh` |
 | Telemetry removal | `backends/ubuntu/lib/remove-telemetry.sh` |
 | The GNOME Shell theme | [GDM branding package](gdm-branding-package.md) |
 | The one-click installer | `backends/ubuntu/chroot/payload/live-start/` and [one-click-install.md](../architecture/one-click-install.md) |
