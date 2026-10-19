@@ -1616,10 +1616,10 @@ if [[ -f "$DOCK_DIR/dock-favorites.txt" && -f "$DOCK_LIB" ]]; then
     check "dock default is exactly the committed list" dock_file_is_the_list
     # dconf compiles local.d into one binary file; the ids are stored as plain strings, so a stale or failed
     # 'dconf update' (the build tolerates its failure) shows up as a missing id here.
-    for _d in 'Companion Hub.desktop' 'companion-capture.desktop' 'net.nokyan.Resources.desktop' 'org.gnome.Ptyxis.desktop'; do
+    for _d in 'Companion Hub.desktop' 'companion-capture.desktop' 'companion-docs.desktop' 'org.gnome.Ptyxis.desktop'; do
         check "dock default is compiled into the local dconf db: $_d" grep -aqF "$_d" "$R/etc/dconf/db/local"
     done
-    for _d in firefox_firefox.desktop thunderbird_thunderbird.desktop libreoffice-writer.desktop snap-store_snap-store.desktop org.gnome.Yelp.desktop; do
+    for _d in firefox_firefox.desktop thunderbird_thunderbird.desktop libreoffice-writer.desktop snap-store_snap-store.desktop org.gnome.Yelp.desktop org.gnome.Rhythmbox3.desktop net.nokyan.Resources.desktop; do
         check "dock default does not pin $_d" bash -c "! grep -qF '$_d' '$DOCK_FILE'"
     done
 else

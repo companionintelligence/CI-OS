@@ -99,13 +99,14 @@ print("|".join(v))
 eq "the value parses as a list of strings, one per id" "$parsed" "$(printf '%s' "$ids" | tr '\n' '|')"
 
 has() { grep -qxF "$1" <<<"$ids"; }
-for want in "Companion Hub.desktop" "companion-capture.desktop" "net.nokyan.Resources.desktop" "org.gnome.Ptyxis.desktop" \
+for want in "Companion Hub.desktop" "companion-capture.desktop" "companion-docs.desktop" "org.gnome.Ptyxis.desktop" \
             "org.gnome.Nautilus.desktop" "ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop"; do
   if has "$want"; then pass "dock holds $want"; else fail "dock is missing $want"; fi
 done
 # The five Ubuntu removes from its default dock (10_ubuntu-settings.gschema.override), by the ids that file uses.
 for gone in "firefox_firefox.desktop" "thunderbird_thunderbird.desktop" "libreoffice-writer.desktop" "snap-store_snap-store.desktop" \
-            "org.gnome.Yelp.desktop" "firefox.desktop" "org.gnome.Evolution.desktop" "org.gnome.Software.desktop"; do
+            "org.gnome.Yelp.desktop" "firefox.desktop" "org.gnome.Evolution.desktop" "org.gnome.Software.desktop" \
+            "org.gnome.Rhythmbox3.desktop" "net.nokyan.Resources.desktop"; do
   if has "$gone"; then fail "dock still holds $gone"; else pass "dock does not hold $gone"; fi
 done
 

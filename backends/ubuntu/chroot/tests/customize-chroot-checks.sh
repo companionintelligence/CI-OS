@@ -243,7 +243,7 @@ expect "what was baked records bake-capture and the package version" \
     bash -c 'grep -q -F "echo \"bake-capture=\$CI_OS_BAKE_CAPTURE\"" "$1" && grep -q -F "\"\$CAPTURE_PACKAGE\"" "$1"' _ "$SCRIPT"
 
 # The dock pins the desktop file that the .deb check requires, so the two cannot drift apart.
-expect "the dock list holds the desktop file the Capture .deb must ship" bash -c 'grep -q -x "companion-capture.desktop" "$1" && grep -q -F "./usr/share/applications/companion-capture.desktop" "$2"' _ "$DOCK_LIST" "$SCRIPT"
+expect "the dock list holds the desktop file the Capture .deb must ship" bash -c 'grep -q -x "companion-capture.desktop" "$1" && grep -q -F "usr/share/applications/companion-capture.desktop" "$2"' _ "$DOCK_LIST" "$SCRIPT"
 expect "the dock default is written from the list, and a bad list stops the build" \
     bash -c 'grep -q -F "dock_favorites_value \"\$REPO_ROOT/backends/ubuntu/chroot/dock-favorites.txt\"" "$1" && grep -q -F "02-ci-os-dock" "$1" && grep -q -F "is not a valid dock list" "$1"' _ "$SCRIPT"
 before "the dock default is written before dconf is compiled" '02-ci-os-dock" << EOF' 'chroot_exec "dconf update"'

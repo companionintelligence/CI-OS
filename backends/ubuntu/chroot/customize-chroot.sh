@@ -42,6 +42,8 @@ source "$REPO_ROOT/backends/ubuntu/lib/shell-theme.sh"
 source "$REPO_ROOT/backends/ubuntu/lib/dock-favorites.sh"
 # shellcheck source=../lib/start-links.sh
 source "$REPO_ROOT/backends/ubuntu/lib/start-links.sh"
+# shellcheck source=../lib/deb-members.sh
+source "$REPO_ROOT/backends/ubuntu/lib/deb-members.sh"
 
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
@@ -1246,11 +1248,12 @@ else
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Package)" == "$CAPTURE_PACKAGE" ]] || tb_die "unexpected package name in the Capture .deb"
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Version)" == "$CAPTURE_VERSION" ]] || tb_die "unexpected version in the Capture .deb"
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Architecture)" == "amd64" ]] || tb_die "Capture .deb is not amd64"
-        dpkg-deb -c "$TB_CAPTURE_DEB" | sed -E -e 's/^[^ ]+ +[^ ]+ +[0-9]+ +[0-9-]+ +[0-9:]+ +//' -e 's/ -> .*$//' > "$TB_WORK/capture.members"
-        grep -qx "./usr/bin/$CAPTURE_BINARY" "$TB_WORK/capture.members" || tb_die "Capture .deb has no /usr/bin/$CAPTURE_BINARY"
-        grep -qx './usr/share/applications/companion-capture.desktop' "$TB_WORK/capture.members" || tb_die "Capture .deb has no companion-capture.desktop (the dock entry needs it)"
+        # Names without a leading "./": this .deb stores "usr/bin/x" where the Launcher's stores "./usr/bin/x" (backends/ubuntu/lib/deb-members.sh).
+        deb_members "$TB_CAPTURE_DEB" > "$TB_WORK/capture.members" || tb_die "cannot list the members of the Capture .deb"
+        grep -qx "usr/bin/$CAPTURE_BINARY" "$TB_WORK/capture.members" || tb_die "Capture .deb has no /usr/bin/$CAPTURE_BINARY"
+        grep -qx 'usr/share/applications/companion-capture.desktop' "$TB_WORK/capture.members" || tb_die "Capture .deb has no companion-capture.desktop (the dock entry needs it)"
         # Capture records the screen: it must not start by itself, bring services, cron jobs or sudo rules, or autostart.
-        if grep -E '^\./(etc/|lib/systemd|usr/lib/systemd)' "$TB_WORK/capture.members" | grep -q .; then
+        if grep -E '^(etc/|lib/systemd|usr/lib/systemd)' "$TB_WORK/capture.members" | grep -q .; then
             tb_die "Capture .deb ships files under /etc or systemd (an autostart or a service?); review before baking"
         fi
     fi
