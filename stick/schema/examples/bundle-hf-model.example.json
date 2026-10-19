@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "id": "companion-stick-hf-example",
+  "version": "2026.10.0",
+  "created_at": "2026-10-17T12:00:00Z",
+  "artifacts": [
+    {
+      "path": "docs/README.txt",
+      "kind": "doc",
+      "sha256": "119a69f8391fbe96e085571930abeef9729f4d1fea9baabc86fd8a22f9c93163",
+      "size": 66
+    },
+    {
+      "path": "models/blobs/sha256-4b19ac7dd2fb1ab2f2818b73454c5a9128ca39875a8fcf686a6b1c36100a0d68",
+      "kind": "model-blob",
+      "sha256": "4b19ac7dd2fb1ab2f2818b73454c5a9128ca39875a8fcf686a6b1c36100a0d68",
+      "size": 476
+    },
+    {
+      "path": "models/blobs/sha256-63fd134e22ad1f834322467abb5ba2e808e9a0e8cf8c0d66d1672bb7fc93e94c",
+      "kind": "model-blob",
+      "sha256": "63fd134e22ad1f834322467abb5ba2e808e9a0e8cf8c0d66d1672bb7fc93e94c",
+      "size": 202
+    },
+    {
+      "path": "models/blobs/sha256-b1baabd6b729e4041822220d3e648e00d99cac5df86b10dffb77bcccf0688e39",
+      "kind": "model-blob",
+      "sha256": "b1baabd6b729e4041822220d3e648e00d99cac5df86b10dffb77bcccf0688e39",
+      "size": 253115424
+    },
+    {
+      "path": "models/blobs/sha256-e9fbf74a80a90e8524aa2b9d15e8ebd068e29a93eadada1df7e045bd48be0d9b",
+      "kind": "model-blob",
+      "sha256": "e9fbf74a80a90e8524aa2b9d15e8ebd068e29a93eadada1df7e045bd48be0d9b",
+      "size": 552
+    },
+    {
+      "path": "models/manifests/hf.co/unsloth/gemma-3-270m-it-GGUF/Q4_K_M",
+      "kind": "model-blob",
+      "sha256": "82e74fb792a427a96a6d378879875b561a40c2692fcda4524cb657d6119b4ec4",
+      "size": 708
+    }
+  ],
+  "model_packs": [
+    {
+      "name": "hf-gguf-example",
+      "description": "One Ollama-library model and one Hugging Face GGUF model, both with resolved digests",
+      "models": [
+        {
+          "name": "nomic-embed-text",
+          "tag": "latest",
+          "digest": "sha256:0a109f422b47e3a30ba2b10eca18548e944e8a23073ee3f3e947efcf3c45e59f",
+          "quantization": "F16",
+          "license": "Apache-2.0",
+          "size_bytes": 274302450,
+          "min_ram_gb": 2,
+          "min_vram_gb": null,
+          "platforms": [
+            "linux-x86_64",
+            "linux-arm64",
+            "macos-arm64",
+            "macos-x86_64",
+            "windows-x86_64"
+          ]
+        },
+        {
+          "name": "hf.co/unsloth/gemma-3-270m-it-GGUF",
+          "tag": "Q4_K_M",
+          "digest": "sha256:82e74fb792a427a96a6d378879875b561a40c2692fcda4524cb657d6119b4ec4",
+          "quantization": "Q4_K_M",
+          "license": "Gemma Terms of Use",
+          "size_bytes": 253116654,
+          "min_ram_gb": 4,
+          "min_vram_gb": null,
+          "platforms": [
+            "linux-x86_64",
+            "linux-arm64",
+            "macos-arm64",
+            "macos-x86_64",
+            "windows-x86_64"
+          ]
+        }
+      ]
+    }
+  ],
+  "layout": {
+    "policy": "ci-stick-layout/1",
+    "table": "gpt",
+    "device_bytes": 123942731776,
+    "usable_bytes": 123940634624,
+    "partitions": [
+      {
+        "index": 1,
+        "label": "CI-EFI",
+        "role": "esp",
+        "filesystem": "vfat",
+        "gpt_type": "C12A7328-F81F-11D2-BA4B-00A0C93EC93B",
+        "start_bytes": 1048576,
+        "size_bytes": 1073741824
+      },
+      {
+        "index": 2,
+        "label": "CI-SHARED",
+        "role": "shared",
+        "filesystem": "exfat",
+        "gpt_type": "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7",
+        "start_bytes": 1074790400,
+        "size_bytes": 7516192768
+      },
+      {
+        "index": 3,
+        "label": "CI-BOOT-A",
+        "role": "boot-a",
+        "filesystem": "raw-image",
+        "gpt_type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
+        "start_bytes": 8590983168,
+        "size_bytes": 11811160064
+      },
+      {
+        "index": 4,
+        "label": "CI-BOOT-B",
+        "role": "boot-b",
+        "filesystem": "raw-image",
+        "gpt_type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
+        "start_bytes": 20402143232,
+        "size_bytes": 11811160064
+      },
+      {
+        "index": 5,
+        "label": "CI-CACHE",
+        "role": "cache",
+        "filesystem": "exfat",
+        "gpt_type": "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7",
+        "start_bytes": 32213303296,
+        "size_bytes": 78383153152
+      },
+      {
+        "index": 6,
+        "label": "CI-PERSIST",
+        "role": "persist",
+        "filesystem": "ext4",
+        "gpt_type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
+        "start_bytes": 110596456448,
+        "size_bytes": 13345226752
+      }
+    ]
+  }
+}

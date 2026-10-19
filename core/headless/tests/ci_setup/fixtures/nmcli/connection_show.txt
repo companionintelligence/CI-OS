@@ -1,0 +1,8 @@
+Wired connection 1:5b3a8f1e-0c9a-4a52-9a77-111111111111:802-3-ethernet:eth0
+HomeNet:6c4b9f2f-1dab-4b63-8b88-222222222222:802-11-wireless:
+HomeNet 1:7d5ca03a-2ebc-4c74-9c99-333333333333:802-11-wireless:
+Wired connection 2:8e6db14b-3fcd-4d85-8daa-444444444444:802-3-ethernet:
+Cafe\:Guest:9f7ec25c-40de-4e96-9ebb-555555555555:802-11-wireless:wlx00c0caaabbcc
+back\\slash:af8fd36d-51ef-4fa7-8fcc-666666666666:802-11-wireless:
+work-vpn:b09fe47e-62f0-40b8-90dd-777777777777:vpn:
+lo:c1a0f58f-7301-41c9-a1ee-888888888888:loopback:lo

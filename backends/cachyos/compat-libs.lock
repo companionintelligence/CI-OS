@@ -1,0 +1,47 @@
+# Compatibility libraries of the Companion OS (CachyOS edition) live image. Read by iso/scripts/in-container/stage-compat-libs.sh
+# (fetch, verify, stage) and iso/scripts/in-container/gate-calamares.sh (the build-time gate). Not sourced, not executed.
+# Format: one record per line, '#' starts a comment. Records are validated by iso/scripts/lib/compat-lock.sh (tests/compat-libs.sh):
+#   review-by YYYY-MM-DD
+#   package   NAME VERSION ARCH URL SHA256         URL must be the canonical Arch Linux Archive path (the only external download source)
+#   lib       NAME PATH-IN-PACKAGE SHA256          a versioned shared object below usr/lib; it lands in the image at /PATH, mode 0644
+#   retired   YYYY-MM-DD                            alone, instead of the three above: nothing is needed any more (see WHEN THIS IS NO LONGER NEEDED)
+#
+# WHY THIS FILE EXISTS (risk R1, rolling-release drift; incident 2026-10-18, docs/architecture/cachyos-backend.md)
+#   The ISO installs from the rolling [cachyos], [core] and [extra] repositories on the day of the build. cachyos-calamares-next
+#   3.4.2-13 (built 2026-08-13 00:24 UTC, still the current version in [cachyos]) is linked against libboost_python314.so.1.91.0.
+#   boost-libs 1.92.0-1 reached [extra] the same day, eleven hours later, and replaced those files. Calamares then dies at start
+#   (exit 127, "error while loading shared libraries"); pointing the missing name at the 1.92 file does not help either (undefined
+#   symbol in boost.python's init_module: the ABI changed). No other Calamares package of [cachyos] is newer (all 19 were built
+#   before the bump), and the image has to contain boost 1.92 anyway (libtorrent-rasterbar's Python binding, which clonezilla pulls
+#   in, needs libboost_python314.so.1.92.0), so the older libraries are added NEXT TO the current ones: different file names, no
+#   package ships them, nothing is downgraded.
+#
+# WHAT IS PINNED
+#   The package file by sha256 (and its signature must verify with the pacman keyring at build time), and each member by sha256.
+#   The three members are the closure of libboost_python314.so.1.91.0 inside boost-libs (readelf -d: it NEEDs libboost_container and
+#   libboost_graph, which need nothing else of boost). The gate (gate-calamares.sh) proves the set is complete: `ldd -r` on every
+#   ELF file of cachyos-calamares-next and a short offscreen start.
+#
+# WHEN THIS IS NO LONGER NEEDED
+#   When [cachyos] ships a cachyos-calamares-next that is linked against the boost of the day, the gate says so ("not needed by
+#   cachyos-calamares-next any more"). Replace the records below (review-by, package, lib) by ONE line, `retired YYYY-MM-DD`, and keep the
+#   header (a lock with no records at all is refused, so that an emptied or truncated file cannot pass for "nothing is needed"). Delete
+#   the three lines of overlay/package-owned-ok.txt that name these files, and the shim is gone. The build, the gate and verify-iso.sh
+#   then accept an image without the libraries. Until then keep the review date honest: a build after it warns (CI_OS_COMPAT_REVIEW=error
+#   makes that a failure, use it for a release).
+#
+# HOW TO REFRESH (the gate or the stager named a missing library, or [cachyos] moved to another boost)
+#   1. Read the missing sonames from the gate's message, find the boost-libs version of the Archive that ships them:
+#        https://archive.archlinux.org/packages/b/boost-libs/      (a package of the same generation as the soname: 1.91.* for .so.1.91.0)
+#   2. In the builder container (docker run --rm --platform linux/amd64 ... ci-os-cachyos-builder:<tag>), with the repository mounted:
+#        backends/cachyos/iso/scripts/in-container/stage-compat-libs.sh propose boost-libs <VERSION> <ONE-MISSING-SONAME>
+#      It downloads the package from the Archive, verifies its signature with the pacman keyring (it refuses to print records for a
+#      file whose signature does not verify), computes the closure of libraries and prints the records to paste below.
+#   3. Move review-by out by a month or two; add the new paths to overlay/package-owned-ok.txt (guard (b) of apply-overlay.sh);
+#      run iso/tests/installer-config.sh, then `build-iso.sh --stop-after validate`, then a full build (the gate runs in it).
+review-by 2026-12-01
+
+package boost-libs 1.91.0-2 x86_64 https://archive.archlinux.org/packages/b/boost-libs/boost-libs-1.91.0-2-x86_64.pkg.tar.zst 62cfd278b0260bd2ce5c93f6ab4669d2eefe840eab19e2c3854762f295924655
+lib     boost-libs usr/lib/libboost_python314.so.1.91.0 fdc6a2b2f5c9e4f52caaef485dac461e87f81cdfe2a2dac015e0184a7011f77a
+lib     boost-libs usr/lib/libboost_container.so.1.91.0 f81cd4d80385c8d27195217f2108f66a7ea915a23088d8ae88af2d63498a59b9
+lib     boost-libs usr/lib/libboost_graph.so.1.91.0 271856af7a6a7db41c1aca7f94d2b8fc1a95b54c203f4e936331d255e79248dd

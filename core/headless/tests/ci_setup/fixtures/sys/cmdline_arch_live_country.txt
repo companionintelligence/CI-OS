@@ -1,0 +1,1 @@
+initrd=\boot\initramfs-linux.img archisobasedir=arch archisosearchuuid=2026-10-01-00-00-00-00 ci.country=de ci.headless=0

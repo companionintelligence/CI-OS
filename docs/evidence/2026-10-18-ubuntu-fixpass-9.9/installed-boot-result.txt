@@ -1,0 +1,11 @@
+RESULT=PASS
+REASON=installed system booted to the GDM greeter: the GDM greeter is up (gdm greeter up after 53s (session c1 user=gdm-greeter uid=60578 type=wayland state=active)) and the screen shows it
+STATIC_FAILS=0
+STATIC_WARNS=0
+SECONDS=681
+WORK=<scratch>
+BOOT_RESULT=PASS
+BOOT_REASON=the GDM greeter is up (gdm greeter up after 53s (session c1 user=gdm-greeter uid=60578 type=wayland state=active)) and the screen shows it
+BOOT_SECONDS=230
+BOOT_GREETER_AT_SECONDS=227
+BOOT_SCREEN=1280x800 colours=795 nonblack=1.0

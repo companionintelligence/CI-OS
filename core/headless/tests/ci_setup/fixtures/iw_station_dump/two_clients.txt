@@ -1,0 +1,30 @@
+Station 8a:11:22:33:44:01 (on ap0)
+	inactive time:	120 ms
+	rx bytes:	12345
+	rx packets:	120
+	tx bytes:	23456
+	tx packets:	90
+	tx retries:	1
+	tx failed:	0
+	signal:  	-45 [-47, -48] dBm
+	signal avg:	-46 [-48, -49] dBm
+	tx bitrate:	72.2 MBit/s MCS 7 short GI
+	rx bitrate:	65.0 MBit/s MCS 7
+	authorized:	yes
+	authenticated:	yes
+	associated:	yes
+	preamble:	long
+	WMM/WME:	yes
+	MFP:		no
+	TDLS peer:	no
+	DTIM period:	2
+	beacon interval:100
+	connected time:	23 seconds
+Station 8a:11:22:33:44:02 (on ap0)
+	inactive time:	4500 ms
+	rx bytes:	100
+	signal:  	-71 [-72, -73] dBm
+	authorized:	no
+	authenticated:	yes
+	associated:	yes
+	connected time:	3 seconds

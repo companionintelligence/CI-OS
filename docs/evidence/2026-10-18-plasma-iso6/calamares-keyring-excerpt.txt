@@ -1,0 +1,22 @@
+# Excerpt of the Calamares session log of the ISO #6 install (guest clock = America/New_York = PDT + 3 h). Source: the live session's
+# session log (7,242 lines, 692 KB), kept only in the session scratch directory, not in this repository. Selected lines only:
+# the start of jobs 13, 14, 15 and 47 of 47, the keyring command and its output, the sleep-inhibit error and the final result.
+# Job 13 started 15:47:27 and the next job started 15:48:45 (78 s); the keyring command ran 15:48:13 to 15:48:45 = 32 s, under the explicit
+# timeout of 3600 s of the shipped shellprocess_initialize_pacman.conf (the stock 30 s default is what failed twice on ISO #5).
+# The whole log holds 58 WARNING lines, 1 ERROR line (the one below) and no "timed out" line.
+#
+2026-10-18 - 15:47:03  ERROR: Could not inhibit sleep: QDBusError("org.freedesktop.DBus.Error.ServiceUnknown", "The name org.freedesktop.PowerManagement.Inhibit was not provided by any .service files") 
+2026-10-18 - 15:47:27  Starting job "initialize pacman ... ranking mirrors ... copy pacman mirrorlist and keyring to target ..." ( 13 / 47 ) 
+2026-10-18 - 15:48:13  .. Running QList("/bin/sh", "-c", "bash /etc/calamares/scripts/create-pacman-keyring") 
+2026-10-18 - 15:48:14  ":: Synchronizing package databases...\n" 
+2026-10-18 - 15:48:15  "warning: cachyos-keyring-20240331-1 is up to date -- skipping\n" 
+2026-10-18 - 15:48:15  ":: Synchronizing package databases...\n" 
+2026-10-18 - 15:48:16  "warning: archlinux-keyring-1:20260909-1 is up to date -- skipping\n" 
+2026-10-18 - 15:48:17  "==> Appending keys from archlinux.gpg...\n" 
+2026-10-18 - 15:48:42  "==> Appending keys from cachyos.gpg...\n" 
+2026-10-18 - 15:48:45  "==> Updating trust database...\n" 
+2026-10-18 - 15:48:45  "gpg: next trustdb check due at 2026-10-26\n" 
+2026-10-18 - 15:48:45  Starting job "Preparing your system for online installation of Companion OS" ( 14 / 47 ) 
+2026-10-18 - 15:48:46  Starting job "pacstrap" ( 15 / 47 ) 
+2026-10-18 - 16:15:27  Starting job "Unmounting file systems…" ( 47 / 47 ) 
+2026-10-18 - 16:15:30  Notification not sent; completion: succeeded 

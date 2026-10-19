@@ -1,0 +1,4458 @@
+[
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "network_up",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "plain_live_media",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "network_up",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "plain_live_media",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "network_up",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "plain_live_media",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "plain_live_media",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "network_up",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "display_attached",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "network_up",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "auto",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "auto_headless_offline",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "network_up",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "display_unknown",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "live",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": true,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "network_up",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "display_attached",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "network_up",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "auto",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "auto_headless_offline",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "network_up",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "display_unknown",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-unclaimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "claimed_lockdown",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "claimed_lockdown",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "display_attached"
+      ],
+      "blocked_by": [],
+      "credential_channel": "console",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "connected",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "claimed_lockdown",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "claimed_lockdown",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "headless",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "claimed_lockdown",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "network_up",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "up",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "kernel_param_off",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "kernel_param_off",
+        "claimed_lockdown",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "0",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "1",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": null,
+      "offer_ap": false,
+      "provision_first": false,
+      "reason": "claimed_lockdown",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": []
+    }
+  },
+  {
+    "decision": {
+      "auto_blockers": [
+        "claimed_lockdown",
+        "display_unknown"
+      ],
+      "blocked_by": [],
+      "credential_channel": "label",
+      "ignored_triggers": [],
+      "mode": "explicit",
+      "offer_ap": true,
+      "provision_first": false,
+      "reason": "explicit_trigger",
+      "wait_s": 0
+    },
+    "input": {
+      "ap_capable_radio": true,
+      "context": "installed-claimed",
+      "display": "unknown",
+      "has_setup_key": true,
+      "headless_param": "auto",
+      "network": "down",
+      "network_down_for_s": 1000000000.0,
+      "provisioning_failed": false,
+      "provisioning_file": false,
+      "static_credentials_test": false,
+      "stick": false,
+      "triggers": [
+        "cli"
+      ]
+    }
+  }
+]

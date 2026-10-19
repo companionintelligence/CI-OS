@@ -1,0 +1,8 @@
+global
+country 99: DFS-UNSET
+	(2402 - 2482 @ 40), (N/A, 20), (N/A)
+	(5170 - 5250 @ 80), (N/A, 20), (N/A), NO-IR, AUTO-BW
+
+phy#1
+country 98: DFS-UNSET
+	(2402 - 2472 @ 40), (N/A, 20), (N/A)

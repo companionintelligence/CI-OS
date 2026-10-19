@@ -1,0 +1,11 @@
+# Arch packages the brand renderer (scripts/render-assets.sh) needs inside the build container, one per line.
+# Read by in-container/10-bootstrap.sh, installed next to archiso and grub before the build starts. They are tools of the
+# build; none of them is added to the live image (packages.add is for that).
+#
+# librsvg      rsvg-convert, which core/render/render-grub-background.sh and render-mark-png.sh prefer for the logo mark
+# imagemagick  magick: backgrounds, wallpaper, watermark; the renderers fall back on it for SVG when librsvg is absent
+# plymouth     the stock "spinner" theme the installed system's Plymouth theme is started from (animation frames, dialog
+#              images); /usr/share/plymouth/themes/spinner/watermark.png, the one file that names a distribution, is replaced
+librsvg
+imagemagick
+plymouth

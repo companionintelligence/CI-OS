@@ -14,7 +14,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PAYLOAD_DIR="${REPO_ROOT}/core/headless/payload"
 BUILD_DIR="${SCRIPT_DIR}"
-PACKAGE_DIR="${BUILD_DIR}/.pkgroot"
+# Environment knobs, used by the ISO build (backends/ubuntu/chroot/customize-chroot.sh), which must
+# not write into the repo tree or install packages onto the build host:
+#   SETUP_DEVICE_OUTPUT_DIR       where the .deb is written          (default: this directory)
+#   SETUP_DEVICE_PKGROOT          scratch staging tree               (default: ./.pkgroot)
+#   SETUP_DEVICE_SKIP_BUILD_DEPS  1 = never apt-install on this host (default: install when root)
+OUTPUT_DIR="${SETUP_DEVICE_OUTPUT_DIR:-${BUILD_DIR}}"
+PACKAGE_DIR="${SETUP_DEVICE_PKGROOT:-${BUILD_DIR}/.pkgroot}"
 
 echo "Building setup-device package..."
 
@@ -64,6 +70,7 @@ REQUIRED_FILES=(
     "etc/dnsmasq.d/setup-portal.conf"
     "usr/share/setup-device/defaults/hostapd-setup.conf"
     "usr/share/setup-device/defaults/setup-portal.conf"
+    "usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
     "etc/nginx/sites-available/setup-portal"
     "etc/netplan/50-setup-mode.yaml"
     "etc/setup-device/device.conf"
@@ -109,14 +116,17 @@ if [ -z "$ARCH" ]; then
 fi
 
 PACKAGE_NAME="setup-device_${VERSION}_${ARCH}.deb"
-OUTPUT_FILE="${BUILD_DIR}/${PACKAGE_NAME}"
+mkdir -p "$OUTPUT_DIR"
+OUTPUT_FILE="${OUTPUT_DIR}/${PACKAGE_NAME}"
 
 # Build-time dependencies needed to install/configure the package during local testing
-BUILD_DEPS=(hostapd dnsmasq nginx-light python3-flask network-manager)
+BUILD_DEPS=(hostapd dnsmasq nginx-light python3-flask gunicorn network-manager iw iproute2 rfkill)
 
 # If running as root, attempt to install missing build-time packages so
 # a local `dpkg -i` of the produced package will complete without unmet deps.
-if [ "${EUID:-0}" -eq 0 ]; then
+if [ "${SETUP_DEVICE_SKIP_BUILD_DEPS:-0}" = "1" ]; then
+    echo "Skipping build-dependency installation (SETUP_DEVICE_SKIP_BUILD_DEPS=1)."
+elif [ "${EUID:-0}" -eq 0 ]; then
     echo "Running as root — checking build dependencies (will install missing packages)..."
     # Prefer IPv4 for apt in environments with broken IPv6
     apt-get -o Acquire::ForceIPv4=true update || apt-get update || true
@@ -154,7 +164,9 @@ done
 echo "Building package: $PACKAGE_NAME"
 cd "$BUILD_DIR"
 
-dpkg-deb --build .pkgroot "$OUTPUT_FILE"
+# --root-owner-group: files are owned by root:root in the package even when built by a regular user
+# (otherwise the builder's uid would be baked into code that runs as root).
+dpkg-deb --root-owner-group --build "$PACKAGE_DIR" "$OUTPUT_FILE"
 
 if [ $? -eq 0 ]; then
     echo "✓ Package built successfully: $OUTPUT_FILE"

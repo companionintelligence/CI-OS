@@ -1,0 +1,4 @@
+add table inet ci_setup
+delete table inet ci_setup
+add table ip ci_setup_nat
+delete table ip ci_setup_nat

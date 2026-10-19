@@ -1,0 +1,15 @@
+# Parts of the repository that are copied into the build container (at /work/repo), one path per line, relative to the repo
+# root. A line whose directory does not exist is skipped (backends/cachyos is required). Read by build-iso.sh.
+#
+# backends/cachyos   the pipeline, the pins (upstream.lock), the overlay, the installer files and the provisioning wrapper
+# backends/_mixins   shared KDE Plasma theming that render-assets.sh reads (the colour scheme)
+# backends/arch      provision/provision.sh, which the first-boot provisioning wrapper reuses unchanged (decision D8)
+# core               core/render, core/lib (theme and GRUB helpers), core/headless/payload, core/manifest
+# vendor             vendor/brand: the design tokens and logo marks every render starts from
+# assets             shared images
+backends/cachyos
+backends/_mixins
+backends/arch
+core
+vendor
+assets

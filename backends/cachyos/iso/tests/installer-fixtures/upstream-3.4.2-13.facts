@@ -1,0 +1,246 @@
+# Facts about the pinned CachyOS installer, captured by backends/cachyos/installer/packages/capture-upstream-facts.sh.
+# Read by iso/tests/installer-launcher.sh and installer-config.py. Regenerate on a pin bump and review the diff.
+version cachyos-calamares-next 3.4.2-13
+module bootloader
+modfile bootloader main.py
+modfile bootloader bootloader.schema.yaml
+module chwd
+modfile chwd main.py
+module displaymanager
+modfile displaymanager main.py
+modfile displaymanager displaymanager.schema.yaml
+module finished
+module fstab
+modfile fstab main.py
+modfile fstab fstab.schema.yaml
+module grubcfg
+modfile grubcfg main.py
+modfile grubcfg grubcfg.schema.yaml
+module hostinfo
+module hwclock
+modfile hwclock main.py
+module initcpio
+module initcpiocfg
+modfile initcpiocfg main.py
+modfile initcpiocfg initcpiocfg.schema.yaml
+module initramfs
+module initramfscfg
+modfile initramfscfg main.py
+module keyboard
+module locale
+module localecfg
+modfile localecfg main.py
+module luksbootkeyfile
+module luksopenswaphookcfg
+module machineid
+module mount
+modfile mount main.py
+modfile mount mount.schema.yaml
+module netinstall
+module networkcfg
+modfile networkcfg main.py
+module packagechooser
+module packages
+modfile packages main.py
+modfile packages packages.schema.yaml
+module pacstrap
+modfile pacstrap main.py
+modfile pacstrap pacstrap.schema.yaml
+module partition
+module plymouthcfg
+modfile plymouthcfg main.py
+modfile plymouthcfg plymouthcfg.schema.yaml
+module preservefiles
+module removeuser
+module services-systemd
+modfile services-systemd main.py
+modfile services-systemd services-systemd.schema.yaml
+module shellprocess
+module summary
+module umount
+module unpackfs
+modfile unpackfs main.py
+modfile unpackfs unpackfs.schema.yaml
+module unpackfsc
+module users
+module welcome
+module zfs
+module zfshostid
+modfile zfshostid main.py
+modfile zfshostid zfshostid.schema.yaml
+conf bootloader.conf
+conf contextualprocess.conf
+conf displaymanager.conf
+conf dracut.conf
+conf dummycpp.conf
+conf dummypython.conf
+conf finished.conf
+conf finishedq.conf
+conf fsresizer.conf
+conf fstab.conf
+conf grubcfg.conf
+conf initcpio.conf
+conf initcpiocfg.conf
+conf initramfs.conf
+conf interactiveterminal.conf
+conf keyboard.conf
+conf keyboardq.conf
+conf license.conf
+conf locale.conf
+conf localeq.conf
+conf luksbootkeyfile.conf
+conf luksopenswaphookcfg.conf
+conf machineid.conf
+conf mount.conf
+conf netinstall.conf
+conf netinstall.yaml
+conf notesqml.conf
+conf oemid.conf
+conf openrcdmcryptcfg.conf
+conf packagechooser_bootloader.conf
+conf packagechooser_desktop.conf
+conf packagechooserq.conf
+conf packages.conf
+conf packages_offline.conf
+conf packages_online.conf
+conf pacstrap.conf
+conf partition.conf
+conf plasmalnf.conf
+conf plymouthcfg.conf
+conf preservefiles.conf
+conf rawfs.conf
+conf removeuser.conf
+conf services-openrc.conf
+conf services-systemd.conf
+conf shellprocess-before-online.conf
+conf shellprocess-before.conf
+conf shellprocess.conf
+conf shellprocess_btrfs_snapshot.conf
+conf shellprocess_cleanup_calamares.conf
+conf shellprocess_enable_ufw.conf
+conf shellprocess_greetd.conf
+conf shellprocess_initialize_pacman.conf
+conf shellprocess_modify_mk_hook.conf
+conf shellprocess_reset_mk_hook.conf
+conf tracking.conf
+conf umount.conf
+conf unpackfs.conf
+conf unpackfsc.conf
+conf users.conf
+conf usersq.conf
+conf welcome.conf
+conf welcome_online.conf
+conf welcomeq.conf
+conf zfs.conf
+script 90-mkinitcpio-install.hook
+script bootloader-post-setup
+script btrfs-installation-snapshot
+script create-pacman-keyring
+script detect-architecture
+script dmcheck
+script enable-ufw
+script mkinitcpio-install-calamares
+script pacstrap_calamares
+script shell-setup
+script update-mirrorlist
+file /usr/share/calamares/settings_online.conf
+file /usr/share/calamares/qml/calamares/slideshow/Presentation.qml
+marker /usr/lib/calamares/modules/packages/main.py packageOperations
+marker /usr/lib/calamares/modules/packages/main.py "operations"
+marker /usr/lib/calamares/modules/packages/main.py needed_only
+marker /usr/lib/calamares/modules/pacstrap/main.py basePackages
+marker /usr/lib/calamares/modules/pacstrap/main.py postInstallFiles
+marker /usr/lib/calamares/modules/pacstrap/main.py packagechooser_bootloader
+marker /usr/lib/calamares/modules/bootloader/main.py efiBootLoaderVar
+marker /usr/lib/calamares/modules/bootloader/main.py def install_grub
+marker /usr/lib/calamares/modules/bootloader/main.py efiBootloaderId
+marker /etc/calamares/modules/shellprocess.conf cp -rf /etc/skel/. /home/${USER}/.
+marker /usr/lib/calamares/modules/plymouthcfg/main.py plymouth-set-default-theme
+marker /usr/lib/calamares/modules/pacstrap/main.py         base_packages += ["linux-cachyos-deckify", "linux-cachyos-deckify-headers"]
+marker /usr/lib/calamares/modules/pacstrap/main.py         base_packages += ["linux-cachyos", "linux-cachyos-headers",
+marker /usr/lib/calamares/modules/pacstrap/main.py                          "linux-cachyos-lts", "linux-cachyos-lts-headers"]
+marker /usr/lib/calamares/modules/pacstrap/main.py         base_packages += ["grub", "grub-hook", "cachyos-grub-theme", "os-prober"]
+marker /usr/lib/calamares/modules/pacstrap/main.py         base_packages += ["limine", "limine-entry-tool"]
+marker /usr/lib/calamares/modules/pacstrap/main.py         base_packages += ["refind"]
+marker /usr/lib/calamares/modules/pacstrap/main.py         base_packages += ["systemd-boot-manager"]
+marker /usr/lib/calamares/modules/pacstrap/main.py                         base_packages.append("intel-ucode")
+marker /usr/lib/calamares/modules/pacstrap/main.py                         base_packages.append("amd-ucode")
+marker /usr/lib/calamares/modules/pacstrap/main.py         base_packages += ["zfs-utils"]
+marker /usr/lib/calamares/modules/pacstrap/main.py             base_packages += ["linux-cachyos-deckify-zfs"]
+marker /usr/lib/calamares/modules/pacstrap/main.py             base_packages += ["linux-cachyos-zfs", "linux-cachyos-lts-zfs"]
+marker /usr/lib/calamares/modules/pacstrap/main.py             base_packages += ["snapper", "btrfs-assistant", "limine-snapper-sync" ]
+marker /usr/lib/calamares/modules/pacstrap/main.py             base_packages += ["snapper", "btrfs-assistant", "grub-btrfs-support"]
+marker /usr/lib/calamares/modules/pacstrap/main.py             base_packages += ["snapper", "btrfs-assistant", "refind-btrfs" ]
+marker /usr/lib/calamares/modules/pacstrap/main.py         base_packages += ["bcachefs-tools", "bcachefs-dkms"]
+marker /etc/calamares/modules/shellprocess-before-online.conf CachyOS
+marker /etc/calamares/scripts/bootloader-post-setup TARGET_OS_NAME="CachyOS"
+marker /etc/calamares/scripts/btrfs-installation-snapshot Fresh CachyOS Installation
+marker /usr/lib/calamares/modules/chwd/main.py Installing needed drivers for CachyOS
+keys bootloader efiBootLoader efiBootLoaderVar efiBootMgr efiBootloaderId grubCfg grubInstall grubMkconfig grubProbe installEFIFallback installHybridGRUB kernelParams kernelPattern kernelSearchPath limineSplashLogo loaderEntries refindKernelList
+keys grubcfg always_use_defaults defaults keep_distributor kernel_params overwrite prefer_grub_d
+keys plymouthcfg plymouth_theme plymouth_theme_amdgpu
+keys users allowActiveDirectory allowWeakPasswords allowWeakPasswordsDefault defaultGroups doAutologin doReusePassword hostname passwordRequirements platform setRootPassword sudoersGroup user
+keys packages_online backend pacman skip_if_no_internet update_db update_system
+keys netinstall groupsUrl label required
+keys welcome_online geoip requirements showDonateUrl showKnownIssuesUrl showReleaseNotesUrl showSupportUrl
+keys pacstrap basePackages postInstallFiles
+keys services-systemd units
+keys packagechooser_bootloader default items labels method mode
+seq show:welcome@online
+seq show:locale
+seq show:keyboard
+seq show:packagechooser@bootloader
+seq show:partition
+seq show:packagechooser@desktop
+seq show:netinstall
+seq show:users
+seq show:summary
+seq exec:partition
+seq exec:zfs
+seq exec:mount
+seq exec:shellprocess@modify_mk_hook
+seq exec:shellprocess@initialize_pacman
+seq exec:shellprocess@before-online
+seq exec:pacstrap
+seq exec:machineid
+seq exec:users
+seq exec:locale
+seq exec:keyboard
+seq exec:localecfg
+seq exec:chwd
+seq exec:packages@online
+seq exec:luksbootkeyfile
+seq exec:luksopenswaphookcfg
+seq exec:fstab
+seq exec:plymouthcfg
+seq exec:zfshostid
+seq exec:initcpiocfg
+seq exec:initcpio
+seq exec:networkcfg
+seq exec:displaymanager
+seq exec:hwclock
+seq exec:grubcfg
+seq exec:bootloader
+seq exec:shellprocess@reset_mk_hook
+seq exec:services-systemd
+seq exec:shellprocess
+seq exec:shellprocess@enable_ufw
+seq exec:shellprocess@greetd
+seq exec:shellprocess@btrfs_snapshot
+seq exec:shellprocess@cleanup_calamares
+seq exec:umount
+seq show:finished
+spconf shellprocess-before-online.conf {"dontChroot": true, "i18n": "x", "script": [{"command": "cp /etc/pacman-more.conf ${ROOT}/etc/pacman.conf"}, {"command": "/etc/calamares/scripts/detect-architecture ${ROOT}/etc/pacman.conf"}], "timeout": 10}
+spconf shellprocess-before.conf {"dontChroot": false, "i18n": "x", "script": [{"command": "/usr/local/bin/remove-nvidia"}, {"command": "/usr/local/bin/removeun"}, {"command": "-rm /usr/local/bin/removeun"}, {"command": "-rm /usr/local/bin/remove-nvidia"}], "timeout": 3600}
+spconf shellprocess.conf {"dontChroot": false, "script": [{"command": "-rm /etc/systemd/system/etc-pacman.d-gnupg.mount"}, {"command": "-rm /etc/systemd/system/display-manager.service"}, {"command": "/etc/calamares/scripts/dmcheck"}, {"command": "-rm /etc/calamares/scripts/dmcheck"}, {"command": "-rm /usr/local/bin/dmcheck"}, {"command": "-rm -rf /home/liveuser"}, {"command": "-runuser ${USER} -c \"cp -rf /etc/skel/. /home/${USER}/.\""}, {"command": "-runuser ${USER} -c \"rm -rf /home/${USER}/{.xsession,.xprofile,.xinitrc}\""}, {"command": "/etc/calamares/scripts/shell-setup ${USER}"}, {"command": "-rm /etc/calamares/scripts/shell-setup"}, {"command": "/etc/calamares/scripts/bootloader-post-setup"}, {"command": "-rm /etc/calamares/scripts/bootloader-post-setup"}], "timeout": 3600}
+spconf shellprocess_btrfs_snapshot.conf {"dontChroot": false, "i18n": "x", "script": [{"command": "/etc/calamares/scripts/btrfs-installation-snapshot"}, {"command": "-rm /etc/calamares/scripts/btrfs-installation-snapshot"}], "timeout": 300}
+spconf shellprocess_cleanup_calamares.conf {"dontChroot": false, "i18n": "x", "script": [{"command": "-rmdir /etc/calamares/scripts"}, {"command": "-rmdir /etc/calamares"}], "timeout": 10}
+spconf shellprocess_enable_ufw.conf {"dontChroot": false, "i18n": "x", "script": [{"command": "/etc/calamares/scripts/enable-ufw"}, {"command": "-rm /etc/calamares/scripts/enable-ufw"}], "timeout": 3600}
+spconf shellprocess_greetd.conf {"dontChroot": false, "i18n": "x", "script": [{"command": "if pacman -Qs noctalia-greeter >/dev/null 2>&1; then\n  echo \"noctalia-greeter was selected. Overriding /etc/greetd/config.toml...\"\n  cp -f /usr/share/noctalia-greeter/config.toml /etc/greetd/config.toml\n  usermod -d /var/lib/noctalia-greeter -s /usr/bin/nologin greeter\n  chown -R root: /etc/greetd\n  chmod 644 /etc/greetd/config.toml\nfi"}], "timeout": 60}
+spconf shellprocess_initialize_pacman.conf {"dontChroot": true, "i18n": "x", "script": [{"command": "bash /etc/calamares/scripts/update-mirrorlist", "timeout": 3600}, {"command": "bash /etc/calamares/scripts/create-pacman-keyring"}, {"command": "mkdir -p ${ROOT}/etc/pacman.d/"}, {"command": "cp /etc/pacman.d/mirrorlist ${ROOT}/etc/pacman.d/"}, {"command": "cp /etc/pacman.d/cachyos-mirrorlist ${ROOT}/etc/pacman.d/"}, {"command": "cp /etc/pacman.d/cachyos-v3-mirrorlist ${ROOT}/etc/pacman.d/"}, {"command": "cp /etc/pacman.d/cachyos-v4-mirrorlist ${ROOT}/etc/pacman.d/"}, {"command": "cp -a /etc/pacman.d/gnupg ${ROOT}/etc/pacman.d/"}, {"command": "cp /etc/resolv.conf ${ROOT}/etc/"}]}
+spconf shellprocess_modify_mk_hook.conf {"dontChroot": true, "i18n": "x", "script": [{"command": "mkdir -p /etc/pacman.d/hooks/"}, {"command": "cp /etc/calamares/scripts/90-mkinitcpio-install.hook /etc/pacman.d/hooks/"}, {"command": "mkdir -p ${ROOT}/usr/share/libalpm/scripts/"}, {"command": "cp /etc/calamares/scripts/mkinitcpio-install-calamares ${ROOT}/usr/share/libalpm/scripts/"}, {"command": "chmod +x ${ROOT}/usr/share/libalpm/scripts/mkinitcpio-install-calamares"}, {"command": "mkdir -p ${ROOT}/etc/pacman.d/hooks/"}, {"command": "cp /etc/calamares/scripts/90-mkinitcpio-install.hook ${ROOT}/etc/pacman.d/hooks/"}]}
+spconf shellprocess_reset_mk_hook.conf {"dontChroot": false, "i18n": "x", "script": [{"command": "rm /etc/pacman.d/hooks/90-mkinitcpio-install.hook"}, {"command": "rm /usr/share/libalpm/scripts/mkinitcpio-install-calamares"}]}
+list pacstrap basePackages base base-devel btrfs-progs cachyos-hooks cachyos-keyring cachyos-mirrorlist cachyos-v4-mirrorlist cachyos-v3-mirrorlist cachyos-rate-mirrors cachyos-settings cryptsetup device-mapper diffutils dosfstools e2fsprogs efibootmgr exfatprogs f2fs-tools inetutils jfsutils less linux-firmware logrotate lsb-release lvm2 man-db man-pages mdadm chwd mkinitcpio netctl os-prober perl python s-nail sudo sysfsutils texinfo usbutils which xfsprogs plymouth cachyos-plymouth-bootanimation cachyos-plymouth-theme
+list pacstrap postInstallFiles /etc/mkinitcpio.conf /etc/calamares/scripts/dmcheck /usr/local/bin/remove-nvidia /etc/calamares/scripts/enable-ufw /etc/calamares/scripts/bootloader-post-setup /etc/calamares/scripts/shell-setup /etc/calamares/scripts/btrfs-installation-snapshot
+owned cachyos-hello /etc/skel/.config/autostart/cachyos-hello.desktop
+owned cachyos-hello /usr/share/applications/cachyos-hello.desktop

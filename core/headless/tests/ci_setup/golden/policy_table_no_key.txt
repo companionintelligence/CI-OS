@@ -1,0 +1,18 @@
+context                        display   network automatic                          with ci.headless=1
+------------------------------------------------------------------------------------------------------
+live (plain media)             connected up      no (network_up)                    AP
+live (plain media)             connected down    no (plain_live_media)              AP
+live (plain media)             headless  up      no (network_up)                    no (no_credential_channel)
+live (plain media)             headless  down    no (plain_live_media)              no (no_credential_channel)
+live (Stick)                   connected up      no (network_up)                    AP
+live (Stick)                   connected down    no (display_attached)              AP
+live (Stick)                   headless  up      no (network_up)                    no (no_credential_channel)
+live (Stick)                   headless  down    no (no_credential_channel)         no (no_credential_channel)
+installed-unclaimed            connected up      no (network_up)                    AP
+installed-unclaimed            connected down    no (display_attached)              AP
+installed-unclaimed            headless  up      no (network_up)                    no (no_credential_channel)
+installed-unclaimed            headless  down    no (no_credential_channel)         no (no_credential_channel)
+installed-claimed              connected up      no (claimed_lockdown)              AP
+installed-claimed              connected down    no (claimed_lockdown)              AP
+installed-claimed              headless  up      no (claimed_lockdown)              no (no_credential_channel)
+installed-claimed              headless  down    no (claimed_lockdown)              no (no_credential_channel)

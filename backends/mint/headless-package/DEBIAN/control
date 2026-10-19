@@ -1,8 +1,0 @@
-Package: setup-device
-Version: 1.0.0
-Architecture: amd64
-Maintainer: CI-OS Team
-Description: Headless device first-time WiFi setup system (Mint backend)
- Headless device setup system providing captive portal for WiFi configuration.
- Includes hostapd hotspot, dnsmasq DHCP/DNS, nginx web server, and Flask backend.
-Depends: hostapd, dnsmasq, nginx-light, python3, python3-flask, gunicorn, network-manager

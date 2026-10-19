@@ -70,7 +70,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}Starting CI OS Hub Staging Installation...${NC}"
+echo -e "${GREEN}Starting Companion Hub Staging Installation...${NC}"
 echo -e "Registry: ${REGISTRY_DOMAIN}"
 echo -e "Image: ${IMAGE_NAME}"
 echo ""
@@ -260,7 +260,7 @@ else
     echo -e "${GREEN}Generated a new random JWT_SECRET${NC}"
 fi
 
-# Full .env matching production CI OS Hub configuration
+# Full .env matching production Companion Hub configuration
 cat > "${INSTALL_DIR}/.env" <<ENVEOF
 # Application Configuration
 LOG_LEVEL=info
@@ -471,7 +471,7 @@ if ! (cd "${INSTALL_DIR}" && docker compose "${COMPOSE_PROFILES[@]}" up -d); the
     exit 1
 fi
 
-echo -e "${GREEN}CI OS Hub staging is running.${NC}"
+echo -e "${GREEN}Companion Hub staging is running.${NC}"
 echo -e "Hub UI: http://localhost:5002"
 if [ ${#COMPOSE_PROFILES[@]} -gt 0 ]; then
   echo -e "Cloudflare tunnel: active (token loaded from TUNNEL_TOKEN)"

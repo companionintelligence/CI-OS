@@ -1,0 +1,64 @@
+#!/bin/bash
+# Companion OS: put the Companion OS identity on a freshly installed target.
+#
+# The live image already holds every file the installed system needs, at its final path. This copies the ones listed
+# in carry-over.list into <target-root> (the installer's mounted target, e.g. Calamares' ${ROOT}), then runs the two
+# hook scripts once against it, because the hooks themselves only fire when a package they watch is installed or
+# upgraded: zz-ci-os-os-release writes /etc/os-release and /etc/lsb-release, zz-ci-os-skel edits /etc/skel.
+#
+# Run it AFTER the packages are installed on the target (cachyos-kde-settings has laid down its skel, filesystem has
+# written its os-release) and BEFORE the installer copies /etc/skel into the new user's home. No chroot is needed: the
+# scripts take CI_OS_ROOT. Exit status 1 when a listed path is missing (everything that can be done is still done).
+#
+#   usage: carry-over <target-root>
+# CI_OS_SOURCE_ROOT=<dir> reads the live image's files from <dir> instead of / (tests).
+set -euo pipefail
+
+TARGET="${1:-}"
+SOURCE="${CI_OS_SOURCE_ROOT:-}"
+LIST="$SOURCE/usr/share/ci-os/installed/carry-over.list"
+
+say() { printf 'carry-over: %s\n' "$*" >&2; }
+
+[[ -n "$TARGET" && -d "$TARGET" ]] || { say "usage: carry-over <target-root> (a directory)"; exit 2; }
+TARGET="$(cd "$TARGET" && pwd)"
+# The live system is not a target. Copying the image over itself would be harmless, but running the skel editor and
+# the identity writer against the running live root by mistake is not what was asked for.
+[[ "$TARGET" != "/" ]] || { say "refusing to use / as the target root"; exit 2; }
+[[ -r "$LIST" ]] || { say "no $LIST"; exit 2; }
+
+missing=0
+while IFS= read -r path || [[ -n "$path" ]]; do
+  case "$path" in ''|'#'*) continue ;; esac
+  case "$path" in
+    /*/../*|*/..|/../*) say "refusing a path with ..: $path"; missing=1; continue ;;
+    /*) ;;
+    *) say "not an absolute path, skipped: $path"; missing=1; continue ;;
+  esac
+  src="$SOURCE$path"
+  dest="$TARGET$path"
+  if [[ ! -e "$src" && ! -L "$src" ]]; then
+    say "MISSING in the live image: $path"
+    missing=1
+    continue
+  fi
+  if [[ -d "$src" && ! -L "$src" ]]; then
+    mkdir -p "$dest"
+    cp -a "$src/." "$dest/"
+  else
+    mkdir -p "$(dirname "$dest")"
+    cp -a "$src" "$dest"
+  fi
+  say "copied $path"
+done < "$LIST"
+
+# The installed system's login banner, unless the target already has one.
+if [[ ! -e "$TARGET/etc/motd" ]]; then
+  mkdir -p "$TARGET/etc"
+  cp "$SOURCE/usr/share/ci-os/installed/etc-motd" "$TARGET/etc/motd"
+fi
+
+CI_OS_ROOT="$TARGET" bash "$SOURCE/usr/share/libalpm/scripts/zz-ci-os-os-release"
+CI_OS_ROOT="$TARGET" bash "$SOURCE/usr/share/libalpm/scripts/zz-ci-os-skel"
+
+exit "$missing"

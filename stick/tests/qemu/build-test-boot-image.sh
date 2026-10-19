@@ -38,8 +38,12 @@ cache="${CI_STICK_TEST_CACHE:-$HOME/.cache/ci-stick-test}"
 mkdir -p "$cache"
 
 # --- kernel + modules (cached) -------------------------------------------------------
+# The cache is stamped with the Ubuntu series of the machine that filled it, so a kernel
+# downloaded on an older release (or a Docker volume from before the 26.04 move) is not
+# silently reused.
+series="$(. /etc/os-release 2>/dev/null && echo "${VERSION_CODENAME:-unknown}")"
 kver_file="$cache/kernel-version"
-if [ ! -s "$cache/vmlinuz" ] || [ ! -s "$kver_file" ]; then
+if [ ! -s "$cache/vmlinuz" ] || [ ! -s "$kver_file" ] || [ "$(cat "$cache/series" 2>/dev/null)" != "$series" ]; then
   # linux-image-generic -> linux-image-<ver>-generic; the modules package holds the
   # USB host/storage drivers that the generic kernel builds as modules.
   pkg="$(apt-cache depends linux-image-generic 2>/dev/null \
@@ -53,17 +57,30 @@ if [ ! -s "$cache/vmlinuz" ] || [ ! -s "$kver_file" ]; then
   for deb in "$dl"/*.deb; do dpkg-deb -x "$deb" "$dl/x"; done
   cp "$dl/x/boot/vmlinuz-$kver" "$cache/vmlinuz"
   rm -rf "$cache/modules"; mkdir -p "$cache/modules"
-  kd="$dl/x/lib/modules/$kver/kernel/drivers/usb"
-  # Load order matters: dependencies first.
+  # The modules are under /usr/lib/modules in 26.04's packages (/lib/modules before).
+  md=""
+  for d in "$dl/x/usr/lib/modules/$kver" "$dl/x/lib/modules/$kver"; do
+    [ -d "$d/kernel" ] && { md="$d"; break; }
+  done
+  [ -n "$md" ] || { echo "linux-modules-$kver holds no kernel/ directory under usr/lib/modules or lib/modules" >&2; exit 2; }
+  kd="$md/kernel/drivers/usb"
+  # Load order matters: dependencies first. A driver is either a module to copy or must
+  # be listed in modules.builtin; anything else would boot an initrd that cannot see the
+  # stick, and the test would only say "no-writable-filesystem" after two minutes.
   for m in host/xhci-pci-renesas host/xhci-pci storage/usb-storage; do
     src="$kd/$m.ko.zst"
     if [ -f "$src" ]; then
       zstd -q -d -f "$src" -o "$cache/modules/$(basename "$m").ko"
     elif [ -f "$kd/$m.ko" ]; then
       cp "$kd/$m.ko" "$cache/modules/"
-    fi   # built into this kernel: nothing to load
+    elif grep -qx "kernel/drivers/usb/$m.ko" "$md/modules.builtin" 2>/dev/null; then
+      :   # built into this kernel: nothing to load
+    elif [ "$m" != host/xhci-pci-renesas ]; then   # Renesas xHCI is optional (not in QEMU)
+      echo "kernel $kver has neither a module nor a built-in $m" >&2; exit 2
+    fi
   done
   echo "$kver" > "$kver_file"
+  echo "$series" > "$cache/series"
   rm -rf "$dl"
 fi
 kver="$(cat "$kver_file")"

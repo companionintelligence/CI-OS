@@ -1,8 +1,13 @@
 [Unit]
 Description=HostAP daemon for setup mode hotspot
+# Started on demand by setup-device-hotspot-start.sh (which also writes the config this reads); not enabled at boot.
 After=network.target
 Before=dnsmasq-setup.service
 Wants=network.target
+# Restart=on-failure with no limit would restart a hostapd that cannot start (no AP-capable interface) every
+# 5 seconds forever. Five tries in two minutes, then the unit stays failed until the next episode resets it.
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=simple

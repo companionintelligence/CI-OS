@@ -1,0 +1,16 @@
+[Unit]
+Description=Companion OS live session: backing store for Docker and containerd
+Documentation=file:///usr/share/doc/ci-os/live-docker.md
+# Live sessions only (plain ISO and Companion Stick). /cdrom is where casper mounts the boot medium; the stock
+# Ubuntu live session (26.04.1) has no boot=casper on its command line, so the medium is the reliable marker.
+ConditionPathExists=/cdrom/casper/vmlinuz
+Before=containerd.service docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/lib/ci-os/ci-os-live-container-storage start
+ExecStop=/usr/lib/ci-os/ci-os-live-container-storage stop
+# Slow media: a persistence volume needing a journal replay on a USB 2 link, or an emulated CPU, took
+# almost a minute in testing. A real hang is bounded by this.
+TimeoutStartSec=300

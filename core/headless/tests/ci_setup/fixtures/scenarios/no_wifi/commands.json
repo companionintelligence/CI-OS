@@ -1,0 +1,5 @@
+{
+  "ip -j link": "ip_link.json",
+  "ip -j route": "ip_route.json",
+  "iw dev": "iw_dev.txt"
+}

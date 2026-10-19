@@ -1,0 +1,103 @@
+# Guards for the Companion OS overlay on cachyos-calamares-next. Read by lib/ci-guards.sh (format and policy are explained there).
+#
+# Everything marked "installer" is looked up under CI_OS_CALAMARES_ROOT: the live system's own installer, or -- before
+# calamares-online.sh installs an update from the repository -- the unpacked candidate package. Each line cites the file in the
+# PINNED installer (cachyos-calamares-next 3.4.2-13, CachyOS/cachyos-calamares @ 199d715, the version these checks were
+# written against) that makes the assumption true today.
+#
+# critical = the package list or the payload staging breaks if this is false: the launcher does not apply the overlay to
+#            that installer. cosmetic = a string or a picture: logged loudly, overlay applied.
+#            `keys` rows: critical for pacstrap and bootloader (their Python modules read the frozen copy's keys one by one, so a key
+#            upstream adds or renames breaks the install after the disk is written); cosmetic for the other configs (optional keys).
+#
+# severity | kind | argument 1 | argument 2 | why
+#
+# --- the install sequence we derive from -----------------------------------------------------------------------------------
+critical | exists         | /usr/share/calamares/settings_online.conf |                          | settings.conf is derived from it; without it drift cannot be judged
+critical | settings-drift | allow=packagechooser@desktop,shellprocess@enable_ufw,shellprocess@greetd | anchors=exec:partition,exec:pacstrap,exec:packages@online,exec:bootloader,show:partition | a step the installer added since the pin (a bootloader or driver fix?) must be reviewed, not silently dropped. Dropped on purpose: the desktop chooser (Plasma only), UFW (no host firewall), noctalia greeter. The anchors are the steps the overlay is built around: a sequence that parses without them (or to nothing) is not "no difference" but a file this parser did not understand
+critical | settings       |                                                                    |  | every module, instance config and branding directory settings.conf names exists
+#
+# --- code the package list depends on (packages/main.py) ------------------------------------------------------------------
+critical | contains       | /usr/lib/calamares/modules/packages/main.py | packageOperations       | netinstall's selection reaches pacman through this global storage key (packages/main.py run())
+critical | contains       | /usr/lib/calamares/modules/packages/main.py | "operations"            | packages_online.conf `operations:` is how the Companion OS core packages are installed
+critical | contains       | /usr/lib/calamares/modules/packages/main.py | needed_only             | modules/packages_online.conf sets pacman.needed_only
+critical | exists         | /usr/lib/calamares/modules/packages/packages.schema.yaml |           | the packages job still ships a config schema (the keys we set are validated against it by Calamares' own CI)
+#
+# --- code the base system depends on (pacstrap, bootloader) ---------------------------------------------------------------
+critical | contains       | /usr/lib/calamares/modules/pacstrap/main.py | basePackages            | modules/pacstrap.conf basePackages is the base system (pacstrap/main.py run())
+critical | contains       | /usr/lib/calamares/modules/pacstrap/main.py | postInstallFiles        | live files carried into the target (mkinitcpio.conf, the stock scripts)
+critical | contains       | /usr/lib/calamares/modules/pacstrap/main.py | packagechooser_bootloader | pacstrap aborts when the bootloader chooser left no value, so the chooser page must stay in the sequence
+critical | code-names     | /usr/lib/calamares/modules/pacstrap/main.py | pacstrap-code-added.list | the packages pacstrap adds in code are listed in the overlay, so the launcher's package preflight asks pacman about them too; a change in that set is reviewed (the update is not taken)
+critical | list-drift     | pacstrap:basePackages     | allow=cachyos-plymouth-bootanimation,cachyos-plymouth-theme | the overlay freezes the base-system list at the pin: a package the installer adds to it later must be reviewed, not silently dropped. Dropped on purpose: CachyOS' boot-animation artwork (the Companion OS Plymouth theme replaces it)
+critical | list-drift     | pacstrap:postInstallFiles | allow=/etc/calamares/scripts/enable-ufw | the same for the files copied from the live system into the target. Dropped on purpose: the UFW script (no host firewall)
+critical | keys           | pacstrap                  |  | upstream keys the overlay's frozen copy would drop (pacstrap/main.py reads `basePackages` directly and copies `postInstallFiles`)
+critical | keys           | bootloader                |  | the same for bootloader/main.py, which reads efiBootMgr, grubCfg, grubInstall, grubMkconfig and grubProbe directly (a KeyError after the base system is installed)
+critical | contains       | /usr/lib/calamares/modules/bootloader/main.py | efiBootLoaderVar      | bootloader.conf reads the chosen bootloader from global storage
+critical | contains       | /usr/lib/calamares/modules/bootloader/main.py | def install_grub      | GRUB is the only bootloader this edition supports
+critical | contains       | /usr/lib/calamares/modules/bootloader/main.py | efiBootloaderId       | the UEFI entry name (companion-os) is read from bootloader.conf
+#
+# --- stock steps the overlay keeps unchanged (their scripts must exist) ---------------------------------------------------
+critical | exists         | /etc/calamares/scripts/pacstrap_calamares              |  | pacstrap runs it
+critical | exists         | /etc/calamares/scripts/detect-architecture             |  | shellprocess-before-online.conf: v3/v4 CachyOS repositories for the target's pacman.conf
+critical | exists         | /etc/calamares/scripts/create-pacman-keyring           |  | shellprocess_initialize_pacman.conf
+critical | exists         | /etc/calamares/scripts/update-mirrorlist               |  | shellprocess_initialize_pacman.conf
+critical | exists         | /etc/calamares/scripts/mkinitcpio-install-calamares    |  | shellprocess_modify_mk_hook.conf: the initramfs hook used during install
+critical | exists         | /etc/calamares/scripts/90-mkinitcpio-install.hook      |  | shellprocess_modify_mk_hook.conf
+critical | exists         | /etc/calamares/scripts/dmcheck                         |  | the stock final shellprocess picks the display manager with it
+critical | exists         | /etc/calamares/modules/shellprocess.conf               |  | the stock final step (user home, skel, display manager); not replaced by the overlay
+critical | exists         | /etc/calamares/modules/shellprocess-before-online.conf |  | not replaced: writes the target's pacman.conf from /etc/pacman-more.conf
+critical | exists         | /etc/calamares/modules/shellprocess_btrfs_snapshot.conf |  | not replaced
+critical | exists         | /etc/calamares/modules/shellprocess_cleanup_calamares.conf |  | not replaced
+#
+# --- shellprocess steps: time limits (ISO #5 died at job 13 of 47 on Calamares' silent 30 s default) -----------------------------
+# Three stock shellprocess configs are replaced by overlay copies that differ from the installer's only in explicit `timeout:` keys
+# (modules/shellprocess_{initialize_pacman,modify_mk_hook,reset_mk_hook}.conf). The `shell-timeouts` guard (lib/ci-shellprocess.py)
+# judges the EFFECTIVE configs of every shellprocess step of settings.conf -- the overlay's copy where there is one, the installer's
+# own file otherwise -- so an installer update that gives a stock step a heavy command without a time limit is not taken.
+critical | oexists        | modules/shellprocess_initialize_pacman.conf   |  | the copy with explicit timeouts: the installer's gives the keyring command Calamares' default of 30 s, which a slow machine exceeds
+critical | oexists        | modules/shellprocess_modify_mk_hook.conf      |  | the copy with an explicit timeout (the installer's sets none)
+critical | oexists        | modules/shellprocess_reset_mk_hook.conf       |  | the copy with an explicit timeout (the installer's sets none)
+critical | oexists        | lib/ci-shellprocess.py                        |  | the reader behind the `shell-timeouts` guard
+critical | shell-timeouts |                                               |  | every shellprocess command has an explicit time limit, a generous one where it runs pacman, pacman-key, curl, git, a package manager, a disk or initramfs tool; a frozen copy still runs every command of the installer's file, in its order and with its dontChroot
+#
+# --- payload staging: what the target gets must be in the overlay (fail closed) ------------------------------------------
+# stage-installer.sh puts these into the overlay at build time; ci-os-stage-target.sh copies them into the target.
+critical | oexists        | target/bootstrap/core/headless/payload/opt/setup-backend/setup_service.py |  | core/headless/payload, the captive-portal backend
+critical | oexists        | target/bootstrap/core/headless/payload/systemd/system/setup-network-monitor.service |  | the captive-portal units
+critical | oexists        | target/bootstrap/core/headless/payload/nginx/sites-available/setup-portal |  | the portal's nginx server block
+critical | oexists        | target/bootstrap/core/headless/payload/var/www/setup-portal/index.html |  | the portal page
+critical | oexists        | target/bootstrap/backends/arch/provision/provision.sh   |  | first-boot provisioning reuses the Arch provisioner unchanged
+critical | oexists        | target/bootstrap/backends/cachyos/provision/provision.sh |  | the thin wrapper that exports SUDO_USER
+critical | oexists        | target/bootstrap/backends/cachyos/provision/first-boot-setup.sh |  | the first-boot driver
+critical | oexists        | target/bootstrap/backends/cachyos/provision/stage-headless.sh |  | copies the payload into the target without pacman or systemctl
+cosmetic | oexists        | target/bootstrap/backends/cachyos/provision/progress-filter.sh |  | turns the provisioning output into log lines (Ollama's redraws made 14,052 lines of log on ISO #4); first-boot-setup.sh falls back to the raw stream without it
+critical | oexists        | target/bootstrap/core/lib/ci-hub.sh                     |  | deploy_ci_hub sources it
+critical | oexists        | target/units/ci-os-first-boot-setup.service             |  | first-boot unit
+critical | oexists        | target/units/ci-os-first-boot-setup.timer               |  | first-boot retry timer
+critical | oexists        | target/ci-os-setup                                      |  | the `sudo ci-os-setup` command
+critical | oexists        | scripts/ci-os-stage-target.sh                           |  | the shellprocess step that stages all of the above
+critical | oexists        | scripts/ci-os-post-install-fixups.sh                    |  | the post-install fix-ups of CachyOS hard-codes
+critical | oexists        | pacstrap-code-added.list                                |  | the packages pacstrap adds in code, read by lib/ci-pkglist.py for the package preflight
+critical | oexists        | modules/shellprocess_ci_os_stage.conf                   |  | the instance that runs the stager
+critical | oexists        | modules/shellprocess_ci_os_fixups.conf                  |  | the instance that runs the fix-ups
+#
+# --- cosmetic: identity, installed-system look, slideshow ---------------------------------------------------------------------
+# lexists = a path of the LIVE system itself (under CI_OS_LIVE_ROOT, default /), not of the installer package: the identity and brand
+# files the ISO overlay holds for the installed system (iso/overlay/INSTALLED.md). The installed system works without them; it
+# just keeps CachyOS' os-release, skeleton and boot themes.
+cosmetic | lexists        | /usr/share/ci-os/installed/carry-over                   |  | the one command that puts the Companion OS identity and brand on the target
+cosmetic | lexists        | /usr/share/ci-os/installed/carry-over.list              |  | its manifest
+cosmetic | lexists        | /usr/share/grub/themes/companion-os/theme.txt           |  | GRUB_THEME of modules/grubcfg.conf
+cosmetic | lexists        | /usr/share/plymouth/themes/companion-os/companion-os.plymouth |  | plymouth_theme of modules/plymouthcfg.conf
+cosmetic | contains       | /etc/calamares/modules/shellprocess.conf | cp -rf /etc/skel/. /home/${USER}/. | the user's home gets the (Companion OS) skel files from this step
+cosmetic | contains       | /usr/lib/calamares/modules/plymouthcfg/main.py | plymouth-set-default-theme | the installed boot splash is selected through it
+cosmetic | exists         | /usr/share/calamares/qml/calamares/slideshow/Presentation.qml |  | branding/companion/show.qml imports calamares.slideshow
+cosmetic | oexists        | branding/companion/stylesheet.qss                       |  | the brand colours of the progress bar, the selected rows and the welcome links (the installer's colour scheme paints Highlight like the window)
+cosmetic | keys           | grubcfg                   |  | upstream keys the overlay's copy would drop (pacstrap and bootloader are critical, above)
+cosmetic | keys           | plymouthcfg               |  |
+cosmetic | keys           | users                     |  |
+cosmetic | keys           | packages_online           |  |
+cosmetic | keys           | netinstall                |  |
+cosmetic | keys           | welcome_online            |  |
+cosmetic | keys           | services-systemd          |  |
+cosmetic | keys           | packagechooser_bootloader |  |

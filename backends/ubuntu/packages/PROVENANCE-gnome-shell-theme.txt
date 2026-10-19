@@ -1,0 +1,37 @@
+What ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource was built from
+=================================================================================================
+
+Written 2026-10-17 (the port to Ubuntu 26.04 only). Not part of the .deb: it sits next to the package directory on purpose.
+
+The blob is the Yaru GNOME Shell theme of Ubuntu 26.04.1, recoloured and re-logoed by
+core/render/render-gnome-shell-gresource.sh (driven by backends/ubuntu/iso/scripts/build-gdm-branding-gresource.sh with
+yaru-color-map.pl, yaru-audit-patterns.txt, the CI canon accent tokens and assets/logos/2024_CI__Logo_Banner_Color_small.svg).
+
+  source package        yaru-theme-gnome-shell 26.04.5.1ubuntu (arch all), the version in the 26.04.1 desktop image
+  source file           /usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource
+                        1,320,373 bytes, sha256 da1d2019b8f5c498d1d5570e8bfd0ef33445153095ebad77ba34802b29e384ac
+                        (byte-identical in the archive .deb and in casper/minimal.squashfs of
+                        ubuntu-26.04.1-desktop-amd64.iso, sha256 601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f)
+  build tools           glib-compile-resources / gresource of the ubuntu:26.04 container (libglib2.0-dev-bin, libglib2.0-bin),
+                        perl for the colour map
+  output                1,325,684 bytes, sha256 0a0ec5cdc97ac1d6f01279111b0efce1cba6d3f9fcf4b3f83b9d3280d394c2f1
+
+Reproduced on 2026-10-17: rebuilding from the source file above gave exactly the output above, twice (the build is
+deterministic). The tracked blob was committed in af45159 ("branding: rebuild the GNOME Shell theme from Ubuntu 26.04 Yaru");
+the rebuild matches it byte for byte, so that commit was built from this theme.
+
+To rebuild (and to check this file): either inside an ubuntu:26.04 container with yaru-theme-gnome-shell installed, or from the
+base image's own files by pointing SOURCE_ROOTFS at its extracted rootfs. The script refuses a source that is not Ubuntu 26.04
+with a 26.04 yaru-theme-gnome-shell, prints a [PROVENANCE] block like the one above and, with PROVENANCE_FILE=<path>, writes it.
+core/render/tests/gresource-provenance.sh has an optional check that rebuilds this blob from a real `dpkg -x` tree of the package
+(CI_TEST_REAL_YARU_ROOT, CI_TEST_REAL_BLOB).
+
+Things measured while doing this (all on the 26.04.1 files):
+  * The four widget assets the script replaces by name (checkbox-focused-light.svg, checkbox-light.svg,
+    checkbox-off-focused-light.svg, toggle-on-light.svg) are not resources of the 26.04 Yaru theme: the script reports
+    "No Yaru resource named ... found" for each. The recolour of the checkboxes and switches is done by the CSS colour map alone.
+  * The blob has Yaru's 11 resources (Yaru/gnome-shell.css, Yaru/gnome-shell-dark.css, Yaru/gnome-shell-high-contrast.css,
+    gdm.css and a few SVGs). It has none of the upstream theme's gnome-shell-light.css / top-level gnome-shell-dark.css, so it
+    must not replace /usr/share/gnome-shell/gnome-shell-theme.gresource (gnome-shell-common, 811,524 bytes,
+    sha256 51100e66f678dc75d74b47365e7a27dd0a053ac8a8d55124cb9084556eaf3341); customize-chroot.sh installs it over the Yaru file
+    only (backends/ubuntu/lib/shell-theme.sh).

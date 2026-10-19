@@ -1,0 +1,12 @@
+[Unit]
+Description=Companion OS: background model prefetch schedule (started by ci-os-models-prefetch.path, only when opted in)
+
+[Timer]
+# No [Install] section on purpose: ci-os-models-prefetch.path starts this timer when /etc/ci-os/models-prefetch exists, and
+# nothing else does. The first look ten minutes after boot, then every six hours. A calendar entry rather than OnUnitInactiveSec=
+# on purpose: it fires again whatever happened to the last run, including a run that ExecCondition skipped.
+OnBootSec=10min
+OnCalendar=*-*-* 00,06,12,18:17:00
+RandomizedDelaySec=20min
+AccuracySec=5min
+Unit=ci-os-models-prefetch.service

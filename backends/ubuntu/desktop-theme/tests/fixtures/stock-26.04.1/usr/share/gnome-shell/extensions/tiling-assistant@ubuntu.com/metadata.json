@@ -1,0 +1,14 @@
+{
+  "description": "Expand GNOME's 2 column tiling and add a Windows-snap-assist-inspired popup...",
+  "name": "Ubuntu Tiling Assistant",
+  "shell-version": [
+    "48",
+    "49",
+    "50"
+  ],
+  "url": "https://launchpad.net/ubuntu/+source/gnome-shell-extension-tiling-assistant",
+  "uuid": "tiling-assistant@ubuntu.com",
+  "gettext-domain": "tiling-assistant@leleat-on-github",
+  "settings-schema": "org.gnome.shell.extensions.tiling-assistant",
+  "version": 54
+}

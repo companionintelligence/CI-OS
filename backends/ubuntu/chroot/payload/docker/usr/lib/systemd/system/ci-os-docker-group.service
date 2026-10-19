@@ -1,0 +1,15 @@
+[Unit]
+Description=Companion OS: put administrators in the docker group
+Documentation=file:///usr/share/doc/ci-os/live-docker.md
+# Installed system only. A live session's user gets docker from casper (debconf passwd/user-default-groups).
+ConditionPathExists=!/cdrom/casper/vmlinuz
+ConditionPathExists=!/etc/ci-os/no-docker-group
+After=local-fs.target
+Before=systemd-user-sessions.service display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/ci-os/ci-os-docker-group
+
+[Install]
+WantedBy=multi-user.target

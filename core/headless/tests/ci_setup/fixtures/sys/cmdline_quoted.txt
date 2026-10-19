@@ -1,0 +1,1 @@
+root=/dev/sda1 ro ci.headless="auto" foo="a b" ci.country=DE ci.country=FR

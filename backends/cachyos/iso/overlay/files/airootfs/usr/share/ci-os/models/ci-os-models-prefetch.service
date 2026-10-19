@@ -1,0 +1,37 @@
+[Unit]
+Description=Companion OS: background model prefetch (opt-in)
+# OFF by default. ci-os-models-prefetch.path starts the timer only when /etc/ci-os/models-prefetch exists; the timer wakes
+# this unit up; ExecCondition decides whether it runs. `ci-os-models prefetch-check`
+# lets it through only if ALL hold: /etc/ci-os/models-prefetch exists (in a live session: and a persistence volume
+# is really in use), /etc/ci-os/models.conf names a pack, ci-stick is installed, the cache is the stick's CI-CACHE
+# on a real filesystem (never RAM), the default route's NetworkManager metered state is "no", and no setup access
+# point is up. A skipped run is "condition not met" in the journal, never a failure. Nothing here accepts a licence
+# unless models.conf says accept_licenses=1.
+After=network-online.target local-fs.target
+
+[Service]
+Type=oneshot
+# exFAT carries its owner in the mount options (ci-os-ollama-models-env mounts CI-CACHE for this user)
+User=ollama
+Group=ollama
+ExecCondition=/usr/bin/ci-os-models prefetch-check
+ExecStart=/usr/bin/ci-os-models prefetch
+# A 70 GB pack takes hours on a slow link; the timer starts the next run after this one ends.
+TimeoutStartSec=infinity
+Nice=19
+IOSchedulingClass=idle
+CPUWeight=10
+# JSON-lines progress events (ci-stick --events). The setup portal's status document is written by ci-stick itself, to
+# <cache>/ci-models/status.json.
+RuntimeDirectory=ci-stick/models
+RuntimeDirectoryMode=0755
+RuntimeDirectoryPreserve=no
+Environment=CI_OS_MODELS_EVENTS=/run/ci-stick/models/events.ndjson
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes

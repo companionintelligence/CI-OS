@@ -1,0 +1,29 @@
+phy#1
+	Unnamed/non-netdev interface
+		wdev 0x100000002
+		addr 3a:11:22:33:44:56
+		type P2P-device
+		txpower 0.00 dBm
+	Interface wlan1
+		ifindex 4
+		wdev 0x100000001
+		addr 00:c0:ca:aa:bb:cc
+		type managed
+		txpower 20.00 dBm
+phy#0
+	Unnamed/non-netdev interface
+		wdev 0x2
+		addr 3a:11:22:33:44:55
+		type P2P-device
+		txpower 22.00 dBm
+	Interface wlan0
+		ifindex 3
+		wdev 0x1
+		addr 38:11:22:33:44:55
+		ssid HomeNet
+		type managed
+		channel 36 (5180 MHz), width: 80 MHz, center1: 5210 MHz
+		txpower 22.00 dBm
+		multicast TXQ:
+			qsz-byt	qsz-pkt	flows	drops	marks	overlmt	hashcol	tx-bytes	tx-packets
+			0	0	6	0	0	0	0	1356	12

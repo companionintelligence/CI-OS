@@ -1,6 +1,8 @@
 //! `ci-stick` — the Companion Stick command-line tool.
 //!
-//! Exit codes: 0 success, 1 verification failed, 2 usage or I/O error.
+//! Exit codes: 0 success, 1 verification failed, 2 usage or I/O error. The `models plan|lock|fetch|
+//! cache-info` commands add 3 (drift), 4 (no space), 5 (licence), 6 (interrupted, resumable) and
+//! 7 (integrity); see `cmd_models`.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -10,6 +12,7 @@ use anyhow::{bail, Context as _};
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 
+use ci_stick::cmd_models;
 use ci_stick::flash::{self, FlashOutcome, FlashRequest, TargetSpec};
 use ci_stick::grubenv::Slot;
 use ci_stick::manifest::{Bundle, BUNDLE_FILE, SIGNATURE_FILE};
@@ -229,6 +232,14 @@ enum LayoutCommand {
 enum ModelsCommand {
     /// List model packs and whether they fit a model cache.
     List(ModelsListArgs),
+    /// What `models fetch` would download for a pack, and whether it fits the cache volume.
+    Plan(cmd_models::PlanArgs),
+    /// Resolve the pack catalog against the registry into model-packs.lock.json (--check: drift).
+    Lock(cmd_models::LockArgs),
+    /// Download a pack's (or one model's) blobs into a cache, resumably, verified against the lock.
+    Fetch(cmd_models::FetchArgs),
+    /// Size, blobs, partial downloads, free space and complete packs of a model cache.
+    CacheInfo(cmd_models::CacheInfoArgs),
 }
 
 #[derive(Args)]
@@ -331,6 +342,10 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Models(ModelsCommand::List(a)) => cmd_models_list(a),
+        Command::Models(ModelsCommand::Plan(a)) => cmd_models::cmd_plan(a),
+        Command::Models(ModelsCommand::Lock(a)) => cmd_models::cmd_lock(a),
+        Command::Models(ModelsCommand::Fetch(a)) => cmd_models::cmd_fetch(a),
+        Command::Models(ModelsCommand::CacheInfo(a)) => cmd_models::cmd_cache_info(a),
         Command::Doctor(a) => cmd_doctor(a),
         Command::Dev(d) => cmd_dev(d),
         Command::Flash(a) => cmd_flash(*a),

@@ -1,0 +1,880 @@
+{
+  "channel_plan": {
+    "band": "2.4",
+    "candidates": [
+      11,
+      1,
+      6
+    ],
+    "channel": 11,
+    "country_code": "DE",
+    "hw_mode": "g",
+    "ok": true,
+    "reasons": [],
+    "rejected": {
+      "12": "disabled",
+      "13": "disabled",
+      "14": "disabled"
+    },
+    "requires_cac": false,
+    "world_safe": false
+  },
+  "commands": {
+    "ip -j addr": {
+      "bytes": 149,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "ip -j link": {
+      "bytes": 353,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "ip -j route": {
+      "bytes": 260,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev": {
+      "bytes": 623,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev wlan0 link": {
+      "bytes": 342,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev wlan0 scan dump": {
+      "bytes": 7720,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev wlan1 link": {
+      "bytes": 15,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev wlan1 scan dump": {
+      "bytes": 0,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw phy phy0 info": {
+      "bytes": 7264,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw phy phy1 info": {
+      "bytes": 6117,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw reg get": {
+      "bytes": 658,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status": {
+      "bytes": 129,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "nmcli -t -f NAME,UUID,TYPE,DEVICE connection show": {
+      "bytes": 67,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "nmcli networking connectivity": {
+      "bytes": 5,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "rfkill list": {
+      "bytes": 114,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    }
+  },
+  "country": {
+    "code": "DE",
+    "confidence": "medium",
+    "known": true,
+    "notes": [],
+    "self_managed": false,
+    "source": "kernel"
+  },
+  "interfaces": [
+    {
+      "bus": null,
+      "channel": null,
+      "freq_mhz": null,
+      "ifindex": null,
+      "mac": "3a:11:22:33:44:56",
+      "name": null,
+      "phy": "phy1",
+      "ssid_escaped": null,
+      "ssid_hex": null,
+      "txpower_dbm": 0.0,
+      "type": "P2P-device",
+      "wdev": "0x100000002",
+      "width_mhz": null
+    },
+    {
+      "bus": {
+        "bus": null,
+        "device": null,
+        "driver": null,
+        "phy": null,
+        "vendor": null
+      },
+      "channel": null,
+      "freq_mhz": null,
+      "ifindex": 4,
+      "mac": "00:c0:ca:aa:bb:cc",
+      "name": "wlan1",
+      "phy": "phy1",
+      "ssid_escaped": null,
+      "ssid_hex": null,
+      "txpower_dbm": 20.0,
+      "type": "managed",
+      "wdev": "0x100000001",
+      "width_mhz": null
+    },
+    {
+      "bus": null,
+      "channel": null,
+      "freq_mhz": null,
+      "ifindex": null,
+      "mac": "3a:11:22:33:44:55",
+      "name": null,
+      "phy": "phy0",
+      "ssid_escaped": null,
+      "ssid_hex": null,
+      "txpower_dbm": 22.0,
+      "type": "P2P-device",
+      "wdev": "0x2",
+      "width_mhz": null
+    },
+    {
+      "bus": {
+        "bus": null,
+        "device": null,
+        "driver": null,
+        "phy": null,
+        "vendor": null
+      },
+      "channel": 36,
+      "freq_mhz": 5180,
+      "ifindex": 3,
+      "mac": "38:11:22:33:44:55",
+      "name": "wlan0",
+      "phy": "phy0",
+      "ssid_escaped": "HomeNet",
+      "ssid_hex": "486f6d654e6574",
+      "txpower_dbm": 22.0,
+      "type": "managed",
+      "wdev": "0x1",
+      "width_mhz": 80
+    }
+  ],
+  "ip": {
+    "addresses": [
+      {
+        "family": "inet",
+        "ifname": "wlan0",
+        "local": "192.168.1.20",
+        "prefixlen": 24,
+        "scope": "global"
+      }
+    ],
+    "links": [
+      {
+        "flags": [
+          "BROADCAST",
+          "MULTICAST",
+          "UP",
+          "LOWER_UP"
+        ],
+        "has_carrier": true,
+        "ifindex": 2,
+        "is_up": true,
+        "link_type": "ether",
+        "mac": "38:11:22:33:44:55",
+        "master": null,
+        "mtu": 1500,
+        "name": "wlan0",
+        "operstate": "UP"
+      },
+      {
+        "flags": [
+          "BROADCAST",
+          "MULTICAST",
+          "UP",
+          "LOWER_UP"
+        ],
+        "has_carrier": true,
+        "ifindex": 3,
+        "is_up": true,
+        "link_type": "ether",
+        "mac": "38:11:22:33:44:56",
+        "master": null,
+        "mtu": 1500,
+        "name": "wlan1",
+        "operstate": "UP"
+      }
+    ],
+    "routes": [
+      {
+        "dev": "wlan0",
+        "dst": "default",
+        "gateway": "192.168.1.1",
+        "is_default": true,
+        "metric": 600,
+        "prefsrc": "192.168.1.20",
+        "protocol": "dhcp",
+        "scope": null,
+        "type": "unicast"
+      },
+      {
+        "dev": "wlan0",
+        "dst": "192.168.1.0/24",
+        "gateway": null,
+        "is_default": false,
+        "metric": 0,
+        "prefsrc": "192.168.1.20",
+        "protocol": "kernel",
+        "scope": "link",
+        "type": "unicast"
+      }
+    ],
+    "uplink": "wlan0",
+    "used_ipv4_networks": [
+      "192.168.1.0/24",
+      "192.168.1.20/24"
+    ]
+  },
+  "network_manager": {
+    "connectivity": "full",
+    "devices": [
+      {
+        "connection": "HomeNet",
+        "device": "wlan0",
+        "state": {
+          "detail": "",
+          "is_busy": false,
+          "is_up": true,
+          "state": "connected"
+        },
+        "type": "wifi"
+      },
+      {
+        "connection": "",
+        "device": "p2p-dev-wlan0",
+        "state": {
+          "detail": "",
+          "is_busy": false,
+          "is_up": false,
+          "state": "disconnected"
+        },
+        "type": "wifi-p2p"
+      },
+      {
+        "connection": "lo",
+        "device": "lo",
+        "state": {
+          "detail": "externally",
+          "is_busy": false,
+          "is_up": true,
+          "state": "connected"
+        },
+        "type": "loopback"
+      },
+      {
+        "connection": "",
+        "device": "wlan1",
+        "state": {
+          "detail": "",
+          "is_busy": false,
+          "is_up": false,
+          "state": "disconnected"
+        },
+        "type": "wifi"
+      }
+    ],
+    "wifi_profiles": [
+      {
+        "device": "wlan0",
+        "name": "HomeNet",
+        "type": "802-11-wireless",
+        "uuid": "6c4b9f2f-1dab-4b63-8b88-222222222222"
+      }
+    ]
+  },
+  "phys": {
+    "phy0": {
+      "bands": [
+        "2.4",
+        "5",
+        "6"
+      ],
+      "combos": [
+        {
+          "channels": 2,
+          "limits": [
+            {
+              "max": 1,
+              "types": [
+                "managed"
+              ]
+            },
+            {
+              "max": 1,
+              "types": [
+                "AP",
+                "P2P-client",
+                "P2P-GO"
+              ]
+            },
+            {
+              "max": 1,
+              "types": [
+                "P2P-device"
+              ]
+            }
+          ],
+          "radar_widths": [],
+          "sta_ap_bi_match": false,
+          "total": 3
+        }
+      ],
+      "concurrent_ap_sta": {
+        "channels": 2,
+        "sta_ap_bi_match": false,
+        "total": 3
+      },
+      "dfs_channels": {
+        "5": [
+          52,
+          56,
+          60,
+          64,
+          100,
+          104,
+          108,
+          112,
+          116,
+          120,
+          124,
+          128,
+          132,
+          136,
+          140
+        ]
+      },
+      "index": 0,
+      "modes": [
+        "IBSS",
+        "managed",
+        "AP",
+        "AP/VLAN",
+        "monitor",
+        "P2P-client",
+        "P2P-GO",
+        "P2P-device"
+      ],
+      "name": "phy0",
+      "passive_only_channels": {
+        "6": [
+          1,
+          5,
+          9,
+          13,
+          17,
+          21,
+          25,
+          29,
+          33,
+          37,
+          41,
+          45,
+          49,
+          53,
+          57,
+          61
+        ]
+      },
+      "start_ap_command": true,
+      "supports_ap": true,
+      "supports_sae": false,
+      "usable_ap_channels": {
+        "2.4": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13
+        ],
+        "5": [
+          36,
+          40,
+          44,
+          48,
+          149,
+          153,
+          157,
+          161,
+          165
+        ]
+      }
+    },
+    "phy1": {
+      "bands": [
+        "2.4",
+        "5"
+      ],
+      "combos": [
+        {
+          "channels": 1,
+          "limits": [
+            {
+              "max": 2,
+              "types": [
+                "managed"
+              ]
+            },
+            {
+              "max": 1,
+              "types": [
+                "AP"
+              ]
+            },
+            {
+              "max": 1,
+              "types": [
+                "mesh point"
+              ]
+            }
+          ],
+          "radar_widths": [],
+          "sta_ap_bi_match": true,
+          "total": 3
+        }
+      ],
+      "concurrent_ap_sta": {
+        "channels": 1,
+        "sta_ap_bi_match": true,
+        "total": 3
+      },
+      "dfs_channels": {
+        "5": [
+          52,
+          56,
+          60,
+          64,
+          100,
+          104,
+          108,
+          112,
+          116,
+          120,
+          124,
+          128,
+          132,
+          136,
+          140,
+          144
+        ]
+      },
+      "index": 1,
+      "modes": [
+        "IBSS",
+        "managed",
+        "AP",
+        "AP/VLAN",
+        "monitor",
+        "mesh point"
+      ],
+      "name": "phy1",
+      "passive_only_channels": {},
+      "start_ap_command": true,
+      "supports_ap": true,
+      "supports_sae": false,
+      "usable_ap_channels": {
+        "2.4": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ],
+        "5": [
+          36,
+          40,
+          44,
+          48,
+          149,
+          153,
+          157,
+          161,
+          165
+        ]
+      }
+    }
+  },
+  "radio": {
+    "ap_iface": "wlan1",
+    "ap_phy": "phy1",
+    "follow_uplink_mhz": null,
+    "mode": "dedicated",
+    "needs_unblock": false,
+    "notes": [],
+    "reason": "ok",
+    "sta_iface": "wlan0",
+    "sta_phy": "phy0"
+  },
+  "regdom": [
+    {
+      "country": "DE",
+      "dfs": "ETSI",
+      "phy": null,
+      "rules": 7,
+      "scope": "global",
+      "self_managed": false
+    },
+    {
+      "country": "DE",
+      "dfs": "ETSI",
+      "phy": "phy0",
+      "rules": 4,
+      "scope": "phy",
+      "self_managed": true
+    }
+  ],
+  "rfkill": {
+    "entries": [
+      {
+        "blocked": false,
+        "device": "phy0",
+        "hard_blocked": false,
+        "id": 0,
+        "soft_blocked": false,
+        "type": "wlan"
+      },
+      {
+        "blocked": true,
+        "device": "hci0",
+        "hard_blocked": false,
+        "id": 1,
+        "soft_blocked": true,
+        "type": "bluetooth"
+      }
+    ],
+    "wlan": {
+      "hard_blocked": [],
+      "present": true,
+      "soft_blocked": []
+    }
+  },
+  "scan": {
+    "count": 15,
+    "countries": {
+      "DE": 9,
+      "US": 1
+    },
+    "networks": [
+      {
+        "akms": [
+          "PSK"
+        ],
+        "associated": true,
+        "band": "5",
+        "bssid": "aa:bb:cc:00:00:02",
+        "channel": 36,
+        "country": "DE",
+        "freq_mhz": 5180,
+        "hidden": false,
+        "privacy": true,
+        "security": "wpa2",
+        "signal_dbm": -48.0,
+        "signal_pct": 70,
+        "ssid": "HomeNet",
+        "ssid_escaped": "HomeNet",
+        "ssid_hex": "486f6d654e6574"
+      },
+      {
+        "akms": [
+          "802.1X"
+        ],
+        "associated": false,
+        "band": "2.4",
+        "bssid": "aa:bb:cc:00:00:06",
+        "channel": 6,
+        "country": "DE",
+        "freq_mhz": 2437,
+        "hidden": false,
+        "privacy": true,
+        "security": "enterprise",
+        "signal_dbm": -55.0,
+        "signal_pct": 58,
+        "ssid": "CorpWifi",
+        "ssid_escaped": "CorpWifi",
+        "ssid_hex": "436f727057696669"
+      },
+      {
+        "akms": [
+          "SAE"
+        ],
+        "associated": false,
+        "band": "5",
+        "bssid": "aa:bb:cc:00:00:04",
+        "channel": 40,
+        "country": "DE",
+        "freq_mhz": 5200,
+        "hidden": false,
+        "privacy": true,
+        "security": "sae-only",
+        "signal_dbm": -58.0,
+        "signal_pct": 53,
+        "ssid": "Wpa3Only",
+        "ssid_escaped": "Wpa3Only",
+        "ssid_hex": "577061334f6e6c79"
+      },
+      {
+        "akms": [
+          "SAE",
+          "PSK"
+        ],
+        "associated": false,
+        "band": "2.4",
+        "bssid": "aa:bb:cc:00:00:03",
+        "channel": 1,
+        "country": "DE",
+        "freq_mhz": 2412,
+        "hidden": false,
+        "privacy": true,
+        "security": "wpa3",
+        "signal_dbm": -60.0,
+        "signal_pct": 50,
+        "ssid": "TransitionNet",
+        "ssid_escaped": "TransitionNet",
+        "ssid_hex": "5472616e736974696f6e4e6574"
+      },
+      {
+        "akms": [
+          "OWE"
+        ],
+        "associated": false,
+        "band": "2.4",
+        "bssid": "aa:bb:cc:00:00:05",
+        "channel": 11,
+        "country": "DE",
+        "freq_mhz": 2462,
+        "hidden": false,
+        "privacy": true,
+        "security": "owe",
+        "signal_dbm": -67.0,
+        "signal_pct": 38,
+        "ssid": "CafeOWE",
+        "ssid_escaped": "CafeOWE",
+        "ssid_hex": "436166654f5745"
+      },
+      {
+        "akms": [
+          "SAE"
+        ],
+        "associated": false,
+        "band": "6",
+        "bssid": "aa:bb:cc:00:00:0f",
+        "channel": 1,
+        "country": null,
+        "freq_mhz": 5955,
+        "hidden": false,
+        "privacy": true,
+        "security": "sae-only",
+        "signal_dbm": -70.0,
+        "signal_pct": 33,
+        "ssid": "SixGig",
+        "ssid_escaped": "SixGig",
+        "ssid_hex": "536978476967"
+      },
+      {
+        "akms": [],
+        "associated": false,
+        "band": "2.4",
+        "bssid": "aa:bb:cc:00:00:07",
+        "channel": 1,
+        "country": "US",
+        "freq_mhz": 2412,
+        "hidden": false,
+        "privacy": false,
+        "security": "open",
+        "signal_dbm": -73.0,
+        "signal_pct": 28,
+        "ssid": "OpenGuest",
+        "ssid_escaped": "OpenGuest",
+        "ssid_hex": "4f70656e4775657374"
+      },
+      {
+        "akms": [
+          "PSK"
+        ],
+        "associated": false,
+        "band": "2.4",
+        "bssid": "aa:bb:cc:00:00:0b",
+        "channel": 10,
+        "country": "DE",
+        "freq_mhz": 2457,
+        "hidden": false,
+        "privacy": true,
+        "security": "wpa2",
+        "signal_dbm": -75.0,
+        "signal_pct": 25,
+        "ssid": "Caf\u00e9 Bar",
+        "ssid_escaped": "Caf\\xc3\\xa9 Bar",
+        "ssid_hex": "436166c3a920426172"
+      },
+      {
+        "akms": [
+          "PSK"
+        ],
+        "associated": false,
+        "band": "2.4",
+        "bssid": "aa:bb:cc:00:00:0c",
+        "channel": 10,
+        "country": null,
+        "freq_mhz": 2457,
+        "hidden": false,
+        "privacy": true,
+        "security": "wpa2",
+        "signal_dbm": -76.0,
+        "signal_pct": 23,
+        "ssid": null,
+        "ssid_escaped": "bad\\xff\\xfename",
+        "ssid_hex": "626164fffe6e616d65"
+      },
+      {
+        "akms": [
+          "PSK"
+        ],
+        "associated": false,
+        "band": "2.4",
+        "bssid": "aa:bb:cc:00:00:0d",
+        "channel": 3,
+        "country": null,
+        "freq_mhz": 2422,
+        "hidden": false,
+        "privacy": true,
+        "security": "wpa2",
+        "signal_dbm": -77.0,
+        "signal_pct": 22,
+        "ssid": null,
+        "ssid_escaped": "evil\\x0a\\x09freq: 9999\\x0aSSID: forged",
+        "ssid_hex": "6576696c0a09667265713a20393939390a535349443a20666f72676564"
+      },
+      {
+        "akms": [],
+        "associated": false,
+        "band": "2.4",
+        "bssid": "aa:bb:cc:00:00:08",
+        "channel": 8,
+        "country": null,
+        "freq_mhz": 2447,
+        "hidden": false,
+        "privacy": true,
+        "security": "wep",
+        "signal_dbm": -80.0,
+        "signal_pct": 17,
+        "ssid": "OldWEP",
+        "ssid_escaped": "OldWEP",
+        "ssid_hex": "4f6c64574550"
+      },
+      {
+        "akms": [
+          "PSK"
+        ],
+        "associated": false,
+        "band": "5",
+        "bssid": "aa:bb:cc:00:00:0e",
+        "channel": 149,
+        "country": null,
+        "freq_mhz": 5745,
+        "hidden": false,
+        "privacy": true,
+        "security": "wpa1",
+        "signal_dbm": -82.0,
+        "signal_pct": 13,
+        "ssid": "WpaOne",
+        "ssid_escaped": "WpaOne",
+        "ssid_hex": "5770614f6e65"
+      }
+    ],
+    "survey_2_4": {
+      "1": 2,
+      "10": 2,
+      "11": 1,
+      "3": 1,
+      "6": 4,
+      "8": 1
+    }
+  },
+  "system": {
+    "claimed": false,
+    "display": "unknown",
+    "headless_param": "auto",
+    "live": false,
+    "stick": false,
+    "timezone": null,
+    "timezone_country": null
+  },
+  "version": 1,
+  "wifi_links": {
+    "wlan0": {
+      "bssid": "aa:bb:cc:00:00:02",
+      "channel": 36,
+      "connected": true,
+      "freq_mhz": 5180,
+      "signal_dbm": -48.0,
+      "ssid_escaped": "HomeNet",
+      "ssid_hex": "486f6d654e6574"
+    },
+    "wlan1": {
+      "bssid": null,
+      "channel": null,
+      "connected": false,
+      "freq_mhz": null,
+      "signal_dbm": null,
+      "ssid_escaped": null,
+      "ssid_hex": null
+    }
+  }
+}

@@ -1,0 +1,148 @@
+T+    0s  building the installed disk in a container (ubuntu:26.04; scratch volume ci-os-installed-boot-38065)
+installing missing tools with apt-get: python3 mkfs.vfat sfdisk python3 zstd
+Preconfiguring packages ...
+Selecting previously unselected package libexpat1:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 7789 files and directories currently installed.)
+Preparing to unpack .../libexpat1_2.7.4-1ubuntu0.2_amd64.deb ...
+Unpacking libexpat1:amd64 (2.7.4-1ubuntu0.2) ...
+Selecting previously unselected package libpython3.14-minimal:amd64.
+Preparing to unpack .../libpython3.14-minimal_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking libpython3.14-minimal:amd64 (3.14.4-1ubuntu0.2) ...
+Selecting previously unselected package python3.14-minimal.
+Preparing to unpack .../python3.14-minimal_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking python3.14-minimal (3.14.4-1ubuntu0.2) ...
+Setting up libpython3.14-minimal:amd64 (3.14.4-1ubuntu0.2) ...
+Setting up libexpat1:amd64 (2.7.4-1ubuntu0.2) ...
+Setting up python3.14-minimal (3.14.4-1ubuntu0.2) ...
+Selecting previously unselected package python3-minimal.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 8143 files and directories currently installed.)
+Preparing to unpack .../00-python3-minimal_3.14.3-0ubuntu2_amd64.deb ...
+Unpacking python3-minimal (3.14.3-0ubuntu2) ...
+Selecting previously unselected package media-types.
+Preparing to unpack .../01-media-types_14.0.0build1_all.deb ...
+Unpacking media-types (14.0.0build1) ...
+Selecting previously unselected package netbase.
+Preparing to unpack .../02-netbase_6.5build1_all.deb ...
+Unpacking netbase (6.5build1) ...
+Selecting previously unselected package tzdata.
+Preparing to unpack .../03-tzdata_2026e-0ubuntu0.26.04.1_all.deb ...
+Unpacking tzdata (2026e-0ubuntu0.26.04.1) ...
+Selecting previously unselected package libffi8:amd64.
+Preparing to unpack .../04-libffi8_3.5.2-4_amd64.deb ...
+Unpacking libffi8:amd64 (3.5.2-4) ...
+Selecting previously unselected package readline-common.
+Preparing to unpack .../05-readline-common_8.3-4_all.deb ...
+Unpacking readline-common (8.3-4) ...
+Selecting previously unselected package libreadline8t64:amd64.
+Preparing to unpack .../06-libreadline8t64_8.3-4_amd64.deb ...
+Adding 'diversion of /lib/x86_64-linux-gnu/libhistory.so.8 to /lib/x86_64-linux-gnu/libhistory.so.8.usr-is-merged by libreadline8t64'
+Adding 'diversion of /lib/x86_64-linux-gnu/libhistory.so.8.2 to /lib/x86_64-linux-gnu/libhistory.so.8.2.usr-is-merged by libreadline8t64'
+Adding 'diversion of /lib/x86_64-linux-gnu/libreadline.so.8 to /lib/x86_64-linux-gnu/libreadline.so.8.usr-is-merged by libreadline8t64'
+Adding 'diversion of /lib/x86_64-linux-gnu/libreadline.so.8.2 to /lib/x86_64-linux-gnu/libreadline.so.8.2.usr-is-merged by libreadline8t64'
+Unpacking libreadline8t64:amd64 (8.3-4) ...
+Selecting previously unselected package libsqlite3-0:amd64.
+Preparing to unpack .../07-libsqlite3-0_3.46.1-9ubuntu0.3_amd64.deb ...
+Unpacking libsqlite3-0:amd64 (3.46.1-9ubuntu0.3) ...
+Selecting previously unselected package libpython3.14-stdlib:amd64.
+Preparing to unpack .../08-libpython3.14-stdlib_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking libpython3.14-stdlib:amd64 (3.14.4-1ubuntu0.2) ...
+Selecting previously unselected package python3.14.
+Preparing to unpack .../09-python3.14_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking python3.14 (3.14.4-1ubuntu0.2) ...
+Selecting previously unselected package libpython3-stdlib:amd64.
+Preparing to unpack .../10-libpython3-stdlib_3.14.3-0ubuntu2_amd64.deb ...
+Unpacking libpython3-stdlib:amd64 (3.14.3-0ubuntu2) ...
+Setting up python3-minimal (3.14.3-0ubuntu2) ...
+Selecting previously unselected package python3.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9174 files and directories currently installed.)
+Preparing to unpack .../python3_3.14.3-0ubuntu2_amd64.deb ...
+Unpacking python3 (3.14.3-0ubuntu2) ...
+Selecting previously unselected package libmpfr6:amd64.
+Preparing to unpack .../libmpfr6_4.2.2-3_amd64.deb ...
+Unpacking libmpfr6:amd64 (4.2.2-3) ...
+Setting up libmpfr6:amd64 (4.2.2-3) ...
+Setting up readline-common (8.3-4) ...
+Setting up libreadline8t64:amd64 (8.3-4) ...
+Selecting previously unselected package gawk.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9205 files and directories currently installed.)
+Preparing to unpack .../gawk_1%3a5.3.2-1ubuntu1.1_amd64.deb ...
+Unpacking gawk (1:5.3.2-1ubuntu1.1) ...
+Selecting previously unselected package dosfstools.
+Preparing to unpack .../dosfstools_4.2-1.2build1_amd64.deb ...
+Unpacking dosfstools (4.2-1.2build1) ...
+Selecting previously unselected package libfdisk1:amd64.
+Preparing to unpack .../libfdisk1_2.41.3-3ubuntu2.2_amd64.deb ...
+Unpacking libfdisk1:amd64 (2.41.3-3ubuntu2.2) ...
+Selecting previously unselected package fdisk.
+Preparing to unpack .../fdisk_2.41.3-3ubuntu2.2_amd64.deb ...
+Unpacking fdisk (2.41.3-3ubuntu2.2) ...
+Selecting previously unselected package zstd.
+Preparing to unpack .../zstd_1.5.7+dfsg-3_amd64.deb ...
+Unpacking zstd (1.5.7+dfsg-3) ...
+Setting up media-types (14.0.0build1) ...
+Setting up gawk (1:5.3.2-1ubuntu1.1) ...
+Setting up libsqlite3-0:amd64 (3.46.1-9ubuntu0.3) ...
+Setting up dosfstools (4.2-1.2build1) ...
+Setting up tzdata (2026e-0ubuntu0.26.04.1) ...
+
+Current default time zone: 'Etc/UTC'
+Local time is now:      Sun Oct 18 16:27:51 UTC 2026.
+Universal Time is now:  Sun Oct 18 16:27:51 UTC 2026.
+Run 'dpkg-reconfigure tzdata' if you wish to change it.
+
+Setting up libfdisk1:amd64 (2.41.3-3ubuntu2.2) ...
+Setting up libffi8:amd64 (3.5.2-4) ...
+Setting up netbase (6.5build1) ...
+Setting up zstd (1.5.7+dfsg-3) ...
+Setting up libpython3.14-stdlib:amd64 (3.14.4-1ubuntu0.2) ...
+Setting up fdisk (2.41.3-3ubuntu2.2) ...
+Setting up python3.14 (3.14.4-1ubuntu0.2) ...
+Setting up libpython3-stdlib:amd64 (3.14.3-0ubuntu2) ...
+Setting up python3 (3.14.3-0ubuntu2) ...
+Processing triggers for libc-bin (2.43-2ubuntu2.4) ...
+INFO source-layer the installer's layer 1: casper/minimal.squashfs
+T+    2s  view ready: ISO /in/base.iso, default install source: minimal.squashfs 
+INFO source ISO /in/base.iso, default install source: minimal.squashfs 
+PASS casper-package base layer: the package casper is not installed
+PASS casper-conf base layer: no /etc/casper.conf
+PASS casper-initramfs-conf base layer: no casper settings in /etc/initramfs-tools/conf.d
+PASS casper-initramfs-scripts base layer: no casper initramfs scripts
+PASS live-gschema base layer: no live-session gschema override
+PASS installer-snap base layer: no installer snap
+PASS installer-leftovers base layer: no installer/live-session files
+PASS initramfs-generator base layer: initramfs-tools 0.151ubuntu1 generates the initrd, dracut is not installed
+PASS dracut-pin base layer: /etc/apt/preferences.d/ci-os-no-dracut keeps apt from installing dracut
+PASS cloud-init-installer-user base layer: cloud.cfg does not name the live session's user
+T+    7s  creating a 16G sparse disk, GPT, 512 MiB ESP + ext4 root
+Warning: block count mismatch: found 16776192 but assuming 524288.
+T+    8s  disk formatted: root UUID eee4a015-debf-4d93-87b9-159a81608852, ESP UUID 4D80-7E02
+T+    8s  copying the root filesystem (this is the slow part)
+T+  280s  root filesystem copied (10718 MiB)
+T+  282s  target configured: fstab, hostname, machine-id, user citest
+INFO kernels kernels in the installed system: 7.0.0-30-generic
+T+  282s  update-initramfs -c -k all (kernels: 7.0.0-30-generic)
+T+  380s  initramfs generated
+PASS initrd-casper initrd.img-7.0.0-30-generic has no casper scripts or configuration (2456 entries)
+T+  380s  grub-install (UEFI, shim path) and update-grub
+T+  387s  boot loader installed
+PASS grub-root-uuid grub.cfg boots with root=UUID=eee4a015-debf-4d93-87b9-159a81608852
+PASS grub-casper grub.cfg has no boot=casper
+PASS esp-files the ESP has the shim (EFI/companion/shimx64.efi and the removable-path fallback EFI/BOOT/BOOTX64.EFI)
+PASS casper-package installed system: the package casper is not installed
+PASS casper-conf installed system: no /etc/casper.conf
+PASS casper-initramfs-conf installed system: no casper settings in /etc/initramfs-tools/conf.d
+PASS casper-initramfs-scripts installed system: no casper initramfs scripts
+PASS live-gschema installed system: no live-session gschema override
+PASS installer-snap installed system: no installer snap
+PASS installer-leftovers installed system: no installer/live-session files
+PASS initramfs-generator installed system: initramfs-tools 0.151ubuntu1 generates the initrd, dracut is not installed
+PASS dracut-pin installed system: /etc/apt/preferences.d/ci-os-no-dracut keeps apt from installing dracut
+PASS cloud-init-installer-user installed system: cloud.cfg does not name the live session's user
+PASS fsck e2fsck: the installed root filesystem is clean
+T+  389s  build done; FAILs: 0
+T+  413s  disk build finished
+
+== Static checks of the installed system: 0 FAIL, 0 WARN, 25 PASS
+
+== PASS: static checks passed (boot not run: --no-boot / --stop-after)
+   (details in <scratch>)

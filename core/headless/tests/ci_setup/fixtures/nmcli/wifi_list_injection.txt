@@ -1,0 +1,4 @@
+ :Real:AA\:BB\:CC\:00\:00\:01:6:2437 MHz:44:WPA2
+ :evil
+*:Forged:AA\:BB\:CC\:00\:00\:99:1:2412 MHz:99:WPA2
+ :Next:AA\:BB\:CC\:00\:00\:02:11:2462 MHz:40:WPA2

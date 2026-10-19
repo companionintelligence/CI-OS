@@ -13,7 +13,7 @@
 #   in the boot slot's ISO. mmx64.efi (MokManager, Canonical-signed) is for recovery.
 #
 # How the binaries are obtained and checked:
-#   1. `apt-get download shim-signed grub-efi-amd64-signed` on Ubuntu 24.04 (noble). apt
+#   1. `apt-get download shim-signed grub-efi-amd64-signed` on Ubuntu 26.04 (resolute). apt
 #      only accepts a .deb whose hash matches the Packages index, which is authenticated by
 #      the archive's signed InRelease — no curl, no unauthenticated mirrors.
 #   2. `dpkg-deb -x`, then pick:
@@ -35,11 +35,16 @@
 #   4. `sbverify --cert`: grubx64.efi and mmx64.efi must verify against the Canonical CA
 #      certificate embedded in that shim (.vendor_cert) — exactly the check shim makes at
 #      boot. The CA is also written out (canonical-uefi-ca.pem) for checking kernels.
-#   5. signed-boot.lock records the package versions and every sha256. With
+#   5. `grub-builtin-modules.py --require`: every GRUB module the stick's grub.cfg relies on
+#      (CANONICAL_GRUB_BUILTIN_MODULES in crates/ci-stick/src/bootcfg.rs) must be built into
+#      grubx64.efi. Under Secure Boot shim refuses all modules GRUB would load from disk, and
+#      Canonical changes the built-in set between releases: 26.04's image no longer has
+#      all_video, efi_uga, ntfs, pgp, video_bochs and video_cirrus that the previous LTS had.
+#   6. signed-boot.lock records the package versions and every sha256. With
 #      --expect <lock>, the same versions are requested and every sha256 must match.
 #
-# Needs: Ubuntu 24.04 with apt lists (apt-get update), dpkg-deb, sbsigntool (sbverify),
-# binutils (objcopy), openssl, coreutils. No root needed.
+# Needs: Ubuntu 26.04 with apt lists (apt-get update), dpkg-deb, sbsigntool (sbverify),
+# binutils (objcopy), openssl, python3, coreutils. No root needed.
 set -euo pipefail
 
 usage() { echo "usage: fetch-signed-boot.sh <out-dir> [--expect <signed-boot.lock>]" >&2; exit 2; }
@@ -53,15 +58,16 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-SERIES=noble
-for t in apt-get apt-cache dpkg-deb sbverify objcopy openssl sha256sum od dd; do
+SERIES=resolute
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for t in apt-get apt-cache dpkg-deb sbverify objcopy openssl python3 sha256sum od dd; do
   command -v "$t" >/dev/null || {
-    echo "missing tool: $t (apt-get install sbsigntool binutils openssl)" >&2; exit 2; }
+    echo "missing tool: $t (apt-get install sbsigntool binutils openssl python3)" >&2; exit 2; }
 done
 codename="$(. /etc/os-release 2>/dev/null && echo "${VERSION_CODENAME:-}")"
 if [ "$codename" != "$SERIES" ]; then
-  echo "fetch-signed-boot.sh runs on Ubuntu 24.04 ($SERIES), this is '${codename:-unknown}'." >&2
-  echo "Run it in a container: docker run --rm -v \"\$PWD\":/src ubuntu:24.04 ..." >&2
+  echo "fetch-signed-boot.sh runs on Ubuntu 26.04 ($SERIES), this is '${codename:-unknown}'." >&2
+  echo "Run it in a container: docker run --rm -v \"\$PWD\":/src ubuntu:26.04 ..." >&2
   echo "(stick/tests/secureboot/build-in-container.sh does exactly that)." >&2
   exit 2
 fi
@@ -137,6 +143,14 @@ for f in grubx64.efi mmx64.efi; do
     echo "$f does not verify against the Canonical CA embedded in shim — refusing" >&2; exit 1
   fi
 done
+
+# The modules grub.cfg relies on: one "name", per line of the CANONICAL_GRUB_BUILTIN_MODULES
+# array (a unit test in bootcfg.rs keeps that layout and the list itself honest).
+bootcfg="$HERE/../crates/ci-stick/src/bootcfg.rs"
+required="$(sed -n '/^pub const CANONICAL_GRUB_BUILTIN_MODULES/,/^];/s/^    "\([a-z0-9_]*\)",$/\1/p' "$bootcfg" | paste -sd, -)"
+[ -n "$required" ] || { echo "cannot read CANONICAL_GRUB_BUILTIN_MODULES from $bootcfg — re-check this script" >&2; exit 1; }
+python3 -I "$HERE/grub-builtin-modules.py" "$out/grubx64.efi" --require "$required" >&2 \
+  || { echo "the signed GRUB lacks modules the stick's grub.cfg needs — its boot menu would not run under Secure Boot" >&2; exit 1; }
 
 sbat() { objcopy -O binary --only-section=.sbat "$1" "$tmp/sbat" && tr -d '\0' < "$tmp/sbat" \
   | awk -F, 'NR > 1 && $1 !~ /\./ {printf "%s%s,%s", sep, $1, $2; sep=" "}'; }

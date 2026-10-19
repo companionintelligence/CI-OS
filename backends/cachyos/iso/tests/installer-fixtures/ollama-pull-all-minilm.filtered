@@ -1,0 +1,13 @@
+pulling manifest
+pulling 797b70c4edf8: 1% 327 KB/ 45 MB
+pulling 797b70c4edf8: 9% 3.9 MB/ 45 MB
+pulling 797b70c4edf8: 27% 12 MB/ 45 MB
+pulling 797b70c4edf8: 33% 15 MB/ 45 MB
+pulling 797b70c4edf8: 51% 23 MB/ 45 MB
+pulling 797b70c4edf8: 71% 32 MB/ 45 MB
+pulling 797b70c4edf8: 82% 37 MB/ 45 MB
+pulling 797b70c4edf8: 100% 45 MB/ 45 MB
+pulling 548455b72658: 100% 407 B
+verifying sha256 digest
+writing manifest
+success

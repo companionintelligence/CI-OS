@@ -1,0 +1,106 @@
+# GRUB modules built into Canonical's signed GRUB CD image, the one this ISO boots through shim under Secure Boot:
+# EFI/boot/grubx64.efi of ubuntu-26.04.1-desktop-amd64.iso (sha256 601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f),
+# which is gcdx64.efi.signed of grub-efi-amd64-signed 1.215+2.14-2ubuntu1 (GRUB 2.14, Ubuntu 26.04.1 resolute).
+# image: 2398088 bytes, sha256 dc505a15c1bd97878eede212a052a1bfb2f610176a5401a3679877c536fdcd62
+# Under Secure Boot shim's lock refuses every module GRUB would load from disk, so the live menu (grub.cfg) can insmod only
+# these. NOT in the list: all_video (the 24.04 image had it; the string "feature_all_video_module" in this binary is a
+# feature flag, not the module), efi_uga, ntfs, pgp, video_bochs, video_cirrus.
+# The disk image the Companion Stick ships (grubx64.efi.signed, 122 modules) is a superset of these 95:
+# stick/crates/ci-stick/tests/fixtures/grub/grubx64.efi.signed.builtin-modules.txt
+# Regenerate: 7z x ubuntu-26.04.1-desktop-amd64.iso EFI/boot/grubx64.efi
+#             python3 -I stick/scripts/grub-builtin-modules.py EFI/boot/grubx64.efi
+acpi
+archelp
+bitmap
+bitmap_scale
+boot
+btrfs
+bufio
+cat
+chain
+configfile
+cpuid
+crypto
+cryptodisk
+datetime
+disk
+diskfilter
+echo
+efi_gop
+efifwsetup
+efinet
+ext2
+extcmd
+fat
+font
+fshelp
+gcry_crc
+gcry_hwfeatures
+gcry_rijndael
+gcry_sha1
+gcry_sha512
+gettext
+gfxmenu
+gfxterm
+gfxterm_background
+gzio
+halt
+help
+hfsplus
+iso9660
+jpeg
+key_protector
+keystatus
+linux
+loadenv
+loopback
+ls
+lsefi
+lsefimmap
+lsefisystab
+lssal
+lzopio
+memdisk
+minicmd
+mmap
+net
+normal
+part_apple
+part_gpt
+part_msdos
+password_pbkdf2
+pbkdf2
+peimage
+play
+png
+priority_queue
+probe
+procfs
+raid6rec
+reboot
+regexp
+relocator
+search
+search_fs_file
+search_fs_uuid
+search_label
+serial
+setjmp
+sleep
+smbios
+squash4
+terminal
+terminfo
+test
+tpm
+trig
+true
+video
+video_colors
+video_fb
+xfs
+xzio
+zfs
+zfscrypt
+zfsinfo
+zstd

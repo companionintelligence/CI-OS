@@ -7,7 +7,7 @@
 #
 # Usage:
 #   sudo ./apply-ci-os-desktop.sh
-#                       Full apply: plymouth, grub, dconf, wallpaper, session, start-icon, os-release, motd
+#                       Full apply: plymouth, grub, dconf, wallpaper, session, start-icon, about-logo, os-release, names, motd
 #   sudo ./apply-ci-os-desktop.sh --only plymouth,dconf
 #   ./apply-ci-os-desktop.sh --validate
 #                       Read-only checks (no sudo)
@@ -73,7 +73,7 @@ Usage:
   $0 --validate                 Run validation only (no root).
   sudo $0 --wizard [options]    Interactive full apply + validate + reboot prompt.
 
-Steps: plymouth, grub, dconf, terminal, wallpaper, session, start-icon, os-release, motd, kde
+Steps: plymouth, grub, dconf, terminal, wallpaper, session, start-icon, about-logo, os-release, names, motd, kde
 
 Examples:
   sudo $0
@@ -122,7 +122,9 @@ run_full_apply() {
   run_step wallpaper "$SCRIPT_DIR/30-wallpaper.sh"
   run_step session "$MIXIN_GNOME/25-session-gsettings.sh"
   run_step start-icon "$SCRIPT_DIR/40-start-icon.sh"
+  run_step about-logo "$SCRIPT_DIR/45-about-logo.sh"
   run_step os-release "$SCRIPT_DIR/50-os-release.sh"
+  run_step names "$SCRIPT_DIR/60-visible-names.sh"
   run_step motd "$RENDER/render-motd.sh"
 }
 

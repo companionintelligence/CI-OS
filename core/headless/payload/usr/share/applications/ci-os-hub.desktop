@@ -1,9 +1,9 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=CI OS Hub
-Comment=Companion Intelligence OS Hub - App launcher and device management
+Name=Companion Hub (browser)
+Comment=Open Companion Hub in your browser: app launcher and device management
 Exec=xdg-open http://localhost:5002
-Icon=application-x-executable
+Icon=ci-os-logo
 Categories=Utility;System;
 StartupNotify=true

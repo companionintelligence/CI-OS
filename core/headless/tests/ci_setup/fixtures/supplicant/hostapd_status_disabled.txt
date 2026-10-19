@@ -1,0 +1,7 @@
+state=DISABLED
+phy=phy0
+freq=0
+bss[0]=ap0
+bssid[0]=38:11:22:33:44:57
+ssid[0]=Companion-Setup-AB12
+num_sta[0]=0

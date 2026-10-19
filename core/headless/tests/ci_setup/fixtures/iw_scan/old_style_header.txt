@@ -1,0 +1,11 @@
+BSS aa:bb:cc:00:00:01 (on wlan0)
+	TSF: 1 usec (0d, 00:00:00)
+	freq: 2437
+	beacon interval: 100
+	capability: ESS Privacy (0x0011)
+	signal: -50.00 dBm
+	SSID: OldIw
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK

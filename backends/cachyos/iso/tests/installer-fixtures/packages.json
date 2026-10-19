@@ -1,0 +1,902 @@
+{
+  "checked": "2026-10-16",
+  "sources": [
+    "https://archlinux.org/packages/search/json/ (name= lookups)",
+    "cachyos db cachyos.db sha256 9e8795e503c2d370cb90e3fbe497911d22dcf99ce1790e4903f4418b467ac82a"
+  ],
+  "found": {
+    "accountsservice": {
+      "repo": "extra",
+      "version": "26.27.3-1"
+    },
+    "alsa-firmware": {
+      "repo": "extra",
+      "version": "1.2.4-4"
+    },
+    "alsa-plugins": {
+      "repo": "extra",
+      "version": "1.2.12-6"
+    },
+    "alsa-utils": {
+      "repo": "extra",
+      "version": "1.2.16-1"
+    },
+    "amd-ucode": {
+      "repo": "cachyos",
+      "version": "1:20260916-1"
+    },
+    "ark": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "awesome-terminal-fonts": {
+      "repo": "extra",
+      "version": "1.1.0-5"
+    },
+    "base": {
+      "repo": "core",
+      "version": "3-3"
+    },
+    "base-devel": {
+      "repo": "core",
+      "version": "1-2"
+    },
+    "bash-completion": {
+      "repo": "extra",
+      "version": "2.18.0-1"
+    },
+    "bcachefs-dkms": {
+      "repo": "extra",
+      "version": "1.39.7-1"
+    },
+    "bcachefs-tools": {
+      "repo": "extra",
+      "version": "1.39.7-1"
+    },
+    "bind": {
+      "repo": "extra",
+      "version": "9.20.29-1"
+    },
+    "bluedevil": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "bluez": {
+      "repo": "extra",
+      "version": "5.87-2"
+    },
+    "bluez-hid2hci": {
+      "repo": "extra",
+      "version": "5.87-2"
+    },
+    "bluez-libs": {
+      "repo": "extra",
+      "version": "5.87-2"
+    },
+    "bluez-obex": {
+      "repo": "extra",
+      "version": "5.87-2"
+    },
+    "bluez-utils": {
+      "repo": "extra",
+      "version": "5.87-2"
+    },
+    "breeze-gtk": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "btop": {
+      "repo": "extra",
+      "version": "1.4.7-1"
+    },
+    "btrfs-assistant": {
+      "repo": "extra",
+      "version": "2.3.2-1"
+    },
+    "btrfs-progs": {
+      "repo": "core",
+      "version": "7.1-1"
+    },
+    "cachyos-grub-theme": {
+      "repo": "cachyos",
+      "version": "1.0.0-1"
+    },
+    "cachyos-hooks": {
+      "repo": "cachyos",
+      "version": "2026.02.05-1"
+    },
+    "cachyos-kde-settings": {
+      "repo": "cachyos",
+      "version": "4.9-8"
+    },
+    "cachyos-keyring": {
+      "repo": "cachyos",
+      "version": "20240331-1"
+    },
+    "cachyos-mirrorlist": {
+      "repo": "cachyos",
+      "version": "27-1"
+    },
+    "cachyos-rate-mirrors": {
+      "repo": "cachyos",
+      "version": "24-1"
+    },
+    "cachyos-settings": {
+      "repo": "cachyos",
+      "version": "1:1.4.1-1"
+    },
+    "cachyos-v3-mirrorlist": {
+      "repo": "cachyos",
+      "version": "27-1"
+    },
+    "cachyos-v4-mirrorlist": {
+      "repo": "cachyos",
+      "version": "27-1"
+    },
+    "cantarell-fonts": {
+      "repo": "extra",
+      "version": "0.311-1"
+    },
+    "chromium": {
+      "repo": "extra",
+      "version": "154.0.8037.97-1"
+    },
+    "chwd": {
+      "repo": "cachyos",
+      "version": "1.24.1-1"
+    },
+    "cloudflared": {
+      "repo": "extra",
+      "version": "2026.10.0-1"
+    },
+    "cpupower": {
+      "repo": "extra",
+      "version": "7.2.10-1"
+    },
+    "cryptsetup": {
+      "repo": "core",
+      "version": "2.8.8-1"
+    },
+    "cups": {
+      "repo": "extra",
+      "version": "2.4.20-1"
+    },
+    "cups-filters": {
+      "repo": "extra",
+      "version": "2.0.1-3"
+    },
+    "cups-pdf": {
+      "repo": "extra",
+      "version": "3.0.3-1"
+    },
+    "curl": {
+      "repo": "core",
+      "version": "8.23.0-1"
+    },
+    "device-mapper": {
+      "repo": "core",
+      "version": "2.03.43-2"
+    },
+    "diffutils": {
+      "repo": "core",
+      "version": "3.12-2"
+    },
+    "dmidecode": {
+      "repo": "extra",
+      "version": "3.7-1"
+    },
+    "dmraid": {
+      "repo": "core",
+      "version": "1.0.0.rc16.3-15"
+    },
+    "dnsmasq": {
+      "repo": "extra",
+      "version": "2.93-1"
+    },
+    "docker": {
+      "repo": "extra",
+      "version": "29.9.1-1"
+    },
+    "docker-buildx": {
+      "repo": "extra",
+      "version": "0.38.0-1"
+    },
+    "docker-compose": {
+      "repo": "extra",
+      "version": "5.6.0-1"
+    },
+    "dolphin": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "dosfstools": {
+      "repo": "core",
+      "version": "4.2-5"
+    },
+    "duf": {
+      "repo": "extra",
+      "version": "0.9.1-1"
+    },
+    "e2fsprogs": {
+      "repo": "core",
+      "version": "1.47.4-1"
+    },
+    "efibootmgr": {
+      "repo": "core",
+      "version": "18-4"
+    },
+    "efitools": {
+      "repo": "extra",
+      "version": "1.9.2-7"
+    },
+    "espeak-ng": {
+      "repo": "extra",
+      "version": "1.52.0-1"
+    },
+    "ethtool": {
+      "repo": "extra",
+      "version": "7.1-1"
+    },
+    "exfatprogs": {
+      "repo": "extra",
+      "version": "1.4.3-1"
+    },
+    "f2fs-tools": {
+      "repo": "extra",
+      "version": "1.17.0-1"
+    },
+    "fastfetch": {
+      "repo": "extra",
+      "version": "2.70.0-1"
+    },
+    "ffmpegthumbnailer": {
+      "repo": "extra",
+      "version": "2.3.1-1"
+    },
+    "ffmpegthumbs": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "filelight": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "firefox": {
+      "repo": "extra",
+      "version": "158.0-1"
+    },
+    "foomatic-db": {
+      "repo": "extra",
+      "version": "20260904-1"
+    },
+    "foomatic-db-engine": {
+      "repo": "extra",
+      "version": "20200131-2"
+    },
+    "foomatic-db-gutenprint-ppds": {
+      "repo": "extra",
+      "version": "5.3.5-1"
+    },
+    "foomatic-db-ppds": {
+      "repo": "extra",
+      "version": "20260904-1"
+    },
+    "fwupd": {
+      "repo": "extra",
+      "version": "2.1.8-1"
+    },
+    "ghostscript": {
+      "repo": "extra",
+      "version": "10.08.0-1"
+    },
+    "git": {
+      "repo": "extra",
+      "version": "2.56.0-1"
+    },
+    "github-cli": {
+      "repo": "extra",
+      "version": "2.102.0-1"
+    },
+    "grub": {
+      "repo": "core",
+      "version": "2.16-1"
+    },
+    "grub-btrfs-support": {
+      "repo": "cachyos",
+      "version": "1.0.0-2"
+    },
+    "grub-hook": {
+      "repo": "cachyos",
+      "version": "2.1-1"
+    },
+    "gst-libav": {
+      "repo": "extra",
+      "version": "1.28.8-1"
+    },
+    "gst-plugin-pipewire": {
+      "repo": "extra",
+      "version": "1.6.9-1"
+    },
+    "gst-plugins-bad": {
+      "repo": "extra",
+      "version": "1.28.8-1"
+    },
+    "gst-plugins-ugly": {
+      "repo": "extra",
+      "version": "1.28.8-1"
+    },
+    "gunicorn": {
+      "repo": "extra",
+      "version": "26.2.2-1"
+    },
+    "gutenprint": {
+      "repo": "extra",
+      "version": "5.3.5-1"
+    },
+    "gwenview": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "haruna": {
+      "repo": "extra",
+      "version": "1.8.1-2"
+    },
+    "hdparm": {
+      "repo": "core",
+      "version": "9.65-3"
+    },
+    "hostapd": {
+      "repo": "extra",
+      "version": "2.12-2"
+    },
+    "hwdetect": {
+      "repo": "extra",
+      "version": "2026.10.01.1149-1"
+    },
+    "hwinfo": {
+      "repo": "extra",
+      "version": "26.0-1"
+    },
+    "inetutils": {
+      "repo": "core",
+      "version": "2.8-1"
+    },
+    "intel-ucode": {
+      "repo": "extra",
+      "version": "20260925-1"
+    },
+    "iproute2": {
+      "repo": "core",
+      "version": "7.2.0-1"
+    },
+    "iw": {
+      "repo": "core",
+      "version": "6.17-1"
+    },
+    "iwd": {
+      "repo": "extra",
+      "version": "3.12-2"
+    },
+    "jfsutils": {
+      "repo": "core",
+      "version": "1.1.15-9"
+    },
+    "jq": {
+      "repo": "extra",
+      "version": "1.8.2-1"
+    },
+    "kate": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "kcalc": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "kde-gtk-config": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "kdegraphics-thumbnailers": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "kdeplasma-addons": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "kdialog": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "kinfocenter": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "kio-admin": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "konsole": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "kscreen": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "kwallet-pam": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "kwalletmanager": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "less": {
+      "repo": "core",
+      "version": "710-1"
+    },
+    "libdvdcss": {
+      "repo": "extra",
+      "version": "1.6.0-1"
+    },
+    "libgsf": {
+      "repo": "extra",
+      "version": "1.14.60-1"
+    },
+    "libopenraw": {
+      "repo": "extra",
+      "version": "0.3.7-2"
+    },
+    "linux-cachyos": {
+      "repo": "cachyos",
+      "version": "7.2.7-1"
+    },
+    "linux-cachyos-deckify": {
+      "repo": "cachyos",
+      "version": "7.2.3-1"
+    },
+    "linux-cachyos-deckify-headers": {
+      "repo": "cachyos",
+      "version": "7.2.3-1"
+    },
+    "linux-cachyos-deckify-zfs": {
+      "repo": "cachyos",
+      "version": "7.2.3-1"
+    },
+    "linux-cachyos-headers": {
+      "repo": "cachyos",
+      "version": "7.2.7-1"
+    },
+    "linux-cachyos-lts": {
+      "repo": "cachyos",
+      "version": "6.18.50-1"
+    },
+    "linux-cachyos-lts-headers": {
+      "repo": "cachyos",
+      "version": "6.18.50-1"
+    },
+    "linux-cachyos-lts-zfs": {
+      "repo": "cachyos",
+      "version": "6.18.50-1"
+    },
+    "linux-cachyos-zfs": {
+      "repo": "cachyos",
+      "version": "7.2.7-1"
+    },
+    "linux-firmware": {
+      "repo": "cachyos",
+      "version": "1:20260916-1"
+    },
+    "logrotate": {
+      "repo": "core",
+      "version": "3.22.0-1"
+    },
+    "lsb-release": {
+      "repo": "extra",
+      "version": "2.0.r55.a25a4fc-1"
+    },
+    "lsscsi": {
+      "repo": "extra",
+      "version": "0.32-2"
+    },
+    "lvm2": {
+      "repo": "core",
+      "version": "2.03.43-2"
+    },
+    "man-db": {
+      "repo": "core",
+      "version": "2.13.1-2"
+    },
+    "man-pages": {
+      "repo": "core",
+      "version": "6.19-1"
+    },
+    "mdadm": {
+      "repo": "core",
+      "version": "4.6-2"
+    },
+    "mesa-utils": {
+      "repo": "extra",
+      "version": "9.0.0-7"
+    },
+    "micro": {
+      "repo": "extra",
+      "version": "2.0.15-3"
+    },
+    "mkinitcpio": {
+      "repo": "core",
+      "version": "42.2-1"
+    },
+    "modemmanager": {
+      "repo": "extra",
+      "version": "1.24.2-1"
+    },
+    "mousetweaks": {
+      "repo": "extra",
+      "version": "3.32.0-3"
+    },
+    "mtools": {
+      "repo": "extra",
+      "version": "4.0.49-1"
+    },
+    "nano": {
+      "repo": "core",
+      "version": "9.2-1"
+    },
+    "nano-syntax-highlighting": {
+      "repo": "extra",
+      "version": "2025.07.01.r0.g256995b-2"
+    },
+    "netctl": {
+      "repo": "extra",
+      "version": "1.29-2"
+    },
+    "networkmanager": {
+      "repo": "extra",
+      "version": "1.58.1-2"
+    },
+    "networkmanager-openvpn": {
+      "repo": "extra",
+      "version": "1.12.5-1"
+    },
+    "nfs-utils": {
+      "repo": "core",
+      "version": "3.1.1-1"
+    },
+    "nginx": {
+      "repo": "extra",
+      "version": "1.30.5-1"
+    },
+    "nilfs-utils": {
+      "repo": "core",
+      "version": "2.3.1-1"
+    },
+    "noto-fonts": {
+      "repo": "extra",
+      "version": "2026.10.01-1"
+    },
+    "noto-fonts-cjk": {
+      "repo": "extra",
+      "version": "20240730-1"
+    },
+    "noto-fonts-emoji": {
+      "repo": "extra",
+      "version": "2.051-1"
+    },
+    "nss-mdns": {
+      "repo": "extra",
+      "version": "0.15.1-3"
+    },
+    "nvidia-container-toolkit": {
+      "repo": "extra",
+      "version": "1.20.1-1"
+    },
+    "ollama": {
+      "repo": "extra",
+      "version": "0.40.4-1"
+    },
+    "ollama-cuda": {
+      "repo": "extra",
+      "version": "0.40.4-1"
+    },
+    "ollama-rocm": {
+      "repo": "extra",
+      "version": "0.40.4-1"
+    },
+    "ollama-vulkan": {
+      "repo": "extra",
+      "version": "0.40.4-1"
+    },
+    "openssh": {
+      "repo": "core",
+      "version": "10.6p1-2"
+    },
+    "openssl": {
+      "repo": "core",
+      "version": "3.6.5-1"
+    },
+    "orca": {
+      "repo": "extra",
+      "version": "51.1-1"
+    },
+    "os-prober": {
+      "repo": "extra",
+      "version": "1.85-1"
+    },
+    "pacman-contrib": {
+      "repo": "cachyos",
+      "version": "1.13.1-2.1"
+    },
+    "partitionmanager": {
+      "repo": "extra",
+      "version": "26.08.2-1"
+    },
+    "pavucontrol": {
+      "repo": "extra",
+      "version": "6.2-1"
+    },
+    "perl": {
+      "repo": "core",
+      "version": "5.42.3-1"
+    },
+    "phonon-qt6-vlc": {
+      "repo": "extra",
+      "version": "0.12.0-6"
+    },
+    "pipewire-alsa": {
+      "repo": "extra",
+      "version": "1.6.9-1"
+    },
+    "pipewire-pulse": {
+      "repo": "extra",
+      "version": "1.6.9-1"
+    },
+    "pkgfile": {
+      "repo": "extra",
+      "version": "26-1"
+    },
+    "plasma-browser-integration": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "plasma-desktop": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "plasma-login-manager": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "plasma-nm": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "plasma-pa": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "plasma-systemmonitor": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "plasma-thunderbolt": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "plocate": {
+      "repo": "extra",
+      "version": "1.1.25-1"
+    },
+    "plymouth": {
+      "repo": "cachyos",
+      "version": "26.134.222-4"
+    },
+    "plymouth-kcm": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "poppler-glib": {
+      "repo": "extra",
+      "version": "26.08.0-1"
+    },
+    "power-profiles-daemon": {
+      "repo": "cachyos",
+      "version": "0.30-3"
+    },
+    "powerdevil": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "print-manager": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "pv": {
+      "repo": "extra",
+      "version": "1.12.0-1"
+    },
+    "python": {
+      "repo": "core",
+      "version": "3.14.8-1"
+    },
+    "python-defusedxml": {
+      "repo": "extra",
+      "version": "0.7.1-8"
+    },
+    "python-flask": {
+      "repo": "extra",
+      "version": "3.1.3-2"
+    },
+    "python-packaging": {
+      "repo": "extra",
+      "version": "26.3-1"
+    },
+    "realtime-privileges": {
+      "repo": "extra",
+      "version": "5-1"
+    },
+    "rebuild-detector": {
+      "repo": "extra",
+      "version": "4.4.5-1"
+    },
+    "reflector": {
+      "repo": "extra",
+      "version": "2023-5"
+    },
+    "ripgrep": {
+      "repo": "extra",
+      "version": "15.2.0-1"
+    },
+    "rsync": {
+      "repo": "extra",
+      "version": "3.5.1-3"
+    },
+    "s-nail": {
+      "repo": "core",
+      "version": "14.9.25-1"
+    },
+    "sg3_utils": {
+      "repo": "extra",
+      "version": "1.49-1"
+    },
+    "smartmontools": {
+      "repo": "extra",
+      "version": "7.5-2"
+    },
+    "snapper": {
+      "repo": "extra",
+      "version": "0.13.2-1"
+    },
+    "sof-firmware": {
+      "repo": "extra",
+      "version": "2026.09.2-1"
+    },
+    "spectacle": {
+      "repo": "extra",
+      "version": "6.8.0-1"
+    },
+    "sudo": {
+      "repo": "core",
+      "version": "1.9.17.p2-6"
+    },
+    "sysfsutils": {
+      "repo": "extra",
+      "version": "2.1.1-2"
+    },
+    "system-config-printer": {
+      "repo": "extra",
+      "version": "1.5.18-7"
+    },
+    "tailscale": {
+      "repo": "extra",
+      "version": "1.104.1-1"
+    },
+    "tesseract-data-eng": {
+      "repo": "extra",
+      "version": "4.1.0-5"
+    },
+    "texinfo": {
+      "repo": "core",
+      "version": "7.3-1"
+    },
+    "ttf-bitstream-vera": {
+      "repo": "extra",
+      "version": "1.10-16"
+    },
+    "ttf-dejavu": {
+      "repo": "extra",
+      "version": "2.37+18+g9b5d1b2f-8"
+    },
+    "ttf-liberation": {
+      "repo": "extra",
+      "version": "2.1.5-2"
+    },
+    "ttf-meslo-nerd": {
+      "repo": "extra",
+      "version": "3.5.1-2"
+    },
+    "ttf-opensans": {
+      "repo": "extra",
+      "version": "3.003-1"
+    },
+    "unrar": {
+      "repo": "extra",
+      "version": "7.3.1-1"
+    },
+    "unzip": {
+      "repo": "extra",
+      "version": "6.0-23"
+    },
+    "upower": {
+      "repo": "extra",
+      "version": "1.91.5-1"
+    },
+    "usb_modeswitch": {
+      "repo": "extra",
+      "version": "2.6.2.20251207-1"
+    },
+    "usbutils": {
+      "repo": "core",
+      "version": "019-1"
+    },
+    "util-linux": {
+      "repo": "core",
+      "version": "2.42.4-1"
+    },
+    "vim": {
+      "repo": "extra",
+      "version": "9.2.1178-1"
+    },
+    "vlc-plugins-all": {
+      "repo": "extra",
+      "version": "3.0.24-1"
+    },
+    "wget": {
+      "repo": "extra",
+      "version": "1.25.0-6"
+    },
+    "which": {
+      "repo": "core",
+      "version": "2.25-1"
+    },
+    "wireless-regdb": {
+      "repo": "core",
+      "version": "2026.09.03-1"
+    },
+    "wireplumber": {
+      "repo": "extra",
+      "version": "0.5.18-1"
+    },
+    "wpa_supplicant": {
+      "repo": "core",
+      "version": "2.12-1"
+    },
+    "xdg-user-dirs": {
+      "repo": "extra",
+      "version": "0.20-1"
+    },
+    "xdg-utils": {
+      "repo": "extra",
+      "version": "1.2.1-2"
+    },
+    "xfsprogs": {
+      "repo": "core",
+      "version": "7.2.0-1"
+    },
+    "xl2tpd": {
+      "repo": "extra",
+      "version": "1.3.20-1"
+    },
+    "xsettingsd": {
+      "repo": "extra",
+      "version": "1.0.4-1"
+    },
+    "zfs-utils": {
+      "repo": "cachyos",
+      "version": "2.4.4-2"
+    }
+  },
+  "missing": {}
+}

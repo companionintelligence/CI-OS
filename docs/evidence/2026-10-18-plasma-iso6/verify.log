@@ -1,0 +1,255 @@
+ISO: /iso/companion-os-plasma-2026.10.18-x86_64.iso (3068 MiB)
+info  tools: xorriso 1.5.8.pl02, unsquashfs 4.7.5, Python 3.14.8 with PyYAML 6.0.3
+
+== 1. The medium (D1): name, label, publisher, boot records, size
+PASS  ISO file name follows D1: companion-os-plasma-2026.10.18-x86_64.iso
+PASS  ISO file name does not contain the CachyOS mark
+PASS  volume label follows D1: COMPANION_202610
+PASS  volume label is 16 characters (ISO 9660 allows 32)
+PASS  volume label month equals the version's (2026.10.18)
+PASS  publisher is 'Companion Intelligence <https://ci.computer>'
+PASS  application is 'Companion OS Live/Installer'
+PASS  publisher and application do not name CachyOS
+PASS  El Torito: BIOS boot image present
+PASS  El Torito: UEFI boot image present
+PASS  MBR: an active (0x80) partition covers the ISO (isohybrid)
+PASS  MBR: an EFI (0xef) partition is present
+PASS  GPT is present (hybrid)
+PASS  ISO size is a whole number of 2048-byte sectors
+PASS  ISO size 3068 MiB is within 1500..6144 MiB
+PASS  every file an archiso boot needs is on the medium
+PASS  exactly one /boot/<uuid>.uuid search file: 2026-10-18-18-49-38-00
+PASS  BOOTx64.EFI searches for /boot/2026-10-18-18-49-38-00.uuid, the medium's own search file
+
+== 2. Boot menus: GRUB (UEFI, loopback) and syslinux (BIOS)
+PASS  grub.cfg has 13 menu entries
+PASS  grub.cfg: no menu title names CachyOS or Arch
+PASS  grub.cfg: menu titles say Companion OS
+PASS  grub.cfg: default=companion-os names an existing entry
+PASS  grub.cfg: background_image /boot/grub/splash.png is on the medium
+PASS  grub.cfg: menu colours are set
+PASS  grub.cfg: 3 kernel line(s) checked (archiso parameters, kernel and initrd on the medium)
+PASS  loopback.cfg has 12 menu entries
+PASS  loopback.cfg: no menu title names CachyOS or Arch
+PASS  loopback.cfg: menu titles say Companion OS
+PASS  loopback.cfg: default=companion-os names an existing entry
+PASS  loopback.cfg: 2 kernel line(s) checked (archiso parameters, kernel and initrd on the medium)
+PASS  syslinux: MENU TITLE is 'Companion OS'
+PASS  syslinux: no label, title or help text names CachyOS or Arch
+PASS  syslinux: DEFAULT companion names an existing LABEL
+PASS  syslinux: every file the menu loads is on the medium
+PASS  syslinux: 2 APPEND line(s) checked
+PASS  syslinux: background splash.png is a 640x480 PNG, the size of the menu mode
+PASS  none of the 2 boot-menu images is CachyOS artwork (sha256 against upstream's)
+PASS  the upstream checkout is at the pinned commit 3215497d2e8c5fea90e185affcf973dfa2cf790b
+PASS  grub.cfg parity: all 6 upstream kernel / initrd lines are in the ISO unchanged
+PASS  loopback.cfg parity: all 4 upstream kernel / initrd lines are in the ISO unchanged
+PASS  syslinux parity: all 6 upstream kernel / initrd lines are in the ISO unchanged
+
+== 3. Identity of the live image (D4, D7, D9)
+PASS  os-release NAME=Companion OS
+PASS  os-release PRETTY_NAME=Companion OS 1.0
+PASS  os-release ID=cachyos
+PASS  os-release ID_LIKE=arch
+PASS  os-release VARIANT=Plasma (based on CachyOS)
+PASS  os-release HOME_URL=https://ci.computer
+PASS  os-release SUPPORT_URL=https://ci.computer/support
+PASS  os-release BUG_REPORT_URL=https://ci.computer/bugs
+PASS  os-release PRIVACY_POLICY_URL=https://ci.computer/privacy
+PASS  os-release LOGO=ci-os-logo
+PASS  os-release ANSI_COLOR=38;2;197;232;220
+PASS  os-release ANSI_COLOR equals the brand token CI_DARK_PRIMARY (38;2;197;232;220)
+PASS  os-release CI_OS_ID=ci-os
+PASS  os-release CI_OS_VERSION=1.0
+PASS  os-release CI_OS_BUILD=20261018
+PASS  os-release IMAGE_ID=companion-os-plasma
+PASS  os-release IMAGE_VERSION=2026.10.18
+PASS  os-release names CachyOS only in ID and VARIANT
+PASS  os-release has no Arch Linux product string
+PASS  lsb-release DISTRIB_DESCRIPTION=Companion OS 1.0
+PASS  /etc/os-release is a regular file (the hook replaces Arch's symlink instead of writing through it)
+PASS  zz-ci-os-os-release.hook is in the image: /usr/share/libalpm/hooks/zz-ci-os-os-release.hook
+PASS  os-release hook runs PostTransaction
+PASS  os-release hook triggers on the filesystem package (the transaction cachyos-hooks reacts to)
+PASS  os-release hook is Type = Package
+PASS  os-release hook has an Exec
+PASS  the hook name sorts after cachyos-hooks' os-release.hook, lsb-release.hook and cachyos-branding.hook
+PASS  live hostname is companion-os
+PASS  /etc/issue does not name CachyOS or Arch
+PASS  /etc/motd does not name CachyOS or Arch
+PASS  /etc/motd names Companion OS
+PASS  motd has no block-letter art
+PASS  kcm-about-distrorc has a [General] group
+PASS  kcm-about-distrorc LogoPath=ci-os-logo
+PASS  kcm-about-distrorc leaves Name out and os-release gives Companion OS (KDE's fallback)
+PASS  kcm-about-distrorc leaves Website out and os-release gives https://ci.computer (KDE's fallback)
+PASS  kcm-about-distrorc Version=1.0 equals os-release CI_OS_VERSION
+PASS  kcm-about-distrorc does not name CachyOS
+PASS  sshd.service is masked in the live image (D7)
+PASS  sshd.socket is not enabled
+PASS  sshd drop-ins forbid root and password logins (PermitRootLogin no, PasswordAuthentication no)
+PASS  the live user is still liveuser (uid 1000, D7)
+PASS  wheel keeps passwordless sudo (D7: the installer launcher uses sudo)
+PASS  display-manager.service -> plasmalogin.service (D2)
+PASS  plasmalogin autologin of liveuser into Plasma is intact
+PASS  wallpaper package /usr/share/wallpapers/companion has a metadata.json
+PASS  wallpaper package /usr/share/wallpapers/companion has contents/images
+PASS  a Companion wallpaper (not from a package) is in /usr/share/wallpapers: 1920x1080.jpg(jpeg) 3840x2160.jpg(jpeg)
+PASS  the ci-os-logo icon (LOGO= in os-release) is installed: ci-os-logo.svg
+PASS  the Companion OS Dark colour scheme is installed
+PASS  the live desktop selects the CI-OS-Dark colour scheme
+PASS  no CachyOS-named artwork outside the packages (nothing of ours is CachyOS art; D9)
+
+== 3b. Installer entry point (D6)
+PASS  an installer launcher of ours is in the image: /usr/share/applications/ci-os-install.desktop
+PASS  launcher ci-os-install.desktop: Type=Application
+PASS  launcher ci-os-install.desktop runs /usr/local/bin/calamares-online.sh
+PASS  launcher ci-os-install.desktop is named for Companion OS (Install Companion OS)
+PASS  launcher ci-os-install.desktop does not name CachyOS or Arch
+PASS  launcher ci-os-install.desktop is visible
+PASS  /usr/local/bin/calamares-online.sh is executable
+PASS  calamares-online.sh has a bash shebang
+PASS  calamares-online.sh passes bash -n
+PASS  calamares-online.sh installs cachyos-calamares-next (as upstream)
+PASS  calamares-online.sh applies the overlay from /usr/share/ci-os/calamares
+PASS  calamares-online.sh applies the overlay after the package reinstall (line 312 < line 427; heuristic)
+PASS  calamares-online.sh contacts no CachyOS host (cachyos.org, paste.cachyos.org, versions.json)
+PASS  calamares-online.sh has no GitHub-raw dependency
+PASS  calamares-online.sh starts calamares
+PASS  /usr/local/bin/pkexec-wrapper is executable
+info  cachyos-hello is in the image: checking that nothing starts or shows it
+PASS  cachyos-hello does not autostart (no autostart entry, or Hidden=true)
+PASS  cachyos-hello is hidden from the application menu
+PASS  cachy-update is not in the image (no CachyOS-named update notifier in the menu or the tray)
+
+== 3c. What the installed system gets from this image (carry-over)
+PASS  usr/share/ci-os/release CI_OS_VERSION equals os-release's (1.0)
+PASS  usr/share/ci-os/release CI_OS_BUILD equals os-release's (20261018)
+PASS  usr/share/ci-os/release CI_OS_ANSI_COLOR equals os-release's ANSI_COLOR
+PASS  all 14 path(s) of carry-over.list are in the image
+PASS  /usr/share/ci-os/installed/carry-over is executable
+
+== 4. Package list
+PASS  all 15 packages the live ISO cannot do without are in the image
+PASS  all 1 package(s) of overlay/packages.add are in the image
+info  overlay/packages.remove lists no package: the overlay removes none, nothing to look for
+PASS  pkglist.x86_64.txt equals the image's pacman database (1006 packages)
+
+== 5. Calamares overlay (usr/share/ci-os/calamares), static
+info  also requiring the Arch headless installer's ARCH_DEPS: hostapd dnsmasq nginx python python-flask gunicorn networkmanager iw iproute2 util-linux
+PASS  18 Calamares config files parse as YAML
+PASS  settings.conf: branding 'companion' is a component of the overlay (componentName equals its directory)
+PASS  settings.conf: 43 sequence steps and 11 instances resolve (modules exist, instances are defined, configs exist)
+PASS  settings.conf: payload staging step shellprocess@ci_os_stage runs after pacstrap
+PASS  branding/companion/branding.desc: productName is Companion OS
+PASS  branding/companion/branding.desc: no branding string names CachyOS or Arch
+PASS  branding/companion/branding.desc: no uploadServer (the install log is never uploaded)
+PASS  branding/companion/branding.desc: images and slideshow files exist
+PASS  modules/welcome_online.conf: internetCheckUrl is https://example.com (not a CachyOS host)
+PASS  modules/bootloader.conf: efiBootLoader is grub (D6)
+PASS  modules/bootloader.conf: efiBootLoaderVar=packagechooser_bootloader is answered by a chooser that offers only grub (default grub)
+PASS  modules/bootloader.conf: efiBootloaderId is companion-os (D6)
+PASS  modules/grubcfg.conf: GRUB_THEME is /usr/share/grub/themes/companion-os/theme.txt
+PASS  modules/grubcfg.conf: GRUB_DISABLE_BOOTNEXT is true (the boot menu lists Companion OS and the firmware-setup entry only)
+PASS  modules/grubcfg.conf: GRUB_DISABLE_OS_PROBER is true (the boot menu lists Companion OS and the firmware-setup entry only)
+PASS  modules/plymouthcfg.conf: plymouth_theme is companion-os
+PASS  modules/plymouthcfg.conf: plymouth_theme_amdgpu is companion-os
+PASS  modules/users.conf: defaultGroups contains docker (D8)
+PASS  modules/users.conf: hostname template is companion-os (D6)
+PASS  modules/packages_online.conf: operations install 19 package(s)
+PASS  modules/netinstall.conf: groupsUrl is local only (file:///etc/calamares/modules/netinstall.yaml)
+PASS  the installed system gets all 14 required packages (docker docker-compose docker-buildx jq hostapd dnsmasq nginx python python-flask gunicorn networkmanager iw iproute2 util-linux)
+info  modules/services-systemd.conf: services-systemd units: NetworkManager cups avahi-daemon systemd-timesyncd vboxservice vmtoolsd vmware-vmblock-fuse firewalld zfs-import-cache zfs-mount zfs-import.target zfs.target fstrim.timer pacman-init multi-user.target bluetooth docker setup-backend setup-network-monitor ci-os-first-boot-setup ci-os-first-boot-setup.timer
+PASS  a Calamares step enables docker (D8)
+PASS  the installed system does not get cachy-update (no CachyOS-named update notifier in its menu or tray)
+PASS  the first-boot unit does not hold up the boot targets (Type=exec, no network-online ordering)
+PASS  the first-boot unit sets HOME (a system unit has none, and the ollama CLI panics without one)
+PASS  the provisioning tree staged for the installed system carries progress-filter.sh (the first-boot log stays readable)
+PASS  the installer's progress bar has a track and a fill of its own (#0d7a6e on #041620), readable text (4.58 / 16.16:1) and a fill that stands out (3.53:1); the colour scheme's Highlight equals the window colour
+PASS  selected rows have their own colours (#041620 on #c5e8dc, 13.98:1): the scheme's selection colour equals the window colour, which made them invisible on ISO #4
+PASS  combo box popups are menu-style (combobox-popup: 1) with a transparent base rule per entry and a selected entry of #041620 on #c5e8dc (13.98:1): the current and the hovered entry of the zone list are visible
+PASS  the radio buttons' indicator is drawn by the stylesheet: a circle (border-radius is half the outer diameter) with a ring, and when checked a ring in #c5e8dc with a dot of the same colour and a gap
+PASS  the Welcome page's link buttons lose Calamares' dark stock pictogram (icon-size 0px)
+PASS  modules/packagechooser_bootloader.conf: item grub shows bootloader.png, which the overlay's branding directory carries
+PASS  every package group the user sees has a description of at most 72 characters (nothing is cut off at the window edge)
+PASS  9 shellprocess configs of the install sequence (shellprocess-before-online.conf from the image, shellprocess.conf from the image, shellprocess_btrfs_snapshot.conf from the image, shellprocess_ci_os_fixups.conf from the overlay, shellprocess_ci_os_stage.conf from the overlay, shellprocess_cleanup_calamares.conf from the image, shellprocess_initialize_pacman.conf from the overlay, shellprocess_modify_mk_hook.conf from the overlay, shellprocess_reset_mk_hook.conf from the overlay) have an explicit time limit on every command, a generous one (>= 600 s network and package tools, >= 300 s disk tools) on every heavy one, and the overlay's copies of stock configs run every stock command
+PASS  no job label of the install page names CachyOS: 16 Python module pretty_name() and every shellprocess step of the sequence, read from the image with the overlay's patches.list applied
+PASS  /etc/grub.d/31_efi_bootnext of the image reads GRUB_DISABLE_BOOTNEXT: the switch grubcfg.conf sets is the one that script honours
+PASS  scanned 27 configuration files: no CachyOS endpoint (paste, wiki, versions.json) and no GitHub-raw URL
+PASS  all 1 /usr/(lib|libexec|share)/ci-os paths that live-system steps (dontChroot) refer to are in the image
+PASS  modules/grubcfg.conf: the GRUB theme /usr/share/grub/themes/companion-os/theme.txt is in the image (to be carried to the target)
+PASS  modules/plymouthcfg.conf: the Plymouth theme companion-os is in the image
+PASS  modules/plymouthcfg.conf: the Plymouth theme companion-os is in the image
+PASS  settings.conf: shellprocess@ci_os_stage carries the identity to the target after the packages and before plymouthcfg, initcpio, grubcfg and bootloader
+
+== 6. File modes (mkarchiso drops modes; file_permissions restores the listed ones)
+PASS  all 12 package-unowned #! scripts under /usr/local/bin /usr/local/sbin /usr/lib/ci-os /usr/libexec/ci-os /usr/share/ci-os /usr/share/libalpm/scripts are executable
+info  19 #! script(s) under /usr/share/ci-os/calamares/ are staged as data and started with bash: their mode is not judged
+PASS  /etc/shadow is -r-------- (0400)
+PASS  /etc/gshadow is -r-------- (0400)
+PASS  the slow-boot generator for virtual machines is in the image and executable (/usr/lib/systemd/system-generators/companion-vm-timeouts)
+PASS  all 1 file(s) in /etc/sudoers.d are 0440
+PASS  hook zz-ci-os-os-release.hook: the scripts of ours it runs are in the image
+PASS  hook zz-ci-os-skel.hook: the scripts of ours it runs are in the image
+
+== 7. Build provenance
+PASS  upstream.lock EDITION_ISO_NAME=companion-os-plasma (D1)
+PASS  upstream.lock EDITION_LABEL_PREFIX=COMPANION_ (D1)
+PASS  upstream.lock EDITION_ARCH=x86_64
+PASS  record inside the image: UPSTREAM_SHA=3215497d2e8c5fea90e185affcf973dfa2cf790b equals the lock's primary pin
+PASS  record inside the image: BASE_IMAGE equals the lock's
+PASS  record inside the image: MIRRORLIST_SHA256 equals the lock's
+PASS  record inside the image: CACHYOS_KEY_FPR equals the lock's
+PASS  record inside the image: OVERLAY_SHA256 is recorded
+PASS  record inside the image: STAGING_SHA256 is recorded
+PASS  record inside the image: CI_OS_VERSION=1.0
+PASS  record inside the image: BUILD_DAY=20261018
+PASS  record inside the image: built from a clean checkout of commit ad37b64291bb
+info  build record: /iso/companion-os-plasma-2026.10.18-x86_64.build-info
+PASS  record next to the ISO: UPSTREAM_SHA=3215497d2e8c5fea90e185affcf973dfa2cf790b equals the lock's primary pin
+PASS  record next to the ISO: BASE_IMAGE equals the lock's
+PASS  record next to the ISO: MIRRORLIST_SHA256 equals the lock's
+PASS  record next to the ISO: CACHYOS_KEY_FPR equals the lock's
+PASS  record next to the ISO: OVERLAY_SHA256 is recorded
+PASS  record next to the ISO: STAGING_SHA256 is recorded
+PASS  record next to the ISO: CI_OS_VERSION=1.0
+PASS  record next to the ISO: BUILD_DAY=20261018
+info  record next to the ISO: KERNEL_LINES_CHANGED=1: a patch changed kernel / initrd lines on purpose; the parity check needs VERIFY_GRUB_EXTRA_PARAMS for them
+PASS  record next to the ISO: built from a clean checkout of commit ad37b64291bb
+PASS  build record: ISO_BYTES equals the file's size
+PASS  build record: ISO_SHA256 equals the file's
+PASS  the record inside the image and the one next to it agree on UPSTREAM_SHA
+PASS  the record inside the image and the one next to it agree on BASE_IMAGE
+PASS  the record inside the image and the one next to it agree on OVERLAY_SHA256
+PASS  the record inside the image and the one next to it agree on STAGING_SHA256
+PASS  the record inside the image and the one next to it agree on CI_OS_VERSION
+PASS  the record inside the image and the one next to it agree on BUILD_DAY
+PASS  os-release CI_OS_VERSION equals the build record's (1.0)
+PASS  os-release CI_OS_BUILD equals the build record's BUILD_DAY (20261018)
+PASS  all 3 compatibility libraries of compat-libs.lock are in the image, regular files with the pinned sha256
+PASS  build record: COMPAT_LIBS=3 equals the 3 libraries of compat-libs.lock
+PASS  build record: COMPAT_LOCK_SHA256 is the hash of compat-libs.lock
+PASS  build record: COMPAT_PACKAGES=boost-libs-1.91.0-2-x86_64 equals the lock's
+PASS  build record: COMPAT_REVIEW_BY=2026-12-01 equals the lock's
+PASS  build record: the compat lock was within its review date when the image was built
+PASS  the record inside the image and the one next to it agree on COMPAT_LIBS
+PASS  the record inside the image and the one next to it agree on COMPAT_PACKAGES
+PASS  the record inside the image and the one next to it agree on COMPAT_LOCK_SHA256
+PASS  the record inside the image and the one next to it agree on COMPAT_REVIEW_BY
+PASS  the record inside the image and the one next to it agree on COMPAT_REVIEW_OVERDUE
+PASS  companion-os-plasma-2026.10.18-x86_64.pkgs.txt equals the package list inside the ISO
+
+== 8. Integrity
+PASS  companion-os-plasma-2026.10.18-x86_64.iso.sha256 matches the ISO (5ab1fe2c422fb8960a0dfd0c2f12f70460d13fb3eb9e13febab5ef2a41802d20)
+PASS  airootfs.sha512 matches the squashfs (what archiso's checksum=y verifies at boot)
+
+== Known residual CachyOS / Arch strings (identifiers, not counted as failures)
+info  kernels: linux-cachyos linux-cachyos-lts linux-cachyos-lts-nvidia-open linux-cachyos-lts-zfs linux-cachyos-nvidia-open linux-cachyos-zfs  (uname -r says -cachyos; disclose, do not hide)
+info  repositories: [cachyos] and cachyos-mirrorlist in /etc/pacman.conf; installed systems keep them (the base is the substance of the edition)
+info  package, unit and path names with cachyos- in them; the grub --id values and syslinux LABEL names
+info  /usr/lib/os-release: Arch Linux (Arch's filesystem package owns it; /etc/os-release is the file that counts)
+info  /etc/lsb-release keeps DISTRIB_ID=cachyos (the base's machine identity, like ID in os-release)
+info  /etc/cachyos-release: 4 line(s) from the upstream airootfs (no user-visible surface found)
+info  Firefox: Arch's distribution.ini says 'for Arch Linux' (package-owned)
+
+== Summary: 215 passed, 0 failed

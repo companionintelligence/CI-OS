@@ -1,0 +1,35 @@
+#!/bin/sh
+# Companion OS: put the Companion OS wallpaper on the Plasma desktop of a user, once. © Companion Intelligence — Lifescope Inc
+#
+# Why this exists. The Plasma skeleton (cachyos-kde-settings) binds the desktop containment [Containments][22] to one fixed
+# activity id, and a new profile's default activity gets another id, so Plasma ignores that containment's saved settings and
+# builds a default desktop with the stock "Next" wallpaper. The first full Companion ISO booted to exactly that (QEMU, 2026-10-16),
+# although zz-ci-os-skel had put our image into the saved containment. Asking the running plasmashell to set the wallpaper on every
+# desktop containment it actually has is what System Settings and plasma-apply-wallpaperimage do, and works for any activity id.
+#
+# Runs from /etc/xdg/autostart/ci-os-wallpaper.desktop in a Plasma session; a stamp file makes it run once per user, so the
+# user's own later choice is never overwritten. Exits 0 in every case (an autostart entry must never fail a login).
+# CI_OS_WALLPAPER_IMAGE / CI_OS_STATE_DIR / CI_OS_QDBUS override the image, the stamp directory and the qdbus binary (tests).
+IMG="${CI_OS_WALLPAPER_IMAGE:-/usr/share/wallpapers/companion/contents/images/3840x2160.jpg}"
+STATE="${CI_OS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/ci-os}"
+QDBUS="${CI_OS_QDBUS:-qdbus6}"
+STAMP="$STATE/wallpaper-v1"
+
+[ -f "$STAMP" ] && exit 0
+[ -f "$IMG" ] || exit 0
+command -v "$QDBUS" >/dev/null 2>&1 || exit 0
+
+SCRIPT="var all = desktops(); for (var i = 0; i < all.length; i++) { var d = all[i]; d.wallpaperPlugin = 'org.kde.image'; d.currentConfigGroup = ['Wallpaper', 'org.kde.image', 'General']; d.writeConfig('Image', 'file://$IMG'); } print(all.length);"
+
+# plasmashell may still be starting: ask it for up to about two minutes.
+n=0
+while [ "$n" -lt 120 ]; do
+  out="$("$QDBUS" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$SCRIPT" 2>/dev/null)" || out=""
+  case "$out" in
+    ''|*[!0-9]*|0) ;;   # not answered yet, or no desktop yet
+    *) mkdir -p "$STATE" 2>/dev/null && : > "$STAMP"; exit 0 ;;
+  esac
+  n=$((n + 1))
+  sleep 1
+done
+exit 0

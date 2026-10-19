@@ -9,12 +9,14 @@ Writes JSON to /var/lib/setup-device/last-scan.json
 """
 
 import json
+import os
+import re
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-DATA_DIR = Path('/var/lib/setup-device')
+DATA_DIR = Path(os.environ.get('SETUP_DEVICE_ROOT') or '/') / 'var' / 'lib' / 'setup-device'
 SCAN_FILE = DATA_DIR / 'last-scan.json'
 
 
@@ -35,37 +37,140 @@ def scan_with_iw(iface: str) -> list[dict]:
         return []
 
 
+# Weakest signal there is: what a BSS that reports none sorts as. (The old default of 0 is the
+# STRONGEST possible dBm value, so a line iw printed in a form we cannot read put its network first.)
+NO_SIGNAL = -100
+
+_HEX_ESCAPE = re.compile(r'\\x([0-9a-fA-F]{2})')
+
+
+def decode_iw_ssid(raw: str):
+    """Turn the SSID text of `iw scan` into the name a person types, or None for a hidden network.
+
+    iw prints every byte that is not a printable ASCII character as \\xNN (so "café" arrives as
+    caf\\xc3\\xa9, a backslash as \\x5c, and a hidden network as nothing at all or as a run of
+    \\x00). The escapes are undone and the bytes read as UTF-8; a name that is not UTF-8 cannot be
+    typed into the portal and is left out.
+    """
+    if not raw or not raw.strip():
+        return None
+    data = bytearray()
+    pos = 0
+    for match in _HEX_ESCAPE.finditer(raw):
+        data.extend(raw[pos:match.start()].encode('utf-8'))
+        data.append(int(match.group(1), 16))
+        pos = match.end()
+    data.extend(raw[pos:].encode('utf-8'))
+    if not data or all(b == 0 for b in data):
+        return None
+    try:
+        return data.decode('utf-8')
+    except UnicodeDecodeError:
+        return None
+
+
+def classify_security(akms: set, has_rsn_or_wpa: bool, privacy: bool) -> str:
+    """The label the portal uses to decide whether to ask for a password.
+
+    wpa-psk     joinable with a passphrase (WPA/WPA2-PSK, also a WPA2/WPA3 transition network, which
+                advertises PSK and SAE together)
+    sae         WPA3-Personal only
+    enterprise  802.1X: needs a user name and a certificate policy this portal does not collect
+    owe         Enhanced Open (opportunistic encryption, no password)
+    wep         pre-WPA; the Privacy capability bit is set and there is no RSN/WPA element
+    none        open
+    The old parser labelled everything with an RSN or WPA element wpa-psk, and WEP none.
+    """
+    if has_rsn_or_wpa:
+        if 'psk' in akms:
+            return 'wpa-psk'
+        if 'sae' in akms:
+            return 'sae'
+        if 'ieee8021x' in akms:
+            return 'enterprise'
+        if 'owe' in akms:
+            return 'owe'
+        return 'wpa-psk'  # an element we cannot classify is still a secured network
+    if privacy:
+        return 'wep'
+    return 'none'
+
+
+def _akms_from_line(text: str) -> set:
+    """Authentication suite names from the text after "Authentication suites:" (e.g. "PSK SAE",
+    "IEEE 802.1X", "FT/PSK", "PSK/SHA-256", "OWE")."""
+    akms = set()
+    upper = text.upper()
+    if '802.1X' in upper:
+        akms.add('ieee8021x')
+    if 'SAE' in upper:
+        akms.add('sae')
+    if 'OWE' in upper:
+        akms.add('owe')
+    if 'PSK' in upper:
+        akms.add('psk')
+    return akms
+
+
 def parse_iw_scan(output: str) -> list[dict]:
-    """Parse 'iw dev X scan' output into network list."""
-    networks = []
-    seen = set()
-    current = {}
+    """Parse 'iw dev X scan' output into a network list: one entry per SSID, taken from the
+    strongest BSS that advertises it, strongest first. Hidden networks are left out."""
+    best = {}      # ssid -> entry of its strongest BSS so far
+    current = None
+    section = None  # 'rsn' / 'wpa' while inside that information element's bullet list
+
+    def finish(bss):
+        if bss is None or bss['ssid'] is None:
+            return
+        entry = {
+            'ssid': bss['ssid'],
+            'signal': bss['signal'],
+            'security': classify_security(bss['akms'], bss['secured'], bss['privacy']),
+        }
+        known = best.get(entry['ssid'])
+        if known is None or entry['signal'] > known['signal']:
+            best[entry['ssid']] = entry
 
     for line in output.splitlines():
         s = line.strip()
         if not s:
             continue
         if s.startswith('BSS '):
-            if current.get('ssid') and current['ssid'] not in seen:
-                networks.append(dict(current))
-                seen.add(current['ssid'])
-            current = {'ssid': '', 'signal': 0, 'security': 'none'}
-        elif s.startswith('signal:'):
+            finish(current)
+            current = {'ssid': None, 'signal': NO_SIGNAL, 'akms': set(), 'secured': False, 'privacy': False}
+            section = None
+            continue
+        if current is None:
+            continue
+        if s.startswith('signal:'):
             try:
                 current['signal'] = int(float(s.split()[1]))
             except (ValueError, IndexError):
                 # Malformed or missing signal token on this line is expected for some
-                # scan entries; keep the default signal of 0 and continue parsing.
+                # scan entries (some drivers print "52/100"); keep the weakest default.
                 pass
+            section = None
         elif s.startswith('SSID:'):
-            current['ssid'] = s[5:].strip() or '(hidden)'
+            current['ssid'] = decode_iw_ssid(s[5:].strip())
+            section = None
+        elif s.startswith('capability:'):
+            current['privacy'] = 'Privacy' in s.split('(')[0].split()
+            section = None
         elif s.startswith('RSN:') or s.startswith('WPA:'):
-            current['security'] = 'wpa-psk'  # Secured; portal will require password
+            current['secured'] = True
+            section = 'rsn' if s.startswith('RSN:') else 'wpa'
+            rest = s[4:].strip()
+            if 'Authentication suites:' in rest:
+                current['akms'] |= _akms_from_line(rest.split('Authentication suites:', 1)[1])
+        elif section is not None and s.startswith('*'):
+            if 'Authentication suites:' in s:
+                current['akms'] |= _akms_from_line(s.split('Authentication suites:', 1)[1])
+        else:
+            section = None
 
-    if current.get('ssid') and current['ssid'] not in seen:
-        networks.append(current)
-        seen.add(current['ssid'])
+    finish(current)
 
+    networks = list(best.values())
     # Sort by signal strength (higher dBm = better; -45 > -67)
     networks.sort(key=lambda x: x['signal'], reverse=True)
     return networks

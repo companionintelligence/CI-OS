@@ -1,0 +1,133 @@
+Companion OS, CachyOS edition: provenance, licences and what is not shipped
+=============================================================================
+
+Private & Confidential, Lifescope Inc. Not legal advice: this file records what the engineers found and what is still open.
+It is a working notice for the maintainers, to be reviewed (and replaced by counsel's text) before any ISO leaves the company.
+
+1. What this edition is based on
+---------------------------------
+
+Companion OS in this directory is built on CachyOS. That is a statement of fact. On the surfaces this overlay owns (the ISO file
+name, the volume label, the boot menus, the installer window, the desktop, the login screen, the hostname and /etc/os-release)
+the only descriptive use of the CachyOS name is the VARIANT field of /etc/os-release ("Plasma (based on CachyOS)"); they say
+Companion OS everywhere else. Developer documentation and code comments in this repository (this file, the READMEs, the
+architecture document, comments in scripts) name CachyOS descriptively and are not product surfaces. The identifiers that keep
+the name on purpose are in section 5.
+
+  * CachyOS-Live-ISO, https://github.com/CachyOS/CachyOS-Live-ISO, GPL-3.0 (the LICENSE file of that repository). The build
+    uses it unmodified at a pinned commit (upstream.lock: UPSTREAM_SHA) and applies the overlay to a copy.
+  * archiso (mkarchiso, mkinitcpio-archiso), GPL-3.0-or-later, run unmodified from the Arch Linux repositories.
+  * cachyos-calamares-next, the CachyOS build of Calamares, GPL-3.0-or-later (its PKGBUILD); the installer in the live image is
+    that package, configured by the overlay in installer/.
+  * The packages the image is made of (Arch Linux, CachyOS, and the NVIDIA userspace the live list contains) are installed from
+    the repositories at build time and carry their own licences. The image is not a fork of any of them.
+
+2. Files in this tree that derive from, or sit next to, GPL-3.0 material
+-------------------------------------------------------------------------
+
+What a file's own text says is stated per file, because the headers are the thing a recipient will read. Of the files in 2a none
+carries a licence or copyright line of its own, so for them this notice is the only record. The lists are the ones known when
+this notice was written; `git log --follow` and the upstream commit in upstream.lock are the way to check a derivation.
+iso/tests/overlay-brand.sh (part E) checks that every path named below exists, that no file under 2a to 2c carries a licence line
+that contradicts its list, and that the CC0 header in 2d is still the one the file has.
+
+2a. Derived from GPL-3.0 files. Treat these as GPL-3.0-or-later, not as Lifescope-only files.
+
+  * iso/overlay/patches/0001-grub-companion-os-menu.patch: modification of upstream's archiso/grub/grub.cfg and grub/loopback.cfg.
+  * iso/overlay/patches/0002-syslinux-companion-os-menu.patch: modification of upstream's archiso/syslinux/*.cfg (the comment
+    lines at its top are ours and carry no licence line).
+  * iso/overlay/files/airootfs/usr/local/bin/calamares-online.sh: replaces upstream's script of the same name; it keeps its
+    sequence (keyring refresh, installer package, start through pkexec-wrapper) and some of its comments.
+  * iso/overlay/files/airootfs/etc/ssh/sshd_config.d/10-archiso.conf: replaces upstream's three-line file of the same name (the
+    same two directives with the opposite values; the comments are ours).
+  * iso/overlay/files/airootfs/etc/cachyos-release: modified copy of upstream's file of the same name (the same four keys,
+    other values).
+  * installer/modules/netinstall.yaml: the package groups of the pinned installer's own netinstall.yaml, trimmed (its header
+    says which). Neither the original nor this copy has a licence line.
+  * iso/scripts/in-container/20-build.sh: sources upstream's util-msg.sh and util-iso.sh at build time and replays their
+    generators (the file cites util-iso.sh line numbers). It is original code that runs GPL code, which makes the build a
+    combined work while it runs.
+
+2b. CC0-1.0 templates, modified by us. Each file has `SPDX-License-Identifier: CC0-1.0` in its header. Upstream's counterparts
+carry the same line (read in the research copy of the pinned installer's source on 2026-10-15; that copy is not in this
+repository), so these headers are upstream's, kept. They are listed because the content was modified from CachyOS's
+configuration; the CC0 dedication itself imposes nothing. The two shellprocess_ci_os_* files were written for this edition on
+the shape of upstream's shellprocess template and carry its header. The installer as a whole is GPL-3.0-or-later; whether a
+configuration file derived from it keeps its own CC0 grant is for counsel.
+
+  * installer/settings.conf
+  * installer/modules/*.conf
+  * installer/branding/companion/branding.desc
+  * installer/branding/companion/stylesheet.qss
+
+2c. Original code of this repository, named here because it ships next to GPL code or could be mistaken for derived code.
+It is headed "© Companion Intelligence — Lifescope Inc", carries no GPL notice and derives from no GPL file.
+
+  * iso/overlay/files/airootfs/usr/lib/systemd/system-generators/companion-vm-timeouts: the slow-boot generator for virtual
+    machines (it writes three systemd drop-ins). It is shipped in the ISO.
+  * iso/tests/qemu-boot.sh: holds the identical text of that generator (`--vm-fixes`); not shipped.
+
+2d. Open: the header and the upstream licence disagree.
+
+  * installer/branding/companion/show.qml: its header says CC0-1.0, but upstream's show.qml of the same name carries
+    GPL-3.0-or-later (the Calamares authors). Ours keeps its skeleton (the Presentation element, the slide timer and the slide
+    functions of the Calamares QML API); the text and the images are ours. Until counsel decides, treat it as GPL-3.0-or-later;
+    the maintainers of installer/ can put the upstream header back.
+
+Upstream's script headers (util-iso.sh, util-msg.sh, util-iso-mount.sh, lddd.sh) say "version 2 of the License", with no "or
+later", while the repository's LICENSE file is GPL v3. Which one governs is for counsel.
+
+Everything else (the build orchestration, the rendering, the identity writer, the verifier, the tests, the first-boot
+provisioning, these documents) was written for this repository. Whether the repository as a whole can stay confidential next to
+the files above is open; the files above can not be kept secret if an ISO built from them is given to anyone.
+
+3. Redistribution of the ISO
+-----------------------------
+
+An ISO contains GPL and other copyleft binaries from Arch Linux and CachyOS packages (the kernel, the C library, KDE, ...).
+Giving the ISO to a third party obliges us to give the corresponding source or a written offer for it. The build records what is
+needed to do that: `<iso>.pkgs.txt` (every package with its version) and `<iso>.build-info` (the pins). A source offer is not
+written yet. The live list also contains the proprietary NVIDIA userspace (`nvidia-utils`) from the repositories; its
+redistribution terms have not been reviewed.
+
+4. What we do not ship
+-----------------------
+
+No CachyOS artwork. In particular none of these is copied into this tree or into the image by the overlay:
+
+  * the CachyOS wallpapers (package `cachyos-wallpapers`: not in the live package list), the CachyOS logo and marks,
+  * the CachyOS GRUB theme (package `cachyos-grub-theme`; the installer's post-install step tries to remove it from the installed
+    system and logs a warning if it can not),
+  * the CachyOS Plymouth animation (`cachyos-plymouth-bootanimation`, `cachyos-plymouth-theme`),
+  * the upstream boot-menu background: archiso/grub/splash.png and archiso/syslinux/splash.png of the pinned upstream commit
+    (sha256 b5a6e75af70a2750438a780e68cc89f6106d205b88c79150db5686825420aa11) are replaced by images rendered from the Companion
+    OS brand canon at build time; `iso/scripts/verify-iso.sh` compares the hash of every boot-menu image with it.
+
+The artwork of the CachyOS packages that the image installs for other reasons (for example the logo inside a package's own icon
+theme) is not ours to remove from those packages and is not used by the Companion OS surfaces. Our own brand assets come only
+from vendor/brand and CI-Common, are rendered at build time by core/render/* and are not committed as binaries. The Manrope font
+is OFL-1.1 (vendor/brand/fonts/LICENSE-Manrope.txt).
+
+5. Names and marks
+-------------------
+
+  * CachyOS: no trademark or branding policy was found when this was researched (2026-10-15); the site's terms of service cover
+    the forum and services. The absence of a page is not a permission. Before the CachyOS name is used in a file name, a
+    product name, marketing or a store listing, ask the CachyOS maintainers in writing. The GPL is a copyright licence and gives
+    no right to a project's name or logo.
+  * Arch Linux: the trademark policy (terms.archlinux.org, the version dated 2021-04-18 as read on 2026-10-15) allows saying that
+    a product is based on or derived from Arch Linux and does not allow using the marks to name the product. `ID_LIKE=arch` in
+    /etc/os-release is a technical identifier, as CachyOS ships it. Commercial use of the marks needs a licence from Arch.
+  * Identifiers that keep the CachyOS name on purpose: `ID=cachyos` in /etc/os-release, package, repository and unit names
+    (`linux-cachyos`, `[cachyos]`, `cachyos-*`), kernel version strings, and the `-cachyos` suffix of `uname -r`. They are
+    identifiers that tools match on, not branding. The image says so in docs; it does not hide it.
+
+6. Open items
+--------------
+
+  * Counsel's review of sections 2 to 5 before any distribution.
+  * The header of installer/branding/companion/show.qml against upstream's licence (2d), and whether the CC0 files of 2b keep
+    their grant once derived from a GPL package.
+  * A written answer from CachyOS on the use of their name, if the name is to appear anywhere beyond the factual statement.
+  * A corresponding-source offer for the ISO (section 3) and a decision on the NVIDIA userspace.
+  * The licence of the repository as a whole, given section 2.

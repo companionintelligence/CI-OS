@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Shared context for the theming scripts under backends/ubuntu/desktop-theme/,
 # backends/_mixins/{gnome-dconf,kde-plasma}/, and core/render/*.sh (sourced,
-# not executed alone). Genuinely distro-portable: everything here is either a
-# logging helper or sourcing the canon tokens, no apt/dpkg assumptions.
+# not executed alone). Genuinely distro-portable: everything here is a logging
+# helper, the canon tokens, ci_divert_file (which does nothing without dpkg), or
+# a Plymouth theme-file writer (plain sed and cat).
 # shellcheck shell=bash
 
 # Callers at a known depth from the repo root may already export REPO_ROOT
@@ -14,7 +15,7 @@ if [[ -z "${REPO_ROOT:-}" ]]; then
 fi
 
 # Raw PNG/SVG inputs the render scripts and theming steps consume (Plymouth
-# watermark, wallpaper, start-icon source) — distro-agnostic, brand-specific.
+# watermark, wallpaper) — distro-agnostic, brand-specific.
 export ASSET_INPUTS_DIR="${REPO_ROOT}/core/render/inputs"
 
 # The Companion Intelligence canon, vendored from the brand bundle (core/lib/vendor-brand.sh).
@@ -38,4 +39,132 @@ dconf_update_safe() {
   if command -v dconf >/dev/null 2>&1; then
     dconf update 2>/dev/null || true
   fi
+}
+
+# True while backends/ubuntu/chroot/customize-chroot.sh drives a step to build an image
+# (run_theme_step exports CI_BRAND_IMAGE_BUILD=1). The image is rebuilt from the stock ISO
+# every time, so steps skip the timestamped backup directories they keep on a live system.
+ci_image_build() { [[ "${CI_BRAND_IMAGE_BUILD:-0}" == 1 ]]; }
+
+# ci_divert_file <path>
+# Move a package-owned stock file aside (dpkg-divert --local --rename, to <path>.ubuntu-stock) so a
+# later upgrade of the owning package unpacks the stock file to the diverted name instead of over
+# ours. A no-op where dpkg-divert is missing, where no package owns <path>, or where <path> is
+# already diverted, so a step can call it on every run. Needs root.
+# For base-files' pixmaps dpkg-divert prints "diverting ... from an Essential package with rename is
+# dangerous". It is about files an Essential package needs while it unpacks; these are plain data, and
+# reinstalling base-files was tested to leave our file in place and the stock one at <path>.ubuntu-stock.
+#
+# A <path>.ubuntu-stock with NO diversion registered is a leftover, and dpkg-divert refuses to rename over
+# it (even when the content is identical). It happens when build-iso.sh rebuilds without --clean: it
+# re-extracts the stock layers over the chroot of the previous run, which puts back the stock file AND the
+# stock /var/lib/dpkg/diversions (so the registry forgets the diversion) but cannot remove a file that is in
+# no layer. In an image build <path> is then the freshly extracted stock file and the leftover is stale, so it
+# is replaced. On a live system the leftover might be somebody's only copy of the stock file: it is removed
+# only when it equals <path>, otherwise it is left alone, the file is not diverted, and the caller still
+# installs its file over <path>.
+ci_divert_file() {
+  local path="$1" stock="${1}.ubuntu-stock"
+  command -v dpkg-divert >/dev/null 2>&1 || return 0
+  dpkg -S "$path" >/dev/null 2>&1 || return 0
+  [[ -z "$(dpkg-divert --list "$path" 2>/dev/null)" ]] || return 0
+  if [[ -e "$stock" || -L "$stock" ]]; then
+    if ci_image_build || cmp -s "$path" "$stock"; then
+      rm -f "$stock"
+    else
+      log_warn "$stock exists but $path is not diverted, and the two differ: leaving it alone and not diverting (a package upgrade can restore the stock file)"
+      return 0
+    fi
+  fi
+  dpkg-divert --local --rename --divert "$stock" --add "$path" >/dev/null
+  log_info "Diverted stock file: $path -> $stock"
+}
+
+# ci_install_file <src> <dest> [mode]
+# Install a branded file over <dest>, diverting the stock one first (ci_divert_file). Creates
+# missing parent directories; mode defaults to 644.
+ci_install_file() {
+  local src="$1" dest="$2" mode="${3:-644}"
+  ci_divert_file "$dest"
+  install -D -m "$mode" "$src" "$dest"
+}
+
+# ci_install_edited <dest> <edit-command> [args...]
+# Install an EDITED copy of the package-owned file <dest> over itself, through ci_install_file, so the stock
+# file is diverted instead of being edited in place (which the owning package would undo on its next upgrade or
+# trigger, and which would rebuild the initramfs with Ubuntu's file). <edit-command> is run with the path of a
+# private copy of <dest> as its LAST argument and changes that copy in place, the way sed -i does
+# (ci_plymouth_recolor is one). <dest> must exist; the copy is taken before the diversion moves the stock file.
+ci_install_edited() {
+  local dest="$1" tmp rc=0
+  shift
+  tmp="$(mktemp)" || return 1
+  cp -- "$dest" "$tmp" && "$@" "$tmp" && ci_install_file "$tmp" "$dest" || rc=$?
+  rm -f -- "$tmp"
+  return "$rc"
+}
+
+# ci_plymouth_recolor <conf>
+# Repaint a Plymouth theme file (bgrt.plymouth, spinner.plymouth) in the canon boot palette, in place: the
+# ground is the dark background (navy), the progress bar's track the dark secondary and its fill the dark
+# primary (sage), and the firmware background is switched off (UseFirmwareBackground=false in every section that
+# sets it) so that the ground is what the screen shows. Fonts, image directory and alignment stay as the file
+# has them, so the one call serves the rootfs copy (10-plymouth.sh) and the copy inside the casper initrd
+# (build-iso.sh), which has to keep the Ubuntu fonts because they are the only fonts that initrd carries. Both
+# copies come out with the same keys and values, so the live boot and the installed system look the same.
+#
+# Why the last part matters. Ubuntu's default theme, bgrt, sets UseFirmwareBackground=true in its [boot-up],
+# [shutdown] and [reboot] sections. The two-step plugin (plymouth 24.004.60, src/plugins/splash/two-step/plugin.c)
+# then loads the ACPI BGRT image, the firmware's own boot logo, or where the machine has none bgrt-fallback.png, and
+# fills the whole screen with a hard-coded 0x000000 before drawing that image on it (view_set_bgrt_background and
+# view_set_bgrt_fallback_background). BackgroundStartColor / BackgroundEndColor are only read when no firmware
+# background is in use, so with the stock key a navy ground was configured and never drawn. It is all or nothing:
+# the plugin loads the firmware images if ANY mode asks for them and then draws black in every mode that does not,
+# so a single section left at true brings the black back. With all of them false nothing is loaded and
+# draw_background fills with BackgroundStartColor. The price is the firmware logo: it is no longer repainted at the
+# place the firmware drew it (the seamless hand-over from the vendor logo) and bgrt-fallback.png is no longer
+# drawn. The spinner theme has no such key, so there the call changes nothing beyond the four colours. Plymouth's own
+# parser accepts blanks around the "=" and the values 1, y, yes and true, so the key is rewritten whatever its
+# spelling. Needs no root and no dpkg.
+ci_plymouth_recolor() {
+  local conf="$1" ground track fill
+  ground="$(ci_hex0x "$CI_DARK_BACKGROUND")"
+  track="$(ci_hex0x "$CI_DARK_SECONDARY")"
+  fill="$(ci_hex0x "$CI_DARK_PRIMARY")"
+  sed -i \
+    -e "s/BackgroundStartColor=0x[0-9a-fA-F]*/BackgroundStartColor=$ground/" \
+    -e "s/BackgroundEndColor=0x[0-9a-fA-F]*/BackgroundEndColor=$ground/" \
+    -e "s/ProgressBarBackgroundColor=0x[0-9a-fA-F]*/ProgressBarBackgroundColor=$track/" \
+    -e "s/ProgressBarForegroundColor=0x[0-9a-fA-F]*/ProgressBarForegroundColor=$fill/" \
+    -e "s/^[[:space:]]*UseFirmwareBackground[[:space:]]*=.*/UseFirmwareBackground=false/" \
+    "$conf"
+}
+
+# ci_plymouth_text_theme <conf> <title>
+# Write the ubuntu-text theme file (the text-mode splash: safe-graphics boot, and the fallback when no graphics
+# come up) in the canon colours, titled <title>. The file is written whole, so it does not matter what the stock
+# one said: white is the dark foreground, brown the dark primary, blue the light primary, and black, the ground the
+# text console is cleared to, the dark background (navy), like the ground of the graphical themes
+# (ci_plymouth_recolor). It used to be a literal 0x000000, which is neither Ubuntu's aubergine nor the canon.
+# The ModuleName stays ubuntu-text: that is the Plymouth plugin the theme loads, not a name anybody reads.
+ci_plymouth_text_theme() {
+  local conf="$1" title="$2" black white brown blue
+  black="$(ci_hex0x "$CI_DARK_BACKGROUND")"
+  white="$(ci_hex0x "$CI_DARK_FOREGROUND")"
+  brown="$(ci_hex0x "$CI_DARK_PRIMARY")"
+  blue="$(ci_hex0x "$CI_LIGHT_PRIMARY")"
+  cat > "$conf" <<PLYMOUTH_EOF
+[Plymouth Theme]
+Name=Companion OS Text
+Description=Text mode theme with Companion OS branding
+ModuleName=ubuntu-text
+
+[ubuntu-text]
+title=$title
+black=$black
+white=$white
+brown=$brown
+blue=$blue
+PLYMOUTH_EOF
+  chmod 644 "$conf"
 }

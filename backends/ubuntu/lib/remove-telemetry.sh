@@ -3,7 +3,8 @@
 # Disable Ubuntu telemetry: resolve domains to localhost and remove/blacklist
 # telemetry services. System-wide effect, not per-user.
 #
-# Tested on Ubuntu 22.04 (Jammy) and 24.04 (Noble).
+# Written for Ubuntu 26.04 (resolute): every package named below exists in its archive (a name that does not is skipped by
+# the `|| true` calls, never an error).
 #
 # Can be run standalone or invoked from provision.sh.
 #

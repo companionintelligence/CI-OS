@@ -1,0 +1,9 @@
+{
+  "ip -j link": "ip_link.json",
+  "ip -j route": "ip_route.json",
+  "iw dev": "iw_dev.txt",
+  "iw phy phy0 info": "../../iw_phy_info/dual_band_world_domain.txt",
+  "iw reg get": "../../iw_reg_get/world.txt",
+  "nmcli networking connectivity": "nm_connectivity.txt",
+  "rfkill list": "rfkill.txt"
+}

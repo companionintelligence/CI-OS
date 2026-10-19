@@ -5,7 +5,7 @@
 #   stick/tests/secureboot/run-on-mac.sh               build (in Docker) + boot tests A/B/C
 #   stick/tests/secureboot/run-on-mac.sh --show        same, with a QEMU window per boot
 #   stick/tests/secureboot/run-on-mac.sh --skip-build  boot tests only, reusing out/
-#   stick/tests/secureboot/run-on-mac.sh --iso ~/Downloads/ubuntu-24.04.4-desktop-amd64.iso
+#   stick/tests/secureboot/run-on-mac.sh --iso ~/Downloads/ubuntu-26.04.1-desktop-amd64.iso
 #                                                      real ISO in slot A, SB on, in a window
 #
 # Prerequisites (macOS):
@@ -14,7 +14,7 @@
 # About 3 GB free disk (the Docker image, a Rust toolchain cache volume, two small qcow2
 # sticks); --iso needs ~8 GB more.
 #
-# 1. Build, inside `docker run --platform linux/amd64 ubuntu:24.04`
+# 1. Build, inside `docker run --platform linux/amd64 ubuntu:26.04`
 #    (build-in-container.sh): ci-stick, the signed chain from Ubuntu's archive via apt
 #    (fetch-signed-boot.sh), a test boot image with a Canonical-signed kernel, then two
 #    64 GB sticks as qcow2: signed.qcow2 (shim -> Canonical GRUB) and unsigned.qcow2
@@ -35,7 +35,7 @@
 #   --iso PATH        build a signed-chain stick with PATH in slot A and boot it, SB on
 #   --accel NAME      force hvf, kvm or tcg
 #   --timeout SECS    per-boot limit (default 240 with hvf/kvm, 900 with tcg)
-#   --docker          on Linux, build in Docker even on an Ubuntu 24.04 host
+#   --docker          on Linux, build in Docker even on an Ubuntu 26.04 host
 #   --ca-bundle FILE  extra PEM CA bundle to trust inside the build container, for
 #                     networks that intercept TLS (corporate proxies)
 set -uo pipefail
@@ -76,7 +76,7 @@ fi
 use_docker=0
 if [ "$SKIP_BUILD" = 0 ]; then
   codename="$( (. /etc/os-release 2>/dev/null && echo "${VERSION_CODENAME:-}") || true)"
-  if [ "$OS" = Darwin ] || [ "$FORCE_DOCKER" = 1 ] || [ "$codename" != noble ]; then
+  if [ "$OS" = Darwin ] || [ "$FORCE_DOCKER" = 1 ] || [ "$codename" != resolute ]; then
     use_docker=1
     command -v docker >/dev/null 2>&1 || die "docker not found. On macOS install Docker Desktop:
     brew install --cask docker
@@ -108,7 +108,7 @@ if [ "$SKIP_BUILD" = 0 ]; then
     build_args=(--out /src/stick/tests/secureboot/out)
   fi
   if [ "$use_docker" = 1 ]; then
-    say "building in Docker (ubuntu:24.04, linux/amd64) — first run takes a while (Rust toolchain, kernel download)"
+    say "building in Docker (ubuntu:26.04, linux/amd64) — first run takes a while (Rust toolchain, kernel download)"
     docker run --rm --platform linux/amd64 \
       -v "$REPO":/src \
       -v ci-stick-sb-cache:/cache \
@@ -116,12 +116,20 @@ if [ "$SKIP_BUILD" = 0 ]; then
       -e CARGO_HOME=/cache/cargo -e RUSTUP_HOME=/cache/rustup \
       -e CARGO_TARGET_DIR=/cache/target -e CI_STICK_TEST_CACHE=/cache/kernel \
       -e CI_STICK_SB_WORK=/work \
-      ubuntu:24.04 bash /src/stick/tests/secureboot/build-in-container.sh "${build_args[@]}" \
+      ubuntu:26.04 bash /src/stick/tests/secureboot/build-in-container.sh "${build_args[@]}" \
       || die "the Docker build failed (see above)"
   else
-    say "building natively (Ubuntu 24.04 host)"
+    say "building natively (Ubuntu 26.04 host)"
     "$HERE/build-in-container.sh" "${build_args[@]}" || die "build-in-container.sh failed"
   fi
+fi
+
+# A previous build from before the move to Ubuntu 26.04 must not be booted by accident: the
+# signed chain, firmware and kernel in out/ would be those of the previous Ubuntu series.
+if [ "$SKIP_BUILD" = 1 ]; then
+  built="$(sed -n 's/^series=//p' "$OUT/signed-boot/signed-boot.lock" 2>/dev/null | head -n 1)"
+  [ "$built" = resolute ] \
+    || die "$OUT was built for '${built:-nothing}', not Ubuntu 26.04 (resolute) — run without --skip-build first"
 fi
 
 FW="$OUT/firmware"

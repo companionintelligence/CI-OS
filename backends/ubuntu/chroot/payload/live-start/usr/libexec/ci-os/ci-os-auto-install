@@ -1,0 +1,1025 @@
+#!/usr/bin/env python3
+"""Companion OS: one-click automatic install, from the live session.
+
+The user clicks "Install Companion OS (automatic)". This tool picks the internal disk, shows ONE
+confirmation that names the disk and what is on it, and then drives Canonical's own installer
+(ubuntu-desktop-bootstrap's subiquity server) through its autoinstall path with no further questions:
+English, US keyboard, time zone from geoip, the Default application selection, "Erase disk and install".
+
+It does not replace or modify the installer. It writes an autoinstall file, restarts the installer's
+server so that it loads it, confirms the install over the server's own API and reports progress.
+
+Safety rules (each one is tested in backends/ubuntu/chroot/tests/test_auto_install.py):
+  * Never the boot medium. Every disk that carries /cdrom, /isodevice or a Companion Stick partition
+    (CI-EFI, CI-SHARED, CI-BOOT-A/B, CI-CACHE, CI-PERSIST, writable, casper-rw) is excluded. A /cdrom on a loop
+    device is followed to the disk that holds the ISO file. If the boot medium cannot be identified the tool
+    REFUSES (fail closed) and offers the normal installer instead.
+  * Only internal disks: not removable, not hotplug, not USB/Thunderbolt-attached, not an SD/eMMC card, not
+    read-only, big enough (25 GB). With more than one such disk the user chooses; nothing is guessed.
+  * One confirmation that names model, size, device and everything found on the disk. Enter never confirms:
+    the dialog's default is Cancel.
+  * The target is pinned by an early-command inside the install itself: if the disk's size is not the
+    one that was shown, or the disk now carries /cdrom, the install aborts before it writes anything. The
+    disk list is also re-checked after the click and again just before the install is confirmed.
+  * One instance at a time (flock), and it refuses to touch an installer that is already installing.
+  * The sign-in password is random, shown in the confirmation and in the progress window, and must be changed
+    at first login. Only its hash goes into the autoinstall file, which lives on tmpfs and is removed
+    afterwards. A foreign /autoinstall.yaml is never overwritten or removed.
+
+Usage:
+  ci-os-auto-install                 interactive (zenity), the normal entry point
+  ci-os-auto-install --plan          print the chosen disk and the autoinstall file (password hash masked),
+                                     change nothing. Exit 0, or 3 when no safe disk exists
+  ci-os-auto-install --disks         print the candidate/excluded disk table
+  ci-os-auto-install --live-setup    desktop-session autostart hook: in a live session only, put the launcher on the
+                                     desktop, in the app grid and first in the dock (the 26.04 live session draws no
+                                     desktop icons); with ci.autoinstall=1 on the kernel command line
+                                     (the boot menu's automatic entry) it also starts the install dialog
+Environment (tests only): CI_OS_AI_LSBLK_JSON, CI_OS_AI_CDROM_SOURCE, CI_OS_AI_LOOP_BACKING ("<device> <fstype>"),
+CI_OS_AI_CMDLINE read fixtures instead of the system.
+
+Exit codes: 0 ok, 2 usage, 3 no safe target / medium unknown, 4 not a live session, 5 installer not ready or busy,
+6 user cancelled (or another instance is open), 7 install failed.
+"""
+import argparse
+import ast
+import fcntl
+import grp
+import html
+import json
+import os
+import re
+import secrets
+import shutil
+import subprocess
+import sys
+import time
+import urllib.parse
+
+MIN_DISK_BYTES = 25 * 1000 ** 3
+SERVER_UNIT = "snap.ubuntu-desktop-bootstrap.subiquity-server.service"
+# The stock installer window: the snap's launcher runs bin/ubuntu_bootstrap as the app command (command-chain bin/launcher),
+# so its command line starts with the snap path (checked in the 26.04.1 snap, rev 665: meta/snap.yaml and bin/launcher).
+CLIENT_PATTERN = r"^/snap/ubuntu-desktop-bootstrap/[^ ]*/ubuntu_bootstrap"
+SOCKET = "/run/subiquity/socket"
+RUN_DIR = "/run/ci-os-auto-install"
+AUTOINSTALL_PATH = os.path.join(RUN_DIR, "autoinstall.yaml")
+AUTOINSTALL_LINK = "/autoinstall.yaml"
+LAUNCHER_SRC = "/usr/share/ci-os/live/ci-os-auto-install.desktop"
+LAUNCHER_ID = "ci-os-auto-install.desktop"
+STICK_LABELS = ("CI-EFI", "CI-SHARED", "CI-BOOT-A", "CI-BOOT-B", "CI-CACHE", "CI-PERSIST", "writable", "casper-rw")
+# Mount points that mean "this session is running from / through this disk".
+MEDIUM_MOUNTS = ("/cdrom", "/isodevice", "/rofs", "/run/ci-os", "/run/live")
+# The installer server's states, from ApplicationState in the 26.04.1 snap (ubuntu-desktop-bootstrap rev 665,
+# subiquity/common/types/__init__.py), in the order one run goes through them (server/controllers/install.py):
+#   STARTING_UP, CLOUD_INIT_WAIT, EARLY_COMMANDS   the server is starting; it is not ready for a request yet
+#   WAITING             idle, waiting for the answers. It is reported BEFORE the install and again AFTER curtin has
+#                       written the system, while the server waits for the post-install settings: the name alone does
+#                       not say which, so it is told apart by whether the new system is mounted at /target
+#   NEEDS_CONFIRMATION  everything is answered and the server waits for POST /meta/confirm
+#   RUNNING             the install itself (and the post-install work)
+#   UU_RUNNING          unattended-upgrades inside the new system
+#   LATE_COMMANDS       the late-commands of the autoinstall file
+#   DONE                installed
+#   ERROR, EXITED       failed / the server is exiting
+# An earlier revision of this tool listed POST_WAIT, POST_RUNNING and UU_CANCELLING; no such states exist, so the
+# post-install window (WAITING after curtin) and LATE_COMMANDS slipped through its "already installing" check.
+STARTUP_STATES = {"STARTING_UP", "CLOUD_INIT_WAIT", "EARLY_COMMANDS"}
+BUSY_STATES = {"RUNNING", "UU_RUNNING", "LATE_COMMANDS", "DONE"}
+IDLE_STATES = {"NEEDS_CONFIRMATION", "ERROR", "EXITED"}     # nothing is being written: restarting the server is safe
+INSTALL_STARTED = BUSY_STATES                               # the states that mean "the install was confirmed and is under way"
+AMBIGUOUS_STATE = "WAITING"
+FAILED_STATES = {"ERROR", "EXITED"}
+# How the server is driven. Read in the 26.04.1 snap (rev 665) and run against the snap's own server in its dry-run mode
+# (backends/ubuntu/chroot/tests/oneclick-subiquity-dryrun.sh):
+#   GET  /meta/status           {"state": ..., "interactive": bool, "log_syslog_id": "subiquity_log.<pid of the server>", "error": ..., ...}
+#   POST /meta/confirm?tty=...  `tty` is a QUERY argument, JSON-encoded: ?tty=%22%2Fdev%2Ftty1%22. (subiquity/common/apidef.py:
+#                               `class confirm: def POST(tty: str)`; common/api/server.py binds every parameter that is not a Payload
+#                               from request.query and json-decodes it.) A JSON request body is ignored: the handler raises
+#                               TypeError('missing required argument "tty"') and answers HTTP 500. The first revision of this tool
+#                               sent the tty as a body and was refused by a real server on its first real run.
+#   "interactive" is bool(autoinstall["interactive-sections"]) once the server has read an autoinstall file and True when it found
+#   none (server.py load_autoinstall_config). After our restart it must be False: True means the server did not read our file.
+CONFIRM_TTY = "/dev/tty1"
+SERVER_LOG = "/var/log/installer/subiquity-server-debug.log"    # a symlink to the log of the current server; root can read it
+PREPARE_TIMEOUT = 600        # s from the restart to NEEDS_CONFIRMATION (a real server needs about 40 s: it checks the mirror first)
+START_TIMEOUT = 180          # s from the confirmation to the first state that means "installing"
+FOLLOW_TIMEOUT = 4 * 3600    # s from the start of the install to DONE
+SILENCE_TIMEOUT = 900        # s without any answer from the server while the install is followed
+POLL_SECONDS = 3             # between two reads of the state while waiting for a state
+FOLLOW_POLL_SECONDS = 5      # between two reads while the install runs
+MOUNTINFO = "/proc/self/mountinfo"
+TARGET = "/target"                                          # where curtin mounts the system it installs
+CURTIN_PATTERN = r"(^|[ /])curtin( |$)"                     # "python3 -m curtin ...", ".../bin/curtin in-target ..."
+PW_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"   # no 0/o/1/l/i: it is read off a screen and typed
+
+_lock_fd = None
+
+
+# ───────────────────────── pure logic (unit-tested) ─────────────────────────
+
+def flatten(node, parent=None):
+    """lsblk -J tree -> flat list of nodes, each with '_parent' = the path of the node above it."""
+    out = []
+    for n in node:
+        n = dict(n)
+        n["_parent"] = parent
+        out.append(n)
+        out.extend(flatten(n.get("children") or [], n.get("path") or parent))
+    return out
+
+
+def load_lsblk():
+    fixture = os.environ.get("CI_OS_AI_LSBLK_JSON")
+    if fixture:
+        with open(fixture, encoding="utf-8") as fh:
+            return json.load(fh)
+    cols = "NAME,PATH,SIZE,TYPE,RM,RO,HOTPLUG,MODEL,SERIAL,TRAN,FSTYPE,LABEL,PARTLABEL,MOUNTPOINTS,ROTA,PKNAME"
+    raw = subprocess.run(["lsblk", "-J", "-b", "-o", cols], check=True, capture_output=True, text=True).stdout
+    return json.loads(raw)
+
+
+def boolish(v):
+    return v in (True, 1, "1", "true", "True")
+
+
+def mountpoints(n):
+    mp = n.get("mountpoints")
+    if mp is None:
+        mp = [n.get("mountpoint")]
+    return [m for m in (mp or []) if m]
+
+
+def clean_source(text):
+    """First non-empty line of a findmnt SOURCE, without a '[/subdir]' bind-mount suffix."""
+    for line in (text or "").splitlines():
+        line = re.sub(r"\[.*\]$", "", line.strip())
+        if line:
+            return line
+    return None
+
+
+def cdrom_source():
+    """The device node mounted at /cdrom ('/dev/sr0', '/dev/sdb1', '/dev/mapper/..', '/dev/loop0'), or None."""
+    fixture = os.environ.get("CI_OS_AI_CDROM_SOURCE")
+    if fixture is not None:
+        return clean_source(fixture)
+    try:
+        out = subprocess.run(["findmnt", "-no", "SOURCE", "/cdrom"], capture_output=True, text=True).stdout
+    except OSError:
+        return None
+    return clean_source(out)
+
+
+def loop_backing(source):
+    """For a loop /cdrom: {'source': device holding the backing file, 'fstype': its filesystem}, or None if unknown."""
+    fixture = os.environ.get("CI_OS_AI_LOOP_BACKING")
+    if fixture is not None:
+        parts = fixture.split()
+        return {"source": parts[0] if parts else None, "fstype": parts[1] if len(parts) > 1 else None} if parts else None
+    try:
+        back = subprocess.run(["losetup", "-nO", "BACK-FILE", source], capture_output=True, text=True).stdout.strip()
+        if not back:
+            return None
+        out = subprocess.run(["findmnt", "-T", back, "-no", "SOURCE,FSTYPE"], capture_output=True, text=True).stdout
+    except OSError:
+        return None
+    line = next((ln for ln in out.splitlines() if ln.strip()), "")
+    fields = line.split()
+    if len(fields) < 2:
+        return None
+    return {"source": clean_source(fields[0]), "fstype": fields[-1]}
+
+
+def read_cmdline():
+    fixture = os.environ.get("CI_OS_AI_CMDLINE")
+    if fixture is not None:
+        return fixture
+    try:
+        with open("/proc/cmdline", encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def disk_of(path, nodes):
+    """The whole-disk path that carries device `path` (follows partitions and dm parents), or None."""
+    by_path = {n.get("path"): n for n in nodes if n.get("path")}
+    cur, seen = by_path.get(path), set()
+    while cur is not None and cur.get("path") not in seen:
+        seen.add(cur.get("path"))
+        if cur.get("type") == "disk":
+            return cur["path"]
+        cur = by_path.get(cur.get("_parent"))
+    return None
+
+
+def protected_disks(nodes, source, backing=None):
+    """Disks that must never be an install target. Returns (set_of_disk_paths, medium_known).
+
+    medium_known is False when /cdrom's source could not be traced to a disk (or RAM): the caller must refuse."""
+    prot = set()
+    known = False
+    node = next((n for n in nodes if n.get("path") == source), None) if source else None
+    if source:
+        d = disk_of(source, nodes)            # a partition, a whole disk, or a dm device on top of one
+        if d:
+            prot.add(d)
+            known = True
+        elif node is not None and node.get("type") == "rom":
+            prot.add(source)
+            known = True
+        elif node is not None and node.get("type") == "loop":
+            # An ISO booted from a file (GRUB loopback, iso-scan, Ventoy): the disk that HOLDS the file is the medium.
+            prot.add(source)
+            if backing and backing.get("fstype") in ("tmpfs", "ramfs"):
+                known = True                  # netboot into RAM: no disk is involved
+            elif backing and backing.get("source"):
+                bd = disk_of(backing["source"], nodes)
+                if bd:
+                    prot.add(bd)
+                    known = True
+    # Anything that LOOKS like the Companion Stick is protected even when it is not what we booted from.
+    for n in nodes:
+        labels = {str(n.get("label") or ""), str(n.get("partlabel") or "")}
+        if labels & set(STICK_LABELS):
+            d = disk_of(n.get("path"), nodes)
+            if d:
+                prot.add(d)
+    # Any disk with something mounted where this session keeps its medium is in use by this session.
+    for n in nodes:
+        if any(m == p or m.startswith(p + "/") for m in mountpoints(n) for p in MEDIUM_MOUNTS):
+            d = disk_of(n.get("path"), nodes)
+            if d:
+                prot.add(d)
+    return prot, known
+
+
+def external_bus(name):
+    """True when sysfs says the disk hangs off USB or Thunderbolt (lsblk's TRAN/RM/HOTPLUG miss some bridges)."""
+    try:
+        real = os.path.realpath(f"/sys/block/{name}")
+    except OSError:
+        return False
+    return "/usb" in real or "/thunderbolt" in real
+
+
+def classify(nodes, source, backing=None):
+    """Every whole disk -> {'path','model','size','serial','status','reason',...}. status: candidate|excluded."""
+    prot, known = protected_disks(nodes, source, backing)
+    disks = []
+    for n in nodes:
+        if n.get("type") != "disk":
+            continue
+        kids = flatten(n.get("children") or [], n["path"])
+        d = {
+            "path": n["path"], "name": n.get("name") or os.path.basename(n["path"]), "model": (n.get("model") or "").strip(),
+            "size": int(n.get("size") or 0), "serial": (n.get("serial") or "").strip(),
+            "tran": (n.get("tran") or "").strip(), "rotational": boolish(n.get("rota")),
+            "fstype": n.get("fstype") or "", "label": n.get("label") or "",
+            "partitions": [c for c in kids if c.get("type") == "part"],
+            "other_children": [c for c in kids if c.get("type") != "part"],
+        }
+        reason = None
+        if n["path"] in prot:
+            reason = "the disk this session started from"
+        elif boolish(n.get("rm")) or boolish(n.get("hotplug")) or d["tran"] == "usb":
+            reason = "removable or USB"
+        elif re.match(r"/dev/mmcblk", n["path"]):
+            reason = "SD or eMMC card"
+        elif external_bus(d["name"]):
+            reason = "attached over USB or Thunderbolt"
+        elif boolish(n.get("ro")):
+            reason = "read-only"
+        elif d["size"] < MIN_DISK_BYTES:
+            reason = "smaller than 25 GB"
+        elif re.match(r"/dev/(loop|zram|ram|sr|fd|nbd|md|dm-)", n["path"]):
+            reason = "not a physical disk"
+        d["status"] = "excluded" if reason else "candidate"
+        d["reason"] = reason
+        disks.append(d)
+    return disks, known
+
+
+def choose_default(candidates):
+    """The disk preselected in the chooser: solid-state first (NVMe, then others), then the largest."""
+    def key(d):
+        return (d["tran"] != "nvme", d["rotational"], -d["size"], d["path"])
+    return sorted(candidates, key=key)[0] if candidates else None
+
+
+def human(n):
+    for unit, div in (("TB", 1000 ** 4), ("GB", 1000 ** 3), ("MB", 1000 ** 2)):
+        if n >= div:
+            return f"{n / div:.0f} {unit}" if n >= 10 * div else f"{n / div:.1f} {unit}"
+    return f"{n} B"
+
+
+FS_NAMES = {"ntfs": "Windows (NTFS)", "vfat": "FAT/EFI", "ext4": "Linux (ext4)", "ext3": "Linux (ext3)", "btrfs": "Linux (btrfs)",
+            "xfs": "Linux (xfs)", "crypto_LUKS": "encrypted (LUKS)", "swap": "swap", "exfat": "exFAT",
+            "apfs": "Apple (APFS)", "hfsplus": "Apple (HFS+)", "zfs_member": "ZFS", "LVM2_member": "LVM",
+            "linux_raid_member": "RAID member", "isw_raid_member": "Intel RST RAID member", "BitLocker": "BitLocker"}
+
+
+def describe_disk(d):
+    """('one-line header', [lines: everything found on the disk], has_data). Plain text: escape before markup."""
+    head = f"{d['model'] or 'Disk'}  {human(d['size'])}  ({d['path']})"
+    lines = []
+    if d.get("fstype"):
+        lines.append(f"  the whole disk: {FS_NAMES.get(d['fstype'], d['fstype'])}" + (f' "{d["label"]}"' if d.get("label") else ""))
+    for p in d["partitions"]:
+        fs = p.get("fstype") or ""
+        what = FS_NAMES.get(fs, fs) if fs else "contents not recognised"
+        label = f' "{p["label"]}"' if p.get("label") else ""
+        lines.append(f"  {p.get('name', '?')}: {human(int(p.get('size') or 0))}, {what}{label}")
+    for c in d.get("other_children", []):
+        lines.append(f"  {c.get('name', '?')}: {c.get('type', 'device')}")
+    has_data = bool(d["partitions"] or d.get("fstype") or d.get("other_children"))
+    return head, lines, has_data
+
+
+def summary(d):
+    kinds = []
+    for p in d["partitions"]:
+        k = FS_NAMES.get(p.get("fstype") or "", p.get("fstype") or "")
+        if k and k not in kinds and k != "swap":
+            kinds.append(k)
+    if d.get("fstype") and FS_NAMES.get(d["fstype"], d["fstype"]) not in kinds:
+        kinds.insert(0, FS_NAMES.get(d["fstype"], d["fstype"]))
+    return ", ".join(kinds[:3]) or ("partitions, contents not recognised" if d["partitions"] else "nothing found")
+
+
+def esc(text):
+    """Plain text -> zenity markup text. zenity (4.x) runs g_strcompress on it, so a backslash must be doubled too."""
+    return html.escape(str(text).replace("\\", "\\\\"), quote=False)
+
+
+def generate_password():
+    groups = ["".join(secrets.choice(PW_ALPHABET) for _ in range(4)) for _ in range(4)]
+    return "-".join(groups)
+
+
+def hash_password(pw):
+    r = subprocess.run(["openssl", "passwd", "-6", "-stdin"], input=pw, capture_output=True, text=True, check=True)
+    return r.stdout.strip()
+
+
+def target_check_command(d):
+    """Shell run by the installer itself (autoinstall early-commands) before it touches any disk."""
+    dev = d["path"]
+    return (
+        f"set -e; "
+        f"[ \"$(blockdev --getsize64 {dev})\" = \"{d['size']}\" ] || {{ echo 'ci-os: {dev} is not the disk that was confirmed' >&2; exit 1; }}; "
+        f"if findmnt -rn -o SOURCE /cdrom | grep -q '^{dev}'; then echo 'ci-os: {dev} carries the install medium' >&2; exit 1; fi"
+    )
+
+
+def available_extra_groups():
+    """Groups the first user is added to on top of the installer's defaults: docker, when this image has the group.
+
+    The installer's own list (adm cdrom dip lpadmin plugdev sambashare debian-tor libvirtd users lxd, plus sudo) has no
+    docker, and the Docker engine is part of every Companion OS image. The autoinstall schema of the 26.04.1 installer
+    takes `identity.groups: {append: [...]}` (autoinstall-schema.json). useradd is given the names as they are and fails
+    on a group that does not exist in the new system, and the new system is a copy of this one: so the group is asked for
+    only when it exists here. Without it the oneshot ci-os-docker-group.service still adds the administrators to docker
+    at the first boot."""
+    groups = []
+    try:
+        grp.getgrnam("docker")
+        groups.append("docker")
+    except KeyError:
+        pass
+    return groups
+
+
+def build_autoinstall(d, password_hash, *, username="companion", realname="Companion", hostname="companion-os",
+                      extra_groups=None):
+    identity = {"realname": realname, "hostname": hostname, "username": username, "password": password_hash}
+    if extra_groups is None:
+        extra_groups = available_extra_groups()
+    if extra_groups:
+        identity["groups"] = {"append": list(extra_groups)}
+    cfg = {
+        "autoinstall": {
+            "version": 1,
+            "locale": "en_US.UTF-8",
+            "keyboard": {"layout": "us"},
+            "timezone": "geoip",
+            "identity": identity,
+            "storage": {"layout": {"name": "direct", "match": {"path": d["path"]}}},
+            "refresh-installer": {"update": False},
+            "drivers": {"install": False},
+            "codecs": {"install": False},
+            "updates": "security",
+            # poweroff, not reboot: a stick left in the machine would boot the live session again, and the user
+            # is told to remove it when the screen goes dark.
+            "shutdown": "poweroff",
+            "early-commands": [target_check_command(d)],
+            # The first sign-in must set a real password. A stray autoinstall.yaml must not survive into the target.
+            "late-commands": [
+                f"curtin in-target --target=/target -- chage -d 0 {username}",
+                "rm -f /target/autoinstall.yaml /target/var/log/installer/autoinstall-user-data",
+            ],
+        }
+    }
+    return cfg
+
+
+def dump_yaml(cfg, mask_hash=False):
+    import yaml
+    c = json.loads(json.dumps(cfg))
+    if mask_hash:
+        c["autoinstall"]["identity"]["password"] = "<sha512-crypt hash, not shown>"
+    return yaml.safe_dump(c, sort_keys=False, default_flow_style=False)
+
+
+# ───────────────────────── system interaction ─────────────────────────
+
+def is_live():
+    return os.path.exists("/cdrom/casper/vmlinuz") or "boot=casper" in read_cmdline()
+
+
+def sh(cmd, **kw):
+    return subprocess.run(cmd, capture_output=True, text=True, **kw)
+
+
+def take_lock():
+    """One instance at a time. Returns True when this process holds the lock."""
+    global _lock_fd
+    path = os.path.join(os.environ.get("XDG_RUNTIME_DIR") or "/tmp", "ci-os-auto-install.lock")
+    fd = os.open(path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    _lock_fd = fd
+    return True
+
+
+def api(method, path, data=None, timeout=20, query=None):
+    """(http_status, body) from the installer's API; (0, '') when it cannot be reached.
+
+    `data` is a JSON request body (the API's Payload arguments), `query` a dict of query arguments. The installer's API takes
+    every other argument from the query string, JSON-encoded: {"tty": "/dev/tty1"} becomes ?tty=%22%2Fdev%2Ftty1%22."""
+    url = f"http://a{path}"
+    if query:
+        url += "?" + urllib.parse.urlencode({k: json.dumps(v) for k, v in query.items()}, quote_via=urllib.parse.quote)
+    cmd = ["sudo", "-n", "curl", "-sS", "--max-time", str(timeout), "--unix-socket", SOCKET, "-X", method,
+           "-w", "\n%{http_code}", url]
+    if data is not None:
+        cmd += ["-H", "Content-Type: application/json", "-d", json.dumps(data)]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True)
+    except OSError:
+        return 0, ""
+    body, _, code = r.stdout.rpartition("\n")
+    try:
+        return int(code), body
+    except ValueError:
+        return 0, ""
+
+
+def status():
+    code, body = api("GET", "/meta/status")
+    if code != 200:
+        return {}
+    try:
+        st = json.loads(body or "{}")
+    except ValueError:
+        return {}
+    return st if isinstance(st, dict) else {}
+
+
+def instance_of(st):
+    """Which server process answered: 'subiquity_log.<pid>' (it changes with every restart of the server), or None."""
+    return st.get("log_syslog_id") or st.get("echo_syslog_id") or None
+
+
+def error_detail(st):
+    """The installer's own words about why it is in ERROR, cut short ('' when it says nothing)."""
+    ne = st.get("nonreportable_error")
+    if isinstance(ne, dict) and ne.get("cause"):
+        if ne["cause"] == "AutoinstallUserSuppliedCmdError":     # the only command we hand it is the target check
+            return "; the check that the disk is still the one you confirmed did not pass"
+        return f"; {ne['cause']}: {str(ne.get('message') or '')[:160]}"
+    er = st.get("error")
+    if isinstance(er, dict) and er.get("kind"):
+        return f"; {er['kind']}, crash report {er.get('base')}"
+    return ""
+
+
+def wait_for(states, timeout, poll=None):
+    """Poll the installer until its state is in `states`. Returns (state, status) or (last state seen, {})."""
+    end = time.time() + timeout
+    last = None
+    while time.time() < end:
+        st = status()
+        last = st.get("state", last)
+        if st.get("state") in states:
+            return st["state"], st
+        time.sleep(poll or POLL_SECONDS)
+    return last, {}
+
+
+def wait_ready(timeout=180):
+    """The installer's server answers and has finished starting. Returns its state, or None."""
+    end = time.time() + timeout
+    while time.time() < end:
+        state = status().get("state")
+        if state and state not in STARTUP_STATES:
+            return state
+        time.sleep(POLL_SECONDS)
+    return None
+
+
+def wait_for_confirmation(timeout, old_instance=None, poll=None):
+    """After the restart: wait until the NEW server is ready to be told to start. Returns (outcome, state, status):
+
+      confirm   NEEDS_CONFIRMATION, and the server says it is in automatic mode (interactive false): POST /meta/confirm may follow
+      started   the server is already past the confirmation (a kernel command line with `autoinstall` skips it)
+      failed    ERROR or EXITED
+      ignored   the server is idle but not in automatic mode: it did not read our autoinstall file, so it will never get there
+      timeout   none of the above within `timeout` seconds; `state` is the last one seen
+
+    An answer from the server that was running before the restart (same `old_instance`) is not an answer."""
+    end = time.time() + timeout
+    state, st = None, {}
+    while time.time() < end:
+        cur = status()
+        got = cur.get("state")
+        if got and not (old_instance and instance_of(cur) == old_instance):
+            state, st = got, cur
+            if got in FAILED_STATES:
+                return "failed", got, cur
+            if got in INSTALL_STARTED:
+                return "started", got, cur
+            if got in (AMBIGUOUS_STATE, "NEEDS_CONFIRMATION") and cur.get("interactive") is not False:
+                return "ignored", got, cur
+            if got == "NEEDS_CONFIRMATION":
+                return "confirm", got, cur
+        time.sleep(poll or POLL_SECONDS)
+    return "timeout", state, st
+
+
+def confirm_install():
+    """The one request that starts the installation: POST /meta/confirm, and only to a server that is waiting for it, in automatic mode.
+
+    Returns (sent, problem). `sent` is True when the installer may have taken the confirmation (HTTP 200, no answer at all, or it
+    went on regardless), so that the failure text is honest about the disk. `problem` is None or why the install was not started."""
+    st = status()
+    if st.get("state") != "NEEDS_CONFIRMATION" or st.get("interactive") is not False:
+        return False, f"the installer is not waiting for the confirmation (state: {st.get('state')})"
+    code, body = api("POST", "/meta/confirm", query={"tty": CONFIRM_TTY})
+    if code == 200:
+        return True, None
+    # Not a 200: the server's own state says whether the confirmation took effect all the same.
+    after, _ = wait_for(INSTALL_STARTED | FAILED_STATES, 10)
+    if after in INSTALL_STARTED:
+        return True, None
+    lines = [ln.strip() for ln in body.splitlines() if ln.strip()]
+    detail = f": {lines[-1][:160]}" if lines else ""
+    return code == 0, f"the installer refused the confirmation (HTTP {code}{detail})"
+
+
+def target_in_use():
+    """True when the new system is mounted at /target (or something is mounted below it).
+
+    curtin mounts the system it installs there and unmounts it at the very end, so a mounted /target means an install
+    has written, or is writing, to a disk. When the mount table cannot be read the answer is True (fail closed)."""
+    try:
+        with open(MOUNTINFO, encoding="utf-8") as fh:
+            lines = fh.read().splitlines()
+    except OSError:
+        return True
+    for line in lines:
+        fields = line.split()
+        if len(fields) < 5:
+            continue
+        mountpoint = re.sub(r"\\([0-7]{3})", lambda m: chr(int(m.group(1), 8)), fields[4])   # \040 is a space in mountinfo
+        if mountpoint == TARGET or mountpoint.startswith(TARGET + "/"):
+            return True
+    return False
+
+
+def curtin_running():
+    """True when a curtin process exists: the installer's disk work. pgrep that cannot run counts as running."""
+    try:
+        return sh(["pgrep", "-f", CURTIN_PATTERN]).returncode == 0
+    except OSError:
+        return True
+
+
+def is_busy(state):
+    """True when the installer must not be touched (no new autoinstall file, no restart of its server).
+
+    BUSY_STATES are busy. WAITING is busy when an install has written to a disk (/target is mounted) or curtin is running,
+    and idle otherwise (the installer just started, nothing answered). NEEDS_CONFIRMATION, ERROR and EXITED write nothing.
+    Anything else, including a state this tool has never heard of, counts as busy: a wrong "busy" costs one more click,
+    a wrong "idle" restarts the server in the middle of writing a disk."""
+    if state in BUSY_STATES:
+        return True
+    if state == AMBIGUOUS_STATE:
+        return target_in_use() or curtin_running()
+    if state in IDLE_STATES:
+        return False
+    return True
+
+
+def zenity_env():
+    # ZENITY_OK / ZENITY_CANCEL / DIALOG_* can remap zenity's exit codes; the answer must mean what it says.
+    return {k: v for k, v in os.environ.items() if not k.startswith(("ZENITY_", "DIALOG_"))}
+
+
+def zenity(args, **kw):
+    return subprocess.run(["zenity"] + args, capture_output=True, text=True, env=zenity_env(), **kw)
+
+
+def choose_disk(candidates, default):
+    """The one disk to offer. With several candidates the user picks; nothing is guessed. None = cancelled."""
+    if len(candidates) == 1:
+        return candidates[0]
+    args = ["--list", "--radiolist", "--width=720", "--height=420", "--title=Install Companion OS",
+            "--text=More than one internal disk was found. Which one should Companion OS be installed on?\n"
+            "(You are asked to confirm before anything is erased.)",
+            "--column=Pick", "--column=Device", "--column=Disk", "--column=Size", "--column=Found on it",
+            "--print-column=2", "--ok-label=Continue", "--cancel-label=Cancel"]
+    for d in sorted(candidates, key=lambda x: x["path"]):
+        args += ["TRUE" if d is default else "FALSE", d["path"], d["model"] or "Disk", human(d["size"]), summary(d)]
+    r = zenity(args)
+    if r.returncode != 0:
+        return None
+    picked = (r.stdout or "").strip().splitlines()
+    picked = picked[0].strip() if picked else ""
+    return next((d for d in candidates if d["path"] == picked), None)
+
+
+def confirm_dialog(d, password, other_disks):
+    head, lines, _ = describe_disk(d)
+    erase = "\n".join(esc(line) for line in lines) if lines else "  (nothing was found on this disk)"
+    extra = ""
+    if other_disks:
+        extra = "\n\nOther disks (left alone): " + esc(", ".join(f"{o['model'] or o['path']} {human(o['size'])}" for o in other_disks))
+    text = (
+        "<big><b>Install Companion OS automatically?</b></big>\n\n"
+        f"This will <b>ERASE EVERYTHING</b> on:\n<b>{esc(head)}</b>\n{erase}{extra}\n\n"
+        "Nothing else is asked. Companion OS will be installed in English with a US keyboard.\n\n"
+        f"Sign in afterwards as  <b>companion</b>  with this one-time password:\n<tt><big><b>{esc(password)}</b></big></tt>\n"
+        "(you will be asked to choose your own at first sign-in; write it down now)\n\n"
+        "When the installation is finished the computer turns off: remove the USB stick, then turn it on."
+    )
+    # --default-cancel: Enter, or a stray key at the login screen, never confirms an erase.
+    args = ["--question", "--width=620", "--title=Install Companion OS", "--text=" + text, "--default-cancel",
+            "--ok-label=Erase the disk and install", "--cancel-label=Cancel", "--extra-button=Use the normal installer"]
+    r = zenity(args)
+    if r.returncode == 0:
+        return "install"
+    if "Use the normal installer" in (r.stdout or ""):
+        return "normal"
+    return "cancel"
+
+
+def error_dialog(text):
+    zenity(["--error", "--width=520", "--title=Companion OS", "--text=" + esc(text)])
+
+
+def normal_installer():
+    for cand in ("ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap", "ubuntu-desktop-bootstrap"):
+        if sh(["gtk-launch", cand]).returncode == 0:
+            return 0
+    subprocess.Popen(["/snap/bin/ubuntu-desktop-bootstrap"], start_new_session=True)
+    return 0
+
+
+def autoinstall_in_the_way():
+    """An autoinstall file that is not ours: somebody's own /autoinstall.yaml (never overwrite or remove it), or one that the kernel
+    command line names. The installer reads the first of: the server's autoinstall option, the kernel word subiquity.autoinstallpath=<file>,
+    /autoinstall.yaml, cloud-init's file, /cdrom/autoinstall.yaml (server.py select_autoinstall): a file named on the kernel command line would be read
+    INSTEAD of ours, with a target of its own, and our early-command pin would not be in it."""
+    if any(tok.startswith("subiquity.autoinstallpath=") for tok in read_cmdline().split()):
+        return True
+    if not os.path.lexists(AUTOINSTALL_LINK):
+        return False
+    return not (os.path.islink(AUTOINSTALL_LINK) and os.readlink(AUTOINSTALL_LINK) == AUTOINSTALL_PATH)
+
+
+def remove_autoinstall():
+    """Remove only our own file and our own symlink."""
+    if os.path.islink(AUTOINSTALL_LINK) and os.readlink(AUTOINSTALL_LINK) == AUTOINSTALL_PATH:
+        sh(["sudo", "-n", "rm", "-f", AUTOINSTALL_LINK])
+    sh(["sudo", "-n", "rm", "-f", AUTOINSTALL_PATH])
+
+
+def restart_server():
+    """Restart the installer's server (it reads /autoinstall.yaml at start). True when systemd accepted the restart."""
+    return sh(["sudo", "-n", "systemctl", "restart", SERVER_UNIT]).returncode == 0
+
+
+def restart_if_idle():
+    """After a failure: restart the server so that it drops the autoinstall settings it loaded, unless it is installing.
+
+    A restart kills curtin. When the failure is only that the tool gave up waiting (the install is still going), the
+    install is left alone. A server whose state cannot be read is restarted: it is not answering.
+    True when the server was restarted."""
+    state = status().get("state")
+    if state and is_busy(state):
+        return False
+    return restart_server()
+
+
+def reopen_normal_installer():
+    """After a failure that left nothing installing: open the stock installer window again (this tool closed it). Best effort."""
+    try:
+        normal_installer()
+    except OSError as exc:
+        print(f"ci-os-auto-install: could not open the normal installer: {exc}", file=sys.stderr)
+
+
+# What the progress window says for each state the installer reports while it installs.
+PROGRESS_TEXT = {"RUNNING": "Installing Companion OS… this takes a while", "WAITING": "Finishing up…",
+                 "LATE_COMMANDS": "Finishing up…", "UU_RUNNING": "Applying updates…"}
+
+
+def follow_install(say):
+    """Follow a confirmed install until the installer says DONE.
+
+    Raises RuntimeError on ERROR, on EXITED (the server leaves before DONE only when something went wrong), when the server
+    does not answer for SILENCE_TIMEOUT seconds, and after FOLLOW_TIMEOUT. With `shutdown: poweroff` the machine switches
+    itself off right after DONE, so on a real run this function usually never gets to return."""
+    shown = None
+    silent_since = None
+    end = time.time() + FOLLOW_TIMEOUT
+    while time.time() < end:
+        st = status()
+        state = st.get("state")
+        if not state:
+            now = time.time()
+            if silent_since is None:
+                silent_since = now
+            elif now - silent_since > SILENCE_TIMEOUT:
+                raise RuntimeError(f"the installer stopped answering (last state: {shown})")
+        else:
+            silent_since = None
+            if state != shown:
+                shown = state
+                say(PROGRESS_TEXT.get(state, f"Installer state: {state}"))
+            if state == "DONE":
+                return
+            if state == "ERROR":
+                raise RuntimeError("the install failed" + error_detail(st))
+            if state == "EXITED":
+                raise RuntimeError("the installer exited before the installation was finished")
+        time.sleep(FOLLOW_POLL_SECONDS)
+    raise RuntimeError("the install did not finish in 4 hours")
+
+
+def not_ready_text(outcome, state, st):
+    """Why wait_for_confirmation() did not end in 'confirm' (or 'started'): a sentence for the failure dialog."""
+    if outcome == "failed":
+        return f"the installer stopped before it could be told to start (state: {state}{error_detail(st)})"
+    if outcome == "ignored":
+        return (f"the installer did not take over the automatic install settings: it is in state {state} but in its normal, "
+                "interactive mode")
+    if state is None:
+        return f"the installer's restarted server did not answer within {PREPARE_TIMEOUT // 60} minutes"
+    return f"the installer did not reach the confirmation within {PREPARE_TIMEOUT // 60} minutes (it is still in state {state})"
+
+
+def failure_text(exc, confirmed, reopening):
+    """The dialog after a failure: what happened, what became of the disk, where the log is, what to do next."""
+    after = "The disk may be partly or completely erased." if confirmed else "Nothing was erased."
+    nxt = ("The normal installer opens when you close this message." if reopening
+           else "You can try the normal installer from the dock.")
+    return (f"The automatic install did not finish: {exc}.\n\n{after}\n"
+            f"The installer's log is {SERVER_LOG}, next to the other files in /var/log/installer/ (root can read them). {nxt}")
+
+
+def run_install(d, cfg_yaml, password):
+    """Everything after the consent. Returns an exit code; always leaves no autoinstall file behind.
+
+    The sequence, each step only after the one before it: write the file; restart the server so that it reads it; wait for the NEW
+    server to say NEEDS_CONFIRMATION in automatic mode; look at the disks once more; POST /meta/confirm (in that state only); wait
+    for an installing state; follow it to DONE."""
+    if sh(["sudo", "-n", "true"]).returncode != 0:
+        error_dialog("The automatic install needs administrator rights, which this session does not have.")
+        return 5
+    if autoinstall_in_the_way():
+        error_dialog("An autoinstall file that is not Companion OS's own is already in place (a /autoinstall.yaml, or one named on the "
+                     "kernel command line). Nothing was changed.")
+        return 5
+    state = wait_ready()
+    if state is None:
+        error_dialog("The installer is not ready. Wait a minute and try again, or use the normal installer.")
+        return 5
+    if is_busy(state):
+        error_dialog("An installation is already running, or an earlier one left the new system mounted at /target. "
+                     "Nothing was changed. If nothing is installing, restart the computer from the USB stick to try again.")
+        return 5
+
+    confirmed = False
+    client_closed = False
+    prog = None
+    try:
+        subprocess.run(["sudo", "-n", "install", "-d", "-m", "0700", RUN_DIR], check=True)
+        subprocess.run(["sudo", "-n", "tee", AUTOINSTALL_PATH], input=cfg_yaml, text=True, capture_output=True, check=True)
+        subprocess.run(["sudo", "-n", "chmod", "0600", AUTOINSTALL_PATH], check=True)
+        # /autoinstall.yaml is where the server looks. A symlink into tmpfs means a crash cannot leave a live
+        # autoinstall file behind (persistent Sticks keep the live overlay across boots): it would dangle.
+        subprocess.run(["sudo", "-n", "ln", "-sfn", AUTOINSTALL_PATH, AUTOINSTALL_LINK], check=True)
+        # One line each time: a "# text" line replaces the whole label, so the sign-in details ride along with every status.
+        footer = (f"Sign in afterwards as companion with the one-time password {password}. When the installation is "
+                  "finished the computer turns off: remove the USB stick, then turn it on.")
+        prog = subprocess.Popen(
+            ["zenity", "--progress", "--pulsate", "--no-cancel", "--auto-close", "--width=560",
+             "--title=Installing Companion OS", "--text=" + esc(f"Starting the installer…  {footer}")],
+            stdin=subprocess.PIPE, text=True, env=zenity_env())
+
+        def say(msg):
+            try:
+                prog.stdin.write(f"# {esc(msg)}  {esc(footer)}\n")
+                prog.stdin.flush()
+            except (BrokenPipeError, ValueError):
+                pass
+
+        old_server = instance_of(status())       # an answer from this process is never an answer to the settings we write now
+        client_closed = True
+        sh(["pkill", "-f", CLIENT_PATTERN])      # the stock client would react to the server restarting
+        if not restart_server():
+            raise RuntimeError("the installer's server could not be restarted, so it never read the automatic install settings")
+        time.sleep(3)
+        say("The installer is getting ready… this takes about a minute")
+        outcome, state, st = wait_for_confirmation(PREPARE_TIMEOUT, old_server)
+        if outcome == "confirm":
+            # Last look at the disks, after everything the user could have changed while the dialog was open.
+            disks2, known2 = classify(flatten(load_lsblk().get("blockdevices", [])), cdrom_source(), backing_for(cdrom_source()))
+            same = [x for x in disks2 if x["status"] == "candidate" and x["path"] == d["path"] and x["size"] == d["size"]]
+            if not known2 or not same:
+                raise RuntimeError("the disks changed after you confirmed, so the install was not started")
+            sent, problem = confirm_install()
+            confirmed = sent
+            if problem:
+                raise RuntimeError(problem)
+            state, _ = wait_for(INSTALL_STARTED | FAILED_STATES, START_TIMEOUT)
+            if state not in INSTALL_STARTED:
+                raise RuntimeError(f"the installer did not start after it was confirmed (state: {state})")
+        elif outcome == "started":
+            confirmed = True
+        else:
+            raise RuntimeError(not_ready_text(outcome, state, st))
+        say(PROGRESS_TEXT["RUNNING"])
+        follow_install(say)
+    except Exception as exc:  # noqa: BLE001 - one place that turns any failure into a visible dialog
+        if prog is not None:
+            prog.terminate()
+        remove_autoinstall()
+        restarted = restart_if_idle()             # drop the loaded autoinstall settings: the next start is a clean one
+        reopening = client_closed and restarted and not confirmed
+        error_dialog(failure_text(exc, confirmed, reopening))
+        if reopening:
+            reopen_normal_installer()
+        return 7
+    prog.terminate()
+    remove_autoinstall()
+    # With shutdown: poweroff the machine turns itself off about now; this is only seen if it has not yet.
+    zenity(["--info", "--width=520", "--title=Companion OS is installed",
+            "--text=" + esc("Companion OS is installed.\n\nWhen the computer turns off, remove the USB stick, then turn it on.\n\n"
+                            f"Sign in as companion with the one-time password\n{password}")])
+    return 0
+
+
+def pin_to_dock(desktop_id=LAUNCHER_ID):
+    """Put the launcher first in the dock's favourites (gsettings org.gnome.shell favorite-apps). True when it is there.
+
+    The live session of Ubuntu 26.04 has no desktop icons to find the launcher by: livecd-rootfs ships a schema override
+    in the live layer with disabled-extensions=['ding@rastersoft.com'] (read from the 26.04.1 image), so the file in
+    ~/Desktop is never drawn. The dock is, and the stock installer sits in it already. Best effort: a failure is only logged."""
+    try:
+        got = sh(["gsettings", "get", "org.gnome.shell", "favorite-apps"])
+        if got.returncode != 0:
+            return False
+        text = str(got.stdout).strip()
+        favourites = ast.literal_eval(text[4:] if text.startswith("@as ") else text)     # "@as []" is how an empty list prints
+        if not isinstance(favourites, list) or not all(isinstance(f, str) for f in favourites):
+            return False
+        if desktop_id in favourites:
+            return True
+        done = sh(["gsettings", "set", "org.gnome.shell", "favorite-apps", repr([desktop_id] + favourites)])
+        return done.returncode == 0
+    except (OSError, ValueError, SyntaxError) as exc:
+        print(f"ci-os-auto-install: could not pin the launcher to the dock: {exc}", file=sys.stderr)
+        return False
+
+
+def live_setup():
+    """Autostart hook. Does nothing outside a live session, so the installed system is untouched."""
+    if not is_live():
+        return 0
+    home = os.path.expanduser("~")
+    for folder in (os.path.join(home, "Desktop"), os.path.join(home, ".local", "share", "applications")):
+        try:
+            os.makedirs(folder, exist_ok=True)
+            dst = os.path.join(folder, "ci-os-auto-install.desktop")
+            shutil.copyfile(LAUNCHER_SRC, dst)
+            os.chmod(dst, 0o755)
+            # The desktop-icons extension only shows a launcher that is marked trusted.
+            sh(["gio", "set", dst, "metadata::trusted", "true"])
+        except OSError as exc:
+            print(f"ci-os-auto-install: could not place the launcher in {folder}: {exc}", file=sys.stderr)
+    pin_to_dock()
+    if "ci.autoinstall=1" in read_cmdline().split():
+        return interactive()
+    return 0
+
+
+# ───────────────────────── entry point ─────────────────────────
+
+def backing_for(source):
+    """loop_backing() for a loop /cdrom, None otherwise (so a normal medium never runs losetup)."""
+    if source and re.match(r"/dev/loop\d+$", source):
+        return loop_backing(source)
+    return None
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="One-click automatic Companion OS install")
+    ap.add_argument("--plan", action="store_true", help="print the plan, change nothing")
+    ap.add_argument("--disks", action="store_true", help="print the disk table")
+    ap.add_argument("--live-setup", action="store_true", help="autostart hook: place the launcher in a live session")
+    args = ap.parse_args(argv)
+    try:
+        if args.live_setup:
+            return live_setup()
+        return interactive(plan=args.plan, disks_table=args.disks)
+    except Exception as exc:  # noqa: BLE001 - a desktop icon has no terminal: show the failure
+        if args.plan or args.disks:
+            raise
+        error_dialog(f"The automatic install could not start: {exc}. Nothing was changed.")
+        return 7
+
+
+def interactive(plan=False, disks_table=False):
+    source = cdrom_source()
+    nodes = flatten(load_lsblk().get("blockdevices", []))
+    disks, medium_known = classify(nodes, source, backing_for(source))
+
+    if disks_table:
+        print(f"boot medium identified: {medium_known}")
+        for d in disks:
+            print(f"{d['status']:9} {d['path']:14} {human(d['size']):>8}  {d['model']:24} {d['reason'] or ''}")
+        return 0
+
+    if not plan and not is_live():
+        error_dialog("The automatic install only runs from the Companion OS live session.")
+        return 4
+    if not plan and not take_lock():
+        error_dialog("The automatic installer is already open.")
+        return 6
+    candidates = [d for d in disks if d["status"] == "candidate"]
+    target = choose_default(candidates)
+    if not medium_known or target is None:
+        if not medium_known:
+            why = "The disk this session started from could not be identified, so no disk is offered."
+        else:
+            excl = "; ".join(f"{d['path']}: {d['reason']}" for d in disks if d["status"] == "excluded")
+            why = "No internal disk of at least 25 GB was found." + (f" (Left out: {excl}.)" if excl else "")
+        if plan:
+            print("NO SAFE TARGET: " + why)
+            return 3
+        error_dialog(why + "\n\nUse the normal installer from the dock instead.")
+        return 3
+
+    if plan:
+        others = [d for d in candidates if d is not target]
+        head, lines, has_data = describe_disk(target)
+        print(f"TARGET: {head}\nHAS DATA: {has_data}")
+        print("\n".join(lines))
+        print("OTHER DISKS: " + (", ".join(o["path"] for o in others) or "none"))
+        print("EXCLUDED: " + (", ".join(f"{d['path']} ({d['reason']})" for d in disks if d["status"] == "excluded") or "none"))
+        print("--- autoinstall.yaml (password hash masked) ---")
+        print(dump_yaml(build_autoinstall(target, "<hash>"), mask_hash=True))
+        return 0
+
+    if not shutil.which("zenity"):
+        return 5
+    target = choose_disk(candidates, target)
+    if target is None:
+        return 6
+    others = [d for d in candidates if d is not target]
+    password = generate_password()
+    choice = confirm_dialog(target, password, others)
+    if choice == "normal":
+        return normal_installer()
+    if choice != "install":
+        return 6
+    # Re-check immediately before writing anything: the disk list must still say the same thing.
+    src2 = cdrom_source()
+    disks2, known2 = classify(flatten(load_lsblk().get("blockdevices", [])), src2, backing_for(src2))
+    again = [d for d in disks2 if d["status"] == "candidate" and d["path"] == target["path"] and d["size"] == target["size"]]
+    if not known2 or not again:
+        error_dialog("The disks changed while you were deciding. Nothing was changed. Start the automatic install again.")
+        return 3
+    return run_install(target, dump_yaml(build_autoinstall(target, hash_password(password))), password)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

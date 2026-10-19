@@ -21,12 +21,14 @@ permissions:
   contents: read
 
 jobs:
+  # Script-only jobs (syntax, lint, fixture tests, cargo) run on the runner image, which is a host and says
+  # nothing about the target. The job that boots a kernel (stick-qemu) runs it in an Ubuntu 26.04 container.
   check-repo:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - name: Install linters
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck yamllint
+      - name: Install linters (and xorriso, so the md5sum.txt mini-ISO tests run instead of skipping)
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck yamllint xorriso
       - run: ./core/lib/check-repo.sh
 
   # Companion Stick CLI (stick/). Rust is first-class inside stick/ only.
@@ -57,6 +59,9 @@ jobs:
   # UEFI, three times (slot A, persistence across reboot, slot B), plus negative safety
   # tests. Runs on every PR (a few minutes with KVM); same script locally:
   #   stick/tests/qemu/run.sh
+  # The runner is only the host (Docker, KVM, the Rust build). The test itself runs in an
+  # Ubuntu 26.04 container, so the kernel it boots, QEMU, OVMF, GRUB 2.14 and the
+  # filesystem tools are the ones of the target release, not the runner image's.
   stick-qemu:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
@@ -66,24 +71,35 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: stick
+      - name: Build ci-stick (the binary runs unchanged in the 26.04 container)
+        run: cargo build --release --locked --manifest-path stick/Cargo.toml
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Install QEMU, OVMF, GRUB and filesystem tools
-        run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq qemu-system-x86 ovmf grub-efi-amd64-bin grub-common \
-            gdisk dosfstools mtools exfatprogs e2fsprogs xorriso busybox-static cpio zstd
-      - name: QEMU boot test
+      - name: QEMU boot test (Ubuntu 26.04 container)
         env:
           CI_STICK_QEMU_WORK: ${{ runner.temp }}/ci-stick-qemu
-          # Ephemeral runner: also check that write attempts at the runner's own
-          # system disk are refused (skipped by default on developer machines).
-          CI_STICK_TEST_SYSDISK_WRITE_REFUSAL: "1"
-        run: stick/tests/qemu/run.sh
+        run: |
+          mkdir -p "$CI_STICK_QEMU_WORK"
+          # --privileged: /dev/kvm, and a disk the system-disk write refusals can aim at. Ephemeral
+          # runner: CI_STICK_TEST_SYSDISK_WRITE_REFUSAL=1 also checks that write attempts at the
+          # runner's own system disk are refused (skipped by default on developer machines).
+          docker run --rm --privileged \
+            -v "$GITHUB_WORKSPACE":/src -w /src \
+            -v "$CI_STICK_QEMU_WORK":"$CI_STICK_QEMU_WORK" \
+            -e CI_STICK_QEMU_WORK \
+            -e CI_STICK_BIN=/src/stick/target/release/ci-stick \
+            -e CI_STICK_TEST_SYSDISK_WRITE_REFUSAL=1 \
+            -e DEBIAN_FRONTEND=noninteractive \
+            ubuntu:26.04 bash -euo pipefail -c '
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends ca-certificates qemu-system-x86 \
+                ovmf-generic grub-efi-amd64-bin grub-common gdisk dosfstools mtools exfatprogs \
+                e2fsprogs xorriso busybox-static cpio zstd util-linux
+              stick/tests/qemu/run.sh'
       - name: Upload serial logs
         if: always()
         uses: actions/upload-artifact@v4

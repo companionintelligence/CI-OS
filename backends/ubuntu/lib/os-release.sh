@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
-# Shared CI OS ↔ Ubuntu identity helpers for setup scripts.
+# Shared Companion OS ↔ Ubuntu identity helpers for setup scripts.
 # Branding lives in NAME/PRETTY_NAME/CI_OS_*; apt/AMD/Docker expect ID=ubuntu + real codename.
 
 # shellcheck shell=bash
+
+# The one Ubuntu release Companion OS is built on: Ubuntu 26.04 LTS (resolute). Every earlier release was retired on
+# 2026-10-17. These are also the last-resort answers of ci_os_ubuntu_codename / ci_os_ubuntu_version_id below, for a
+# machine whose os-release, backup and lsb_release all fail to say.
+CI_OS_UBUNTU_VERSION_ID="26.04"
+CI_OS_UBUNTU_CODENAME="resolute"
+# The running system's os-release, read after the saved Ubuntu base file. A variable only so that the golden test can
+# point it somewhere else; nothing sets it in production.
+CI_OS_SYSTEM_OS_RELEASE="/etc/os-release"
 
 ci_os__strip_quotes() {
   local v="$1"
@@ -38,6 +47,19 @@ ci_os_load_os_release_file() {
   done <"$file"
 }
 
+# ci_os_base_is_supported <VERSION_ID> <codename>: 0 when this is the Ubuntu release Companion OS is built on (26.04,
+# resolute), otherwise 1 with the reason on stderr. Callers that would change a system (customize-chroot.sh on an
+# extracted base image) call it first and stop on 1, so a base of another release is refused and not half-converted.
+ci_os_base_is_supported() {
+  local version_id="${1:-}" codename="${2:-}"
+  if [[ "$version_id" == "$CI_OS_UBUNTU_VERSION_ID" && "$codename" == "$CI_OS_UBUNTU_CODENAME" ]]; then
+    return 0
+  fi
+  echo "[ERROR] This is Ubuntu ${version_id:-?} (${codename:-?}); Companion OS is built on Ubuntu ${CI_OS_UBUNTU_VERSION_ID} LTS (${CI_OS_UBUNTU_CODENAME}) only." >&2
+  echo "[ERROR] Earlier Ubuntu releases were retired on 2026-10-17. Use ubuntu-26.04.1-desktop-amd64.iso as the base image." >&2
+  return 1
+}
+
 CI_OS_UBUNTU_BASE_OS_RELEASE="/etc/os-release.ubuntu-base"
 
 ci_os_find_ubuntu_base_os_release() {
@@ -48,7 +70,7 @@ ci_os_find_ubuntu_base_os_release() {
     return 0
   fi
 
-  # Oldest Ubuntu backup is usually the pristine upstream os-release before CI OS branding.
+  # Oldest Ubuntu backup is usually the pristine upstream os-release before Companion OS branding.
   while IFS= read -r f; do
     [[ -f "$f" ]] || continue
     id="$(grep -E '^ID=' "$f" | head -1 | cut -d= -f2 | tr -d '"')"
@@ -80,9 +102,9 @@ ci_os_ubuntu_codename() {
     codename="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
   fi
 
-  if [[ -z "$codename" || "$codename" == "ci" ]] && [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    source /etc/os-release
+  if [[ -z "$codename" || "$codename" == "ci" ]] && [[ -f "$CI_OS_SYSTEM_OS_RELEASE" ]]; then
+    # shellcheck disable=SC1090
+    source "$CI_OS_SYSTEM_OS_RELEASE"
     if [[ -n "${UBUNTU_CODENAME:-}" && "${UBUNTU_CODENAME}" != "ci" ]]; then
       codename="${UBUNTU_CODENAME}"
     elif [[ -n "${VERSION_CODENAME:-}" && "${VERSION_CODENAME}" != "ci" ]]; then
@@ -95,7 +117,7 @@ ci_os_ubuntu_codename() {
   fi
 
   if [[ -z "$codename" || "$codename" == "ci" ]]; then
-    codename="noble"
+    codename="$CI_OS_UBUNTU_CODENAME"
   fi
 
   echo "$codename"
@@ -114,9 +136,9 @@ ci_os_ubuntu_version_id() {
     fi
   fi
 
-  if [[ -f /etc/os-release ]]; then
-    # shellcheck disable=SC1091
-    source /etc/os-release
+  if [[ -f "$CI_OS_SYSTEM_OS_RELEASE" ]]; then
+    # shellcheck disable=SC1090
+    source "$CI_OS_SYSTEM_OS_RELEASE"
     version_id="${VERSION_ID:-}"
     if [[ "$version_id" =~ ^[0-9]+\.[0-9]+$ ]]; then
       echo "$version_id"
@@ -132,10 +154,15 @@ ci_os_ubuntu_version_id() {
     fi
   fi
 
-  echo "24.04"
+  echo "$CI_OS_UBUNTU_VERSION_ID"
 }
 
+# An exported CI_OS_VERSION wins: while an image is built /etc/os-release is still Ubuntu's own and carries none.
 ci_os_marketing_version() {
+  if [[ -n "${CI_OS_VERSION:-}" ]]; then
+    echo "${CI_OS_VERSION}"
+    return 0
+  fi
   if [[ -f /etc/os-release ]]; then
     # shellcheck disable=SC1091
     source /etc/os-release
@@ -147,65 +174,51 @@ ci_os_marketing_version() {
   echo "0.0.1"
 }
 
-# Run a command while /etc/os-release exposes ID=ubuntu for strict installers (amdgpu-install).
-ci_os_with_ubuntu_toolchain_id() {
-  local os_path real_path backup_path=""
-  os_path="/etc/os-release"
-  real_path="$(readlink -f "$os_path" 2>/dev/null || echo "$os_path")"
-  backup_path="${real_path}.ci-os-toolchain.bak.$$"
-
-  cp "$real_path" "$backup_path"
-  local ubuntu_ver ubuntu_codename ci_ver
-  ubuntu_ver="$(ci_os_ubuntu_version_id)"
-  ubuntu_codename="$(ci_os_ubuntu_codename)"
-  ci_ver="$(ci_os_marketing_version)"
-
-  sed -i \
-    -e 's/^ID=.*/ID=ubuntu/' \
-    -e "s/^VERSION_ID=.*/VERSION_ID=\"${ubuntu_ver}\"/" \
-    -e "s/^VERSION_CODENAME=.*/VERSION_CODENAME=${ubuntu_codename}/" \
-    -e "s/^UBUNTU_CODENAME=.*/UBUNTU_CODENAME=${ubuntu_codename}/" \
-    "$real_path"
-
-  local rc=0
-  "$@" || rc=$?
-
-  cp "$backup_path" "$real_path"
-  rm -f "$backup_path"
-  return "$rc"
+# CI_OS_BUILD: the UTC day the image was built. A rewrite keeps the stamp already in the target file, so
+# first-boot-rebrand.sh does not re-date the image to the day it first booted; a file without one gets today's.
+ci_os_build_stamp() {
+  local os_path="${1:-/etc/os-release}" stamp=""
+  if [[ -r "$os_path" ]]; then
+    stamp="$(sed -n 's/^CI_OS_BUILD="\{0,1\}\([0-9]\{8\}\)"\{0,1\}$/\1/p' "$os_path" | head -1 || true)"
+  fi
+  echo "${stamp:-$(date -u +%Y%m%d)}"
 }
 
-# Write CI OS branding with Ubuntu-compatible machine identity (safe for apt/AMD/Docker).
+# Write Companion OS branding with Ubuntu-compatible machine identity (safe for apt/AMD/Docker). This is the
+# only writer of the file: the image build (customize-chroot.sh, via 50-os-release.sh), the first-boot rebrand
+# and the post-install re-skin all call it. Its output is pinned byte-for-byte (modulo the CI_OS_BUILD value)
+# by tests/os-release-golden.sh, and a built ISO is checked against it by verify-iso.sh.
 ci_os_write_branded_os_release() {
   local os_path="${1:-/etc/os-release}"
-  local ci_version ubuntu_ver ubuntu_codename
+  local ci_version ubuntu_ver ubuntu_codename build
   ci_version="$(ci_os_marketing_version)"
   ubuntu_ver="$(ci_os_ubuntu_version_id)"
   ubuntu_codename="$(ci_os_ubuntu_codename)"
+  build="$(ci_os_build_stamp "$os_path")"
 
   cat >"$os_path" <<EOF
-NAME="CI OS"
-VERSION="${ubuntu_ver} LTS (Companion Intelligence ${ci_version})"
+NAME="Companion OS"
+VERSION="${ubuntu_ver} LTS (Companion OS ${ci_version})"
 ID=ubuntu
 ID_LIKE=debian
-PRETTY_NAME="CI OS ${ci_version} (Ubuntu ${ubuntu_codename})"
+PRETTY_NAME="Companion OS ${ci_version}"
 VERSION_ID="${ubuntu_ver}"
-VERSION_CODENAME=${ubuntu_codename}
-UBUNTU_CODENAME=${ubuntu_codename}
-CI_OS_ID=ci-os
-CI_OS_VERSION="${ci_version}"
 HOME_URL="https://ci.computer"
 SUPPORT_URL="https://ci.computer/support"
 BUG_REPORT_URL="https://ci.computer/bugs"
 PRIVACY_POLICY_URL="https://ci.computer/privacy"
+UBUNTU_CODENAME=${ubuntu_codename}
+VERSION_CODENAME=${ubuntu_codename}
+CI_OS_ID=ci-os
+CI_OS_VERSION="${ci_version}"
+CI_OS_BUILD="${build}"
 LOGO=ci-os-logo
-
-# CI OS — Companion Intelligence Operating System
-# Machine identity stays Ubuntu-compatible for apt, Docker, and AMDGPU/ROCm installers.
 EOF
   chmod 644 "$os_path"
 }
 
+# DISTRIB_ID stays Ubuntu: unattended-upgrades matches its allowed origins on ${distro_id} (which comes
+# from this field), so any other value silently stops automatic security updates.
 ci_os_write_branded_lsb_release() {
   local lsb_path="${1:-/etc/lsb-release}"
   local ci_version ubuntu_ver ubuntu_codename
@@ -214,10 +227,10 @@ ci_os_write_branded_lsb_release() {
   ubuntu_codename="$(ci_os_ubuntu_codename)"
 
   cat >"$lsb_path" <<EOF
-DISTRIB_ID=CI-OS
+DISTRIB_ID=Ubuntu
 DISTRIB_RELEASE=${ubuntu_ver}
 DISTRIB_CODENAME=${ubuntu_codename}
-DISTRIB_DESCRIPTION="CI OS ${ci_version} (Ubuntu ${ubuntu_ver} ${ubuntu_codename})"
+DISTRIB_DESCRIPTION="Companion OS ${ci_version}"
 EOF
   chmod 644 "$lsb_path"
 }

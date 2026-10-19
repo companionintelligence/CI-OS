@@ -1,0 +1,79 @@
+  total 5768298496
+  -rw-r--r-- 1 root root        272 Oct 18 16:21 SHA256SUMS
+  dr-xr-xr-x 2 root root       4096 Aug 26 06:31 disk
+  -rw-r--r-- 1 root root      56799 Oct 18 16:13 filesystem.manifest
+  -rw-r--r-- 1 root root         12 Oct 18 16:21 filesystem.size
+  -rw-r--r-- 1 root root   95517366 Oct 18 16:21 initrd
+  -rw-r--r-- 1 root root        757 Oct 18 16:21 install-sources.yaml
+  -rw-r--r-- 1 root root      64231 Oct 18 16:21 minimal.manifest
+  -rw-r--r-- 1 root root      62184 Oct 18 16:21 minimal.manifest.full
+  -rw-r--r-- 1 root root         12 Oct 18 16:21 minimal.size
+  -rw-r--r-- 1 root root 5537636352 Oct 18 16:16 minimal.squashfs
+  -rw-r--r-- 1 root root        285 Oct 18 16:21 minimal.standard.live.manifest
+  -rw-r--r-- 1 root root      62277 Oct 18 16:21 minimal.standard.live.manifest.full
+  -rw-r--r-- 1 root root         10 Oct 18 16:21 minimal.standard.live.size
+  -rw-r--r-- 1 root root  117485568 Oct 18 16:16 minimal.standard.live.squashfs
+  -rw-r--r-- 1 root root        175 Oct 18 16:21 minimal.standard.manifest
+  -rw-r--r-- 1 root root      62184 Oct 18 16:21 minimal.standard.manifest.full
+  -rw-r--r-- 1 root root          2 Oct 18 16:21 minimal.standard.size
+  -rw-r--r-- 1 root root       4096 Oct 18 16:16 minimal.standard.squashfs
+  -r--r--r-- 1 root root   17295752 Aug 26 06:27 vmlinuz
+--- .size files
+filesystem.size: 10998049792
+minimal.size: 10764008960
+minimal.standard.live.size: 240519168
+minimal.standard.size: 0
+--- sha256sums file
+bd26183c177081788a29687ca25b4863bf11b9890d8eed9c2aa00a22a3bb5a5a  minimal.squashfs
+9d68941adb0efbe3b6b38749d03e9f7e9772350243ef75ab1df677152ce73fcd  minimal.standard.live.squashfs
+ce65d843767008e484f67ed6d5c312193b33678868b345adddcdba0eff8d96cc  minimal.standard.squashfs
+--- install-sources.yaml
+kernel:
+  default: linux-generic-hwe-24.04
+sources:
+- default: true
+  description:
+    en: Companion OS (minimized)
+  id: ubuntu-desktop-minimal
+  locale_support: langpack
+  name:
+    en: Companion OS (minimized)
+  path: minimal.squashfs
+  preinstalled_langs: []
+  size: 10764008960
+  type: fsimage-layered
+  variant: desktop
+  variations:
+    minimal:
+      path: minimal.squashfs
+      size: 5537636352
+- default: false
+  description:
+    en: Companion OS
+  id: ubuntu-desktop
+  locale_support: langpack
+  name:
+    en: Companion OS
+  path: minimal.standard.squashfs
+  preinstalled_langs: []
+  size: 10764008960
+  type: fsimage-layered
+  variant: desktop
+  variations:
+    standard:
+      path: minimal.standard.squashfs
+      size: 5537636352
+version: 2
+--- .disk/info
+Companion OS 26.04.1 LTS "Resolute Raccoon" - Release amd64 (20260826)--- volume id
+Volume id    : 'Ubuntu 26.04.1 LTS amd64'
+Volume Id    : Ubuntu 26.04.1 LTS amd64
+--- manifest line counts
+  1877 filesystem.manifest
+  1890 minimal.manifest
+     5 minimal.standard.live.manifest
+     2 minimal.standard.manifest
+  1888 minimal.manifest.full
+  1891 minimal.standard.live.manifest.full
+  1888 minimal.standard.manifest.full
+  9441 total

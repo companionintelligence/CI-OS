@@ -13,6 +13,7 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "zeroize"] }
 getrandom = "0.2"
@@ -25,4 +26,18 @@ serde_yaml = "0.9"
 sha2 = "0.10"
 tempfile = "3"
 thiserror = "1"
+# Model download: HTTPS with rustls+ring only, no default features (no gzip, cookies, json,
+# url/ICU stack). Pinned EXACTLY: newer ureq releases declare Rust 1.85 (MSRV is 1.75) and
+# `ureq::unversioned` (the resolver we use to pin validated IPs) may change in a minor release.
+# Everything above the transport goes through the `net::Transport` trait, so a curl-based
+# implementation can replace it.
+ureq = { version = "=3.2.1", default-features = false, features = ["rustls"] }
+
+[target.'cfg(unix)'.dependencies]
+# Free-space queries (statvfs) without `unsafe`; already in the lock through tempfile.
+rustix = { version = "1", default-features = false, features = ["fs", "std"] }
+# Graceful SIGINT/SIGTERM for `models fetch` (flush the journal, exit 6 "resumable"). On
+# Windows there is no handler: a Ctrl-C ends the process, and the partial still resumes
+# because the journal only ever claims bytes that were fsync'd.
+signal-hook = { version = "0.3", default-features = false }
 

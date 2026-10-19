@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# CI OS Dark Green Theme Validation (read-only checks).
+# Companion OS Theme Validation (read-only checks).
 #
 # Usage:
 #   ./apply-ci-os-desktop.sh --validate
@@ -27,24 +27,25 @@ PASS_COUNT=0
 FAIL_COUNT=0
 WARN_COUNT=0
 
+# Not ((COUNT++)): that returns status 1 while COUNT is 0, and set -e then ended the script at its first check.
 check_pass() {
     log_success "$1"
-    ((PASS_COUNT++))
+    PASS_COUNT=$((PASS_COUNT + 1))
 }
 
 check_fail() {
     log_error "$1"
-    ((FAIL_COUNT++))
+    FAIL_COUNT=$((FAIL_COUNT + 1))
 }
 
 check_warn() {
     log_warn "$1"
-    ((WARN_COUNT++))
+    WARN_COUNT=$((WARN_COUNT + 1))
 }
 
 echo ""
 echo "=========================================="
-echo " CI OS Dark Green Theme Validation"
+echo " Companion OS Theme Validation"
 echo "=========================================="
 echo ""
 
@@ -98,10 +99,10 @@ if [[ -f "/etc/default/grub" ]]; then
     else
         check_pass "GRUB_TERMINAL not forced to console (background can render)"
     fi
-    if grep -qE '^GRUB_DISTRIBUTOR="CI OS"' /etc/default/grub 2>/dev/null; then
-        check_pass "GRUB_DISTRIBUTOR set to CI OS"
+    if grep -qE '^GRUB_DISTRIBUTOR="Companion OS"' /etc/default/grub 2>/dev/null; then
+        check_pass "GRUB_DISTRIBUTOR set to Companion OS"
     else
-        check_warn "GRUB_DISTRIBUTOR not set to CI OS"
+        check_warn "GRUB_DISTRIBUTOR not set to Companion OS"
     fi
 else
     check_warn "/etc/default/grub not found"
@@ -111,8 +112,8 @@ fi
 log_info "Checking OS identity..."
 
 if [[ -f "/etc/os-release" ]]; then
-    if grep -q "CI OS" /etc/os-release 2>/dev/null; then
-        check_pass "/etc/os-release shows CI OS identity"
+    if grep -q "Companion OS" /etc/os-release 2>/dev/null; then
+        check_pass "/etc/os-release shows Companion OS identity"
     else
         check_fail "/etc/os-release still shows Ubuntu branding"
     fi
@@ -129,10 +130,10 @@ if [[ -f "/etc/os-release" ]]; then
         check_pass "CI_OS_ID=ci-os branding field present"
     fi
 
-    if grep -qE '^UBUNTU_CODENAME=(noble|resolute|jammy)' /etc/os-release 2>/dev/null; then
-        check_pass "UBUNTU_CODENAME set to a real Ubuntu suite"
+    if grep -qE '^UBUNTU_CODENAME=resolute$' /etc/os-release 2>/dev/null; then
+        check_pass "UBUNTU_CODENAME is resolute, the Ubuntu 26.04 suite apt and the vendor repositories expect"
     else
-        check_warn "UBUNTU_CODENAME missing or set to marketing codename 'ci'"
+        check_warn "UBUNTU_CODENAME is not resolute (missing, or the marketing codename 'ci')"
     fi
 else
     check_fail "/etc/os-release not found"
@@ -191,14 +192,14 @@ fi
 # Check 6: MOTD (Message of the Day)
 log_info "Checking MOTD configuration..."
 
-if [[ -f "/etc/update-motd.d/00-ci-header" ]]; then
-    if grep -q "CI OS" /etc/update-motd.d/00-ci-header 2>/dev/null; then
-        check_pass "CI OS MOTD header exists"
+if [[ -f "/etc/update-motd.d/00-ci-os-header" ]]; then
+    if grep -q "Companion OS" /etc/update-motd.d/00-ci-os-header 2>/dev/null; then
+        check_pass "Companion OS MOTD header exists"
     else
         check_warn "MOTD header exists but may not have CI branding"
     fi
 else
-    check_warn "CI OS MOTD header not found"
+    check_warn "Companion OS MOTD header not found"
 fi
 
 if [[ -f "/etc/update-motd.d/50-motd-news" ]]; then
@@ -222,7 +223,7 @@ if grep -i "ubuntu" /etc/os-release 2>/dev/null | grep -v "ID_LIKE\|CODENAME" | 
 fi
 
 if grep -qi "ubuntu" /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth 2>/dev/null; then
-    if ! grep -q "CI OS" /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth 2>/dev/null; then
+    if ! grep -q "Companion OS" /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth 2>/dev/null; then
         check_warn "Plymouth text theme still references Ubuntu"
         UBUNTU_FOUND=1
     fi
@@ -232,13 +233,32 @@ if [[ $UBUNTU_FOUND -eq 0 ]]; then
     check_pass "No obvious Ubuntu branding found"
 fi
 
+# Check 7b: the display names 60-visible-names.sh renames (GDM session picker, Settings sidebar entry, shell extensions)
+log_info "Checking session picker, Settings entry and extension names..."
+
+NAMES_SEEN=0
+NAMES_STOCK=0
+for names_file in /usr/share/wayland-sessions/ubuntu.desktop \
+    /usr/share/applications/gnome-ubuntu-panel.desktop \
+    /usr/share/gnome-shell/extensions/{ubuntu-dock,ubuntu-appindicators,tiling-assistant}@ubuntu.com/metadata.json; do
+    [[ -f "$names_file" ]] || continue
+    NAMES_SEEN=$((NAMES_SEEN + 1))
+    if grep -q -E '^(Name|Comment)=.*Ubuntu|^[[:space:]]*"name"[[:space:]]*:[[:space:]]*"Ubuntu ' "$names_file"; then
+        check_warn "$names_file still shows Ubuntu's name (run: apply-ci-os-desktop.sh --only names)"
+        NAMES_STOCK=1
+    fi
+done
+if [[ $NAMES_SEEN -gt 0 && $NAMES_STOCK -eq 0 ]]; then
+    check_pass "Session picker, Settings entry and extension names say Companion OS"
+fi
+
 # Check 8: Wallpaper
 log_info "Checking wallpaper..."
 
 if [[ -f "/usr/share/backgrounds/ci-os-wallpaper.png" ]]; then
-    check_pass "CI OS wallpaper installed"
+    check_pass "Companion OS wallpaper installed"
 else
-    check_warn "CI OS wallpaper not found at /usr/share/backgrounds/ci-os-wallpaper.png"
+    check_warn "Companion OS wallpaper not found at /usr/share/backgrounds/ci-os-wallpaper.png"
 fi
 
 # Check 9: Start Icon (GNOME)
@@ -256,6 +276,109 @@ if [[ $START_ICON_FOUND -eq 1 ]]; then
     check_pass "Start icons found in Yaru themes"
 else
     check_warn "Start icons not found (may be using default)"
+fi
+
+# Check 9b: Settings > About logo, dock start icon, LOGO icon, greeter logo
+log_info "Checking About logo, start icon, LOGO icon and greeter logo..."
+
+# What "the canon mark" means is derived from the vendored files (vendor/brand), not from literals: the tokens
+# for the colours, mark.svg for the artwork. The PNG pixels are read with backends/ubuntu/lib/png-colours.py
+# (python3, standard library); without it the content checks are skipped with a warning.
+CANON_MARK="$REPO_ROOT/vendor/brand/logos/mark.svg"
+PNGTOOL="$REPO_ROOT/backends/ubuntu/lib/png-colours.py"
+CAN_READ_PNG=0
+if [[ -f "$CANON_MARK" && -f "$PNGTOOL" ]] && command -v python3 >/dev/null 2>&1; then CAN_READ_PNG=1; fi
+
+# canon_png_check <label> <png> <solid|palette> <colours>: the opaque pixels are exactly those colours.
+canon_png_check() {
+    local msg
+    if [[ $CAN_READ_PNG -eq 0 ]]; then
+        check_warn "$1: content not checked (needs python3 and the repo's vendor/brand)"
+    elif msg="$(python3 -I "$PNGTOOL" "$3" "$2" "$4" 2>&1)"; then
+        check_pass "$1: $msg"
+    else
+        check_fail "$1: $msg"
+    fi
+}
+
+# 40-start-icon.sh builds the icon from the vendored one-colour mark: every path of mark.svg, currentColor, and none
+# of the logo artwork's colours (GTK repaints a -symbolic icon, brand hexes belong in the artwork only).
+YARU_START="/usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg"
+if [[ -f "$YARU_START" ]]; then
+    if grep -q 'viewBox="0 0 16 16"' "$YARU_START" 2>/dev/null || [[ ! -f "$CANON_MARK" ]]; then
+        check_warn "Yaru start-here-symbolic.svg is still Ubuntu's, or cannot be compared (run: apply-ci-os-desktop.sh --only start-icon)"
+    else
+        start_paths=0; start_missing=0
+        while IFS= read -r dattr; do
+            start_paths=$((start_paths + 1))
+            grep -qF -- "$dattr" "$YARU_START" || start_missing=$((start_missing + 1))
+        done < <(grep -o ' d="[^"]*"' "$CANON_MARK")
+        start_ramp=""
+        while IFS= read -r hex; do
+            if grep -qi -- "$hex" "$YARU_START"; then start_ramp="$start_ramp $hex"; fi
+        done < <(grep -o 'fill:#[0-9a-fA-F]\{6\}' "$CANON_MARK" | sed 's/fill://')
+        if [[ $start_paths -ge 1 && $start_missing -eq 0 && -z "$start_ramp" ]]; then
+            check_pass "Yaru start-here-symbolic.svg is the vendored Companion mark, all $start_paths paths, no artwork colours (dock Show Applications button)"
+        elif [[ -n "$start_ramp" ]]; then
+            check_fail "Yaru start-here-symbolic.svg ships logo artwork colours:$start_ramp (run: apply-ci-os-desktop.sh --only start-icon)"
+        else
+            check_warn "Yaru start-here-symbolic.svg lacks $start_missing of the $start_paths paths of the vendored mark (run: apply-ci-os-desktop.sh --only start-icon)"
+        fi
+    fi
+fi
+
+# Settings > About: the one-colour mark in the canon primary of each mode.
+for about_pair in "ubuntu-logo-text.png:light:$CI_LIGHT_PRIMARY" "ubuntu-logo-text-dark.png:dark:$CI_DARK_PRIMARY"; do
+    about_logo="${about_pair%%:*}"; about_rest="${about_pair#*:}"; about_mode="${about_rest%%:*}"; about_fill="${about_rest##*:}"
+    if [[ ! -f "/usr/share/pixmaps/$about_logo" ]]; then
+        check_warn "Settings > About logo not found: /usr/share/pixmaps/$about_logo"
+    elif command -v dpkg-divert >/dev/null 2>&1 && [[ -n "$(dpkg-divert --list "/usr/share/pixmaps/$about_logo" 2>/dev/null)" ]]; then
+        check_pass "Settings > About logo replaced, stock file diverted: $about_logo"
+        canon_png_check "Settings > About logo $about_logo ($about_mode mode)" "/usr/share/pixmaps/$about_logo" solid "${about_fill#\#}"
+    else
+        check_warn "Settings > About logo is still Ubuntu's: $about_logo (needs rsvg-convert or ImageMagick: apt-get install librsvg2-bin, then apply-ci-os-desktop.sh --only about-logo)"
+    fi
+done
+
+# The SVG pair is what GNOME 50's Settings > About reads (the .png pair above is the older reader): the one-colour mark
+# with currentColor set to the canon primary of each mode, no currentColor left.
+for about_pair in "ubuntu-logo-text.svg:light:$CI_LIGHT_PRIMARY" "ubuntu-logo-text-dark.svg:dark:$CI_DARK_PRIMARY"; do
+    about_logo="${about_pair%%:*}"; about_rest="${about_pair#*:}"; about_mode="${about_rest%%:*}"; about_fill="${about_rest##*:}"
+    if [[ ! -f "/usr/share/pixmaps/$about_logo" ]]; then
+        check_warn "Settings > About SVG logo not found: /usr/share/pixmaps/$about_logo"
+    elif grep -qi "fill:${about_fill}" "/usr/share/pixmaps/$about_logo" 2>/dev/null && ! grep -q 'currentColor' "/usr/share/pixmaps/$about_logo" 2>/dev/null; then
+        check_pass "Settings > About SVG logo $about_logo ($about_mode mode) is the mark in $about_fill"
+    else
+        check_warn "Settings > About SVG logo is still Ubuntu's: $about_logo (run: apply-ci-os-desktop.sh --only about-logo)"
+    fi
+done
+
+if [[ -f "/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg" ]]; then
+    if [[ ! -f "$CANON_MARK" ]]; then
+        check_pass "ci-os-logo icon installed (os-release LOGO=ci-os-logo resolves)"
+    elif cmp -s "/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg" "$CANON_MARK"; then
+        check_pass "ci-os-logo icon installed and equal to the vendored mark (os-release LOGO=ci-os-logo resolves)"
+    else
+        check_fail "ci-os-logo icon differs from vendor/brand/logos/mark.svg (run: apply-ci-os-desktop.sh --only about-logo)"
+    fi
+else
+    check_warn "ci-os-logo icon not found at /usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
+fi
+
+# The greeter logo exists on images built by customize-chroot.sh (its gdm dconf logo= key names the file),
+# not on a desktop re-skinned by apply-ci-os-desktop.sh. It is the 256 px colour mark (about 12 KB); the pre-canon
+# hologram it replaced was 1.6 MB. Its opaque pixels are exactly the three tones of the vendored mark.svg.
+if grep -qs "^logo='/usr/share/pixmaps/companion-logo.png'" /etc/dconf/db/gdm.d/01-ci-os-login; then
+    if [[ ! -f "/usr/share/pixmaps/companion-logo.png" ]]; then
+        check_warn "Greeter logo not found at /usr/share/pixmaps/companion-logo.png"
+    elif [[ "$(wc -c < /usr/share/pixmaps/companion-logo.png)" -ge 200000 ]]; then
+        check_warn "Greeter logo at /usr/share/pixmaps/companion-logo.png looks like the old hologram image"
+    elif [[ -f "$CANON_MARK" ]]; then
+        greeter_ramp="$(grep -o 'fill:#[0-9a-fA-F]\{6\}' "$CANON_MARK" | sed 's/fill:#//' | tr 'A-F' 'a-f' | sort -u | paste -sd, - || true)"
+        canon_png_check "Greeter logo companion-logo.png" /usr/share/pixmaps/companion-logo.png palette "$greeter_ramp"
+    else
+        check_pass "Greeter logo installed"
+    fi
 fi
 
 # Check 10: Brand Assets

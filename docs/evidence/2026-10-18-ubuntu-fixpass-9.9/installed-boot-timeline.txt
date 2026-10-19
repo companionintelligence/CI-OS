@@ -1,0 +1,7 @@
+T+    0.0s  qemu started                               pid 74518
+T+    2.0s  firmware output on the serial console
+T+    2.0s  boot entry started by the firmware
+T+  120.4s  probe running
+T+  226.8s  probe: GDM greeter up                      gdm greeter up after 53s (session c1 user=gdm-greeter uid=60578 type=wayland state=active)
+T+  226.8s  screen shows a drawn picture               colours=795 nonblack=1.0
+T+  229.9s  RESULT                                     PASS: the GDM greeter is up (gdm greeter up after 53s (session c1 user=gdm-greeter uid=60578 type=wayland state=active)) and the screen shows it

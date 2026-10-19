@@ -1,0 +1,13 @@
+GENERAL.DEVICE:                         wlan0
+GENERAL.TYPE:                           wifi
+GENERAL.HWADDR:                         38:11:22:33:44:55
+GENERAL.STATE:                          50 (connecting (configuring))
+GENERAL.CONNECTION:                     HomeNet
+GENERAL.DRIVER:                         iwlwifi
+IP4.ADDRESS[1]:                         --
+IP4.GATEWAY:                            --
+
+GENERAL.DEVICE:                         lo
+GENERAL.TYPE:                           loopback
+GENERAL.STATE:                          10 (unmanaged)
+GENERAL.CONNECTION:                     --

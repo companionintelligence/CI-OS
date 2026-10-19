@@ -1,0 +1,68 @@
+# Pins for the Companion OS ISO built on the CachyOS live profile (backends/cachyos/).
+#
+# Format: KEY=VALUE, one per line, no quotes, no spaces in a value, no substitutions. It is read by
+# `set -a; . upstream.lock` (bash and sh) and by plain `awk -F=` (tests/overlay-engine.sh checks both
+# agree). build-iso.sh (host, bash 3.2) and in-container/*.sh read it; nothing else may hard-code a pin.
+#
+# HOW TO BUMP UPSTREAM (CachyOS-Live-ISO):
+#   1. Pick the new commit:  gh api repos/CachyOS/CachyOS-Live-ISO/commits/<sha>
+#      UPSTREAM_SHA              = .sha (40 hex)
+#      UPSTREAM_COMMIT_EPOCH     = committer date as epoch seconds (date -u -d <.commit.committer.date> +%s)
+#      UPSTREAM_COMMIT_DATE      = the same instant, ISO 8601 UTC (informational)
+#      UPSTREAM_ARCHISO_TREE     = the id of the archiso/ entry in gh api repos/CachyOS/CachyOS-Live-ISO/git/trees/<.commit.tree.sha>
+#   2. Run in-container/apply-overlay.sh (or build-iso.sh --dry-run, then a real build): every patch under
+#      iso/overlay/patches/ applies with exact context or the build stops. Fix the patches, never loosen the engine.
+#   3. Re-read the diff of upstream's archiso/ between the old and the new pin (grub.cfg, syslinux/, packages_desktop,
+#      airootfs/etc/pacman.d/hooks, usr/local/bin/calamares-online.sh) before trusting the overlay again.
+#   4. Run tests/overlay-engine.sh, then build and boot-test.
+# HOW TO BUMP THE BUILDER: BASE_IMAGE is the manifest-list digest of the official Docker Hub archlinux image (amd64 only).
+#   docker buildx imagetools inspect archlinux:latest   (use the "Digest:" line). The builder image tag changes with it.
+# HOW TO BUMP THE MIRRORLIST: MIRRORLIST_REF is a commit of CachyOS/CachyOS-PKGBUILDS; MIRRORLIST_SHA256 must match the file at
+#   that commit (curl -fsSL https://raw.githubusercontent.com/CachyOS/CachyOS-PKGBUILDS/<ref>/<path> | sha256sum), or the build stops.
+#
+# One part of the package set IS pinned, separately: the few older-generation libraries the live image carries next to the current ones
+# (compat-libs.lock, risk R1). Everything else:
+# What is NOT pinned, and cannot be: the package set. archiso/pacman.conf installs from the rolling [cachyos], [core], [extra],
+# [multilib] repositories; there is no CachyOS snapshot service. The exact result is recorded in <iso>.pkgs.txt and <iso>.build-info.
+
+# --- CachyOS-Live-ISO (GPL-3.0), the profile this edition builds on ---------------------------------------------
+UPSTREAM_REPO=https://github.com/CachyOS/CachyOS-Live-ISO.git
+UPSTREAM_SHA=3215497d2e8c5fea90e185affcf973dfa2cf790b
+UPSTREAM_COMMIT_EPOCH=1791041490
+UPSTREAM_COMMIT_DATE=2026-10-03T15:31:30Z
+UPSTREAM_ARCHISO_TREE=ae15c6c627bb030f678ee4669c15ada6f62d283d
+
+# Fallback pin (build-iso.sh --fallback-pin): the last commit before cachyos-drm-awaiter replaced nvidia-module-loader.
+# The overlay patches are written against UPSTREAM_SHA, so on this pin expect apply-overlay.sh to stop on a patch that no
+# longer applies. That stop is the intended behaviour; port the patch rather than weakening the check.
+UPSTREAM_FALLBACK_SHA=4937780541814b4b0ec7c212c00fe06299f799b6
+UPSTREAM_FALLBACK_COMMIT_EPOCH=1786488284
+UPSTREAM_FALLBACK_COMMIT_DATE=2026-08-11T22:44:44Z
+UPSTREAM_FALLBACK_ARCHISO_TREE=8c22dc4b2ccd65c5c669c85a9623fae07c1544c6
+
+# --- Build container ---------------------------------------------------------------------------------------------
+# Official Docker Hub image, linux/amd64 only (Rosetta on Apple silicon). Pinned by digest because the tag moves weekly.
+BASE_IMAGE=archlinux@sha256:3c64b538588416593f69a1aebd2f2ec0f2541b29159f32556fa7def2167147a0
+# Lowest archiso the pipeline was proven with (mkarchiso 91). 10-bootstrap.sh refuses an older one.
+ARCHISO_MIN_VERSION=91
+
+# --- CachyOS repository signing key -------------------------------------------------------------------------------
+# Full fingerprint of "CachyOS <admin@cachyos.org>" (rsa3072, 2021-08-10). The armoured public key is committed at
+# iso/docker/cachyos-repo-key.asc and its fingerprint is checked before it is imported; the keyservers are only a fallback.
+CACHYOS_KEY_FPR=882DCFE48E2051D48E2562ABF3B607488DB35A47
+CACHYOS_KEYSERVERS=keyserver.ubuntu.com,keys.openpgp.org
+
+# --- cachyos-mirrorlist --------------------------------------------------------------------------------------------
+# Upstream fetches this file from raw/master at build time (moving, unverified). The build fetches the same file at a fixed
+# commit and refuses it unless the sha256 matches.
+MIRRORLIST_REPO=CachyOS/CachyOS-PKGBUILDS
+MIRRORLIST_REF=75f0378ea7c5a690fea296838768b02a7bc199ce
+MIRRORLIST_PATH=cachyos-mirrorlist/cachyos-mirrorlist
+MIRRORLIST_SHA256=7145812bba2491155f9b004129ee858ec1449ca2dd381a1ce3442b67807c7918
+
+# --- Edition identity (decision D1), asserted against the merged profiledef.sh by apply-overlay.sh ---------------
+# The ISO file name is <EDITION_ISO_NAME>-<YYYY.MM.DD>-<EDITION_ARCH>.iso; the volume label is <EDITION_LABEL_PREFIX><YYYYMM>.
+# None of iso_name, iso_label, iso_publisher or iso_application may contain "cachy": the CachyOS mark stays out of the artifact.
+EDITION_ISO_NAME=companion-os-plasma
+EDITION_LABEL_PREFIX=COMPANION_
+EDITION_ARCH=x86_64

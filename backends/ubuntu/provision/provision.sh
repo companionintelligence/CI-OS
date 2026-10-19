@@ -179,7 +179,7 @@ disable_stale_media_apt_sources() {
         fi
     done
 
-    # Handle deb822 source files (Ubuntu 24.04+ often uses *.sources).
+    # Handle deb822 source files (Ubuntu 26.04 uses *.sources).
     # Prefer in-place disable via "Enabled: no" to avoid apt filename warnings.
     for file in /etc/apt/sources.list.d/*.sources; do
         [[ -f "$file" ]] || continue
@@ -261,8 +261,8 @@ install_tailscale() {
     else
         log_warning "snap not available; installing Tailscale via apt..."
         # Use the same /etc/os-release-based codename resolution install_docker
-        # uses above, not `lsb_release -cs`: on a derivative distro (e.g. Mint,
-        # whose stock os-release carries UBUNTU_CODENAME alongside its own
+        # uses above, not `lsb_release -cs`: on a derivative distro (whose
+        # stock os-release carries UBUNTU_CODENAME alongside its own
         # VERSION_CODENAME/ID) lsb_release returns the derivative's own
         # codename, which 404s against pkgs.tailscale.com's Ubuntu-only repo.
         local ubuntu_codename
@@ -985,7 +985,13 @@ pull_ollama_models() {
         # shellcheck source=../../../core/lib/gpu-detect.sh
         source "$gpu_detect"
         if ci_os_hardware_supported; then
-            PULL_QWEN=1
+            # The Strix Halo rule above is the class gate; the data-driven fit gate (RAM and GPU memory against
+            # core/manifest/model-packs.yaml) applies on top of it. "No fit data" never blocks a pull.
+            if ci_os_model_gate_allows qwen3.6:27b; then
+                PULL_QWEN=1
+            else
+                log_info "Skipping qwen3.6:27b: ${CI_OS_MODEL_FIT_REASON}"
+            fi
         else
             log_info "Skipping qwen3.6:27b: ${CI_OS_HARDWARE_SUPPORT_REASON}"
         fi
@@ -1062,13 +1068,15 @@ install_cloudflared() {
     
     # Add cloudflare GPG key (only if not exists)
     mkdir -p --mode=0755 /usr/share/keyrings
-    if [[ ! -f /usr/share/keyrings/cloudflare-public-v2.gpg ]]; then
-        curl -fsSL https://pkg.cloudflare.com/cloudflare-public-v2.gpg | tee /usr/share/keyrings/cloudflare-public-v2.gpg >/dev/null
+    # cloudflare-main.gpg is the vendor's current key file (CloudFlare Software Packaging 2025, rolled 2025-10-30);
+    # the old cloudflare-public-v2.gpg URL serves the identical file. The ISO bakes the same name (Step 10e).
+    if [[ ! -f /usr/share/keyrings/cloudflare-main.gpg ]]; then
+        curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
     fi
     
     # Add repository (only if not configured)
     if ! repo_configured "/etc/apt/sources.list.d/cloudflared.list"; then
-        echo 'deb [signed-by=/usr/share/keyrings/cloudflare-public-v2.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list
+        echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' | tee /etc/apt/sources.list.d/cloudflared.list
     fi
     
     # Install cloudflared
@@ -1349,9 +1357,13 @@ install_vscode() {
 # opens a browser tab to the CI Hub Service backend (deployed separately by
 # deploy_ci_hub below). Renamed from "Companion Hub Desktop" to resolve a
 # 3-way naming collision on "Hub" — see docs/architecture/multi-distro-design.md.
-# The underlying binary/package names (ci-os-hub-desktop, companion-hub) and
-# the dl.ci.computer download layout are external artifacts this repo doesn't
-# control/build, so only this repo's display text and desktop-entry rename.
+# The underlying binary/package names and the dl.ci.computer download layout
+# are external artifacts this repo doesn't control/build. The binary is
+# `companion-hub` (package `companion-hub`) since CI-Hub 2026-06-03
+# (tauri.conf.json mainBinaryName); releases up to v0.1.4 shipped
+# `ci-os-hub-desktop`, which is still accepted as a legacy name.
+# The Companion OS ISO bakes the pinned release (core/manifest/tier-b-pins.env,
+# customize-chroot.sh Step 10e), so on an ISO install this function is a no-op.
 install_companion_launcher() {
     local base_url="https://dl.ci.computer"
     local fallback_version="v0.1.4"
@@ -1360,7 +1372,7 @@ install_companion_launcher() {
     local arch deb_arch dl_arch arch_match_regex
     local hub_url hub_deb
 
-    if command_exists ci-os-hub-desktop && dpkg -s companion-hub >/dev/null 2>&1; then
+    if { command_exists companion-hub || command_exists ci-os-hub-desktop; } && dpkg -s companion-hub >/dev/null 2>&1; then
         log_info "Companion Launcher is already installed, skipping..."
         return 0
     fi
@@ -1407,18 +1419,36 @@ install_companion_launcher() {
 
     hub_deb="/tmp/Companion_Hub_${clean_version}_${deb_arch}.deb"
 
+    # The release manifest carries a sha256 per artifact; use it when present (the v0.1.4 fallback has none).
+    local expected_sha=""
+    if [[ -n "$manifest_json" ]] && command_exists jq; then
+        expected_sha="$(echo "$manifest_json" | jq -r --arg u "$hub_url" \
+            '[.. | objects | select(.url? == $u) | .sha256?] | first // empty' 2>/dev/null || true)"
+    fi
+
     log_info "Installing Companion Launcher for ${arch} from ${hub_url}..."
     if ! curl -fL --connect-timeout 90 --retry 3 -o "$hub_deb" "$hub_url"; then
         if [[ "$version_tag" != "$fallback_version" ]]; then
             clean_version="${fallback_version#v}"
             hub_url="${base_url}/${fallback_version}/linux/deb/${dl_arch}/Companion%20Hub_${clean_version}_${deb_arch}.deb"
             hub_deb="/tmp/Companion_Hub_${clean_version}_${deb_arch}.deb"
+            expected_sha=""
             log_warning "Primary Companion Launcher download failed; retrying fallback ${hub_url}"
             curl -fL --connect-timeout 90 --retry 3 -o "$hub_deb" "$hub_url"
         else
             log_error "Failed to download Companion Launcher from ${hub_url}"
             return 1
         fi
+    fi
+    if [[ -n "$expected_sha" ]]; then
+        if [[ "$(sha256sum "$hub_deb" | awk '{print $1}')" != "$expected_sha" ]]; then
+            log_error "Companion Launcher sha256 does not match the release manifest; not installing"
+            rm -f "$hub_deb"
+            return 1
+        fi
+        log_info "Companion Launcher sha256 verified against the release manifest"
+    else
+        log_warning "No sha256 available for ${hub_url}; installing without checksum verification"
     fi
 
     # Prefer apt install for dependency resolution.
@@ -1434,7 +1464,11 @@ install_companion_launcher() {
 
 # Configure Companion Launcher to auto-launch for desktop sessions and at boot.
 configure_companion_launcher_autostart() {
-    if ! command_exists ci-os-hub-desktop; then
+    local launcher_bin=""
+    if command_exists companion-hub; then launcher_bin="companion-hub"
+    elif command_exists ci-os-hub-desktop; then launcher_bin="ci-os-hub-desktop"   # legacy (<= v0.1.4)
+    fi
+    if [[ -z "$launcher_bin" ]]; then
         log_warning "Companion Launcher binary not found, skipping autostart configuration"
         return 0
     fi
@@ -1444,15 +1478,21 @@ configure_companion_launcher_autostart() {
     # Ensure launcher appears in system autostart for graphical login sessions.
     install -d -m 755 /etc/xdg/autostart
     rm -f /etc/xdg/autostart/companion-hub.desktop  # old filename, pre-rename
+    # The ISO can bake its own entry (Exec=/usr/libexec/ci-os/launcher-autostart, which refuses to run in a live
+    # session). Keep it; rewriting it here would drop that guard.
+    if grep -q 'launcher-autostart' /etc/xdg/autostart/companion-launcher.desktop 2>/dev/null; then
+        log_info "Companion Launcher autostart already provided by the image, keeping it"
+    else
     cat > /etc/xdg/autostart/companion-launcher.desktop <<EOF
 [Desktop Entry]
 Type=Application
 Name=Companion Launcher
 Comment=Start Companion Launcher
-Exec=ci-os-hub-desktop
+Exec=${launcher_bin}
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF
+    fi
 
     # Ensure Launcher runtime directories are writable by the actual desktop user.
     if [[ -d "${ACTUAL_HOME}/.local/share/companion-hub" ]]; then
@@ -1478,7 +1518,9 @@ EOF
 # install_companion_launcher above — this was the one piece of it not
 # already covered elsewhere).
 pin_companion_launcher_to_dock() {
-    local desktop_id="ci-os-hub-desktop.desktop"
+    # The current .deb installs "Companion Hub.desktop"; releases up to v0.1.4 installed ci-os-hub-desktop.desktop.
+    local desktop_id="Companion Hub.desktop"
+    [[ -f "/usr/share/applications/${desktop_id}" ]] || desktop_id="ci-os-hub-desktop.desktop"
 
     if [[ -z "${ACTUAL_USER:-}" ]] || [[ "$ACTUAL_USER" == "root" ]]; then
         log_warning "No non-root desktop user detected; skipping dock pin."
@@ -1653,7 +1695,8 @@ if tier_requested hardware; then
     bash "${SCRIPT_DIR}/../lib/strix-halo-boot-params.sh" || log_warning "strix-halo-boot-params.sh failed or was skipped; run it manually to enable large-GTT boot params on Strix Halo hardware."
 fi
 
-# Install LACT GPU monitor (latest release from GitHub)
+# Install LACT GPU monitor (latest release from GitHub). The .deb built for THIS Ubuntu release is chosen by its
+# series suffix (ubuntu-2604): see backends/ubuntu/lib/lact-release.sh.
 install_lact() {
     if command_exists lact; then
         log_info "LACT GPU monitor is already installed, skipping..."
@@ -1661,14 +1704,31 @@ install_lact() {
     fi
 
     log_info "Downloading and installing LACT GPU monitor..."
-    # Get latest .deb release URL from GitHub API
-    LACT_DEB_URL=$(curl -s https://api.github.com/repos/ilya-zlobintsev/LACT/releases/latest | grep browser_download_url | grep 'amd64.deb' | cut -d '"' -f 4 | head -n 1)
-    if [[ -z "$LACT_DEB_URL" ]]; then
-        log_error "Could not find LACT .deb package URL."
+    # shellcheck source=../lib/lact-release.sh
+    source "${SCRIPT_DIR}/../lib/lact-release.sh"
+    local lact_series_name release_json asset LACT_SHA256 got_sha
+    lact_series_name="$(lact_series)"
+    release_json="$(curl -fsSL --connect-timeout 20 --retry 2 https://api.github.com/repos/ilya-zlobintsev/LACT/releases/latest 2>/dev/null || true)"
+    asset="$(printf '%s' "$release_json" | lact_pick_asset "$lact_series_name" || true)"
+    if [[ -z "$asset" ]]; then
+        log_error "Could not find a LACT .deb for ${lact_series_name} in the latest release (no build for this Ubuntu release, or GitHub could not be reached)."
         return 1
     fi
+    LACT_DEB_URL="${asset%%$'\t'*}"
+    LACT_SHA256="${asset#*$'\t'}"
     TMP_DEB="/tmp/lact-latest.deb"
-    curl -L "$LACT_DEB_URL" -o "$TMP_DEB"
+    curl -fL --connect-timeout 30 --retry 2 "$LACT_DEB_URL" -o "$TMP_DEB"
+    if [[ -n "$LACT_SHA256" ]]; then
+        got_sha="$(sha256sum "$TMP_DEB" | awk '{print $1}')"
+        if [[ "$got_sha" != "$LACT_SHA256" ]]; then
+            log_error "LACT .deb sha256 does not match the release (got ${got_sha}, release says ${LACT_SHA256}); not installing"
+            rm -f "$TMP_DEB"
+            return 1
+        fi
+        log_info "LACT .deb sha256 verified against the release"
+    else
+        log_warning "The release lists no sha256 for ${LACT_DEB_URL}; installing without checksum verification"
+    fi
     apt-get install -y "$TMP_DEB" || dpkg -i "$TMP_DEB"
     rm -f "$TMP_DEB"
     log_success "LACT GPU monitor installed. Run 'lact-gui' to launch."

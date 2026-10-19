@@ -1,0 +1,47 @@
+15:47:02   1/47     3s  Managing auto-mount settings…
+15:47:05   2/47     0s  Clearing all temporary mounts…
+15:47:05   3/47     1s  Clear mounts for partitioning operations on /dev/nvme0n1
+15:47:06   4/47     1s  Creating new gpt partition table on /dev/nvme0n1…
+15:47:07   5/47     5s  Create new 512MiB partition on /dev/nvme0n1 (QEMU NVMe Ctrl)
+15:47:12   6/47     2s  Set flags on partition /dev/nvme0n1p1
+15:47:14   7/47     9s  Create new 65021MiB partition on /dev/nvme0n1 (QEMU NVMe Ctrl) with entries root
+15:47:23   8/47     0s  Set partition information
+15:47:23   9/47     0s  Managing auto-mount settings…
+15:47:23  10/47     0s  Creating ZFS pools and datasets…
+15:47:23  11/47     4s  mount
+15:47:27  12/47     0s  modify 90-mkinitcpio-install.hook on host and chroot
+15:47:27  13/47    78s  initialize pacman ... ranking mirrors ... copy pacman mirrorlist and keyring to target ...
+15:48:45  14/47     1s  Preparing your system for online installation of Companion OS
+15:48:46  15/47   553s  pacstrap
+15:57:59  16/47     0s  Generate machine-id.
+15:57:59  17/47     0s  Configuring <pre>sudo</pre> users…
+15:57:59  18/47     0s  Preparing groups…
+15:57:59  19/47     1s  Create user companion-demo
+15:58:00  20/47     1s  Set password for user companion-demo
+15:58:01  21/47     0s  Set password for user root
+15:58:01  22/47     0s  Set hostname companion
+15:58:01  23/47     1s  Setting timezone to America/New_York…
+15:58:02  24/47     0s  Setting keyboard model to pc105, layout as us-…
+15:58:02  25/47    11s  localecfg
+15:58:13  26/47   152s  chwd
+16:00:45  27/47   717s  packages
+16:12:42  28/47     7s  Installing Companion OS components
+16:12:49  29/47     0s  Configuring LUKS key file.
+16:12:49  30/47     0s  Configuring encrypted swap.
+16:12:49  31/47     0s  fstab
+16:12:49  32/47     4s  plymouthcfg
+16:12:53  33/47     0s  zfshostid
+16:12:53  34/47     0s  initcpiocfg
+16:12:53  35/47   120s  Creating initramfs with mkinitcpio…
+16:14:53  36/47     0s  networkcfg
+16:14:53  37/47     1s  displaymanager
+16:14:54  38/47     0s  hwclock
+16:14:54  39/47     1s  grubcfg
+16:14:55  40/47    13s  bootloader
+16:15:08  41/47     0s  reset 90-mkinitcpio-install.hook
+16:15:08  42/47     1s  services-systemd
+16:15:09  43/47     9s  Running shell processes…
+16:15:18  44/47     7s  Finishing the Companion OS installation
+16:15:25  45/47     2s  Creating Btrfs installation snapshot
+16:15:27  46/47     0s  Removing installer files from target system
+16:15:27  47/47     -s  Unmounting file systems…

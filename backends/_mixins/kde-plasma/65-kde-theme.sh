@@ -28,13 +28,13 @@ if [[ ! -f "$COLOR_SCHEME_SOURCE" ]]; then
 fi
 
 if [[ ${EUID:-0} -eq 0 ]]; then
-  _klog_info "Installing CI OS color scheme globally..."
+  _klog_info "Installing Companion OS color scheme globally..."
   mkdir -p "$(dirname "$COLOR_SCHEME_DEST_GLOBAL")"
   cp "$COLOR_SCHEME_SOURCE" "$COLOR_SCHEME_DEST_GLOBAL"
   chmod 644 "$COLOR_SCHEME_DEST_GLOBAL"
   _klog_ok "Installed: $COLOR_SCHEME_DEST_GLOBAL"
 else
-  _klog_info "Installing CI OS color scheme for current user..."
+  _klog_info "Installing Companion OS color scheme for current user..."
   mkdir -p "$(dirname "$COLOR_SCHEME_DEST_USER")"
   cp "$COLOR_SCHEME_SOURCE" "$COLOR_SCHEME_DEST_USER"
   _klog_ok "Installed: $COLOR_SCHEME_DEST_USER"
@@ -59,5 +59,5 @@ if command -v kwriteconfig5 >/dev/null 2>&1; then
   fi
   _klog_ok "KDE theme applied (log out/in if colors do not refresh)"
 else
-  _klog_warn "kwriteconfig5 not found. Install scheme manually: System Settings → Appearance → Colors → CI OS Dark Green"
+  _klog_warn "kwriteconfig5 not found. Install scheme manually: System Settings → Appearance → Colors → Companion OS Dark"
 fi

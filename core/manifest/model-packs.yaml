@@ -11,17 +11,29 @@
 # marketplace. See docs/architecture/companion-stick.md ("Model-pack policy").
 #
 # Rules:
-# - `digest` stays null until a `ci-stick models lock` step resolves it from the
-#   registry. Never type a digest by hand.
-# - `size_bytes` is the approximate download size of the registry's default quantization
-#   (Ollama library, decimal bytes). It becomes exact when the digest is resolved.
+# - `digest` stays null until a `ci-stick models lock` step resolves it from the registry. Never
+#   type a digest by hand.
+# - `size_bytes` is the exact byte size of the model as the Ollama registry lists it: the sum of the
+#   manifest's config and layer sizes (https://registry.ollama.ai/v2/library/<name>/manifests/<tag>,
+#   decimal bytes), read 2026-10-13. Registry tags are mutable, so this is a snapshot; `ci-stick models
+#   lock` must pin the manifest digest. Never list `:cloud` tags (no weights) or non-GGUF `tensor` models.
+#   Keep the same model ref at one size across packs (a test enforces it, for every field).
+#   Once core/manifest/model-packs.lock.json exists, the lock is the authority: a test fails when a
+#   size here differs from the lock by even one byte, and the sizes are then copied from the lock.
+# - A Hugging Face GGUF model uses the same record, spelled the way CI Hub's catalog and Ollama
+#   spell it: `name: hf.co/<org>/<repo>`, `tag: <quantization label or file name>`. There is no
+#   other field for it; the repository revision, the file and its LFS sha256 live in the lock.
+#   Only single-file, ungated repositories qualify. No pack lists one yet.
 # - `min_ram_gb`: system RAM needed to run the model at a usable context length.
 # - `min_vram_gb`: null = runs acceptably on CPU / unified memory; a number = practical
 #   minimum discrete-GPU VRAM.
 # - Every model already pre-pulled by core/manifest/ecosystem.yaml (llm.models) must
-#   appear in some pack; `cargo test` in stick/ enforces that.
-# - `license` is the licence's SPDX id or published name. "unverified" means it must be
-#   confirmed from Hub's catalog before a release bundle ships.
+#   appear in some pack, and the `appliance-core` pack must list exactly those models;
+#   `cargo test` in stick/ enforces both.
+# - `license` is the licence's SPDX id or published name, and must have a row in
+#   core/manifest/licenses.yaml (a test enforces it). "unverified" means it must be confirmed from
+#   Hub's catalog before a release bundle ships: it is the explicit `release_blocking` entry of
+#   that file, and `ci-stick models fetch` refuses it unless told to accept unverified licences.
 #
 # Check what fits a device:  ci-stick models list --device 512GB
 
@@ -38,88 +50,201 @@ packs:
     description: Small, fast defaults for any 8 GB machine
     models:
       - {name: nomic-embed-text, tag: latest, digest: null, quantization: F16,
-         license: Apache-2.0, size_bytes: 274000000, min_ram_gb: 2, min_vram_gb: null,
+         license: Apache-2.0, size_bytes: 274302450, min_ram_gb: 2, min_vram_gb: null,
          platforms: *all}
       - {name: gemma3, tag: 1b, digest: null, quantization: Q4_K_M,
-         license: Gemma Terms of Use, size_bytes: 815000000, min_ram_gb: 4,
+         license: Gemma Terms of Use, size_bytes: 806067407, min_ram_gb: 4,
          min_vram_gb: null, platforms: *all}
       - {name: llama3.2, tag: 3b, digest: null, quantization: Q4_K_M,
-         license: Llama 3.2 Community License, size_bytes: 2000000000, min_ram_gb: 8,
+         license: Llama 3.2 Community License, size_bytes: 2019393189, min_ram_gb: 8,
          min_vram_gb: null, platforms: *all}
       - {name: qwen3, tag: 4b, digest: null, quantization: Q4_K_M,
-         license: Apache-2.0, size_bytes: 2500000000, min_ram_gb: 8, min_vram_gb: null,
+         license: Apache-2.0, size_bytes: 2497293931, min_ram_gb: 8, min_vram_gb: null,
          platforms: *all}
 
   - name: balanced
     description: Everyday assistant quality for 16-32 GB machines
     models:
       - {name: nomic-embed-text, tag: latest, digest: null, quantization: F16,
-         license: Apache-2.0, size_bytes: 274000000, min_ram_gb: 2, min_vram_gb: null,
+         license: Apache-2.0, size_bytes: 274302450, min_ram_gb: 2, min_vram_gb: null,
          platforms: *all}
       - {name: qwen3, tag: 8b, digest: null, quantization: Q4_K_M,
-         license: Apache-2.0, size_bytes: 5200000000, min_ram_gb: 16, min_vram_gb: null,
+         license: Apache-2.0, size_bytes: 5225388164, min_ram_gb: 16, min_vram_gb: null,
          platforms: *all}
       - {name: llama3.1, tag: 8b, digest: null, quantization: Q4_K_M,
-         license: Llama 3.1 Community License, size_bytes: 4900000000, min_ram_gb: 16,
+         license: Llama 3.1 Community License, size_bytes: 4920753328, min_ram_gb: 16,
          min_vram_gb: null, platforms: *all}
       - {name: gemma3, tag: 12b, digest: null, quantization: Q4_K_M,
-         license: Gemma Terms of Use, size_bytes: 8100000000, min_ram_gb: 16,
+         license: Gemma Terms of Use, size_bytes: 8164039732, min_ram_gb: 16,
          min_vram_gb: null, platforms: *all}
       - {name: qwen3, tag: 14b, digest: null, quantization: Q4_K_M,
-         license: Apache-2.0, size_bytes: 9300000000, min_ram_gb: 24, min_vram_gb: null,
+         license: Apache-2.0, size_bytes: 9276198565, min_ram_gb: 24, min_vram_gb: null,
          platforms: *all}
 
   - name: coding
     description: Code completion, chat and agentic coding models
     models:
       - {name: nomic-embed-text, tag: latest, digest: null, quantization: F16,
-         license: Apache-2.0, size_bytes: 274000000, min_ram_gb: 2, min_vram_gb: null,
+         license: Apache-2.0, size_bytes: 274302450, min_ram_gb: 2, min_vram_gb: null,
          platforms: *all}
       - {name: qwen2.5-coder, tag: 7b, digest: null, quantization: Q4_K_M,
-         license: Apache-2.0, size_bytes: 4700000000, min_ram_gb: 16, min_vram_gb: null,
+         license: Apache-2.0, size_bytes: 4683087561, min_ram_gb: 16, min_vram_gb: null,
          platforms: *all}
       - {name: qwen3-coder, tag: 30b, digest: null, quantization: Q4_K_M,
-         license: Apache-2.0, size_bytes: 19000000000, min_ram_gb: 32,
+         license: Apache-2.0, size_bytes: 18556700761, min_ram_gb: 32,
          min_vram_gb: null, platforms: *large}
       - {name: devstral, tag: 24b, digest: null, quantization: Q4_K_M,
-         license: Apache-2.0, size_bytes: 14000000000, min_ram_gb: 32, min_vram_gb: 16,
+         license: Apache-2.0, size_bytes: 14333928046, min_ram_gb: 32, min_vram_gb: 16,
          platforms: *large}
       - {name: qwen2.5-coder, tag: 32b, digest: null, quantization: Q4_K_M,
-         license: Apache-2.0, size_bytes: 20000000000, min_ram_gb: 48, min_vram_gb: 24,
+         license: Apache-2.0, size_bytes: 19851349898, min_ram_gb: 48, min_vram_gb: 24,
          platforms: *large}
 
   - name: vision
     description: Image understanding (screenshots, documents, photos)
     models:
       - {name: gemma3, tag: 4b, digest: null, quantization: Q4_K_M,
-         license: Gemma Terms of Use, size_bytes: 3300000000, min_ram_gb: 8,
+         license: Gemma Terms of Use, size_bytes: 3350272403, min_ram_gb: 8,
          min_vram_gb: null, platforms: *all}
       - {name: qwen2.5vl, tag: 7b, digest: null, quantization: Q4_K_M,
-         license: Apache-2.0, size_bytes: 6000000000, min_ram_gb: 16, min_vram_gb: null,
+         license: Apache-2.0, size_bytes: 5969245856, min_ram_gb: 16, min_vram_gb: null,
          platforms: *all}
+      # Licence layer carries a European Union clause (Llama 3.2 vision): review before bundling.
       - {name: llama3.2-vision, tag: 11b, digest: null, quantization: Q4_K_M,
-         license: Llama 3.2 Community License, size_bytes: 7800000000, min_ram_gb: 16,
+         license: Llama 3.2 Community License, size_bytes: 7816589186, min_ram_gb: 16,
          min_vram_gb: null, platforms: *all}
       - {name: gemma3, tag: 27b, digest: null, quantization: Q4_K_M,
-         license: Gemma Terms of Use, size_bytes: 17000000000, min_ram_gb: 32,
+         license: Gemma Terms of Use, size_bytes: 17413409652, min_ram_gb: 32,
          min_vram_gb: 24, platforms: *large}
 
   - name: large
     description: Frontier-class open models for workstations with 32 GB+ RAM or a big GPU
     models:
-      # From ecosystem.yaml llm.models. Size/licence to be confirmed from Hub's catalog.
+      # From ecosystem.yaml llm.models. Licence is the registry's licence layer (Apache-2.0).
       - {name: qwen3.6, tag: 27b, digest: null, quantization: Q4_K_M,
-         license: unverified, size_bytes: 17000000000, min_ram_gb: 32, min_vram_gb: 24,
+         license: Apache-2.0, size_bytes: 17769076933, min_ram_gb: 32, min_vram_gb: 24,
          platforms: *large}
       - {name: gpt-oss, tag: 20b, digest: null, quantization: MXFP4,
-         license: Apache-2.0, size_bytes: 14000000000, min_ram_gb: 16, min_vram_gb: null,
+         license: Apache-2.0, size_bytes: 13793441566, min_ram_gb: 16, min_vram_gb: null,
          platforms: *large}
       - {name: qwen3, tag: 32b, digest: null, quantization: Q4_K_M,
-         license: Apache-2.0, size_bytes: 20000000000, min_ram_gb: 48, min_vram_gb: 24,
+         license: Apache-2.0, size_bytes: 20201253829, min_ram_gb: 48, min_vram_gb: 24,
          platforms: *large}
       - {name: llama3.3, tag: 70b, digest: null, quantization: Q4_K_M,
-         license: Llama 3.3 Community License, size_bytes: 43000000000, min_ram_gb: 64,
+         license: Llama 3.3 Community License, size_bytes: 42520413916, min_ram_gb: 64,
          min_vram_gb: 48, platforms: *large}
       - {name: gpt-oss, tag: 120b, digest: null, quantization: MXFP4,
-         license: Apache-2.0, size_bytes: 65000000000, min_ram_gb: 80, min_vram_gb: 80,
+         license: Apache-2.0, size_bytes: 65369819583, min_ram_gb: 80, min_vram_gb: 80,
          platforms: *large}
+
+  # ---- 128 GB Companion Stick packs ------------------------------------------------------
+  # A 123.9 GB (115.4 GiB) stick gets a 73 GiB CI-CACHE (`ci-stick layout plan --size 123942731776`).
+  # stick-128 fills it with 21 ranked models (74.36 GB, 5.1 % free on 128 KiB-cluster exFAT);
+  # stick-128-oci drops the two lowest-ranked to leave 15 GiB for OCI images. The order is the rank.
+  # Rationale, licences and the rejected list: docs/architecture/model-packs-128gb.md.
+  - name: stick-128
+    description: Ranked fill of a 128 GB stick's 73 GiB model cache (21 models)
+    models:
+      - &m_nomic_embed_text_latest {name: nomic-embed-text, tag: latest, digest: null,
+         quantization: F16, license: Apache-2.0, size_bytes: 274302450, min_ram_gb: 2,
+         min_vram_gb: null, platforms: *all}
+      - &m_gemma3_1b {name: gemma3, tag: 1b, digest: null, quantization: Q4_K_M,
+         license: Gemma Terms of Use, size_bytes: 806067407, min_ram_gb: 4,
+         min_vram_gb: null, platforms: *all}
+      - &m_qwen3_6_27b {name: qwen3.6, tag: 27b, digest: null, quantization: Q4_K_M,
+         license: Apache-2.0, size_bytes: 17769076933, min_ram_gb: 32,
+         min_vram_gb: 24, platforms: *large}
+      - &m_qwen3_5_9b {name: qwen3.5, tag: 9b, digest: null, quantization: Q4_K_M,
+         license: Apache-2.0, size_bytes: 6550825550, min_ram_gb: 16,
+         min_vram_gb: null, platforms: *all}
+      - &m_gemma4_e4b {name: gemma4, tag: e4b, digest: null, quantization: Q4_K_M,
+         license: Apache-2.0, size_bytes: 6583656505, min_ram_gb: 16,
+         min_vram_gb: null, platforms: *all}
+      - &m_qwen3_5_4b {name: qwen3.5, tag: 4b, digest: null, quantization: Q4_K_M,
+         license: Apache-2.0, size_bytes: 3324173934, min_ram_gb: 8,
+         min_vram_gb: null, platforms: *all}
+      - &m_qwen2_5_coder_7b {name: qwen2.5-coder, tag: 7b, digest: null,
+         quantization: Q4_K_M, license: Apache-2.0, size_bytes: 4683087561,
+         min_ram_gb: 16, min_vram_gb: null, platforms: *all}
+      - &m_qwen3_vl_8b {name: qwen3-vl, tag: 8b, digest: null, quantization: Q4_K_M,
+         license: Apache-2.0, size_bytes: 6140415879, min_ram_gb: 16,
+         min_vram_gb: null, platforms: *all}
+      - &m_bge_m3_latest {name: bge-m3, tag: latest, digest: null, quantization: F16,
+         license: MIT, size_bytes: 1157672605, min_ram_gb: 4, min_vram_gb: null,
+         platforms: *all}
+      - &m_mxbai_embed_large_latest {name: mxbai-embed-large, tag: latest,
+         digest: null, quantization: F16, license: Apache-2.0, size_bytes: 669615493,
+         min_ram_gb: 4, min_vram_gb: null, platforms: *all}
+      - &m_qwen3_embedding_0_6b {name: qwen3-embedding, tag: 0.6b, digest: null,
+         quantization: Q8_0, license: Apache-2.0, size_bytes: 639150858,
+         min_ram_gb: 4, min_vram_gb: null, platforms: *all}
+      # size_bytes copied from core/manifest/model-packs.lock.json (the registry re-pushed glm-ocr:latest on
+      # 2026-10-14: 2219299168 -> 2655025740 bytes; stick-128 is now 74795277212 bytes). Never edit by hand:
+      # re-run `ci-stick models lock` and copy; a test fails on any difference from the lock.
+      - &m_glm_ocr_latest {name: glm-ocr, tag: latest, digest: null,
+         quantization: F16, license: MIT, size_bytes: 2655025740, min_ram_gb: 8,
+         min_vram_gb: null, platforms: *all}
+      - &m_granite4_1_3b {name: granite4.1, tag: 3b, digest: null,
+         quantization: Q4_K_M, license: Apache-2.0, size_bytes: 2099520281,
+         min_ram_gb: 8, min_vram_gb: null, platforms: *all}
+      - &m_llama3_2_3b {name: llama3.2, tag: 3b, digest: null, quantization: Q4_K_M,
+         license: Llama 3.2 Community License, size_bytes: 2019393189, min_ram_gb: 8,
+         min_vram_gb: null, platforms: *all}
+      - &m_qwen3_5_2b {name: qwen3.5, tag: 2b, digest: null, quantization: Q8_0,
+         license: Apache-2.0, size_bytes: 2683396812, min_ram_gb: 8,
+         min_vram_gb: null, platforms: *all}
+      - &m_qwen2_5_coder_1_5b {name: qwen2.5-coder, tag: 1.5b, digest: null,
+         quantization: Q4_K_M, license: Apache-2.0, size_bytes: 986062089,
+         min_ram_gb: 4, min_vram_gb: null, platforms: *all}
+      - &m_functiongemma_270m {name: functiongemma, tag: 270m, digest: null,
+         quantization: Q8_0, license: Gemma Terms of Use, size_bytes: 300807157,
+         min_ram_gb: 4, min_vram_gb: null, platforms: *all}
+      - &m_gemma3_270m {name: gemma3, tag: 270m, digest: null, quantization: Q8_0,
+         license: Gemma Terms of Use, size_bytes: 291554930, min_ram_gb: 4,
+         min_vram_gb: null, platforms: *all}
+      - &m_all_minilm_latest {name: all-minilm, tag: latest, digest: null,
+         quantization: F16, license: Apache-2.0, size_bytes: 45960996, min_ram_gb: 2,
+         min_vram_gb: null, platforms: *all}
+      - &m_gpt_oss_20b {name: gpt-oss, tag: 20b, digest: null, quantization: MXFP4,
+         license: Apache-2.0, size_bytes: 13793441566, min_ram_gb: 16,
+         min_vram_gb: null, platforms: *large}
+      - &m_qwen3_5_0_8b {name: qwen3.5, tag: 0.8b, digest: null, quantization: Q8_0,
+         license: Apache-2.0, size_bytes: 1322069277, min_ram_gb: 4,
+         min_vram_gb: null, platforms: *all}
+
+  - name: stick-128-oci
+    description: stick-128 minus its 2 lowest-ranked models, keeps 15 GiB of cache free for OCI images
+    models:
+      - *m_nomic_embed_text_latest
+      - *m_gemma3_1b
+      - *m_qwen3_6_27b
+      - *m_qwen3_5_9b
+      - *m_gemma4_e4b
+      - *m_qwen3_5_4b
+      - *m_qwen2_5_coder_7b
+      - *m_qwen3_vl_8b
+      - *m_bge_m3_latest
+      - *m_mxbai_embed_large_latest
+      - *m_qwen3_embedding_0_6b
+      - *m_glm_ocr_latest
+      - *m_granite4_1_3b
+      - *m_llama3_2_3b
+      - *m_qwen3_5_2b
+      - *m_qwen2_5_coder_1_5b
+      - *m_functiongemma_270m
+      - *m_gemma3_270m
+      - *m_all_minilm_latest
+
+  # ---- appliance core --------------------------------------------------------------------
+  # What core/manifest/ecosystem.yaml `llm.models` pre-pulls on a provisioned machine: the embedding
+  # model, the tiny chat model and the flagship model (18.8 GB, the only one with a hardware gate).
+  # It is the first three ranks of stick-128, aliased from there so each model has one set of facts;
+  # a test keeps the list equal to ecosystem.yaml. It is the pack a background prefetch (off by
+  # default) would fetch, and the pack the model-fit gate in docs/architecture/models-tooling.md
+  # applies to.
+  - name: appliance-core
+    description: What ecosystem.yaml pre-pulls - embedding model, tiny chat model, flagship model (3 models)
+    models:
+      - *m_nomic_embed_text_latest
+      - *m_gemma3_1b
+      - *m_qwen3_6_27b

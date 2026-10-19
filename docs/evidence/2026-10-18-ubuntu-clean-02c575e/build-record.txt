@@ -1,0 +1,11 @@
+Companion OS ISO build record (U0), 2026-10-18
+commit: 02c575ee34c626bc183c3d19bf3629f072822dcf (detached worktree <scratch> git status clean before and after)
+base ISO: ubuntu-26.04.1-desktop-amd64.iso sha256 601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f (re-hashed on host before the build)
+container: ci-os-ubuild-1, ubuntu:26.04 (aarch64, privileged, --platform linux/arm64), named volume ci-os-ubuild-1-vol; both removed after copy-out
+checkout: mounted read-only at /src; the build writes into the tree (branded gresource, chmod of DEBIAN scripts), so it ran from an rsync copy
+  at /vol/repo on the volume. diff -rq /src /vol/repo after the build: no difference (the regenerated gresource is byte-identical to the committed one).
+command: cd /vol/repo && CI_OS_CACHE_DIR=/vol/cache ./backends/ubuntu/iso/scripts/build-iso.sh --base-iso /base/ubuntu-base.iso --output-dir /vol/out --work-dir /vol/work --version 1.0 --clean
+optional bakes: third-party=1 (tailscale 1.104.1, cloudflared 2026.10.1, gh 2.102.0) ollama=1 (0.40.3, CUDA libs kept, default) launcher=1 (companion-hub 0.3.5); Docker CE 29.9.1 baked in step 10d
+build: rc=0, 772 s (2026-10-18T16:09:19Z to 16:22:11Z)
+iso: companion-os-1.0-amd64.iso 7076577280 bytes (6.59 GiB), sha256 709b8485f10da74cc281d0d0bed56747c47c502d6ac73ef6bc6bf1fe7374f5cf
+verify-iso.sh (VERIFY_BASE_ISO=base, VERIFY_REQUIRE_CANON=1, run from the checkout copy): 393 passed, 0 failed, 0 skipped, 34 s

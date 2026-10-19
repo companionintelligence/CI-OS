@@ -27,6 +27,25 @@ cargo fmt --check
 CI runs the same commands, plus a 1.75 MSRV check, in the `stick` job of
 `.github/workflows/pr-checks.yml`.
 
+**Adding a dependency or bumping the lock.** The MSRV is 1.75, and newer releases of some dependencies (`ureq` 3.4.x, `reqwest` 0.13, ...) declare
+a higher Rust version, so a plain `cargo update` can move `Cargo.lock` to a crate that 1.75 cannot build. `stick/.cargo/config.toml` sets
+`incompatible-rust-versions = "fallback"` (read by Cargo 1.84 and newer; on an older cargo set `CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS=fallback`),
+and `ureq` is also pinned exactly (`=3.2.1`) in `crates/ci-stick/Cargo.toml`. After any change to dependencies or to the lock, check the MSRV and
+commit `Cargo.lock`:
+
+```bash
+cd stick && cargo +1.75 check --locked --all-targets
+```
+
+**One test is opt-in.** `crates/ci-stick/tests/models_live.rs` downloads `nomic-embed-text` (274 MB) from the real Ollama registry and is skipped
+(with a note) unless you ask for it:
+
+```bash
+cd stick && CI_STICK_LIVE=1 CI_STICK_LIVE_DIR="$(mktemp -d)" cargo test --test models_live -- --nocapture
+```
+
+The other tuning variables of `ci-stick models fetch` and the test switches are in the [environment reference](../docs/guides/environment-reference.md).
+
 ## Usage
 
 ```bash
@@ -59,6 +78,72 @@ ci-stick doctor --bundle /media/$USER/CI-SHARED --pubkey ./dev.pub --full   # + 
 ```
 
 Exit codes: `0` ok, `1` verification failed, `2` usage or I/O error, or a safety refusal.
+(The `models plan|lock|fetch|cache-info` commands add `3` to `7`; see below.)
+
+### Models: lock, plan, fetch, cache-info
+
+The model-pack catalog (`core/manifest/model-packs.yaml`) says what a stick should carry.
+`models lock` asks the registry what those tags are *today* and records it in
+`core/manifest/model-packs.lock.json`: manifest bytes and digest, layer digests and sizes, and
+the llama.cpp/GGUF child of a tag the registry serves as a manifest list. Digests are never
+typed by hand, and the file is canonical JSON, so a re-run that finds nothing new changes
+nothing. `models fetch` seeds an Ollama-format model store from that lock: resumable,
+verified, and safe to interrupt at any moment.
+
+```bash
+# Maintainers: resolve the catalog against the registry (needs the network), then review the diff
+ci-stick models lock                          # writes core/manifest/model-packs.lock.json
+ci-stick models lock --check                  # exit 3 if the registry or the catalog drifted
+
+# Anyone: what would a pack cost, and does it fit?   (no network)
+ci-stick models plan --pack stick-128 --cache /Volumes/CI-CACHE
+
+# Download it (resumable; run the same command again after any interruption)
+ci-stick models fetch --pack stick-128 --cache /Volumes/CI-CACHE
+ci-stick models fetch --model nomic-embed-text --cache /Volumes/CI-CACHE   # one model from the lock
+ci-stick models fetch --pack stick-128 --cache ... --max-bytes-per-sec 5MiB --concurrency 2
+ci-stick models fetch --pack stick-128 --cache ... --events -    # JSON-lines progress on stdout
+
+ci-stick models cache-info --cache /Volumes/CI-CACHE             # size, partials, free space, complete packs
+```
+
+The cache directory defaults to `$CI_STICK_CACHE`, the registry to `$CI_OS_REGISTRY_URL`
+(else `https://registry.ollama.ai`); `HTTPS_PROXY` and `NO_PROXY` are honoured. Layout of a
+cache (`OLLAMA_MODELS` is `<cache>/models`):
+
+```
+<cache>/models/blobs/sha256-<hex>                            the model, projector, licence ... (shared blobs once)
+<cache>/models/manifests/registry.ollama.ai/library/<name>/<tag>   the registry's manifest, verbatim, written last
+<cache>/models/manifests-v2/                                 empty on purpose (a read-only stick needs it to exist)
+<cache>/ci-models/partial/<hex>-partial, ...-partial.journal resumable downloads, outside the directory Ollama prunes
+<cache>/ci-models/status.json                                progress for the setup portal, rewritten atomically
+```
+
+* **Trust**: only references in the lock can be fetched; every blob must match its SHA-256 and
+  size from the lock before it gets its final name; a manifest is written only after all
+  of its blobs verified. The registry's presigned download URLs are never logged or stored.
+  Redirects are followed by `ci-stick` itself: https only, at most 5 hops, a host outside
+  `ollama.com`/`ollama.ai`/`hf.co`/`huggingface.co`/`cloudflarestorage.com` must resolve to a
+  public address (no loopback, private, link-local, CGNAT ...).
+* **Resume**: a partial is a file plus a journal that is `fsync`'d before it is updated. A killed
+  process (even SIGKILL) loses at most the last 64 MiB; Ctrl-C and SIGTERM flush the journal and
+  exit with 6. Resuming re-reads and re-hashes the vouched prefix, and a bad prefix costs one
+  clean restart, never a corrupt blob.
+* **Licences**: a model whose licence is `unverified` in the catalog is skipped (exit 5) unless
+  you pass `--accept-licenses`; the other models of the pack are still fetched.
+* **Space**: `plan`/`fetch` refuse (exit 4) when the pack is more than 97 % of the volume (the
+  3 % rule of the pack catalog) or the bytes still to write exceed the free space; running out
+  of space mid-download also exits 4 and keeps the partial.
+* **exFAT**: no symlinks or hard links, no reliance on `chmod`, names checked for characters and
+  reserved device names Windows cannot hold, case-folding collisions refused, `._*`
+  AppleDouble and Finder files ignored.
+
+Exit codes of these four commands: `0` ok, `1` error (not resumable), `2` usage error or
+unreadable input, `3` `lock --check` found drift, `4` not enough space, `5` a licence was not
+accepted, `6` interrupted or the network stayed down (partials kept, rerun to resume),
+`7` integrity failure. `--events` lines, `status.json` and the full CLI contract are documented
+at the top of `src/cmd_models.rs` and `src/events.rs`. This release handles Ollama registry
+models; Hugging Face entries in the catalog are skipped by `lock` with a warning.
 
 ### Flashing
 
@@ -71,12 +156,16 @@ Exit codes: `0` ok, `1` verification failed, `2` usage or I/O error, or a safety
 The stick boots with **Secure Boot enabled** when the bundle carries the signed chain
 (shim → Canonical GRUB → Canonical-signed kernel), taken from Ubuntu's archive through
 apt. The plan, `verify` and `doctor --bundle` all say which chain a bundle has.
+`fetch-signed-boot.sh` also checks that the GRUB it fetched has every module the stick's
+`grub.cfg` relies on built in (`CANONICAL_GRUB_BUILTIN_MODULES` in `bootcfg.rs`): under
+Secure Boot GRUB loads nothing from disk, and the built-in set differs between Ubuntu
+releases (26.04's has no `all_video` module, for instance).
 
 ```bash
 # Tools (Debian/Ubuntu); no root needed for image files
 sudo apt-get install gdisk dosfstools exfatprogs e2fsprogs mtools grub-efi-amd64-bin sbsigntool
 
-# Bootloader, production: the Secure Boot chain (on Ubuntu 24.04; apt + sbverify checked)
+# Bootloader, production: the Secure Boot chain (on Ubuntu 26.04; apt + sbverify checked)
 stick/scripts/fetch-signed-boot.sh ./signed-boot      # + signed-boot.lock (versions, sha256)
 cp ./signed-boot/{shimx64,grubx64,mmx64}.efi ./staging/efi/
 
@@ -126,7 +215,8 @@ It flashes a sparse 64 GB image from a casper-shaped test ISO and boots it three
 a USB stick under UEFI: slot A, a reboot (persistence), then slot B after `slot set B`.
 It also checks the safety refusals, and it prints a PASS/FAIL summary. It uses KVM when
 `/dev/kvm` is usable and TCG otherwise. `cargo test -- --ignored qemu_boot_harness` runs
-the same script. It uses the unsigned development chain, like CI.
+the same script. It uses the unsigned development chain, like CI. CI runs it in a privileged `ubuntu:26.04` container, so the
+tools and the kernel it boots are the target release's; the recorded run on that userland passed all its checks (17 lines in the summary).
 
 ### Test Secure Boot on your Mac
 
@@ -144,9 +234,9 @@ stick/tests/secureboot/run-on-mac.sh
 stick/tests/secureboot/run-on-mac.sh --show          # watch each boot in a window
 stick/tests/secureboot/run-on-mac.sh --skip-build    # boot again without rebuilding
 
-# a real Ubuntu (or CI-OS) ISO in slot A, Secure Boot on, in a window (~8 GB free, slow
+# a real Ubuntu (or Companion OS) ISO in slot A, Secure Boot on, in a window (~8 GB free, slow
 # under TCG): check `mokutil --sb-state` says enabled, and that files survive a reboot
-stick/tests/secureboot/run-on-mac.sh --iso ~/Downloads/ubuntu-24.04.4-desktop-amd64.iso
+stick/tests/secureboot/run-on-mac.sh --iso ~/Downloads/ubuntu-26.04.1-desktop-amd64.iso
 ```
 
 It checks **A** Secure Boot on + signed chain boots (`secureboot=1`, slot A, then boot
@@ -154,8 +244,20 @@ count 2 after a reboot), **B** Secure Boot on + unsigned chain is refused by the
 before any kernel runs, and **C** Secure Boot off + signed chain still boots
 (`secureboot=0`). Then it prints a PASS/FAIL table. Serial logs and results go to
 `stick/tests/secureboot/out/run/`, which is gitignored. On Linux the same script works;
-an Ubuntu 24.04 host builds without Docker. Behind a TLS-intercepting proxy, add
-`--ca-bundle <pem>`.
+an Ubuntu 26.04 host builds without Docker. Behind a TLS-intercepting proxy, add
+`--ca-bundle <pem>`. `--skip-build` refuses an `out/` that was built for another Ubuntu
+series.
+
+The build runs in a `linux/amd64` `ubuntu:26.04` container. Known limit: on Docker
+Desktop for Apple Silicon with Rosetta emulation (seen with Docker Desktop 29 on macOS 27),
+Ubuntu 26.04's GNU `tar` cannot create files inside a directory it has just created
+("Function not implemented"; bsdtar and Python's `tarfile` work there), so `dpkg-deb -x`
+fails. `build-in-container.sh` checks this first and stops with a message instead of
+failing later. The trigger was not isolated (another amd64 `ubuntu:26.04` container ran `installed-boot.sh --no-boot` to the end on 2026-10-18), so treat amd64 on this setup as "may fail": run the build half on an x86_64 Ubuntu 26.04 machine.
+`fetch-signed-boot.sh` alone also runs in an arm64 `ubuntu:26.04` container whose apt is
+pointed at the amd64 archive through an `APT_CONFIG` file (`APT::Architecture "amd64"`, the
+archive's own sources, a separate `Dir::State`), because it only downloads and unpacks; the
+rest of the build half (amd64 busybox, GRUB modules and kernel) is not scripted for that case.
 
 ### Staging layout
 
@@ -187,6 +289,13 @@ stick/
     signing.rs  hashing.rs      ed25519 detached signatures; streaming sha256
     paths.rs                    relative-path rules (no escapes)
     packs.rs                    model-pack catalog + fit logic
+    cmd_models.rs               models plan | lock | fetch | cache-info (CLI contract in its header)
+    net.rs                      HTTP transport trait (ureq), URL + redirect/SSRF policy, retry timing
+    registry/                   Ollama registry client: references, manifests, tag -> lock entry
+    lockfile.rs                 model-packs.lock.json types, validation, canonical JSON
+    fetch/                      plan, resumable verified downloads, workers, throttle
+    cache/                      cache layout + name rules, store, resume journal, BlobSink
+    events.rs                   JSON-lines events and status.json
     devices.rs  host.rs         read-only device listing; host capability matrix
     doctor.rs  progress.rs  timefmt.rs
     flash.rs                    verify -> plan -> build filesystems -> write -> read back
@@ -195,11 +304,17 @@ stick/
     grubenv.rs  bootcfg.rs      A/B pointer (GRUB env block); grub.cfg from the layout
     slot.rs                     slot show / set
   crates/ci-stick/templates/    grub.cfg template
-  crates/ci-stick/tests/        CLI end-to-end, flash-to-image, schema drift tests
+  crates/ci-stick/tests/        CLI end-to-end, flash-to-image, schema drift, model catalog, lock, fetch and resume tests, and the opt-in
+                                live-registry test (models_live.rs)
+  .cargo/config.toml            MSRV-aware dependency resolution (see "Adding a dependency or bumping the lock")
   scripts/fetch-signed-boot.sh  Secure Boot chain (shim, Canonical GRUB, MokManager) via apt
+  scripts/grub-builtin-modules.py  modules built into a signed GRUB image (fetch-signed-boot.sh checks them)
   scripts/build-grub-efi.sh     standalone GRUB EFI (development chain, not signed)
-  tests/qemu/                   QEMU boot harness + casper-shaped test boot image
-  tests/secureboot/             local Secure Boot harness (run-on-mac.sh; not in CI)
+  scripts/usb-inventory-macos.py  read-only inventory of the USB disks on a Mac, by serial (mass-flashing.md, section 8.7)
+  tests/qemu/                   QEMU boot harness (run.sh, build-test-boot-image.sh), Docker-in-a-live-session tests (docker-live.sh,
+                                guest-docker-test.sh) and the mac80211_hwsim hotspot test (hotspot-hwsim.sh, guest-hotspot-test.sh,
+                                README-hotspot.md)
+  tests/secureboot/             local Secure Boot harness (run-on-mac.sh, build-in-container.sh; not in CI)
   schema/bundle.schema.json     published JSON Schema (mirror of manifest.rs)
   schema/examples/              canonical example bundle.json
 ```

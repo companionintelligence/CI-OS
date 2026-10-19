@@ -5,6 +5,11 @@ description: CI-OS conventions for driving a PR to mergeable — validation to r
 
 # CI-OS PR steward
 
+Two targets are supported: Companion OS on Ubuntu 26.04.1 and Companion OS on CachyOS (Plasma edition). The policy, the capability
+matrix with its evidence tags and the restore recipe for retired targets are in `docs/architecture/supported-targets.md`; adding or
+restoring a target is an owner decision, never a side effect of a PR. `CLAUDE.md` is the canonical guide; this skill covers PR
+mechanics.
+
 ## Before every push
 
 ```bash
@@ -12,12 +17,32 @@ description: CI-OS conventions for driving a PR to mergeable — validation to r
 ```
 
 It is exactly what the `PR checks` workflow runs (bash -n, `shellcheck -S error`,
-`py_compile`, yamllint, no tracked build artifacts). If it fails locally, don't push. The
+`py_compile`, yamllint, no tracked build artifacts, no retired product name such as "CI OS" or
+"Companion Ubuntu" back in `backends/`, `core/` or `.github/`: the name is "Companion OS"; no retired distro name back outside `core/lib/retired-names.allow`: a retired target is restored from tag `pre-retire-multidistro-2026-10-17`, not re-described; and no block-letter banner art, which can spell one in a way a text grep cannot read; and **no tracked file that names an untracked one** (`core/lib/check-untracked-deps.sh`: check-repo and the unit tests run on the working tree, so a new script, fixture or payload file that was never `git add`ed passes them and is missing from the commit; `git add -N <path>` is enough for `git add -u` / `git commit -a` to take it). If it fails locally, don't push. The
 other workflows (`build-companion-os-iso.yml`, `style-canon-lint.yml`) are manual-only
 (`ci-local:gated` markers) — don't restore their triggers in a PR; that's a maintainer call.
 
+Touching `backends/ubuntu/iso/scripts/md5sum-txt.sh` or the md5sum.txt part of `build-iso.sh` → the
+`check-repo.sh` run above already includes `backends/ubuntu/iso/tests/md5sum-txt.sh` (with `xorriso` and GNU `dd` installed it
+also builds a mini ISO; PR checks install `xorriso`). It also runs the Ubuntu 26.04 backend's host suites: `iso/tests/grub-live-menu-modules.sh`
+(the live GRUB menu insmods only modules the signed GRUB has built in), `backends/ubuntu/lib/tests/{os-release-golden,install-rocm-driver,lact-release,shell-theme}.sh`,
+`chroot/tests/customize-chroot-checks.sh`, `headless-package/tests/control-depends.sh` and `core/render/tests/gresource-provenance.sh`
+(a suite that needs a tool the host lacks exits 2 and is reported, not failed). The ISO tests that need a container are **manual**: no
+workflow runs them (`iso/tests/{boot-media-plymouth,plymouth-ground-render,placeholder-layer-modes,verify-logo-surfaces,verify-installer-base}.sh`,
+`split-live-layer.sh` Part B, `chroot/tests/no-dracut-pin.sh`, `desktop-theme/tests/{plymouth-theme,about-logo-svg,visible-names,about-logo-no-renderer,start-icon-from-mark}.sh`,
+`chroot/tests/render-preflight.sh`, `headless-package/tests/netplan-keeps-networkmanager.sh`, `core/lib/tests/divert-file.sh`), so before you push a change to
+`core/lib/theme-lib.sh` (`ci_plymouth_recolor`), `brand_boot_media`, `brand_live_grub`, `verify-iso.sh`, the split library, the logo or visible-name steps, or
+the dracut pin, run the ones that cover it in an `ubuntu:26.04` container (the commands are in each file's header; the table is in
+`backends/ubuntu/iso/README.md`, "Script tests"). A new stock base ISO is a port, not a pin bump: see the comment next to `BASE_ISO_SHA256`
+in `build-companion-os-iso.yml`.
+
 Touching brand assets or the setup portal's logo/font → also run
 `core/lib/check-brand-mirrors.sh` and `core/lib/vendor-brand.sh --check`.
+
+Touching `docs/architecture/headless-setup.md` → also run `bash core/headless/tests/ci_setup/run.sh --quick` (a test reads that file:
+the generated policy table, the golden examples and the module and test names must still match). A document that stops naming a
+retired distro must also lose its line in the PENDING block of `core/lib/retired-names.allow`, or the stale-entry rule fails. A new
+file of any kind needs `git add` (or `git add -N`) before the gate means anything.
 
 ## Where things live (post Phase 1a, `11634eb`)
 
@@ -25,16 +50,18 @@ Branches cut before the reorganization use the old paths. Map them:
 
 | Old path | Now |
 |---|---|
-| `setup/headless/setup-device/opt/setup-backend/`, `usr/local/bin/`, `var/www/setup-portal/`, `etc/systemd/system/`, `etc/dnsmasq.d/` | `core/headless/payload/…` (shared by every backend) |
-| `setup/headless/setup-device/DEBIAN/`, `setup/headless/build.sh` | `backends/ubuntu/headless-package/` (and `backends/mint/headless-package/`) |
+| `setup/headless/setup-device/opt/setup-backend/`, `usr/local/bin/`, `var/www/setup-portal/`, `etc/systemd/system/`, `etc/dnsmasq.d/` | `core/headless/payload/…` (shared by both editions) |
+| `setup/headless/setup-device/DEBIAN/`, `setup/headless/build.sh` | `backends/ubuntu/headless-package/` |
 | `setup/headless/setup-device/etc/netplan/` | `backends/ubuntu/headless-package/netplan/` |
 | `pull-dev.sh`, CI-Hub install helpers | `core/lib/ci-hub.sh` |
 | `scripts/*.sh`, `setup-fresh-ubuntu.sh`, `bootstrap-ci-os.sh` | `backends/ubuntu/provision/provision.sh` (tier-gated) + `backends/ubuntu/lib/` |
 | `configs/scripts/`, Cubic/preseed tree | removed — don't resurrect |
 
+Touching `backends/cachyos/`: run the no-Docker tests in `backends/cachyos/iso/tests` (check-repo.sh runs them); after an overlay, renderer, installer or `verify-iso.sh` change run the manual `iso/tests/verify-mini-iso.sh` (about 2 minutes, Docker + network); `build-iso.sh --stop-after validate` checks an overlay change against the real pinned upstream (about 2 minutes, Docker). A patch that touches a kernel, initrd, append or memtest line of a boot menu needs `# ci-os: allow-kernel-line-change`.
+
 **Companion Stick** lives in `stick/`, a Rust Cargo workspace whose binary crate is
 `crates/ci-stick`; see `docs/architecture/companion-stick.md`. Rust is first-class inside
-`stick/` only, the same way Nix is inside `backends/nixos/`. Never make `core/` or the
+`stick/` only. Never make `core/` or the
 shell backends depend on it. Touching `stick/` → run
 `(cd stick && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)`,
 which is the `stick` job in PR checks. Touching `flash`/`slot`/`target`/`bootcfg`/`grubenv`,
@@ -45,17 +72,15 @@ you change `manifest.rs` or `layout.rs`, update `stick/schema/bundle.schema.json
 example too; a test enforces this. `core/manifest/model-packs.yaml` is provisional, and its
 `digest` fields stay `null` until they are resolved by tooling. Never hand-write digests.
 
-A change to `core/headless/payload/` ships on **every** backend. When it adds a runtime
-dependency (a new binary, e.g. `iptables`), add it to each backend that installs the payload:
-`backends/{ubuntu,mint}/headless-package/DEBIAN/control`, `backends/fedora/headless-setup/install.sh`,
-`backends/arch/headless-setup/install.sh`, `backends/nixos/modules/headless-setup.nix`.
-Package names per distro: `core/manifest/role-map/*.yaml`. (Bazzite deliberately doesn't ship
-the captive portal — see the end of its `Containerfile`.)
+A change to `core/headless/payload/` ships on **both** editions. When it adds a runtime
+dependency (a new binary, e.g. `iptables`), add it to each place that installs the payload:
+`backends/ubuntu/headless-package/DEBIAN/control`, `backends/cachyos/installer/modules/packages_online.conf` (Calamares installs the packages; `provision/stage-headless.sh` only copies files),
+and `backends/arch/headless-setup/install.sh` (not a target and frozen, but the payload tests and the CachyOS ISO verifier read its `ARCH_DEPS` as the dependency oracle, so it needs an explicit decision).
+Package names per distro: `core/manifest/role-map/apt.yaml` and `pacman.yaml`.
 
-Adding a **new payload file**: the backends don't all copy the payload wholesale. Check each
-one's explicit file lists — `REQUIRED_FILES` in `backends/ubuntu/headless-package/build.sh`,
-the required-file list in the Fedora/Arch `install.sh`, and the per-file `install` lines in
-the NixOS module (`ciOsHeadlessBin`) — and add it wherever it has to be present.
+Adding a **new payload file**: the editions don't all copy the payload wholesale. Check each
+one's explicit file lists — `REQUIRED_FILES` in `backends/ubuntu/headless-package/build.sh` and
+the required-file list in the Arch `install.sh` (the oracle) — and add it wherever it has to be present. Also `backends/cachyos/provision/stage-headless.sh`: every payload file needs a placement rule there (an uncovered file stops it); `backends/cachyos/iso/tests/installer-stage.sh` is the parity test.
 
 ## Never commit
 

@@ -1,0 +1,7 @@
+# Packages the LIVE image needs that upstream's packages_desktop.x86_64 does not have. These are asked of the ISO build
+# (overlay/packages.add) by the lead; this file only makes check-packages.py verify the names. One name per line.
+#
+# kdialog: calamares-online.sh runs from a desktop icon, so it has no terminal to print to. It reports failures with
+#          kdialog when present (then zenity, then notify-send, which the live image has through libnotify). The live image
+#          has none of kdialog / zenity (var/lib/pacman/local of the built demo ISO).
+kdialog

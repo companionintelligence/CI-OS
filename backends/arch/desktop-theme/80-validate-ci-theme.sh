@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# CI OS Theme Validation for Arch Linux / GNOME Shell (read-only checks).
+# Companion OS Theme Validation for Arch Linux / GNOME Shell (read-only checks).
 #
 # Adapted from backends/fedora/desktop-theme/80-validate-ci-theme.sh (compared
 # side by side): the Plymouth/brand-asset checks are kept as-is (shared
@@ -39,24 +39,25 @@ PASS_COUNT=0
 FAIL_COUNT=0
 WARN_COUNT=0
 
+# Not ((COUNT++)): that returns status 1 while COUNT is 0, and set -e then ended the script at its first check.
 check_pass() {
     log_success "$1"
-    ((PASS_COUNT++))
+    PASS_COUNT=$((PASS_COUNT + 1))
 }
 
 check_fail() {
     log_error "$1"
-    ((FAIL_COUNT++))
+    FAIL_COUNT=$((FAIL_COUNT + 1))
 }
 
 check_warn() {
     log_warn "$1"
-    ((WARN_COUNT++))
+    WARN_COUNT=$((WARN_COUNT + 1))
 }
 
 echo ""
 echo "=========================================="
-echo " CI OS Theme Validation (Arch / GNOME)"
+echo " Companion OS Theme Validation (Arch / GNOME)"
 echo "=========================================="
 echo ""
 
@@ -107,10 +108,10 @@ if [[ "$GRUB_IN_USE" -eq 1 ]]; then
     else
         check_pass "GRUB_TERMINAL not forced to console (background can render)"
     fi
-    if grep -qE '^GRUB_DISTRIBUTOR="CI OS"' /etc/default/grub 2>/dev/null; then
-        check_pass "GRUB_DISTRIBUTOR set to CI OS"
+    if grep -qE '^GRUB_DISTRIBUTOR="Companion OS"' /etc/default/grub 2>/dev/null; then
+        check_pass "GRUB_DISTRIBUTOR set to Companion OS"
     else
-        check_warn "GRUB_DISTRIBUTOR not set to CI OS"
+        check_warn "GRUB_DISTRIBUTOR not set to Companion OS"
     fi
 elif command -v bootctl >/dev/null 2>&1 && bootctl status 2>/dev/null | grep -qi 'systemd-boot'; then
     check_pass "systemd-boot detected — no GRUB boot menu on this system, GRUB checks intentionally skipped (see 15-grub-theme.sh's header; no systemd-boot theming is implemented in this pass)"
@@ -207,9 +208,9 @@ fi
 log_info "Checking wallpaper..."
 
 if [[ -f "/usr/share/backgrounds/ci-os-wallpaper.png" ]]; then
-    check_pass "CI OS wallpaper installed"
+    check_pass "Companion OS wallpaper installed"
 else
-    check_warn "CI OS wallpaper not found at /usr/share/backgrounds/ci-os-wallpaper.png"
+    check_warn "Companion OS wallpaper not found at /usr/share/backgrounds/ci-os-wallpaper.png"
 fi
 
 # Check 7: MOTD (Message of the Day) — shared render-motd.sh, same as
@@ -219,15 +220,15 @@ fi
 # fails, same as Fedora's check.
 log_info "Checking MOTD configuration..."
 
-if [[ -f "/etc/update-motd.d/00-ci-header" ]]; then
-    if grep -q "CI OS" /etc/update-motd.d/00-ci-header 2>/dev/null; then
-        check_pass "CI OS MOTD header file exists"
+if [[ -f "/etc/update-motd.d/00-ci-os-header" ]]; then
+    if grep -q "Companion OS" /etc/update-motd.d/00-ci-os-header 2>/dev/null; then
+        check_pass "Companion OS MOTD header file exists"
     else
         check_warn "MOTD header exists but may not have CI branding"
     fi
     check_warn "Whether Arch's stock SSH/login actually renders /etc/update-motd.d content was not verified for this backend — confirm at an actual login before relying on it"
 else
-    check_warn "CI OS MOTD header not found"
+    check_warn "Companion OS MOTD header not found"
 fi
 
 # Check 8: Brand Assets (fully portable — kept as-is)

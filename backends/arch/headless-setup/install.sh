@@ -81,7 +81,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-export REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+export REPO_ROOT
 # shellcheck source=../../../core/lib/theme-lib.sh
 source "$REPO_ROOT/core/lib/theme-lib.sh"
 require_root
@@ -111,6 +112,7 @@ REQUIRED_FILES=(
   "usr/local/bin/setup-device-prescan.py"
   "usr/share/setup-device/defaults/hostapd-setup.conf"
   "usr/share/setup-device/defaults/setup-portal.conf"
+  "usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg"
   "var/www/setup-portal/index.html"
 )
 
@@ -148,7 +150,9 @@ log_success "All required payload files present"
 # (Arch's own naming convention, unlike Fedora's "NetworkManager" package
 # name) — but the systemd UNIT it ships keeps upstream's own capitalization,
 # NetworkManager.service, which is what gets enabled below.
-ARCH_DEPS=(hostapd dnsmasq nginx python python-flask gunicorn networkmanager)
+# iw: AP-capability check, regulatory-domain query and the pre-scan; iproute2 (ip, ss): AP address and port check;
+# util-linux: flock (one hotspot start at a time) and rfkill. nftables is not needed: no firewall rule is added.
+ARCH_DEPS=(hostapd dnsmasq nginx python python-flask gunicorn networkmanager iw iproute2 util-linux)
 
 if ! command -v pacman >/dev/null 2>&1; then
   log_error "pacman not found — this installer is Arch/pacman-specific"
@@ -172,6 +176,13 @@ chmod 644 /usr/lib/ci-os/gpu-detect.sh
 cp -r "$PAYLOAD_DIR/usr/share/setup-device/defaults/." /usr/share/setup-device/defaults/
 if [[ -d "$PAYLOAD_DIR/usr/share/applications" ]]; then
   cp -r "$PAYLOAD_DIR/usr/share/applications/." /usr/share/applications/
+fi
+# The launcher entry above names the ci-os-logo icon: ship it, or the entry shows a missing-icon placeholder.
+# GTK trusts icon-theme.cache over the directory, so refresh the cache where the tool exists.
+mkdir -p /usr/share/icons/hicolor/scalable/apps
+cp -r "$PAYLOAD_DIR/usr/share/icons/hicolor/scalable/apps/." /usr/share/icons/hicolor/scalable/apps/
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -f -t /usr/share/icons/hicolor 2>/dev/null || true
 fi
 cp -r "$PAYLOAD_DIR/var/www/setup-portal/." /var/www/setup-portal/
 cp -r "$PAYLOAD_DIR/systemd/system/." /etc/systemd/system/
@@ -252,11 +263,32 @@ log_info "Reloading systemd daemon..."
 systemctl daemon-reload
 
 log_info "Enabling services for boot-time startup..."
-systemctl enable hostapd-setup.service 2>/dev/null || true
-systemctl enable dnsmasq-setup.service 2>/dev/null || true
-systemctl enable nginx.service 2>/dev/null || true
 systemctl enable setup-backend.service 2>/dev/null || true
 systemctl enable setup-network-monitor.service 2>/dev/null || true
+
+# NOT enabled: hostapd-setup, dnsmasq-setup and nginx. setup-device-hotspot-start.sh starts all three, by name, when the
+# monitor finds no connectivity, and stops them again when the hotspot episode ends. Enabled at boot they would run an
+# access point on every start (the static config names one board's interface and the committed passphrase) and open
+# port 80 with the setup API behind it on every network the machine joins. A re-run over an older install may find them
+# enabled: turn that off.
+systemctl disable hostapd-setup.service 2>/dev/null || true
+systemctl disable dnsmasq-setup.service 2>/dev/null || true
+
+# nginx is on demand too - unless it serves anything besides the portal on this machine.
+nginx_serves_only_the_portal() {
+  local site
+  for site in /etc/nginx/conf.d/*.conf; do
+    [[ -e "$site" ]] || continue
+    [[ "$(basename "$site")" == setup-portal.conf ]] || return 1
+  done
+  return 0
+}
+if nginx_serves_only_the_portal; then
+  systemctl disable nginx.service 2>/dev/null || true
+  systemctl stop nginx.service 2>/dev/null || true
+else
+  log_warn "nginx serves other sites on this machine; leaving it enabled. The setup portal is served by it too while it runs (the /api/ location only answers the setup network and this machine)."
+fi
 # NetworkManager: pacman never auto-enables services it installs (see
 # backends/arch/provision/provision.sh's header for the same convention) —
 # the payload's own scripts talk to it via nmcli, so it must be running.
@@ -266,14 +298,9 @@ systemctl enable --now NetworkManager.service 2>/dev/null || log_warn "Could not
 # there's no connectivity.
 rm -f /var/lib/setup-device/setup-complete
 
-log_info "Validating nginx configuration..."
+log_info "Validating nginx configuration (nginx itself is started on demand by the hotspot script)..."
 if nginx -t; then
   log_success "nginx configuration is valid"
-  if systemctl start nginx.service; then
-    log_success "nginx service started"
-  else
-    log_warn "Failed to start nginx.service — portal UI may be unavailable until fixed"
-  fi
 else
   log_warn "nginx configuration test failed — portal UI may be unavailable until /etc/nginx/conf.d/setup-portal.conf is fixed"
 fi
@@ -294,5 +321,5 @@ fi
 
 echo ""
 log_success "Arch headless setup-device install complete"
-log_info "hostapd-setup/dnsmasq-setup only start once setup-network-monitor detects no connectivity"
+log_info "hostapd-setup, dnsmasq-setup and nginx are not enabled: setup-device-hotspot-start.sh starts them when setup-network-monitor detects no connectivity, and stops them when the episode ends"
 log_info "Known gaps: no real pacman packaging (see header), no SELinux/firewalld equivalent handling needed but also no iptables/nftables port-opening attempted, nginx default_server neutralization unverified on a live box"

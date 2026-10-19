@@ -1,0 +1,14 @@
+# /etc/ci-os/models.conf: settings of the model tooling (ci-os-models). key=value, '#' comments, never sourced.
+# Copy to /etc/ci-os/models.conf to use. Every key is optional.
+
+# Background prefetch (off unless the file /etc/ci-os/models-prefetch also exists):
+#pack=stick-128            # the pack to fill, from core/manifest/model-packs.yaml; only models this machine can run
+#limit_rate=5MiB/s         # ci-stick --max-bytes-per-sec: 5MiB/s, 500KB or bytes (no single letters: K, M are ambiguous);
+                           # 0 = no limit. A background download without a limit is refused unless this says 0
+#assume_unmetered=0        # 1 = also run when NetworkManager cannot tell whether the link is metered
+#accept_licenses=0         # 1 = tell ci-stick to accept the licences of the pack's models (read them first)
+
+# Consumers:
+#set_hf_home=0             # 1 = also export HF_HOME (the view root). Off by default: HF_HOME also decides where
+                           # a Hugging Face login token is stored
+#offline=auto              # HF_HUB_OFFLINE: 1 = always, 0 = never, auto (default) = while there is no default route

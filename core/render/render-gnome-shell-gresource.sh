@@ -1,20 +1,35 @@
 #!/usr/bin/env bash
 # Rebrand a GNOME Shell theme's compiled gresource: extract, swap widget/logo
 # SVGs, recolor accent hexes via a caller-supplied Perl substitution file, and
-# recompile. Distro-portable mechanic — the source theme (Yaru on Ubuntu/Mint,
-# Adwaita on Fedora, ...) and its color-remap table are caller-supplied data,
-# not hardcoded here. See docs/architecture/multi-distro-design.md.
+# recompile. Distro-portable mechanic — the source theme (Yaru on Ubuntu)
+# and its color-remap table are caller-supplied data, not hardcoded here. See docs/architecture/multi-distro-design.md.
 #
 # Promoted from backends/ubuntu/iso/scripts/build-gdm-branding-gresource.sh,
 # which originally hardcoded "Yaru" and a Yaru-specific color table together
 # in one script. Ubuntu's script is now a thin caller passing THEME_NAME=Yaru
-# and its own color-map file; Fedora's does the same with THEME_NAME=Adwaita.
+# and its own color-map file (it is the only caller today).
+#
+# WHERE THE SOURCE THEME COMES FROM MATTERS. A gresource is compiled against one release of the theme: the Yaru of
+# an earlier Ubuntu release has other resources than the Yaru of Ubuntu 26.04 (the blob built from the previous release's
+# Yaru was 5.9 MB, the 26.04 one is 1.3 MB), and
+# a blob built from the wrong one is wrong for the GNOME Shell it ships with. Before 2026-10-17 the script read the
+# BUILD HOST's /usr/share/gnome-shell/theme/Yaru, whatever the host was. It now refuses a source it cannot identify as
+# Ubuntu 26.04's (SOURCE_REQUIRE_OS_VERSION_ID, default 26.04) and, for Yaru, a yaru-theme-gnome-shell package that is not
+# a 26.04 one (SOURCE_PACKAGE_VERSION_REGEX, default ^26\.04\.). Two ways to give it a source it can identify:
+#   SOURCE_ROOTFS=/path/to/rootfs   a root filesystem (the base ISO's extracted layers, a debootstrap, a `dpkg -x` tree
+#                                   with etc/os-release and var/lib/dpkg/status): the theme and the identity are read from it
+#   (nothing)                       the running system: its /etc/os-release and dpkg database must say Ubuntu 26.04
+# so the tracked blob can be rebuilt from the base ISO's own yaru-theme-gnome-shell files, or inside an ubuntu:26.04
+# container, and not from an arbitrary host. The identity of what was used (os-release, package and version, size and sha256
+# of the source) is printed in a [PROVENANCE] block and also written to PROVENANCE_FILE when that is set.
 #
 # Usage (all via env vars, matching the original script's convention):
 #   THEME_NAME=Yaru \
 #   COLOR_MAP_FILE=/path/to/yaru-color-map.pl \
 #   ACCENT_PRIMARY=#c5e8dc ACCENT_SECONDARY=#0a6358 \
 #   ACCENT_PRIMARY_RGB=197,232,220 ACCENT_SECONDARY_RGB=10,99,88 \
+#   SOURCE_ROOTFS=/path/to/ubuntu-26.04-rootfs \
+#   PROVENANCE_FILE=/path/to/provenance.txt \
 #   OUTPUT_GRESOURCE=/path/to/output.gresource \
 #   THEME_ASSETS_DIR="/path/to/package theme assets" \
 #   LOGO_BANNER_FILE=/path/to/logo-banner.svg \
@@ -38,8 +53,21 @@ set -euo pipefail
 : "${ACCENT_PRIMARY_RGB:?ACCENT_PRIMARY_RGB is required}"
 : "${ACCENT_SECONDARY_RGB:?ACCENT_SECONDARY_RGB is required}"
 
-SOURCE_GRESOURCE="${SOURCE_GRESOURCE:-/usr/share/gnome-shell/theme/${THEME_NAME}/gnome-shell-theme.gresource}"
-SOURCE_XML="${SOURCE_XML:-/usr/share/gnome-shell/theme/${THEME_NAME}/gnome-shell-theme.gresource.xml}"
+# SOURCE_ROOTFS: where the source theme and its identity are read from; "/" (the running system) when not set.
+SOURCE_ROOTFS="${SOURCE_ROOTFS:-}"
+_src_root="${SOURCE_ROOTFS%/}"
+SOURCE_GRESOURCE="${SOURCE_GRESOURCE:-${_src_root}/usr/share/gnome-shell/theme/${THEME_NAME}/gnome-shell-theme.gresource}"
+SOURCE_XML="${SOURCE_XML:-${_src_root}/usr/share/gnome-shell/theme/${THEME_NAME}/gnome-shell-theme.gresource.xml}"
+# The identity the source must have. Unset means Ubuntu 26.04 and (for Yaru) a 26.04 yaru-theme-gnome-shell; set to an
+# empty string to turn a check off (then the [PROVENANCE] block says "not checked").
+SOURCE_REQUIRE_OS_VERSION_ID="${SOURCE_REQUIRE_OS_VERSION_ID-26.04}"
+if [[ "$THEME_NAME" == "Yaru" ]]; then
+    SOURCE_PACKAGE="${SOURCE_PACKAGE-yaru-theme-gnome-shell}"
+    SOURCE_PACKAGE_VERSION_REGEX="${SOURCE_PACKAGE_VERSION_REGEX-^26\\.04\\.}"
+else
+    SOURCE_PACKAGE="${SOURCE_PACKAGE-}"
+    SOURCE_PACKAGE_VERSION_REGEX="${SOURCE_PACKAGE_VERSION_REGEX-}"
+fi
 
 require_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
@@ -54,9 +82,58 @@ require_cmd perl
 
 if [[ ! -f "$SOURCE_GRESOURCE" ]]; then
     echo "[ERROR] Source gresource not found: $SOURCE_GRESOURCE"
-    echo "[HINT] Install the ${THEME_NAME} GNOME Shell theme package on the build host first."
+    echo "[HINT] Install the ${THEME_NAME} GNOME Shell theme package on the build host first, or point SOURCE_ROOTFS at the base image's rootfs."
     exit 1
 fi
+
+# --- who made the source theme: refuse anything that is not what the blob is meant to be built from ---------------------
+os_value() { # os_value <KEY>: the value of KEY in the source system's os-release (usr/lib first: etc/os-release is a symlink to it)
+    local f key="$1" v
+    for f in "${_src_root}/usr/lib/os-release" "${_src_root}/etc/os-release"; do
+        [[ -f "$f" ]] || continue
+        v="$(sed -n "s/^${key}=//p" "$f" | head -n 1 | tr -d '"')"
+        if [[ -n "$v" ]]; then printf '%s' "$v"; return 0; fi
+    done
+    return 1
+}
+package_version() { # package_version <name>: the installed version in the source system's dpkg database, or nothing
+    local name="$1" status_file
+    if [[ -n "$_src_root" ]]; then status_file="${_src_root}/var/lib/dpkg/status"; else status_file=/var/lib/dpkg/status; fi
+    [[ -f "$status_file" ]] || return 1
+    awk -v pkg="$name" 'BEGIN { RS = ""; FS = "\n" }
+        { ok = 0; ver = ""; inst = 0
+          for (i = 1; i <= NF; i++) {
+              if ($i == "Package: " pkg) ok = 1
+              if (index($i, "Version: ") == 1) ver = substr($i, 10)
+              if ($i == "Status: install ok installed") inst = 1
+          }
+          if (ok && inst && ver != "") { print ver; exit } }' "$status_file"
+}
+src_name="the running system"; [[ -n "$_src_root" ]] && src_name="$_src_root"
+src_os_id="$(os_value ID || true)"; src_os_version="$(os_value VERSION_ID || true)"; src_os_codename="$(os_value UBUNTU_CODENAME || os_value VERSION_CODENAME || true)"
+if [[ -n "$SOURCE_REQUIRE_OS_VERSION_ID" && "$src_os_version" != "$SOURCE_REQUIRE_OS_VERSION_ID" ]]; then
+    echo "[ERROR] The source theme comes from ${src_name}, which says it is ${src_os_id:-?} ${src_os_version:-(no os-release)} (${src_os_codename:-?}); the gresource is built from Ubuntu ${SOURCE_REQUIRE_OS_VERSION_ID} only."
+    echo "[HINT] Run this inside an ubuntu:${SOURCE_REQUIRE_OS_VERSION_ID} container, or set SOURCE_ROOTFS to the extracted ubuntu-${SOURCE_REQUIRE_OS_VERSION_ID} base image."
+    exit 1
+fi
+src_pkg_version=""
+if [[ -n "$SOURCE_PACKAGE" ]]; then
+    src_pkg_version="$(package_version "$SOURCE_PACKAGE" || true)"
+    if [[ -z "$src_pkg_version" ]]; then
+        echo "[ERROR] ${src_name} has no installed package ${SOURCE_PACKAGE} in its dpkg database, so the source theme cannot be identified."
+        exit 1
+    fi
+    if [[ -n "$SOURCE_PACKAGE_VERSION_REGEX" ]] && ! [[ "$src_pkg_version" =~ $SOURCE_PACKAGE_VERSION_REGEX ]]; then
+        echo "[ERROR] ${SOURCE_PACKAGE} ${src_pkg_version} in ${src_name} does not match ${SOURCE_PACKAGE_VERSION_REGEX}: not the theme this blob is built from."
+        exit 1
+    fi
+fi
+sha256_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+PROVENANCE_TEXT="[PROVENANCE] gresource source: ${src_name}
+[PROVENANCE]   os-release: ${src_os_id:-?} ${src_os_version:-?} (${src_os_codename:-?})$([[ -z "$SOURCE_REQUIRE_OS_VERSION_ID" ]] && echo ' [release not checked]')
+[PROVENANCE]   package: ${SOURCE_PACKAGE:-none} ${src_pkg_version:-}$([[ -z "$SOURCE_PACKAGE_VERSION_REGEX" ]] && echo ' [version not checked]')
+[PROVENANCE]   source file: ${SOURCE_GRESOURCE#"${_src_root}"} $(wc -c < "$SOURCE_GRESOURCE" | tr -d ' ') bytes, sha256 $(sha256_of "$SOURCE_GRESOURCE")"
+printf '%s\n' "$PROVENANCE_TEXT"
 
 if [[ ! -f "$COLOR_MAP_FILE" ]]; then
     echo "[ERROR] COLOR_MAP_FILE not found: $COLOR_MAP_FILE"
@@ -65,7 +142,8 @@ fi
 
 if [[ ! -f "$SOURCE_XML" ]]; then
     echo "[*] SOURCE_XML not found on disk; auto-generating from gresource binary..."
-    _gen_xml="$(mktemp --suffix=.xml)"
+    _gen_xml="$(mktemp "${TMPDIR:-/tmp}/ci-gresource-xml.XXXXXX")"
+    GENERATED_XML="$_gen_xml"
     THEME_NAME="$THEME_NAME" python3 - "$SOURCE_GRESOURCE" "$_gen_xml" <<'PYEOF'
 import os, subprocess, sys
 from collections import defaultdict
@@ -117,6 +195,7 @@ fi
 tmp_dir="$(mktemp -d)"
 cleanup() {
     rm -rf "$tmp_dir"
+    if [[ -n "${GENERATED_XML:-}" ]]; then rm -f "$GENERATED_XML"; fi
 }
 trap cleanup EXIT
 
@@ -252,3 +331,10 @@ glib-compile-resources \
     "$work_theme_dir/gnome-shell-theme.gresource.xml"
 
 echo "[+] Branded gresource built: $OUTPUT_GRESOURCE"
+PROVENANCE_TEXT="${PROVENANCE_TEXT}
+[PROVENANCE] output: $(wc -c < "$OUTPUT_GRESOURCE" | tr -d ' ') bytes, sha256 $(sha256_of "$OUTPUT_GRESOURCE")"
+printf '%s\n' "$PROVENANCE_TEXT" | tail -n 1
+if [[ -n "${PROVENANCE_FILE:-}" ]]; then
+    printf '%s\n' "$PROVENANCE_TEXT" | sed 's/^\[PROVENANCE\] //' > "$PROVENANCE_FILE"
+    echo "[+] Provenance written: $PROVENANCE_FILE"
+fi

@@ -32,6 +32,10 @@ dev_tools:
     tier: core
     role: containerization
     services: [docker]
+    # Docker CE + compose/buildx plugins are baked into the Ubuntu ISO (customize-chroot.sh Step 10d), the live
+    # user and the installer-created administrator are in the docker group, and Docker runs in live sessions
+    # (docs/architecture/docker-in-live-sessions.md).
+    baked_in_iso: true
   - id: uv
     tier: core
     installer: {method: curl_script, url: "https://astral.sh/uv/install.sh"}
@@ -54,14 +58,20 @@ dev_tools:
       required"). No component in this repo requires Bun at build or run
       time — CI-Hub ships as a prebuilt Docker image, and there is no
       bun.lockb/bunfig.toml anywhere in-tree.
+  # gh, cloudflared, tailscale, Ollama (llm below) and the Companion Launcher are baked into the Ubuntu ISO
+  # with pinned key fingerprints / sha256 (customize-chroot.sh Step 10e, core/manifest/tier-b-pins.env,
+  # docs/architecture/tier-b-tools.md). provision.sh finds them installed and skips them.
   - id: gh
     tier: core
+    baked_in_iso: true
   - id: cloudflared
     tier: core
+    baked_in_iso: true
   - id: vscode
     tier: extended
   - id: tailscale
     tier: core
+    baked_in_iso: true
   - id: chromium
     tier: extended
   - id: telemetry_removal
@@ -82,6 +92,8 @@ llm:
   # The one thing that was already consistent across every entrypoint before
   # this manifest existed — preserved verbatim as the canonical list.
   models: [nomic-embed-text, "gemma3:1b", "qwen3.6:27b"]
+  # The Ollama runtime itself is baked into the Ubuntu ISO (pinned release tarball, Step 10e); the models are not.
+  # Companion Stick models live on the stick's CI-CACHE volume: core/manifest/model-packs.yaml (stick-128 packs).
 
 ecosystem:
   ci_hub:
@@ -109,8 +121,21 @@ ecosystem:
       Renamed from "Companion Hub Desktop" to resolve the 3-way "Hub" naming
       collision (see docs/architecture/multi-distro-design.md). A native/
       Electron GUI launcher app, unrelated to the ci_hub backend above beyond
-      opening a browser tab to it.
-    installer: {method: external_deb, source: "https://dl.ci.computer"}
+      opening a browser tab to it. Debian package and Linux binary are both
+      `companion-hub` (they were `ci-os-hub-desktop` up to release v0.1.4).
+      The Ubuntu ISO bakes the release pinned in core/manifest/tier-b-pins.env.
+    installer: {method: external_deb, source: "https://dl.ci.computer", package: companion-hub, binary: companion-hub}
+    baked_in_iso: true
+  companion_capture:
+    tier: extended
+    display_name: "Companion Capture"
+    note: >-
+      The Capture layer's tray app (screen, activity and file capture, streamed to the user's CI-Server). Baked into the
+      Ubuntu ISO as a pinned .deb (core/manifest/tier-b-pins.env, CAPTURE_*) and pinned in the dock. Its release is on a
+      private GitHub repository, so the ISO build takes the file from its cache or from `gh release download`. It records the
+      screen, so nothing starts it for the user: no autostart, no service. Pre-release (0.2.0-alpha.7).
+    installer: {method: external_deb, source: "https://github.com/companionintelligence/CI-Capture/releases", package: companion-capture, binary: companion-capture}
+    baked_in_iso: true
   ci_server:
     tier: reserved
     implemented_here: false

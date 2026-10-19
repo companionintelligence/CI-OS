@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Install Companion OS (automatic)
+GenericName=One-click installer
+Comment=Erase the internal disk and install Companion OS with no questions
+Exec=/usr/libexec/ci-os/ci-os-auto-install
+Icon=ci-os-logo
+Terminal=false
+Categories=System;
+StartupNotify=true

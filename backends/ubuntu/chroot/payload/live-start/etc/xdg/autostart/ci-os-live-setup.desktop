@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Companion OS live session setup
+Comment=Puts the automatic installer on the desktop of a live session (does nothing on an installed system)
+Exec=/usr/libexec/ci-os/ci-os-auto-install --live-setup
+OnlyShowIn=GNOME;
+NoDisplay=true
+X-GNOME-Autostart-enabled=true

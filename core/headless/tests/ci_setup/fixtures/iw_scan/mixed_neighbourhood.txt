@@ -1,0 +1,247 @@
+BSS aa:bb:cc:00:00:01(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2437
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -71.00 dBm
+	last seen: 120 ms ago
+	SSID: HomeNet
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	DS Parameter set: channel 6
+	Country: DE	Environment: Indoor/Outdoor
+		Channels [1 - 13] @ 20 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC (0x000c)
+	BSS Load:
+		 * station count: 3
+	HT capabilities:
+		Capabilities: 0x19ef
+			RX LDPC
+			HT20/HT40
+	HT operation:
+		 * primary channel: 6
+		 * secondary channel offset: no secondary
+		 * STA channel width: 20 MHz
+BSS aa:bb:cc:00:00:02(on wlan0) -- associated
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 5180
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -48.00 dBm
+	last seen: 120 ms ago
+	SSID: HomeNet
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	Country: DE	Environment: Indoor/Outdoor
+		Channels [1 - 13] @ 20 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC (0x000c)
+BSS aa:bb:cc:00:00:03(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2412
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -60.00 dBm
+	last seen: 120 ms ago
+	SSID: TransitionNet
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	DS Parameter set: channel 1
+	Country: DE	Environment: Indoor/Outdoor
+		Channels [1 - 13] @ 20 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK SAE
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC MFP-required MFP-capable (0x00cc)
+BSS aa:bb:cc:00:00:04(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 5200
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -58.00 dBm
+	last seen: 120 ms ago
+	SSID: Wpa3Only
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	Country: DE	Environment: Indoor/Outdoor
+		Channels [1 - 13] @ 20 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: SAE
+		 * Capabilities: 1-PTKSA-RC 1-GTKSA-RC MFP-required MFP-capable (0x00cc)
+BSS aa:bb:cc:00:00:05(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2462
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -67.00 dBm
+	last seen: 120 ms ago
+	SSID: CafeOWE
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	Country: DE	Environment: Indoor/Outdoor
+		Channels [1 - 13] @ 20 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: OWE
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC (0x000c)
+BSS aa:bb:cc:00:00:06(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2437
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -55.00 dBm
+	last seen: 120 ms ago
+	SSID: CorpWifi
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	Country: DE	Environment: Indoor/Outdoor
+		Channels [1 - 13] @ 20 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: IEEE 802.1X
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC (0x000c)
+BSS aa:bb:cc:00:00:07(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2412
+	beacon interval: 100 TUs
+	capability: ESS ShortSlotTime (0x0401)
+	signal: -73.00 dBm
+	last seen: 120 ms ago
+	SSID: OpenGuest
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	Country: US	Environment: Indoor/Outdoor
+		Channels [1 - 11] @ 30 dBm
+BSS aa:bb:cc:00:00:08(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2447
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -80.00 dBm
+	last seen: 120 ms ago
+	SSID: OldWEP
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	DS Parameter set: channel 8
+BSS aa:bb:cc:00:00:09(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2437
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -62.00 dBm
+	last seen: 120 ms ago
+	SSID: 
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	Country: DE	Environment: Indoor/Outdoor
+		Channels [1 - 13] @ 20 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC (0x000c)
+BSS aa:bb:cc:00:00:0a(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2437
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -63.00 dBm
+	last seen: 120 ms ago
+	SSID: \x00\x00\x00\x00
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	Country: DE	Environment: Indoor/Outdoor
+		Channels [1 - 13] @ 20 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC (0x000c)
+BSS aa:bb:cc:00:00:0b(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2457
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -75.00 dBm
+	last seen: 120 ms ago
+	SSID: Caf\xc3\xa9 Bar
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	Country: DE	Environment: Indoor/Outdoor
+		Channels [1 - 13] @ 20 dBm
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC (0x000c)
+BSS aa:bb:cc:00:00:0c(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2457
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -76.00 dBm
+	last seen: 120 ms ago
+	SSID: bad\xff\xfename
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC (0x000c)
+BSS aa:bb:cc:00:00:0d(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 2422
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -77.00 dBm
+	last seen: 120 ms ago
+	SSID: evil\x0a\x09freq: 9999\x0aSSID: forged
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: PSK
+		 * Capabilities: 16-PTKSA-RC 1-GTKSA-RC (0x000c)
+BSS aa:bb:cc:00:00:0e(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 5745
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -82.00 dBm
+	last seen: 120 ms ago
+	SSID: WpaOne
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	WPA:	 * Version: 1
+		 * Group cipher: TKIP
+		 * Pairwise ciphers: TKIP CCMP
+		 * Authentication suites: PSK
+BSS aa:bb:cc:00:00:0f(on wlan0)
+	last seen: 1234.567s [boottime]
+	TSF: 123456789012 usec (1d, 10:17:36)
+	freq: 5955
+	beacon interval: 100 TUs
+	capability: ESS Privacy ShortSlotTime (0x0411)
+	signal: -70.00 dBm
+	last seen: 120 ms ago
+	SSID: SixGig
+	Supported rates: 6.0* 9.0 12.0* 18.0 24.0* 36.0 48.0 54.0
+	RSN:	 * Version: 1
+		 * Group cipher: CCMP
+		 * Pairwise ciphers: CCMP
+		 * Authentication suites: SAE
+		 * Capabilities: 1-PTKSA-RC 1-GTKSA-RC MFP-required MFP-capable (0x00cc)

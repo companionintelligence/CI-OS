@@ -1,0 +1,24 @@
+# The dock (the left GNOME bar) of Companion OS on Ubuntu: one desktop-file id per line, in dock order.
+# customize-chroot.sh turns this list into /etc/dconf/db/local.d/02-ci-os-dock; verify-iso.sh checks the built image against it.
+# A user's own choices (a pin or unpin in the dock) still win over this default.
+#
+# GNOME hides a favourite whose application is not installed, so a line for something absent is harmless.
+# The live session adds "Install Companion OS (automatic)" in front of this list at login (ci-os-auto-install --live-setup).
+#
+# Removed from Ubuntu's default dock: Firefox, Thunderbird, LibreOffice Writer, App Center, Help.
+
+# Live session only: Canonical's installer. An installed system has no installer snap, so GNOME hides this line there.
+ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop
+
+# Companion apps. Companion Hub comes from the companion-hub .deb (its desktop file really has a space in its name).
+# Companion Docs is a link (start-links.txt): the live session has no desktop icons, so this is where its user finds the docs.
+Companion Hub.desktop
+companion-capture.desktop
+companion-docs.desktop
+
+org.gnome.Nautilus.desktop
+org.gnome.Rhythmbox3.desktop
+
+# Resource monitor ("Resources", package resources) and the terminal (Ptyxis, package ptyxis).
+net.nokyan.Resources.desktop
+org.gnome.Ptyxis.desktop

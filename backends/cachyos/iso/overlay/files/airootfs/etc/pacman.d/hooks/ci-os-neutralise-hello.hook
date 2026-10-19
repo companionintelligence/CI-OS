@@ -1,0 +1,32 @@
+# remove from airootfs!
+# Build-time hook of the Companion OS live ISO (upstream's zzzz99-remove-custom-hooks-from-airootfs.hook deletes every file
+# in this directory that contains the marker phrase on the first line, once the packages are installed; the phrase must stay).
+#
+# cachyos-hello is the installer launcher upstream: it autostarts from the user skeleton, shows CachyOS' welcome window,
+# gates the installation on https://cachyos.org/versions.json and on cachyos.org being reachable, and only then runs
+# /usr/local/bin/calamares-online.sh. Companion OS starts that script itself (usr/share/applications/ci-os-install.desktop), so
+# the window and its gate must not appear. Two files of the package are changed after the package is installed:
+#   /etc/skel/.config/autostart/cachyos-hello.desktop   deleted. mkarchiso copies /etc/skel into /home/liveuser AFTER pacstrap
+#                                                       (mkarchiso _make_customize_airootfs), so the live user never gets it.
+#   /usr/share/applications/cachyos-hello.desktop       NoDisplay=true: no "CachyOS Hello" entry in the application menu.
+# Both paths belong to the package (var/lib/pacman/local/cachyos-hello-0.28.1-1/files), so an airootfs copy would abort pacstrap
+# with "exists in filesystem"; editing after the transaction is the pattern upstream's own 90-cachyos-live-kwin-keyboard.hook uses.
+# The sed pattern uses bracket expressions ([[] and []]) instead of backslash escapes: pacman's hook parser consumes one level of
+# backslashes inside the double-quoted Exec string, so '\\[' reached sed as a literal backslash and the NoDisplay line was never
+# inserted (found by verify-iso.sh on the first full build; tested with real pacman by iso/tests/overlay-hook-pacman.sh).
+# Not touched: the package itself and the org.cachyos.hello icon, which the stock Plasma panel layout still names (the identity
+# hook zz-ci-os-skel replaces that icon in the skeleton). If cachyos-hello is ever dropped from the package list, this hook
+# simply never fires.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Type = Package
+Target = cachyos-hello
+
+[Action]
+Description = Hiding CachyOS Hello in the live environment (Companion OS installs through its own launcher)...
+When = PostTransaction
+Depends = sh
+Depends = coreutils
+Depends = sed
+Exec = /usr/bin/sh -c "rm -f /etc/skel/.config/autostart/cachyos-hello.desktop; if [ -f /usr/share/applications/cachyos-hello.desktop ]; then sed -i -e '/^NoDisplay=/d' -e '/^[[]Desktop Entry[]]/a NoDisplay=true' /usr/share/applications/cachyos-hello.desktop; fi"

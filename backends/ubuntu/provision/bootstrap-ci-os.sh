@@ -21,7 +21,7 @@
 #
 # Options:
 #   --no-headless   Skip headless WiFi setup (captive portal)
-#   --no-rebrand    Skip CI OS branding (Plymouth, wallpaper, Chromium, etc.)
+#   --no-rebrand    Skip Companion OS branding (Plymouth, wallpaper, Chromium, etc.)
 #   --no-reboot     Do not prompt for reboot at end
 #   --yes, -y       Non-interactive: skip all prompts, do not reboot
 #
@@ -36,7 +36,7 @@
 # Recoverable: Re-run after any failure. Steps are idempotent; use --no-headless
 # or --no-rebrand to skip completed parts.
 #
-# Requires: Ubuntu 24.04 (or compatible), root/sudo
+# Requires: Ubuntu 26.04 LTS, root/sudo
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
@@ -83,7 +83,7 @@ cd "$REPO_ROOT"
 
 # Pre-flight: ensure critical assets exist (fail early with clear message)
 if [[ $DO_REBRAND -eq 1 ]]; then
-    for f in "core/render/inputs/Logo_Banner_Color.png" "core/render/inputs/background.png" "core/render/inputs/LogoMark_Color_StartIcon-cropped.svg"; do
+    for f in "core/render/inputs/Logo_Banner_Color.png" "core/render/inputs/background.png" "vendor/brand/logos/mark-mono.svg"; do
         if [[ ! -f "$REPO_ROOT/$f" ]]; then
             log_error "Missing asset: $f"
             log_info "Ensure the repo is complete (e.g. full git clone, not partial download)"
@@ -111,7 +111,7 @@ echo ""
 log_info "Repo root: $REPO_ROOT"
 log_info "Will run:"
 log_info "  ✓ System setup (Docker, Tailscale, Ollama, Node/Bun)"
-[[ $DO_REBRAND -eq 1 ]] && log_info "  ✓ Complete CI OS rebranding"
+[[ $DO_REBRAND -eq 1 ]] && log_info "  ✓ Complete Companion OS rebranding"
 [[ $DO_HEADLESS -eq 1 ]] && log_info "  ✓ Headless device setup (WiFi captive portal) — runs last"
 echo ""
 
@@ -137,7 +137,7 @@ fi
 # 2. Complete rebranding
 #-----------------------------------------------------------------------------
 if [[ $DO_REBRAND -eq 1 ]]; then
-    log_header "Step 2: Complete CI OS rebranding"
+    log_header "Step 2: Complete Companion OS rebranding"
     echo ""
 
     REBRAND="$REPO_ROOT/backends/ubuntu/desktop-theme/apply-ci-os-desktop.sh"

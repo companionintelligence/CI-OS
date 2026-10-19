@@ -1,0 +1,319 @@
+{
+  "channel_plan": null,
+  "commands": {
+    "ip -j addr": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "ip -j link": {
+      "bytes": 177,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "ip -j route": {
+      "bytes": 3,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev": {
+      "bytes": 106,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw dev wlan0 link": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "iw dev wlan0 scan dump": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "iw phy phy0 info": {
+      "bytes": 6561,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "iw reg get": {
+      "bytes": 428,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "nmcli -t -f NAME,UUID,TYPE,DEVICE connection show": {
+      "bytes": 0,
+      "missing": true,
+      "rc": 127,
+      "timed_out": false
+    },
+    "nmcli networking connectivity": {
+      "bytes": 5,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    },
+    "rfkill list": {
+      "bytes": 60,
+      "missing": false,
+      "rc": 0,
+      "timed_out": false
+    }
+  },
+  "country": {
+    "code": null,
+    "confidence": "none",
+    "known": false,
+    "notes": [],
+    "self_managed": false,
+    "source": "unknown"
+  },
+  "interfaces": [
+    {
+      "bus": {
+        "bus": null,
+        "device": null,
+        "driver": null,
+        "phy": null,
+        "vendor": null
+      },
+      "channel": null,
+      "freq_mhz": null,
+      "ifindex": 3,
+      "mac": "38:11:22:33:44:55",
+      "name": "wlan0",
+      "phy": "phy0",
+      "ssid_escaped": null,
+      "ssid_hex": null,
+      "txpower_dbm": 20.0,
+      "type": "managed",
+      "wdev": "0x1",
+      "width_mhz": null
+    }
+  ],
+  "ip": {
+    "addresses": [],
+    "links": [
+      {
+        "flags": [
+          "BROADCAST",
+          "MULTICAST",
+          "UP",
+          "LOWER_UP"
+        ],
+        "has_carrier": true,
+        "ifindex": 2,
+        "is_up": true,
+        "link_type": "ether",
+        "mac": "38:11:22:33:44:55",
+        "master": null,
+        "mtu": 1500,
+        "name": "wlan0",
+        "operstate": "UP"
+      }
+    ],
+    "routes": [],
+    "uplink": null,
+    "used_ipv4_networks": []
+  },
+  "network_manager": {
+    "connectivity": "none",
+    "devices": [],
+    "wifi_profiles": []
+  },
+  "phys": {
+    "phy0": {
+      "bands": [
+        "2.4",
+        "5"
+      ],
+      "combos": [
+        {
+          "channels": 2,
+          "limits": [
+            {
+              "max": 1,
+              "types": [
+                "managed"
+              ]
+            },
+            {
+              "max": 1,
+              "types": [
+                "AP",
+                "P2P-client",
+                "P2P-GO"
+              ]
+            },
+            {
+              "max": 1,
+              "types": [
+                "P2P-device"
+              ]
+            }
+          ],
+          "radar_widths": [],
+          "sta_ap_bi_match": false,
+          "total": 3
+        }
+      ],
+      "concurrent_ap_sta": {
+        "channels": 2,
+        "sta_ap_bi_match": false,
+        "total": 3
+      },
+      "dfs_channels": {
+        "5": [
+          52,
+          56,
+          60,
+          64,
+          100,
+          104,
+          108,
+          112,
+          116,
+          120,
+          124,
+          128,
+          132,
+          136,
+          140,
+          144
+        ]
+      },
+      "index": 0,
+      "modes": [
+        "IBSS",
+        "managed",
+        "AP",
+        "AP/VLAN",
+        "monitor",
+        "P2P-client",
+        "P2P-GO",
+        "P2P-device"
+      ],
+      "name": "phy0",
+      "passive_only_channels": {
+        "2.4": [
+          12,
+          13
+        ],
+        "5": [
+          36,
+          40,
+          44,
+          48,
+          149,
+          153,
+          157,
+          161,
+          165
+        ]
+      },
+      "start_ap_command": true,
+      "supports_ap": true,
+      "supports_sae": false,
+      "usable_ap_channels": {
+        "2.4": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11
+        ]
+      }
+    }
+  },
+  "radio": {
+    "ap_iface": null,
+    "ap_phy": null,
+    "follow_uplink_mhz": null,
+    "mode": "none",
+    "needs_unblock": false,
+    "notes": [
+      "phy0 is blocked by a hardware switch"
+    ],
+    "reason": "hard_blocked",
+    "sta_iface": null,
+    "sta_phy": null
+  },
+  "regdom": [
+    {
+      "country": "00",
+      "dfs": "UNSET",
+      "phy": null,
+      "rules": 7,
+      "scope": "global",
+      "self_managed": false
+    }
+  ],
+  "rfkill": {
+    "entries": [
+      {
+        "blocked": true,
+        "device": "phy0",
+        "hard_blocked": true,
+        "id": 0,
+        "soft_blocked": true,
+        "type": "wlan"
+      }
+    ],
+    "wlan": {
+      "hard_blocked": [
+        "phy0"
+      ],
+      "present": true,
+      "soft_blocked": [
+        "phy0"
+      ]
+    }
+  },
+  "scan": {
+    "count": 0,
+    "countries": {},
+    "networks": [],
+    "survey_2_4": {}
+  },
+  "system": {
+    "claimed": false,
+    "display": "unknown",
+    "headless_param": "auto",
+    "live": false,
+    "stick": false,
+    "timezone": null,
+    "timezone_country": null
+  },
+  "version": 1,
+  "wifi_links": {
+    "wlan0": {
+      "bssid": null,
+      "channel": null,
+      "connected": false,
+      "freq_mhz": null,
+      "signal_dbm": null,
+      "ssid_escaped": null,
+      "ssid_hex": null
+    }
+  }
+}

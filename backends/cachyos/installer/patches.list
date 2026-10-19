@@ -1,0 +1,17 @@
+# Cosmetic text patches applied to files the overlay does NOT replace (so the installer's own logic stays upstream's).
+# Format, one per line, "|"-separated:   path under the installer root | sed expression | marker
+# The marker is a fixed string that must be in the file first. A missing file or marker is a cosmetic warning
+# (lib/ci-guards.sh ci_g_apply_cosmetic_patches): the text stays as CachyOS wrote it, nothing breaks.
+# The sed expression runs on the whole file; keep it to single-line substitutions.
+#
+# Progress texts shown in the installer's window while it installs (the English text and its translations name the product).
+/etc/calamares/modules/shellprocess-before-online.conf | /name/ s/CachyOS/Companion OS/g | CachyOS
+# Limine only (this edition installs GRUB): the name the Limine/snapper integration writes for the system.
+/etc/calamares/scripts/bootloader-post-setup | s/TARGET_OS_NAME="CachyOS"/TARGET_OS_NAME="Companion OS"/ | TARGET_OS_NAME="CachyOS"
+# Btrfs installs: the description of the snapshot taken right after the install.
+/etc/calamares/scripts/btrfs-installation-snapshot | s/Fresh CachyOS Installation/Fresh Companion OS Installation/ | Fresh CachyOS Installation
+#
+# The label of the driver job (job 26 of 47: "chwd", the status line of the install page from 35 percent on). A Python job's label is its
+# pretty_name(), which returns a gettext msgid; the new text has no translation in the installer's catalogs, so it shows in English in
+# every language (the old one named the CachyOS distribution, which a Companion OS install window must not).
+/usr/lib/calamares/modules/chwd/main.py | /Installing needed drivers for/ s/CachyOS/Companion OS/g | Installing needed drivers for CachyOS

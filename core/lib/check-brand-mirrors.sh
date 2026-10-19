@@ -8,6 +8,7 @@ PAIRS="
 assets/logos/2024_CI__LogoMark_Color_med.svg|vendor/brand/logos/mark.svg
 assets/logos/2024_CI__Logo_Banner_Color_small.svg|vendor/brand/logos/lockup.svg
 core/headless/payload/var/www/setup-portal/logo.svg|vendor/brand/logos/mark.svg
+core/headless/payload/usr/share/icons/hicolor/scalable/apps/ci-os-logo.svg|vendor/brand/logos/mark.svg
 core/headless/payload/var/www/setup-portal/fonts/manrope-latin-var.woff2|vendor/brand/fonts/manrope-latin-var.woff2
 "
 rc=0

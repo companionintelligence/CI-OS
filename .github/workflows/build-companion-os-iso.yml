@@ -34,9 +34,31 @@ on:
         default: false
 
 env:
-  UBUNTU_VERSION: "24.04"
-  UBUNTU_CODENAME: "noble"
-  BASE_ISO_URL: "https://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso"
+  # Companion OS is built on Ubuntu 26.04.1 LTS (Resolute Raccoon) only; 24.04 is retired.
+  UBUNTU_VERSION: "26.04"
+  UBUNTU_CODENAME: "resolute"
+  BASE_ISO_URL: "https://releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso"
+  # sha256 of that ISO. Every run also checks it against Ubuntu's signed SHA256SUMS, so a changed
+  # ISO is a failed build; bump this value deliberately when the base ISO is bumped.
+  # A bump (a point release, 26.04.2) is not a one-line change: the split table and verify-iso.sh name stock paths
+  # literally, and nothing fails by itself when a new stock live layer gains a live-only file (that is how the polkit
+  # rule, the sysctl file and the encryption seed went unnoticed on 26.04.1). Before changing the pin, on the new ISO,
+  # in an ubuntu:26.04 container (commands in the headers of the tests):
+  #   - backends/ubuntu/iso/tests/split-live-layer.sh Part B, group B1: every live-only path of the new live layer
+  #     is in the removal table or is generated state of a package that stays;
+  #   - CI_TEST_STOCK_ISO=<iso> backends/ubuntu/iso/tests/grub-live-menu-modules.sh (G4) and
+  #     CI_TEST_STOCK_ISO=<iso> backends/ubuntu/iso/tests/md5sum-txt.sh: the signed GRUB's built-in modules and the
+  #     md5sum.txt convention are still the committed ones (stick/scripts/fetch-signed-boot.sh re-reads the disk image's);
+  #   - CI_TEST_STOCK_INITRD=<its casper/initrd> backends/ubuntu/iso/tests/boot-media-plymouth.sh: the initrd shape,
+  #     the .disk/info line and casper's launcher-label lines;
+  #   - then one real build, verify-iso.sh with VERIFY_BASE_ISO (it also checks that the image fits an 8 GiB Stick slot).
+  BASE_ISO_SHA256: "601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f"
+  # Ubuntu CD Image Automatic Signing Key (2012) <cdimage@ubuntu.com>, signer of SHA256SUMS.gpg.
+  UBUNTU_CD_KEY_FPR: "843938DF228D22F7B3742BC0D94AA3F0EFE21092"
+  # Where the image is built. The runner is only the host (Docker, disk, artifacts); the build runs in
+  # this privileged container so that the build host is Ubuntu 26.04 whatever the runner image is
+  # (Yaru theme and GNOME 50 resources, initramfs-tools 0.151 with its unmkinitramfs, squashfs-tools, ...).
+  BUILD_IMAGE: "ubuntu:26.04"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -44,6 +66,7 @@ concurrency:
 
 jobs:
   build-iso:
+    # Host only: nothing of the image is built or read on the runner itself (see BUILD_IMAGE).
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -76,18 +99,54 @@ jobs:
           echo "Disk space after cleanup:"
           df -h
 
-      - name: Install dependencies
+      - name: Start the Ubuntu 26.04 build container
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            debootstrap \
-            squashfs-tools \
-            xorriso \
-            isolinux \
-            rsync \
-            gpg \
-            wget \
-            curl
+          # Privileged for loop and overlay mounts, mknod whiteouts and chroot. The repository, the base ISO
+          # (read-only) and the output live on the host disk, never in the container's own layer: overlayfs
+          # needs a real filesystem under its upperdir.
+          mkdir -p "$RUNNER_TEMP/base"
+          docker run -d --name ci-os-build --privileged \
+            -v "$GITHUB_WORKSPACE":/work \
+            -v "$RUNNER_TEMP/base":/base:ro \
+            -w /work \
+            -e DEBIAN_FRONTEND=noninteractive \
+            "$BUILD_IMAGE" sleep infinity
+          # A container's /dev only holds the loop nodes that existed when it started, while `mount -o loop`
+          # takes the first free loop device (more than the runner's snap loops). Make plenty of nodes here,
+          # in the container's private /dev.
+          docker exec ci-os-build bash -euc '
+            for i in $(seq 0 127); do [ -e /dev/loop$i ] || mknod -m 0660 /dev/loop$i b 7 $i; done
+            [ -e /dev/loop-control ] || mknod -m 0660 /dev/loop-control c 10 237
+            . /etc/os-release && echo "build container: $PRETTY_NAME ($VERSION_CODENAME)"'
+
+      - name: Install dependencies (in the container)
+        run: |
+          docker exec -e UBUNTU_CODENAME ci-os-build bash -euo pipefail -c '
+            . /etc/os-release
+            [ "$VERSION_CODENAME" = "$UBUNTU_CODENAME" ] \
+              || { echo "the build container is $VERSION_CODENAME, expected $UBUNTU_CODENAME"; exit 1; }
+            apt-get update
+            apt-get install -y \
+              ca-certificates \
+              debootstrap \
+              squashfs-tools \
+              xorriso \
+              rsync \
+              gpg \
+              curl \
+              cpio \
+              zstd \
+              initramfs-tools-core \
+              imagemagick \
+              librsvg2-bin \
+              libglib2.0-bin \
+              libglib2.0-dev-bin \
+              yaru-theme-gnome-shell \
+              python3 \
+              python3-yaml \
+              diffutils \
+              mount \
+              util-linux'
 
       - name: Determine version
         id: version
@@ -103,26 +162,70 @@ jobs:
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Building CI-OS version: $VERSION"
 
-      - name: Download base Ubuntu ISO
+      - name: Download and verify the base Ubuntu ISO
         run: |
-          echo "Downloading Ubuntu ${{ env.UBUNTU_VERSION }} Desktop ISO..."
-          wget -q --show-progress "${{ env.BASE_ISO_URL }}" -O /tmp/ubuntu-base.iso
+          set -euo pipefail
+          echo "Downloading Ubuntu ${UBUNTU_VERSION} (${UBUNTU_CODENAME}) Desktop ISO..."
+          iso_name="${BASE_ISO_URL##*/}"
+          dir_url="${BASE_ISO_URL%/*}"
+          cd "$RUNNER_TEMP/base"
 
-          echo "ISO downloaded successfully:"
-          ls -lh /tmp/ubuntu-base.iso
+          # 1. Ubuntu's SHA256SUMS, accepted only with a good signature made by the pinned CD image key.
+          curl -fsSL --retry 3 -O "$dir_url/SHA256SUMS" -O "$dir_url/SHA256SUMS.gpg"
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
+          gpg --batch --keyserver hkps://keyserver.ubuntu.com --recv-keys "$UBUNTU_CD_KEY_FPR"
+          gpg --batch --status-fd 1 --verify SHA256SUMS.gpg SHA256SUMS | tee gpg.status >/dev/null || true
+          # VALIDSIG <signing key fpr> ... <primary key fpr>: the pinned key may be either.
+          awk -v want="$UBUNTU_CD_KEY_FPR" '$2 == "VALIDSIG" && ($3 == want || $NF == want) { ok = 1 } END { exit !ok }' gpg.status \
+            || { echo "SHA256SUMS is not signed by $UBUNTU_CD_KEY_FPR:"; cat gpg.status; exit 1; }
 
-      - name: Build CI-OS ISO
+          # 2. The line for exactly this ISO must carry the pinned sha256.
+          grep -F -- " *$iso_name" SHA256SUMS > iso.sha256 || { echo "$iso_name is not in Ubuntu's SHA256SUMS"; exit 1; }
+          [ "$(wc -l < iso.sha256)" -eq 1 ] || { echo "more than one SHA256SUMS line for $iso_name"; exit 1; }
+          signed="$(cut -d' ' -f1 iso.sha256)"
+          [ "$signed" = "$BASE_ISO_SHA256" ] \
+            || { echo "Ubuntu's signed SHA256SUMS says $signed for $iso_name; the workflow pins $BASE_ISO_SHA256"; exit 1; }
+
+          # 3. Download, then check the bytes against the signed line.
+          curl -fSL --retry 3 -o "$iso_name" "$BASE_ISO_URL"
+          sha256sum -c iso.sha256
+          mv "$iso_name" ubuntu-base.iso
+          ls -lh ubuntu-base.iso
+
+      - name: Build CI-OS ISO (in the container)
         env:
           CI_OS_VERSION: ${{ steps.version.outputs.version }}
         run: |
           echo "Building CI-OS $CI_OS_VERSION..."
 
-          sudo ./backends/ubuntu/iso/scripts/build-iso.sh \
-            --base-iso /tmp/ubuntu-base.iso \
+          docker exec -e CI_OS_VERSION ci-os-build \
+            ./backends/ubuntu/iso/scripts/build-iso.sh \
+            --base-iso /base/ubuntu-base.iso \
             --output-dir ./output \
             --work-dir ./work \
             --version "$CI_OS_VERSION" \
             --clean
+
+      - name: Verify the image (pre-installed tools and branding, in the container)
+        run: |
+          # The stock ISO the image was built from: with it verify-iso.sh also checks that the Secure Boot binaries and the
+          # initrd's stock bytes are untouched and that the md5sum.txt exclusions are the stock ISO's own.
+          # Fails the build if any CI-Hub / wireless setup tool is missing or the branding regressed.
+          docker exec -e VERIFY_BASE_ISO=/base/ubuntu-base.iso ci-os-build sh -c \
+            './backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-*.iso'
+
+      - name: Stop the build container and hand the output to the runner user
+        if: always()
+        run: |
+          # The build wrote as root into the workspace: give the output back and drop the multi-GB work tree.
+          # A failed build can leave bind mounts (/dev, /proc) under work/: unmount them first and never let
+          # rm cross a filesystem boundary.
+          docker exec -i ci-os-build bash -s <<'EOF' || true
+          awk '$2 ~ /^\/work\/work(\/|$)/ { print $2 }' /proc/mounts | sort -r | xargs -r umount -l
+          rm -rf --one-file-system /work/work
+          EOF
+          docker exec ci-os-build chown -R "$(id -u):$(id -g)" /work/output || true
+          docker rm -f ci-os-build || true
 
       - name: Generate checksums
         id: checksums
@@ -166,17 +269,17 @@ jobs:
 
           # Create a simple SBOM listing packages in the ISO
           cat > output/SBOM.txt << EOF
-          CI-OS Software Bill of Materials
-          =================================
+          Companion OS Software Bill of Materials
+          =======================================
 
-          Base: Ubuntu 24.04 (Noble Numbat)
-          CI-OS Version: ${{ steps.version.outputs.version }}
+          Base: Ubuntu 26.04.1 LTS (Resolute Raccoon)
+          Companion OS Version: ${{ steps.version.outputs.version }}
           Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
           Custom Packages:
           - ci-os-branding
 
-          For complete Ubuntu package list, see filesystem.manifest in the ISO.
+          For the complete package list, see the *.manifest files in the ISO's casper/ directory.
           EOF
 
           echo "SBOM generated"
@@ -185,14 +288,14 @@ jobs:
         id: release_notes
         run: |
           cat > release-notes.md << EOF
-          # CI-OS ${{ steps.version.outputs.version }} - Ubuntu 24.04 Based
+          # Companion OS ${{ steps.version.outputs.version }} - Ubuntu 26.04 Based
 
           ## What's New
 
-          - 🚀 **Based on Ubuntu 24.04 (Noble Numbat)** - Latest LTS release
-          - 🎨 **Custom Branding** - CI-OS identity with dark green color scheme (#066c80, #00a9a7, #72ddd4)
+          - 🚀 **Based on Ubuntu 26.04.1 LTS (Resolute Raccoon)** - Long-term support release
+          - 🎨 **Custom Branding** - Companion OS identity and the Companion Intelligence brand look
           - 🔒 **Privacy First** - No ads, no surveillance, telemetry disabled
-          - 💻 **AMD GPU Ready** - ROCm 7.2.4 (Strix Halo: --no-dkms inbox amdgpu)
+          - 💻 **AMD GPU Ready** - ROCm from the Ubuntu 26.04 archive on Strix Halo, with the kernel's inbox amdgpu driver
           - 🛠️ **Developer Friendly** - Compatible with Docker, VS Code, Node.js
           - 🌐 **Sovereign Computing** - Your data, your control
 
@@ -209,8 +312,9 @@ jobs:
 
           ## AMD GPU Support
 
-          Companion Ubuntu provisioning installs ROCm 7.2.4. On Strix Halo (gfx1151)
-          the helper uses the official Ryzen path (\`--no-dkms\` / inbox amdgpu):
+          On a Strix Halo-class machine (Ryzen AI Max, gfx1151) the helper installs the ROCm
+          packages from the Ubuntu 26.04 archive and uses the kernel's inbox amdgpu driver; on
+          other hardware it installs nothing:
           \`\`\`bash
           sudo ci-os-install-rocm
           \`\`\`
@@ -244,7 +348,7 @@ jobs:
           ---
 
           **Built**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          **Base**: Ubuntu 24.04 (Noble Numbat)
+          **Base**: Ubuntu 26.04.1 LTS (Resolute Raccoon)
           **Source**: https://github.com/companionintelligence/CI-OS
 
           © Companion Intelligence — Lifescope Inc
@@ -269,7 +373,7 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
-          name: CI-OS ${{ steps.version.outputs.version }}
+          name: Companion OS ${{ steps.version.outputs.version }}
           body_path: release-notes.md
           files: |
             output/companion-os-*.iso
@@ -291,7 +395,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo "**ISO Name**: ${{ steps.checksums.outputs.iso_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Base**: Ubuntu 24.04 (Noble Numbat)" >> $GITHUB_STEP_SUMMARY
+          echo "**Base**: Ubuntu 26.04.1 LTS (Resolute Raccoon)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Checksums" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY

@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: no
+# SPDX-License-Identifier: CC0-1.0
+#
+# Calamares branding component "companion": what the installer window calls the product, which pictures it shows, and its colours.
+# The directory name must equal componentName (Calamares requires it); settings.conf selects it with `branding: companion`.
+#
+# TEMPLATE. installer/stage-installer.sh copies this file into the overlay with the @...@ placeholders replaced:
+#   @CI_OS_VERSION@        the build's version string (env CI_OS_VERSION, default: the build day)
+#   @SIDEBAR_BACKGROUND@, @SIDEBAR_TEXT@, @SIDEBAR_HIGHLIGHT@, @SIDEBAR_HIGHLIGHT_TEXT@
+#                          colours from vendor/brand/tokens/tokens.sh (CI_DARK_SIDEBAR, CI_DARK_SIDEBAR_FOREGROUND,
+#                          CI_DARK_SIDEBAR_PRIMARY, CI_DARK_SIDEBAR_PRIMARY_FOREGROUND): the brand canon is the only place a
+#                          hex value is typed (the style-canon lint reads this tree).
+# The images (logo.png, icon.png, welcome.png) are rendered at build time by render-installer-assets.sh from vendor/brand and
+# core/render/inputs; none is committed.
+# No `uploadServer` is set on purpose: the failure page's "send log" button is not offered, so nothing leaves the machine.
+---
+componentName:  companion
+
+welcomeStyleCalamares:   false
+welcomeExpandingLogo:   true
+
+windowExpanding:    normal
+windowSize: 1100px,520px
+windowPlacement: center
+
+sidebar: widget
+navigation: widget
+
+strings:
+    productName:         "Companion OS"
+    shortProductName:    "Companion OS"
+    version:             "@CI_OS_VERSION@"
+    shortVersion:        "@CI_OS_VERSION@"
+    versionedName:       "Companion OS @CI_OS_VERSION@"
+    shortVersionedName:  "Companion OS @CI_OS_VERSION@"
+    bootloaderEntryName: "Companion OS"
+    productUrl:          "https://ci.computer"
+    supportUrl:          "https://ci.computer/support"
+
+images:
+    productLogo:         "logo.png"
+    productIcon:         "icon.png"
+    productWelcome:      "welcome.png"
+
+style:
+   SidebarBackground:        "@SIDEBAR_BACKGROUND@"
+   SidebarText:              "@SIDEBAR_TEXT@"
+   SidebarTextCurrent:       "@SIDEBAR_HIGHLIGHT_TEXT@"
+   SidebarBackgroundCurrent: "@SIDEBAR_HIGHLIGHT@"
+
+slideshow:               "show.qml"
+slideshowAPI: 2

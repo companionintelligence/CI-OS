@@ -21,7 +21,7 @@ default='${PROFILE_ID}'
 list=['${PROFILE_ID}']
 
 [org/gnome/terminal/legacy/profiles:/:${PROFILE_ID}]
-visible-name='CI-OS Blue Teal'
+visible-name='Companion OS'
 use-theme-colors=false
 use-theme-transparency=false
 use-system-font=true
@@ -93,8 +93,8 @@ EOF
 	cat > "$desktop_file" <<EOF
 [Desktop Entry]
 Type=Application
-Name=CI-OS Terminal Theme Enforcer
-Comment=Re-apply CI-OS terminal colors at login
+Name=Companion OS Terminal Theme Enforcer
+Comment=Re-apply Companion OS terminal colors at login
 Exec=$helper
 OnlyShowIn=GNOME;Unity;
 NoDisplay=true

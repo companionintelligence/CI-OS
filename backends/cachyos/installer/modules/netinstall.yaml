@@ -1,0 +1,295 @@
+# Package groups of the Companion OS installer's "Additional packages" page.
+#
+# The only source Calamares reads (modules/netinstall.conf lists no remote URL). CachyOS' own installer fetches its list from
+# raw.githubusercontent.com on a moving branch first; this edition does not (decision D6): what gets installed is what this
+# file says, reviewed in git. The group format is Calamares' netinstall module's (hidden, selected, critical, platform,
+# packages, subgroups); the trimmed groups below are the CachyOS groups of the pinned installer (cachyos-calamares-next
+# 3.4.2-13, modules/netinstall.yaml) minus what Companion OS leaves out on purpose:
+#   - ufw / ufw-extras and plasma-firewall: no host firewall, see backends/cachyos/installer/README.md ("Firewall").
+#   - cachyos-hello, cachyos-wallpapers, cachyos-kernel-manager, cachyos-packageinstaller, the CachyOS KDE theme packages and
+#     the fish/zsh shell configs: CachyOS-branded applications and artwork. The kernels, cachyos-settings and
+#     cachyos-kde-settings (the Plasma defaults) stay: they are the base this edition is built on.
+#   - cachy-update (the "Cachy-Update - An interactive update notifier & applier for CachyOS" menu entry, a teal "C" tray icon in every
+#     desktop frame of the installed system, and a user timer that runs `arch-update --check` daily): the only CachyOS-named UI that
+#     reached the installed desktop of ISO #4 (the live image never had it). Nothing requires it (`pacman -Sii cachy-update`: Required By
+#     None), and what it offers, one click to `pacman -Syu` on a rolling release, is exactly what a Companion appliance must not do
+#     unattended (the compatibility-library incident of 2026-10-18: a repository update broke the installer on a day's skew). The
+#     update path of this edition is a person running `sudo pacman -Syu` until the product has an update story of its own.
+#     ci-os-post-install-fixups.sh removes it again if it arrives some other way (a stale list, a dependency added later).
+#   - every desktop other than Plasma, handheld groups, kdeconnect (a network listener without a firewall).
+# Companion OS' own packages (Docker, the setup-portal stack, tailscale ...) are NOT here: they are `operations` in
+# modules/packages_online.conf, so they install whatever the user ticks on this page.
+#
+# Every name was checked against archlinux.org and the CachyOS repository database; the result is recorded in
+# iso/tests/installer-fixtures/packages.json and re-checked offline by iso/tests/installer-config.sh.
+# `$LOCALE` in a name is Calamares' own placeholder (the language chosen on the locale page).
+# Descriptions of the groups the user SEES (not hidden) stay under 72 characters: the page is a two-column tree in a 1100 px window, the
+# description column holds about 90 characters at 13 px, and ISO #4's longest (98) was cut off at the window edge with "...". Hidden
+# groups and subgroups are never shown, so their text is free. iso/tests/installer-config.py checks the limit.
+
+- name: "Base system (hidden)"
+  description: "CachyOS repository plumbing: hooks, keyrings, mirror lists and hardware detection"
+  hidden: true
+  selected: true
+  critical: true
+  packages:
+    - cachyos-hooks
+    - cachyos-keyring
+    - cachyos-mirrorlist
+    - cachyos-v3-mirrorlist
+    - cachyos-v4-mirrorlist
+    - cachyos-rate-mirrors
+    - chwd
+
+- name: "Kernels (hidden)"
+  description: "The kernels of the CachyOS base (also installed by the pacstrap step; --needed makes this a no-op)"
+  hidden: true
+  selected: true
+  critical: true
+  platform: "desktop"
+  packages:
+    - linux-cachyos
+    - linux-cachyos-headers
+    - linux-cachyos-lts
+    - linux-cachyos-lts-headers
+
+- name: "Common packages (hidden)"
+  description: "Network, audio, fonts, firmware and everyday tools"
+  hidden: true
+  selected: true
+  critical: true
+  subgroups:
+    - name: "Network"
+      description: "Network drivers and tools (bind is where dig and nslookup live since Arch merged dnsutils into it)"
+      selected: true
+      packages:
+        - bind
+        - ethtool
+        - iwd
+        - modemmanager
+        - networkmanager
+        - networkmanager-openvpn
+        - nss-mdns
+        - usb_modeswitch
+        - wpa_supplicant
+        - wireless-regdb
+        - xl2tpd
+    - name: "Bluetooth"
+      description: "Bluetooth support"
+      selected: true
+      packages:
+        - bluez
+        - bluez-hid2hci
+        - bluez-libs
+        - bluez-utils
+        - bluez-obex
+    - name: "Package management"
+      description: "Package tools"
+      selected: true
+      packages:
+        - pacman-contrib
+        - pkgfile
+        - rebuild-detector
+        - reflector
+    - name: "Desktop integration"
+      description: "Helper tools and libraries for desktop use"
+      selected: true
+      packages:
+        - accountsservice
+        - bash-completion
+        - ffmpegthumbnailer
+        - gst-libav
+        - gst-plugin-pipewire
+        - gst-plugins-bad
+        - gst-plugins-ugly
+        - libdvdcss
+        - libgsf
+        - libopenraw
+        - plocate
+        - poppler-glib
+        - vlc-plugins-all
+        - xdg-user-dirs
+        - xdg-utils
+    - name: "Filesystems"
+      description: "Filesystem tools"
+      selected: true
+      packages:
+        - efitools
+        - nfs-utils
+        - nilfs-utils
+        - smartmontools
+        - unrar
+        - unzip
+    - name: "Fonts"
+      description: "Fonts"
+      selected: true
+      packages:
+        - awesome-terminal-fonts
+        - noto-fonts-emoji
+        - cantarell-fonts
+        - noto-fonts
+        - ttf-bitstream-vera
+        - ttf-dejavu
+        - ttf-liberation
+        - ttf-opensans
+        - ttf-meslo-nerd
+        - noto-fonts-cjk
+    - name: "Audio"
+      description: "Audio tools and libraries"
+      selected: true
+      packages:
+        - alsa-firmware
+        - alsa-plugins
+        - alsa-utils
+        - pavucontrol
+        - pipewire-pulse
+        - wireplumber
+        - pipewire-alsa
+        - realtime-privileges
+    - name: "Hardware"
+      description: "Hardware support libraries and firmware"
+      selected: true
+      packages:
+        - dmidecode
+        - dmraid
+        - hdparm
+        - hwdetect
+        - linux-firmware
+        - lsscsi
+        - mesa-utils
+        - mtools
+        - sg3_utils
+        - sof-firmware
+    - name: "Power"
+      description: "Power management"
+      selected: true
+      packages:
+        - cpupower
+        - power-profiles-daemon
+        - upower
+    - name: "Everyday tools"
+      description: "Editors, archives and a few command-line helpers"
+      selected: true
+      packages:
+        - btop
+        - duf
+        - git
+        - hwinfo
+        - fastfetch
+        - pv
+        - python-defusedxml
+        - python-packaging
+        - rsync
+        - wget
+        - ripgrep
+        - micro
+        - nano
+        - nano-syntax-highlighting
+        - vim
+        - openssh
+
+- name: "Plasma desktop (hidden)"
+  description: "KDE Plasma, the Companion OS desktop"
+  hidden: true
+  selected: true
+  critical: true
+  packages:
+    - ark
+    - bluedevil
+    - breeze-gtk
+    - cachyos-kde-settings
+    - dolphin
+    - ffmpegthumbs
+    - filelight
+    - fwupd
+    - gwenview
+    - haruna
+    - kate
+    - kcalc
+    - kde-gtk-config
+    - kdegraphics-thumbnailers
+    - kdeplasma-addons
+    - kdialog
+    - kinfocenter
+    - kio-admin
+    - konsole
+    - kscreen
+    - kwallet-pam
+    - kwalletmanager
+    - partitionmanager
+    - phonon-qt6-vlc
+    - plasma-browser-integration
+    - plasma-desktop
+    - plasma-login-manager
+    - plasma-nm
+    - plasma-pa
+    - plasma-systemmonitor
+    - plasma-thunderbolt
+    - plymouth-kcm
+    - powerdevil
+    - spectacle
+    - tesseract-data-eng
+    - xsettingsd
+
+- name: "Firefox and language package"
+  description: "Web browser for the Companion OS apps, in your language"
+  hidden: false
+  selected: true
+  critical: false
+  packages:
+    - firefox
+    - firefox-i18n-$LOCALE
+
+- name: "Chromium"
+  description: "Chromium web browser"
+  hidden: false
+  selected: false
+  critical: false
+  packages:
+    - chromium
+
+- name: "NVIDIA GPU acceleration for local AI"
+  description: "CUDA for Ollama and Docker (large download); needs an NVIDIA GPU"
+  hidden: false
+  selected: false
+  critical: false
+  packages:
+    - ollama-cuda
+    - nvidia-container-toolkit
+
+- name: "AMD ROCm acceleration for local AI"
+  description: "Ollama with ROCm (about 3 GiB); needs a supported AMD GPU"
+  hidden: false
+  selected: false
+  critical: false
+  packages:
+    - ollama-rocm
+
+- name: "Printing support"
+  description: "CUPS printing system and common printer drivers"
+  hidden: false
+  selected: false
+  critical: false
+  platform: "desktop"
+  packages:
+    - cups
+    - cups-filters
+    - cups-pdf
+    - ghostscript
+    - gutenprint
+    - foomatic-db
+    - foomatic-db-engine
+    - foomatic-db-gutenprint-ppds
+    - foomatic-db-ppds
+    - system-config-printer
+    - print-manager
+
+- name: "Accessibility tools"
+  description: "Screen reader and mouse tweaks for impaired vision"
+  hidden: false
+  selected: false
+  critical: false
+  packages:
+    - espeak-ng
+    - mousetweaks
+    - orca

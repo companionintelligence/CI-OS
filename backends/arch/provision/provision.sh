@@ -929,6 +929,22 @@ pull_ollama_models() {
         sleep 5
     fi
 
+    # qwen3.6:27b (17.8 GB) only where the machine can hold it: RAM and GPU memory against model-packs.yaml
+    # (core/lib/gpu-detect.sh, the same gate Ubuntu uses). Arch had no gate before; a machine the gate cannot
+    # judge (the file is missing, no fit data) keeps the old behaviour and pulls it.
+    PULL_QWEN=1
+    local gpu_detect="${REPO_ROOT}/core/lib/gpu-detect.sh"
+    if [[ -f "$gpu_detect" ]]; then
+        # shellcheck source=../../../core/lib/gpu-detect.sh
+        source "$gpu_detect"
+        if ! ci_os_model_gate_allows qwen3.6:27b; then
+            PULL_QWEN=0
+            log_info "Skipping qwen3.6:27b: ${CI_OS_MODEL_FIT_REASON}"
+        fi
+    else
+        log_warning "Model fit check missing; pulling qwen3.6:27b as before"
+    fi
+
     sudo -u "$ACTUAL_USER" bash <<EOF || log_warning "Failed to pull some Ollama models"
 if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     echo "nomic-embed-text already installed"
@@ -944,11 +960,14 @@ else
     ollama pull gemma3:1b
 fi
 
+# qwen3.6:27b only where it fits (see PULL_QWEN above).
+if [[ "$PULL_QWEN" == 1 ]]; then
 if ollama list 2>/dev/null | grep -q "qwen3.6:27b"; then
      echo "qwen3.6:27b already installed"
 else
      echo "Pulling qwen3.6:27b..."
      ollama pull qwen3.6:27b
+fi
 fi
 EOF
 
@@ -1136,7 +1155,11 @@ install_companion_launcher() {
 # today, since install_companion_launcher() above never installs the binary.
 # Kept for the same forward-compatibility reason Fedora's version is kept.
 configure_companion_launcher_autostart() {
-    if ! command_exists ci-os-hub-desktop; then
+    local launcher_bin=""
+    if command_exists companion-hub; then launcher_bin="companion-hub"
+    elif command_exists ci-os-hub-desktop; then launcher_bin="ci-os-hub-desktop"   # legacy (<= v0.1.4)
+    fi
+    if [[ -z "$launcher_bin" ]]; then
         log_info "Companion Launcher binary not found (expected — no Arch build is published yet), skipping autostart configuration"
         return 0
     fi
@@ -1149,7 +1172,7 @@ configure_companion_launcher_autostart() {
 Type=Application
 Name=Companion Launcher
 Comment=Start Companion Launcher
-Exec=ci-os-hub-desktop
+Exec=${launcher_bin}
 Terminal=false
 X-GNOME-Autostart-enabled=true
 EOF

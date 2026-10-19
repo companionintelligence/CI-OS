@@ -1,0 +1,14 @@
+{
+  "ip -j addr": "ip_addr.json",
+  "ip -j link": "ip_link.json",
+  "ip -j route": "ip_route.json",
+  "iw dev": "iw_dev.txt",
+  "iw dev wlan0 link": "../../iw_link/not_connected.txt",
+  "iw dev wlan0 scan dump": "../../iw_scan/mixed_neighbourhood.txt",
+  "iw phy phy0 info": "../../iw_phy_info/dual_band_world_domain.txt",
+  "iw reg get": "../../iw_reg_get/world.txt",
+  "nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device status": "nm_dev.txt",
+  "nmcli -t -f NAME,UUID,TYPE,DEVICE connection show": "nm_conn.txt",
+  "nmcli networking connectivity": "nm_connectivity.txt",
+  "rfkill list": "../../rfkill/list_ok.txt"
+}

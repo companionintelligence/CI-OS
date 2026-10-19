@@ -1,0 +1,1 @@
+[{"ifindex": 2, "ifname": "wlan0", "flags": ["BROADCAST", "MULTICAST", "UP", "LOWER_UP"], "mtu": 1500, "operstate": "UP", "link_type": "ether", "address": "38:11:22:33:44:55"}]

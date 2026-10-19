@@ -52,8 +52,17 @@ server {
         try_files $uri $uri/ /index.html;
     }
 
-    # API proxy
+    # API proxy. The API changes the machine's network (Wi-Fi profile, access point, cloud pairing) and
+    # has no credential of its own yet, so it answers only the setup network (192.168.99.0/24, the
+    # hostapd/dnsmasq subnet) and this machine. Port 80 listens on every interface; without this
+    # a client anywhere on the LAN could configure the device. The static portal page stays open.
     location /api/ {
+        allow 192.168.99.0/24;
+        allow 127.0.0.0/8;
+        allow ::1;
+        deny all;
+
+        client_max_body_size 64k;
         proxy_pass http://127.0.0.1:5000;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -72,20 +81,6 @@ server {
     error_log /var/log/nginx/setup-portal-error.log;
 }
 
-# CI OS Hub proxy - setup.ci.computer:5002 -> Hub (when on setup network)
-server {
-    listen 5002;
-    listen [::]:5002;
-    server_name setup.ci.computer _;
-
-    location / {
-        proxy_pass http://127.0.0.1:5002;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-    }
-}
+# No :5002 proxy here on purpose: the CI Hub container publishes host port 5002 on all interfaces
+# (core/lib/ci-hub.sh), so clients on the setup network reach it at http://192.168.99.1:5002 directly, and an
+# nginx listener on the same port would make either nginx or Docker fail to bind.

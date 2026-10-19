@@ -1,0 +1,12 @@
+[Unit]
+Description=Companion OS: start the background model prefetch schedule when /etc/ci-os/models-prefetch exists
+
+[Path]
+# The opt-in switch. With the file absent nothing is scheduled at all: the timer has no [Install] section, so nothing
+# else enables it. With the file present (at boot, or created later) this starts the timer; the service's
+# ExecCondition still has the last word (a live session without persistence, a metered link and so on say no).
+PathExists=/etc/ci-os/models-prefetch
+Unit=ci-os-models-prefetch.timer
+
+[Install]
+WantedBy=multi-user.target

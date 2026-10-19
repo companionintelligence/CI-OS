@@ -1,5 +1,5 @@
 #!/bin/bash
-# CI OS WiFi recovery - reload driver if chip is unresponsive
+# Companion OS WiFi recovery - reload driver if chip is unresponsive
 # Run when: sudo setup-wifi-recover
 # Use if WiFi disappears after setup or hotspot cycles
 
@@ -7,9 +7,12 @@ set -e
 
 echo "WiFi recovery: stopping hotspot, reloading driver..."
 
-# Stop hotspot services
+# Stop hotspot services and undo what the hotspot start changed (AP address, NetworkManager's hold on the interface)
 systemctl stop hostapd-setup.service 2>/dev/null || true
 systemctl stop dnsmasq-setup.service 2>/dev/null || true
+if [ -x /usr/local/bin/setup-device-hotspot-start.sh ]; then
+    /usr/local/bin/setup-device-hotspot-start.sh stop 2>/dev/null || true
+fi
 sleep 2
 
 # Unblock WiFi

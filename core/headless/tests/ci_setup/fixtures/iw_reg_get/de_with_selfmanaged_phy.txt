@@ -1,0 +1,16 @@
+global
+country DE: DFS-ETSI
+	(2400 - 2483 @ 40), (N/A, 20), (N/A)
+	(5150 - 5250 @ 80), (N/A, 20), (N/A), NO-OUTDOOR, AUTO-BW
+	(5250 - 5350 @ 80), (N/A, 20), (0 ms), NO-OUTDOOR, DFS, AUTO-BW
+	(5470 - 5725 @ 160), (N/A, 26), (0 ms), DFS
+	(5725 - 5875 @ 80), (N/A, 13), (N/A)
+	(5945 - 6425 @ 160), (N/A, 23), (N/A), NO-OUTDOOR
+	(57000 - 66000 @ 2160), (N/A, 40), (N/A)
+
+phy#0 (self-managed)
+country DE: DFS-ETSI
+	(2402 - 2437 @ 40), (6, 22), (N/A), AUTO-BW, NO-HT40MINUS, NO-80MHZ, NO-160MHZ
+	(2422 - 2462 @ 40), (6, 22), (N/A), AUTO-BW
+	(5170 - 5250 @ 80), (6, 22), (N/A), NO-OUTDOOR, AUTO-BW
+	(5250 - 5330 @ 80), (6, 22), (60000 ms), NO-OUTDOOR, DFS, AUTO-BW

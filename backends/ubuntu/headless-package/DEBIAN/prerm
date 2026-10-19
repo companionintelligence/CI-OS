@@ -5,24 +5,39 @@ set -e
 
 echo "Stopping setup-device services..."
 
-# Reload systemd first to ensure we have latest service definitions
-systemctl daemon-reload || true
+# Only manage RUNNING services when systemd is actually PID 1. In a chroot (building the ISO, debootstrap,
+# pbuilder), a container or an image build there is nothing to stop or start, and the pkill calls below
+# would hit unrelated processes of the BUILD HOST (libvirt and NetworkManager run dnsmasq too).
+# Enabling units is a plain symlink operation and stays safe everywhere.
+SYSTEMD_RUNNING=0
+# ischroot (debianutils) is true inside a chroot even when the build host runs systemd and /run/systemd/system
+# is visible; it is the second line of defence next to build-iso.sh giving the chroot a private /run.
+if [ -d /run/systemd/system ] && ! ischroot 2>/dev/null; then SYSTEMD_RUNNING=1; fi
 
-# Stop all services gracefully with timeout
-echo "Stopping services..."
-systemctl stop setup-backend.service 2>/dev/null || true
-systemctl stop setup-network-monitor.service 2>/dev/null || true
-systemctl stop dnsmasq-setup.service 2>/dev/null || true
-systemctl stop hostapd-setup.service 2>/dev/null || true
-sleep 1
+if [ "$SYSTEMD_RUNNING" = 1 ]; then
+    # Reload systemd first to ensure we have latest service definitions
+    systemctl daemon-reload || true
 
-# Kill any lingering processes
-echo "Killing lingering processes..."
-pkill -9 -f "setup_service.py" 2>/dev/null || true
-pkill -9 -f "setup-network-monitor.sh" 2>/dev/null || true
-pkill -9 -f "hostapd" 2>/dev/null || true
-pkill -9 -f "dnsmasq" 2>/dev/null || true
-sleep 1
+    # Stop all services gracefully with timeout
+    echo "Stopping services..."
+    systemctl stop setup-backend.service 2>/dev/null || true
+    systemctl stop setup-network-monitor.service 2>/dev/null || true
+    systemctl stop dnsmasq-setup.service 2>/dev/null || true
+    systemctl stop hostapd-setup.service 2>/dev/null || true
+    # End a running hotspot episode properly: AP address off the interface, the radio back to NetworkManager, nginx stopped.
+    if [ -x /usr/local/bin/setup-device-hotspot-start.sh ]; then
+        /usr/local/bin/setup-device-hotspot-start.sh stop 2>/dev/null || true
+    fi
+    sleep 1
+
+    # Kill any lingering processes
+    echo "Killing lingering processes..."
+    pkill -9 -f "setup_service.py" 2>/dev/null || true
+    pkill -9 -f "setup-network-monitor.sh" 2>/dev/null || true
+    pkill -9 -f "hostapd" 2>/dev/null || true
+    pkill -9 -f "dnsmasq" 2>/dev/null || true
+    sleep 1
+fi
 
 # Disable services from boot-time startup
 echo "Disabling services..."
