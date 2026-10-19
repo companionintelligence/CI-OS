@@ -5,6 +5,7 @@ The user clicks "Install Companion OS (automatic)". This tool picks the internal
 confirmation that names the disk and what is on it, and then drives Canonical's own installer
 (ubuntu-desktop-bootstrap's subiquity server) through its autoinstall path with no further questions:
 English, US keyboard, time zone from geoip, the Default application selection, "Erase disk and install".
+The confirmation has one more button, "Language, keyboard, time zone...", that changes those first three.
 
 It does not replace or modify the installer. It writes an autoinstall file, restarts the installer's
 server so that it loads it, confirms the install over the server's own API and reports progress.
@@ -30,6 +31,8 @@ Usage:
   ci-os-auto-install                 interactive (zenity), the normal entry point
   ci-os-auto-install --plan          print the chosen disk and the autoinstall file (password hash masked),
                                      change nothing. Exit 0, or 3 when no safe disk exists
+  --locale de_DE.UTF-8 --keyboard de --timezone Europe/Berlin
+                                     the starting answers of the dialog (and of --plan); default en_US.UTF-8, us, geoip
   ci-os-auto-install --disks         print the candidate/excluded disk table
   ci-os-auto-install --live-setup    desktop-session autostart hook: in a live session only, put the launcher on the
                                      desktop, in the app grid and first in the dock (the 26.04 live session draws no
@@ -392,8 +395,193 @@ def available_extra_groups():
     return groups
 
 
+# ── language, keyboard and time zone ──
+# The three answers the installer would otherwise ask first. They default to what the one-click install always used (English,
+# US keyboard, time zone from the network) and the confirmation dialog offers to change them. The choices come from the live
+# session itself: the locales that are generated here (the ISO carries the language packs for exactly those: de en es fr it pt
+# ru zh), the keyboard layouts of xkb's rules file and the time zones of tzdata's zone.tab, named with iso-codes.
+DEFAULT_LOCALE = "en_US.UTF-8"
+DEFAULT_LAYOUT = "us"
+DEFAULT_ZONE = "geoip"                    # the installer asks the network where it is; offline it falls back to UTC
+LOCALE_RE = re.compile(r"^[a-z]{2,3}_[A-Z]{2}\.UTF-8$")
+LAYOUT_RE = re.compile(r"^[a-z0-9_]{2,16}$")
+ZONE_RE = re.compile(r"^(geoip|UTC|[A-Z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+){1,2})$")
+ISO_639_JSON = "/usr/share/iso-codes/json/iso_639-3.json"
+ISO_3166_JSON = "/usr/share/iso-codes/json/iso_3166-1.json"
+XKB_BASE_LST = "/usr/share/X11/xkb/rules/base.lst"
+ZONE_TAB = "/usr/share/zoneinfo/zone.tab"
+LATAM = {"AR", "BO", "CL", "CO", "CR", "CU", "DO", "EC", "GT", "HN", "MX", "NI", "PA", "PE", "PR", "PY", "SV", "US", "UY", "VE"}
+REGION_FIELDS = ("locale", "layout", "timezone")
+
+
+def check_region(locale, layout, timezone):
+    """Raise ValueError unless the three values are ones the installer takes (they are written into its autoinstall file)."""
+    if not LOCALE_RE.match(str(locale)):
+        raise ValueError(f"not a locale like de_DE.UTF-8: {locale!r}")
+    if not LAYOUT_RE.match(str(layout)):
+        raise ValueError(f"not a keyboard layout code like de: {layout!r}")
+    if not ZONE_RE.match(str(timezone)):
+        raise ValueError(f"not a time zone like Europe/Berlin (or geoip): {timezone!r}")
+
+
+def normalize_locale(name):
+    """'de_DE.utf8' -> 'de_DE.UTF-8'. None for C, POSIX, the non-UTF-8 duplicates and anything else that is not ll_CC.UTF-8."""
+    m = re.match(r"^([a-z]{2,3}_[A-Z]{2})\.(?:utf-?8|UTF-?8)$", (name or "").strip())
+    return m.group(1) + ".UTF-8" if m else None
+
+
+def read_json(path, key):
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)[key]
+    except (OSError, ValueError, KeyError):
+        return []
+
+
+def language_names():
+    """{'de': 'German', 'deu': 'German', ...} from iso-codes (both the two- and three-letter code)."""
+    names = {}
+    for e in read_json(ISO_639_JSON, "639-3"):
+        for k in ("alpha_2", "alpha_3"):
+            if e.get(k):
+                names[e[k]] = e.get("common_name") or e["name"]
+    return names
+
+
+def country_names():
+    return {e["alpha_2"]: e.get("common_name") or e["name"] for e in read_json(ISO_3166_JSON, "3166-1") if e.get("alpha_2")}
+
+
+def locale_label(locale, languages, countries):
+    lang, country = locale.split(".")[0].split("_")
+    name = languages.get(lang)
+    if not name:
+        return locale
+    return f"{name} ({countries[country]})" if country in countries else name
+
+
+def generated_locales():
+    """The UTF-8 locales generated in this live session, as ll_CC.UTF-8, without duplicates."""
+    r = sh(["locale", "-a"])
+    seen = []
+    for line in (r.stdout or "").splitlines() if r.returncode == 0 else []:
+        loc = normalize_locale(line)
+        if loc and loc not in seen:
+            seen.append(loc)
+    return seen
+
+
+def parse_layouts(text):
+    """[(name, code)] of the `! layout` section of xkb's base.lst."""
+    out, inside = [], False
+    for line in text.splitlines():
+        if line.startswith("!"):
+            inside = line.strip() == "! layout"
+            continue
+        parts = line.split(None, 1)
+        if inside and len(parts) == 2 and LAYOUT_RE.match(parts[0]) and parts[0] != "custom":   # "custom" is a placeholder, not a layout
+            out.append((parts[1].strip(), parts[0]))
+    return out
+
+
+def parse_zones(text, countries):
+    """([(label, zone)], {country code: [zone, ...]}) from zone.tab: 'Berlin, Germany' for Europe/Berlin."""
+    rows, by_country = [], {}
+    for line in text.splitlines():
+        cols = line.split("\t")
+        if line.startswith("#") or len(cols) < 3 or not ZONE_RE.match(cols[2]):
+            continue
+        cc, zone = cols[0], cols[2]
+        city = zone.rsplit("/", 1)[1].replace("_", " ")
+        rows.append((f"{city}, {countries[cc]}" if cc in countries else city, zone))
+        by_country.setdefault(cc, []).append(zone)
+    return sorted(rows, key=lambda r: r[0].casefold()), by_country
+
+
+def load_region_data():
+    """Everything the three pick lists need, read once. Never empty: a missing file leaves the defaults and the fallbacks."""
+    languages, countries = language_names(), country_names()
+    locales = generated_locales() or [DEFAULT_LOCALE]
+    if DEFAULT_LOCALE not in locales:
+        locales.append(DEFAULT_LOCALE)
+    try:
+        with open(XKB_BASE_LST, encoding="utf-8") as f:
+            layouts = parse_layouts(f.read())
+    except OSError:
+        layouts = []
+    try:
+        with open(ZONE_TAB, encoding="utf-8") as f:
+            zones, by_country = parse_zones(f.read(), countries)
+    except OSError:
+        zones, by_country = [], {}
+    if not any(code == DEFAULT_LAYOUT for _, code in layouts):
+        layouts.append(("English (US)", DEFAULT_LAYOUT))
+    return {
+        "locales": sorted(((locale_label(l, languages, countries), l) for l in locales), key=lambda r: r[0].casefold()),
+        "layouts": sorted(layouts, key=lambda r: r[0].casefold()),
+        "zones": [("Detect automatically (needs the internet)", DEFAULT_ZONE), ("UTC (no region)", "UTC")] + zones,
+        "by_country": by_country,
+    }
+
+
+def suggest_layout(locale, layouts):
+    """The keyboard layout most people who chose this locale use; US when nothing fits. They can change it in the dialog."""
+    base = locale.split(".")[0]
+    lang, country = base.split("_")
+    codes = {code for _, code in layouts}
+    if lang == "en":
+        order = ["gb"] if country == "GB" else []
+    elif lang == "es" and country in LATAM:
+        order = ["latam"]
+    elif base == "de_IT":                       # German speakers of South Tyrol: not the Italian keyboard
+        order = [lang]
+    else:
+        order = [{"BR": "br"}.get(country, country.lower()), lang]
+    return next((c for c in order if c in codes), DEFAULT_LAYOUT)
+
+
+def suggest_zone(locale, by_country):
+    """The country's only time zone when it has exactly one; otherwise automatic detection."""
+    zones = by_country.get(locale.split(".")[0].split("_")[1], [])
+    return zones[0] if len(zones) == 1 else DEFAULT_ZONE
+
+
+def new_region(locale=DEFAULT_LOCALE, layout=DEFAULT_LAYOUT, timezone=DEFAULT_ZONE):
+    check_region(locale, layout, timezone)
+    return {"locale": locale, "layout": layout, "timezone": timezone, "touched": set()}
+
+
+def change_region(region, field, value, data):
+    """A copy of `region` with one answer changed. Choosing a language re-suggests the keyboard and the time zone, except for one
+    the user already chose by hand."""
+    if field not in REGION_FIELDS:
+        raise ValueError(f"unknown setting: {field!r}")
+    new = dict(region, touched=set(region["touched"]) | {field})
+    new[field] = value
+    if field == "locale":
+        if "layout" not in new["touched"]:
+            new["layout"] = suggest_layout(value, data["layouts"])
+        if "timezone" not in new["touched"]:
+            new["timezone"] = suggest_zone(value, data["by_country"])
+    check_region(new["locale"], new["layout"], new["timezone"])
+    return new
+
+
+def label_of(rows, code):
+    return next((label for label, c in rows if c == code), code)
+
+
+def describe_region(region, data):
+    """The three answers in words, for the confirmation dialog and --plan."""
+    zone = region["timezone"]
+    zone_text = "detected automatically" if zone == DEFAULT_ZONE else label_of(data["zones"], zone)
+    return (f"{label_of(data['locales'], region['locale'])}, keyboard: {label_of(data['layouts'], region['layout'])}, "
+            f"time zone: {zone_text}")
+
+
 def build_autoinstall(d, password_hash, *, username="companion", realname="Companion", hostname="companion-os",
-                      extra_groups=None):
+                      extra_groups=None, locale=DEFAULT_LOCALE, layout=DEFAULT_LAYOUT, timezone=DEFAULT_ZONE):
+    check_region(locale, layout, timezone)
     identity = {"realname": realname, "hostname": hostname, "username": username, "password": password_hash}
     if extra_groups is None:
         extra_groups = available_extra_groups()
@@ -402,9 +590,9 @@ def build_autoinstall(d, password_hash, *, username="companion", realname="Compa
     cfg = {
         "autoinstall": {
             "version": 1,
-            "locale": "en_US.UTF-8",
-            "keyboard": {"layout": "us"},
-            "timezone": "geoip",
+            "locale": locale,
+            "keyboard": {"layout": layout},
+            "timezone": timezone,
             "identity": identity,
             "storage": {"layout": {"name": "direct", "match": {"path": d["path"]}}},
             "refresh-installer": {"update": False},
@@ -654,7 +842,13 @@ def choose_disk(candidates, default):
     return next((d for d in candidates if d["path"] == picked), None)
 
 
-def confirm_dialog(d, password, other_disks):
+DEFAULT_REGION_TEXT = "English (United States), keyboard: English (US), time zone: detected automatically"
+BTN_REGION = "Language, keyboard, time zone..."
+BTN_NORMAL = "Use the normal installer"
+
+
+def confirm_dialog(d, password, other_disks, region_text=DEFAULT_REGION_TEXT):
+    """"install", "normal", "region" (change the language, keyboard or time zone: ask again afterwards) or "cancel"."""
     head, lines, _ = describe_disk(d)
     erase = "\n".join(esc(line) for line in lines) if lines else "  (nothing was found on this disk)"
     extra = ""
@@ -663,20 +857,63 @@ def confirm_dialog(d, password, other_disks):
     text = (
         "<big><b>Install Companion OS automatically?</b></big>\n\n"
         f"This will <b>ERASE EVERYTHING</b> on:\n<b>{esc(head)}</b>\n{erase}{extra}\n\n"
-        "Nothing else is asked. Companion OS will be installed in English with a US keyboard.\n\n"
+        f"Nothing else is asked. Companion OS will be installed with:\n<b>{esc(region_text)}</b>\n"
+        f"(wrong? press \"{esc(BTN_REGION)}\")\n\n"
         f"Sign in afterwards as  <b>companion</b>  with this one-time password:\n<tt><big><b>{esc(password)}</b></big></tt>\n"
         "(you will be asked to choose your own at first sign-in; write it down now)\n\n"
         "When the installation is finished the computer turns off: remove the USB stick, then turn it on."
     )
     # --default-cancel: Enter, or a stray key at the login screen, never confirms an erase.
     args = ["--question", "--width=620", "--title=Install Companion OS", "--text=" + text, "--default-cancel",
-            "--ok-label=Erase the disk and install", "--cancel-label=Cancel", "--extra-button=Use the normal installer"]
+            "--ok-label=Erase the disk and install", "--cancel-label=Cancel", "--extra-button=" + BTN_REGION,
+            "--extra-button=" + BTN_NORMAL]
     r = zenity(args)
     if r.returncode == 0:
         return "install"
-    if "Use the normal installer" in (r.stdout or ""):
+    out = r.stdout or ""
+    if BTN_NORMAL in out:
         return "normal"
+    if BTN_REGION in out:
+        return "region"
     return "cancel"
+
+
+def pick_one(title, text, rows):
+    """One row of a searchable list: its code, or None when the dialog was cancelled or nothing was picked."""
+    args = ["--list", "--width=620", "--height=560", "--title=" + title, "--text=" + esc(text) + "\n(type to search)",
+            "--column=Name", "--column=Code", "--hide-column=2", "--print-column=2", "--ok-label=Choose", "--cancel-label=Back"]
+    for label, code in rows:
+        args += [label, code]
+    r = zenity(args)
+    if r.returncode != 0:
+        return None
+    picked = (r.stdout or "").strip().splitlines()
+    picked = picked[0].strip() if picked else ""
+    return picked if any(code == picked for _, code in rows) else None
+
+
+def choose_region(region, data):
+    """The language, keyboard and time zone menu. Returns the changed region; "Done" (or closing the window) keeps what is set."""
+    titles = {"locale": "Language", "layout": "Keyboard", "timezone": "Time zone"}
+    lists = {"locale": "locales", "layout": "layouts", "timezone": "zones"}
+    while True:
+        rows = []
+        for field in REGION_FIELDS:
+            rows += [titles[field], label_of(data[lists[field]], region[field])]
+        r = zenity(["--list", "--width=620", "--height=300", "--title=Language, keyboard and time zone",
+                    "--text=Pick one and press Change. Press Done when all three are right.",
+                    "--column=Setting", "--column=Now", "--print-column=1", "--ok-label=Change", "--cancel-label=Done"] + rows)
+        if r.returncode != 0:
+            return region
+        picked = (r.stdout or "").strip().splitlines()
+        picked = picked[0].strip() if picked else ""
+        field = next((f for f in REGION_FIELDS if titles[f] == picked), None)
+        if field is None:
+            continue
+        rows_of = data[lists[field]]
+        code = pick_one(titles[field], f"Now: {label_of(rows_of, region[field])}", rows_of)
+        if code:
+            region = change_region(region, field, code, data)
 
 
 def error_dialog(text):
@@ -945,11 +1182,19 @@ def main(argv=None):
     ap.add_argument("--plan", action="store_true", help="print the plan, change nothing")
     ap.add_argument("--disks", action="store_true", help="print the disk table")
     ap.add_argument("--live-setup", action="store_true", help="autostart hook: place the launcher in a live session")
+    ap.add_argument("--locale", default=DEFAULT_LOCALE, help="starting language, e.g. de_DE.UTF-8")
+    ap.add_argument("--keyboard", default=DEFAULT_LAYOUT, help="starting keyboard layout, e.g. de")
+    ap.add_argument("--timezone", default=DEFAULT_ZONE, help="starting time zone, e.g. Europe/Berlin, or geoip")
     args = ap.parse_args(argv)
+    try:
+        region = new_region(args.locale, args.keyboard, args.timezone)
+    except ValueError as exc:
+        print(f"ci-os-auto-install: {exc}", file=sys.stderr)
+        return 2
     try:
         if args.live_setup:
             return live_setup()
-        return interactive(plan=args.plan, disks_table=args.disks)
+        return interactive(plan=args.plan, disks_table=args.disks, region=region)
     except Exception as exc:  # noqa: BLE001 - a desktop icon has no terminal: show the failure
         if args.plan or args.disks:
             raise
@@ -957,7 +1202,8 @@ def main(argv=None):
         return 7
 
 
-def interactive(plan=False, disks_table=False):
+def interactive(plan=False, disks_table=False, region=None):
+    region = region or new_region()
     source = cdrom_source()
     nodes = flatten(load_lsblk().get("blockdevices", []))
     disks, medium_known = classify(nodes, source, backing_for(source))
@@ -995,8 +1241,10 @@ def interactive(plan=False, disks_table=False):
         print("\n".join(lines))
         print("OTHER DISKS: " + (", ".join(o["path"] for o in others) or "none"))
         print("EXCLUDED: " + (", ".join(f"{d['path']} ({d['reason']})" for d in disks if d["status"] == "excluded") or "none"))
+        print("LANGUAGE, KEYBOARD, TIME ZONE: " + describe_region(region, load_region_data()))
         print("--- autoinstall.yaml (password hash masked) ---")
-        print(dump_yaml(build_autoinstall(target, "<hash>"), mask_hash=True))
+        print(dump_yaml(build_autoinstall(target, "<hash>", locale=region["locale"], layout=region["layout"],
+                                          timezone=region["timezone"]), mask_hash=True))
         return 0
 
     if not shutil.which("zenity"):
@@ -1006,7 +1254,12 @@ def interactive(plan=False, disks_table=False):
         return 6
     others = [d for d in candidates if d is not target]
     password = generate_password()
-    choice = confirm_dialog(target, password, others)
+    data = load_region_data()
+    while True:
+        choice = confirm_dialog(target, password, others, describe_region(region, data))
+        if choice != "region":
+            break
+        region = choose_region(region, data)
     if choice == "normal":
         return normal_installer()
     if choice != "install":
@@ -1018,7 +1271,9 @@ def interactive(plan=False, disks_table=False):
     if not known2 or not again:
         error_dialog("The disks changed while you were deciding. Nothing was changed. Start the automatic install again.")
         return 3
-    return run_install(target, dump_yaml(build_autoinstall(target, hash_password(password))), password)
+    cfg = build_autoinstall(target, hash_password(password), locale=region["locale"], layout=region["layout"],
+                            timezone=region["timezone"])
+    return run_install(target, dump_yaml(cfg), password)
 
 
 if __name__ == "__main__":

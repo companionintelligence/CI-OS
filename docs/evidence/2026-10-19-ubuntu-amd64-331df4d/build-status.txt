@@ -1,0 +1,12 @@
+# Companion OS on Ubuntu 26.04.1, amd64, rebuilt from the arm64 branch (commit 331df4d), 2026-10-19
+# Host: Apple-silicon Mac; container ci-os-ubuild-3 = a privileged ARM64 ubuntu:26.04 container (the recipe of CLAUDE.md); the amd64 chroot runs through Rosetta.
+# The Mac was busy at the same time (an arm64 VM, a gate run): the build is slower than the 12 min 52 s of the quiet clean-checkout build.
+2026-10-19T04:05:28Z build of commit 331df4d starts (clean checkout of the commit, worktree clean)
+2026-10-19T04:06:55Z container ready; build-iso.sh starts
+2026-10-19T04:31Z    companion-os-1.0-amd64.iso written (7,086,276,608 bytes; file time in the container), SHA256SUMS and MD5SUMS at 04:32Z
+# The shell that was to record the exit code of build-iso.sh and then run the verifier was lost in a session stall (build.log ends at the
+# layer comparison because its reader was gone). The ISO and its checksum files were complete when found; the verifier was run by hand:
+2026-10-19T04:36:51Z verify-iso rc=0: == Summary: 444 passed, 0 failed
+# sha256 f95cdf3d02338ae209077d9a4e394cb858d5886b77df0f6ad52222bc7158b035  companion-os-1.0-amd64.iso
+# md5    221bdb04b6bd1007a0874ab3a7f227f9  companion-os-1.0-amd64.iso
+# verify-iso.sh ran with VERIFY_BASE_ISO (the stock 26.04.1 amd64 ISO) and VERIFY_REQUIRE_CANON=1.

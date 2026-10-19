@@ -39,6 +39,8 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 | KI-25 | The `docker` group is root-equivalent for every `sudo` member of the installed system | decision | Medium | owner to assign |
 | KI-26 | Plasma edition leftovers found by the ISO #6 run: log noise, a greeter without the Companion mark, installer copy that does not match the installed system | defect, cosmetic | Low | owner to assign |
 | KI-27 | First install of the clean-checkout Ubuntu image (2026-10-18): the first graphical login failed twice while the first boot was still working, boot stayed "not finished" for 30+ minutes, the desktop-icons process was relaunched every 4 s, and the first-run screens and login text still carry Ubuntu branding | defect, gap | High (login) to Low (branding) | owner to assign |
+| KI-28 | The arm64 build of the Ubuntu edition (a supported architecture since 2026-10-19): built, verified (436/0), installed in 12 min and booted natively on an Apple-silicon Mac; the system reads `degraded` on non-Snapdragon hardware, Capture is absent, Secure Boot, real hardware, Stick support and a CI job are missing | gap, decision | Medium | owner to assign |
+| KI-29 | Language, keyboard and time zone in the one-click install, and first-boot progress on the desktop (2026-10-19): [V] on a fresh arm64 install in a virtual machine; no action button, English-only text, no keyboard variants, amd64 and real hardware untried | gap | Low | owner to assign |
 
 ## KI-01 Model pulls have no disk-space guard
 
@@ -334,7 +336,58 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 
 **Done since (2026-10-19, in the same pull request, not yet proven on a booted image):** the first-boot setup is started by its timer three minutes after boot (no longer linked into `multi-user.target`), waits for a quiet machine (`wait-quiet`: load below 60 percent of the CPUs three times in a row, never for more than 20 minutes) and throttles `ollama.service` for its run; Canonical's first-run is skipped by `~/.config/gnome-initial-setup-done` in `/etc/skel`; the motd scripts that advertise Ubuntu Pro are held off by `dpkg-statoverride` (the first install showed the advert because an upgrade had restored the executable bit); `/etc/legal` says Companion OS; the Ubuntu Pro autostart notification is diverted aside.
 
+**Proved on a booted arm64 image (2026-10-19, [V] in a virtual machine, `docs/evidence/2026-10-19-ubuntu-arm64-4b7597d/`):** the timer, `wait-quiet` (quiet after 30 s), the `ollama.service` throttle, the journal-only output (279 journal lines, 16.6 KB, against 40 KB for one pull before) and the Hub start ran as designed: 1 min 58 s, exit 0, two models, `ci-hub` healthy. **The skel stamp was not enough.** On the image of `c0059d6` the first sign-in still showed "Welcome to Companion OS 1.0!" with the raccoon: `gnome-initial-setup-upgrade-login.service` runs `gnome-initial-setup --upgrade-user` when `~/.config/gnome-initial-setup-done` exists but `~/.config/gnome-initial-setup/upgrade-26.04-done` does not ([`docs/evidence/2026-10-19-ubuntu-arm64-c0059d6-first-run/`](../evidence/2026-10-19-ubuntu-arm64-c0059d6-first-run/)). Commit `6aa27f6` puts the stamp that unit names into `/etc/skel` (read from the unit in the image, so a later release keeps working), `verify-iso.sh` checks it, and the image built from it showed no first-run page at the first sign-in. The first-run finding of the amd64 image is covered by the same unit and by 446 verifier checks; a boot of the amd64 image has not been done [I].
+
+**The amd64 image of `4b7597d`, live session only, under software emulation (2026-10-19, [V] in a virtual machine, `docs/evidence/2026-10-19-ubuntu-amd64-4b7597d/x86-live-run.txt`):** the splash at 8 min 30 s, the greeter at about 11 minutes, the desktop after one click on the live user (the session did not log in by itself on this run; on arm64 it did). The dock is right and **holds Companion Capture**; **no desktop icon appeared in six minutes**, although `~/Desktop` holds the five trusted shortcuts and `ding@rastersoft.com` is ACTIVE: its process is relaunched every 3 seconds, as the earlier image's 102 relaunches in 12 minutes. The arm64 image, same configuration, showed every icon at once. So **desktop-icon rendering on amd64 is still [I]**; slowness of emulation is the suspect and real hardware is the test.
+
+**Fixed and proved on a fresh install of `ee4a3b4` (2026-10-19, [V] in a virtual machine, `docs/evidence/2026-10-19-ubuntu-arm64-ee4a3b4/`):** the first sign-in opens one tab, the Companion page, with no "Firefox Privacy Notice" tab (a policy file, `/etc/firefox/policies/policies.json`, which the snap reads through its `etc-firefox` interface) and no "Software Updater" pop-up although 78 packages were waiting (`com/ubuntu/update-notifier no-show-notifications=true` in the dconf local database; security updates still install by themselves, and `ci-os-info` says when a restart is waiting). The setup log no longer carries "not deployed", "deploy read key", "gsettings not available" or the "log out for Docker and PATH" note, and ends with next steps that name Hub, `ci-os-info` and the Docker group. `ci-os-info` now reports the setup, Hub's address, the models, the disk, failed services and a pending restart, and offers the ROCm command only where it exists. The verifier checks all of it (442 checks on arm64); the 36-check `ci-os-info.sh` suite and section 12 of `customize-chroot-checks.sh` pin it. Not changed: the pop-ups are off for every user, so a restart notice is not shown on the desktop.
+
+Two small things the image of `4b7597d` showed (both fixed in `ee4a3b4`, above): Ubuntu's Software Updater announces "79 Updates Available" at the first sign-in (the image carries the archive of its build day), and Firefox opens its own "Firefox Privacy Notice" tab next to the Companion getting-started page.
+
 **Decision needed.** (1) Which host the Hub deploy should use. (2) Whether `ubuntu-insights` (it ran at session start; with the first-run skipped there is no consent page, so by its design nothing is uploaded) should be removed. (3) Run the same install on real hardware (KI-17).
+
+## KI-28 The arm64 build of the Ubuntu edition
+
+**Severity:** Medium. **Owner:** owner to assign.
+
+**What.** `build-iso.sh --arch arm64` builds Companion OS from Canonical's Ubuntu 26.04.1 desktop arm64 ISO ([arm64.md](arm64.md), records in [`../evidence/2026-10-19-ubuntu-arm64/`](../evidence/README.md)). All [V] in QEMU with HVF on an Apple-silicon Mac, natively: build 19 min, `verify-iso.sh` 436 passed 0 failed, live desktop in 2 min, the one-click install in 12 min, installed boot in 19.8 s of userspace, a first sign-in with no Canonical first-run screen and the Companion welcome page, first-boot setup in 2 min 48 s with Companion Hub started headless and healthy.
+
+| Item | Evidence | Note |
+|---|---|---|
+| The installed system reads `degraded`: `pd-mapper.service` ("Qualcomm PD mapper service") fails on every arm64 machine that is not a Snapdragon | `systemctl --failed` in the installed VM | Canonical ships `protection-domain-mapper` in the arm64 image. Not changed here; a drop-in that requires the Qualcomm device-tree node would stop it, but that is a guess about hardware not at hand |
+| Companion Capture is not in the arm64 image | `https://dl.ci.computer/applet/v0.2.0-alpha.7/manifest.json` has no Linux arm64 build; the arm64 pins are empty | the dock entry is hidden by GNOME |
+| `companion-os.local` looks like it resolves to a Docker bridge address | On the machine itself, `getent hosts companion-os.local` returned 172.20.0.1. A probe on each interface of the installed image (a multicast query on that interface, answer parsed) showed avahi answers with only that interface's own address (enp0s1 gave 10.0.2.15; each Docker bridge its own), so other devices get the LAN address. **Not a defect on the network side**; not tried from a phone or laptop [N] | no change made |
+| At the first sign-in Ubuntu's Software Updater said "79 Updates Available", and Firefox opened its own privacy-notice tab beside the Companion page | `docs/evidence/2026-10-19-ubuntu-arm64-4b7597d/frames/` | **fixed in `ee4a3b4`** [V] on arm64 (KI-27); the same files ship on amd64 [I] |
+| The boot shows kernel messages, not the splash | Canonical's arm64 menu line carries `console=tty0` | stock; the verifier accepts exactly that shape |
+| The installed GRUB's background is stock | the arm64 base image has no GRUB to configure; its name follows `os-release` | |
+| **Secure Boot on arm64, and every real arm64 machine** (Snapdragon X, Ampere, Raspberry Pi 5), are not tried | Homebrew ships no aarch64 Secure Boot firmware | KI-17 applies |
+| `ci-stick` cannot flash or boot an arm64 image | `stick/crates/ci-stick/src/host.rs`: "arm64 boot images are not built yet" | |
+| No CI builds arm64 | the workflow is x86-64 and manual | GitHub-hosted arm64 runners for a private repository: unverified |
+| Hub on arm64 needs Docker Compose 2.33+ (Hub's own requirement); the image bakes Docker's current Compose | the Hub containers ran | |
+
+**Decided 2026-10-19 (owner, in chat):** arm64 is a supported architecture of the Ubuntu target ([supported-targets.md](supported-targets.md)); the gaps are listed in [arm64.md](arm64.md#gaps-against-the-five-points). **Still open:** which arm64 hardware to test first, a fixture self-test of the verifier's arm64 branches, a CI job that builds arm64, and a safe condition for `pd-mapper.service` (a wrong one would break audio on a Snapdragon X).
+
+## KI-29 Language, keyboard and time zone in the one-click install, and first-boot progress on the desktop
+
+**Severity:** Low. **Owner:** owner to assign.
+
+**What.** Items 1 and 2 of the home-lab polish proposal ([CI-Engineering](https://github.com/companionintelligence/CI-Engineering)). The one-click confirmation has a **Language, keyboard, time zone...** button
+([one-click-install.md](one-click-install.md#language-keyboard-and-time-zone)), and the first-boot setup writes `/var/lib/ci-os/setup-status` for a per-user script that shows it as one desktop notification
+([installation guide](../guides/installation-guide.md#ubuntu-edition)). Fresh install of the arm64 image of `b124745`, records in [`../evidence/2026-10-19-ubuntu-arm64-b124745/`](../evidence/2026-10-19-ubuntu-arm64-b124745/) and frames 12 to 19b of [`../ui/companion-os/ubuntu/`](../ui/companion-os/ubuntu/CAPTURE.md):
+German (Germany), the German keyboard and Berlin were chosen in the dialog and the installed system had `LANG=de_DE.UTF-8`, X11 layout `de`, `/etc/timezone` `Europe/Berlin`, a German greeter and Firefox; the notifications
+"getting ready", "step 3 of 7", "step 5 of 7", "step 7 of 7" and "ready" reached GNOME during the first boot (2 min 28 s); the ready message was not repeated at the next run. All **[V]** in a virtual machine, not real hardware.
+
+| Item | Evidence | Note |
+|---|---|---|
+| The first version of the ready message asked for an "Open Companion Hub" button; none appeared | `notify-send -A` printed "Actions are not supported by this notifications server" and sent an empty action list, although `GetCapabilities` lists `actions` (`guest-text/notify-send-actions.txt`); a direct D-Bus call with an action list is accepted | **fixed in `c8de040`**: no button, the message says Hub is the first icon in the dock. The unit test could not have found it (its `notify-send` is a stub); it now refuses any `-A`. A real button would need a D-Bus listener (`gdbus monitor` for `ActionInvoked`): not built |
+| The banners for "waiting for the internet" and "needs attention" were not photographed | sent per `notifications-sent.txt`; the script was started from a terminal and GNOME held its banners back | their wording is in the unit tests and in the D-Bus record only |
+| The notification text is English whatever language was chosen | the strings are in the script | not translated; a later step if the audience needs it |
+| Only the languages whose packs are on the image (de, en, es, fr, it, pt, ru, zh) are offered, and the keyboard has no variants | `locale -a` and `base.lst` in the live session | the normal installer offers more and installs their packs from the network; `fr_CH` and `it_CH` suggest the `ch` layout, which xkb calls "German (Switzerland)" |
+| A step shorter than the 15-second look is not shown, so the numbers skip (3, 5, 7 were seen; 1, 2, 4 and 6 went by) | `status-transitions.txt` | by design: one notification per observed change |
+| The progress text says "up to a few minutes, longer on a slow connection"; the first boot took 2 min 28 s on a fast link | `installed-facts.txt` | a slow link and a larger model set (Strix Halo class) were not tried |
+| amd64 is untried, as is anything on real hardware | | KI-17 applies |
+
+**Not decided.** Whether the notification text is worth translating, and whether a "Open Hub" button is worth a D-Bus listener.
 
 ## Also open, kept in their source pages
 

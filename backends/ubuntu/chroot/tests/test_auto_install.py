@@ -574,6 +574,7 @@ class InteractiveFlowTests(unittest.TestCase):
                 mock.patch.object(ai, "hash_password", return_value="$6$x$y"), \
                 mock.patch.object(ai, "choose_disk", side_effect=lambda c, d: kw.get("chosen", d)), \
                 mock.patch.object(ai, "confirm_dialog", side_effect=lambda *a: answers.pop(0)), \
+                mock.patch.object(ai, "load_region_data", return_value=region_data()), \
                 mock.patch.object(ai, "error_dialog") as err, \
                 mock.patch.object(ai, "normal_installer", return_value=0) as normal, \
                 mock.patch.object(ai, "run_install", side_effect=lambda *a: runs.append(a) or 0):
@@ -654,6 +655,423 @@ class InteractiveFlowTests(unittest.TestCase):
             self.assertEqual(ai.main([]), 7)
         run.assert_not_called()
         self.assertIn("Nothing was changed", err.call_args[0][0])
+
+
+ISO_639 = {"639-3": [
+    {"alpha_3": "deu", "alpha_2": "de", "name": "German"}, {"alpha_3": "eng", "alpha_2": "en", "name": "English"},
+    {"alpha_3": "spa", "alpha_2": "es", "name": "Spanish"}, {"alpha_3": "fra", "alpha_2": "fr", "name": "French"},
+    {"alpha_3": "por", "alpha_2": "pt", "name": "Portuguese"}, {"alpha_3": "zho", "alpha_2": "zh", "name": "Chinese"},
+    {"alpha_3": "ast", "name": "Asturian"}]}
+ISO_3166 = {"3166-1": [
+    {"alpha_2": "US", "name": "United States"}, {"alpha_2": "GB", "name": "United Kingdom"}, {"alpha_2": "DE", "name": "Germany"},
+    {"alpha_2": "AT", "name": "Austria"}, {"alpha_2": "FR", "name": "France"}, {"alpha_2": "ES", "name": "Spain"},
+    {"alpha_2": "MX", "name": "Mexico"}, {"alpha_2": "BR", "name": "Brazil"}, {"alpha_2": "TW", "name": "Taiwan, Province of China",
+                                                                                "common_name": "Taiwan"}]}
+BASE_LST = """! model
+  pc105           Generic 105-key PC
+! layout
+  us              English (US)
+  gb              English (UK)
+  de              German
+  fr              French
+  es              Spanish
+  latam           Spanish (Latin American)
+  br              Portuguese (Brazil)
+  at              German (Austria)
+  ca              French (Canada)
+  it              Italian
+  be              Belgian
+  ch              German (Switzerland)
+  custom          A user-defined custom Layout
+! variant
+  intl            us: English (US, intl., with dead keys)
+! option
+  grp             Switching to another layout
+"""
+ZONE_TAB_TEXT = """# tzdata zone.tab
+DE\t+5230+01322\tEurope/Berlin\tmost of Germany
+DE\t+4742+00841\tEurope/Busingen\tBusingen
+FR\t+4852+00220\tEurope/Paris
+US\t+404251-0740023\tAmerica/New_York\tEastern (most areas)
+US\t+415100-0873900\tAmerica/Chicago\tCentral (most areas)
+AR\t-3436-05827\tAmerica/Argentina/Buenos_Aires\tBuenos Aires (BA, CF)
+bad line without tabs
+"""
+LOCALE_A = "C\nC.utf8\nde_DE.utf8\nde_AT.utf8\nen_AG\nen_AG.utf8\nen_US.utf8\nes_MX.utf8\nPOSIX\nzh_TW.utf8\nast_ES.utf8\n"
+
+
+class RegionFiles:
+    """Fixture files and `locale -a` in place of the live system's."""
+
+    def __init__(self, with_files=True, locale_a=LOCALE_A):
+        self.with_files, self.locale_a = with_files, locale_a
+
+    def __enter__(self):
+        self.dir = tempfile.mkdtemp(prefix="ci-os-region-")
+        paths = {n: os.path.join(self.dir, n) for n in ("iso_639-3.json", "iso_3166-1.json", "base.lst", "zone.tab")}
+        if self.with_files:
+            for name, body in (("iso_639-3.json", json.dumps(ISO_639)), ("iso_3166-1.json", json.dumps(ISO_3166)),
+                               ("base.lst", BASE_LST), ("zone.tab", ZONE_TAB_TEXT)):
+                with open(paths[name], "w", encoding="utf-8") as fh:
+                    fh.write(body)
+        self.patches = [
+            mock.patch.object(ai, "ISO_639_JSON", paths["iso_639-3.json"]), mock.patch.object(ai, "ISO_3166_JSON", paths["iso_3166-1.json"]),
+            mock.patch.object(ai, "XKB_BASE_LST", paths["base.lst"]), mock.patch.object(ai, "ZONE_TAB", paths["zone.tab"]),
+            mock.patch.object(ai, "sh", return_value=subprocess.CompletedProcess(["locale", "-a"], 0, self.locale_a, ""))]
+        for p in self.patches:
+            p.start()
+        return self
+
+    def __exit__(self, *a):
+        for p in self.patches:
+            p.stop()
+        shutil.rmtree(self.dir, ignore_errors=True)
+
+
+def region_data():
+    with RegionFiles():
+        return ai.load_region_data()
+
+
+class RegionValueTests(unittest.TestCase):
+    """What may be written into the autoinstall file."""
+
+    def test_good_values(self):
+        for loc, lay, tz in (("en_US.UTF-8", "us", "geoip"), ("de_DE.UTF-8", "de", "Europe/Berlin"), ("zh_TW.UTF-8", "tw", "UTC"),
+                             ("es_MX.UTF-8", "latam", "America/Argentina/Buenos_Aires"), ("ast_ES.UTF-8", "es", "Etc/GMT+1")):
+            ai.check_region(loc, lay, tz)
+
+    def test_bad_values_are_refused(self):
+        good = ("en_US.UTF-8", "us", "geoip")
+        for i, bad in ((0, "en_US"), (0, "en_US.UTF-8\nfoo: bar"), (0, "C.UTF-8"), (0, "../../x"), (0, ""), (1, "US"), (1, "u s"),
+                       (1, "us;rm"), (1, ""), (2, "europe/berlin"), (2, "Europe/Berlin; rm -rf /"), (2, "Europe/../x"), (2, "/etc/passwd"),
+                       (2, "Berlin"), (2, "")):
+            args = list(good)
+            args[i] = bad
+            with self.assertRaises(ValueError, msg=repr(args)):
+                ai.check_region(*args)
+
+    def test_normalize_locale(self):
+        self.assertEqual(ai.normalize_locale("de_DE.utf8"), "de_DE.UTF-8")
+        self.assertEqual(ai.normalize_locale("de_DE.UTF-8"), "de_DE.UTF-8")
+        self.assertEqual(ai.normalize_locale("  en_US.utf8\n"), "en_US.UTF-8")
+        for no in ("C", "C.utf8", "POSIX", "en_AG", "de_DE.ISO-8859-1", "de_DE@euro", "", None):
+            self.assertIsNone(ai.normalize_locale(no), repr(no))
+
+    def test_build_autoinstall_takes_the_three_answers(self):
+        disks, _ = classify([stick(), nvme()], "/dev/sda3")
+        cfg = ai.build_autoinstall(by_path(disks)["/dev/nvme0n1"], "$6$x$y", locale="de_DE.UTF-8", layout="de",
+                                   timezone="Europe/Berlin")["autoinstall"]
+        self.assertEqual((cfg["locale"], cfg["keyboard"], cfg["timezone"]),
+                         ("de_DE.UTF-8", {"layout": "de"}, "Europe/Berlin"))
+        dflt = ai.build_autoinstall(by_path(disks)["/dev/nvme0n1"], "$6$x$y")["autoinstall"]
+        self.assertEqual((dflt["locale"], dflt["keyboard"], dflt["timezone"]), ("en_US.UTF-8", {"layout": "us"}, "geoip"))
+        with self.assertRaises(ValueError):
+            ai.build_autoinstall(by_path(disks)["/dev/nvme0n1"], "$6$x$y", timezone="x\ny: z")
+
+    def test_a_hostile_value_never_reaches_the_yaml(self):
+        disks, _ = classify([stick(), nvme()], "/dev/sda3")
+        with self.assertRaises(ValueError):
+            ai.build_autoinstall(by_path(disks)["/dev/nvme0n1"], "$6$x$y", locale="en_US.UTF-8\nlate-commands: [rm]")
+
+
+class RegionDataTests(unittest.TestCase):
+    def test_locales_are_the_generated_utf8_ones_once(self):
+        with RegionFiles():
+            self.assertEqual(ai.generated_locales(),
+                             ["de_DE.UTF-8", "de_AT.UTF-8", "en_AG.UTF-8", "en_US.UTF-8", "es_MX.UTF-8", "zh_TW.UTF-8", "ast_ES.UTF-8"])
+
+    def test_locale_command_failing_leaves_english(self):
+        with RegionFiles():
+            with mock.patch.object(ai, "sh", return_value=subprocess.CompletedProcess([], 1, "", "boom")):
+                self.assertEqual(ai.generated_locales(), [])
+                self.assertEqual(ai.load_region_data()["locales"], [("English (United States)", "en_US.UTF-8")])
+
+    def test_names_come_from_iso_codes(self):
+        d = region_data()
+        self.assertIn(("German (Germany)", "de_DE.UTF-8"), d["locales"])
+        self.assertIn(("German (Austria)", "de_AT.UTF-8"), d["locales"])
+        self.assertIn(("Chinese (Taiwan)", "zh_TW.UTF-8"), d["locales"])               # common_name wins
+        self.assertIn(("Asturian (Spain)", "ast_ES.UTF-8"), d["locales"])               # a three-letter language code
+        self.assertIn(("English (United States)", "en_US.UTF-8"), d["locales"])
+        self.assertEqual([l for l, _ in d["locales"]], sorted((l for l, _ in d["locales"]), key=str.casefold))
+
+    def test_unknown_names_fall_back_to_the_code(self):
+        with RegionFiles(with_files=False):
+            d = ai.load_region_data()
+        self.assertIn(("de_DE.UTF-8", "de_DE.UTF-8"), d["locales"])
+        self.assertEqual(ai.locale_label("de_XX.UTF-8", {"de": "German"}, {}), "German")
+
+    def test_layouts_come_from_the_layout_section_only(self):
+        d = region_data()
+        self.assertEqual({c for _, c in d["layouts"]}, {"us", "gb", "de", "fr", "es", "latam", "br", "at", "ca", "it", "be", "ch"})
+        self.assertIn(("German (Austria)", "at"), d["layouts"])
+        self.assertNotIn("intl", {c for _, c in d["layouts"]})
+        self.assertNotIn("pc105", {c for _, c in d["layouts"]})
+        self.assertNotIn("custom", {c for _, c in d["layouts"]})                  # xkb's placeholder, not a layout
+
+    def test_zones_are_named_by_city_and_country(self):
+        d = region_data()
+        labels = dict(d["zones"])
+        self.assertEqual(d["zones"][0][1], "geoip")
+        self.assertEqual(d["zones"][1], ("UTC (no region)", "UTC"))
+        self.assertEqual(labels["Berlin, Germany"], "Europe/Berlin")
+        self.assertEqual(labels["New York, United States"], "America/New_York")
+        self.assertEqual(labels["Buenos Aires"], "America/Argentina/Buenos_Aires")      # no country name for AR in the fixture: the city alone
+        self.assertEqual(d["by_country"]["DE"], ["Europe/Berlin", "Europe/Busingen"])
+        self.assertNotIn("bad line without tabs", labels)
+
+    def test_missing_files_still_give_a_usable_list(self):
+        with RegionFiles(with_files=False, locale_a=""):
+            d = ai.load_region_data()
+        self.assertEqual(d["locales"], [("en_US.UTF-8", "en_US.UTF-8")])
+        self.assertEqual(d["layouts"], [("English (US)", "us")])
+        self.assertEqual([c for _, c in d["zones"]], ["geoip", "UTC"])
+        self.assertEqual(d["by_country"], {})
+
+    def test_every_listed_code_is_acceptable_to_the_installer(self):
+        d = region_data()
+        for _, code in d["locales"]:
+            ai.check_region(code, "us", "geoip")
+        for _, code in d["layouts"]:
+            ai.check_region("en_US.UTF-8", code, "geoip")
+        for _, code in d["zones"]:
+            ai.check_region("en_US.UTF-8", "us", code)
+
+
+class RegionSuggestionTests(unittest.TestCase):
+    def setUp(self):
+        self.d = region_data()
+
+    def layout(self, loc):
+        return ai.suggest_layout(loc, self.d["layouts"])
+
+    def test_keyboard_follows_the_language(self):
+        for loc, want in (("en_US.UTF-8", "us"), ("en_GB.UTF-8", "gb"), ("en_AU.UTF-8", "us"), ("en_CA.UTF-8", "us"),
+                          ("de_DE.UTF-8", "de"), ("de_AT.UTF-8", "at"), ("de_IT.UTF-8", "de"), ("it_IT.UTF-8", "it"), ("de_CH.UTF-8", "ch"),
+                          ("fr_BE.UTF-8", "be"), ("fr_FR.UTF-8", "fr"),
+                          ("fr_CA.UTF-8", "ca"), ("es_ES.UTF-8", "es"), ("es_MX.UTF-8", "latam"), ("es_US.UTF-8", "latam"),
+                          ("pt_BR.UTF-8", "br"), ("zh_CN.UTF-8", "us"), ("xx_YY.UTF-8", "us")):
+            self.assertEqual(self.layout(loc), want, loc)
+
+    def test_a_suggested_layout_always_exists(self):
+        codes = {c for _, c in self.d["layouts"]}
+        for _, loc in self.d["locales"]:
+            self.assertIn(self.layout(loc), codes)
+
+    def test_time_zone_only_when_the_country_has_exactly_one(self):
+        self.assertEqual(ai.suggest_zone("fr_FR.UTF-8", self.d["by_country"]), "Europe/Paris")
+        self.assertEqual(ai.suggest_zone("de_DE.UTF-8", self.d["by_country"]), "geoip")       # Berlin and Busingen
+        self.assertEqual(ai.suggest_zone("en_US.UTF-8", self.d["by_country"]), "geoip")
+        self.assertEqual(ai.suggest_zone("zh_TW.UTF-8", self.d["by_country"]), "geoip")       # not in the table
+
+
+class RegionChangeTests(unittest.TestCase):
+    def setUp(self):
+        self.d = region_data()
+
+    def test_start_is_the_one_click_default(self):
+        r = ai.new_region()
+        self.assertEqual((r["locale"], r["layout"], r["timezone"]), ("en_US.UTF-8", "us", "geoip"))
+        self.assertEqual(r["touched"], set())
+        with self.assertRaises(ValueError):
+            ai.new_region(timezone="nope")
+
+    def test_choosing_a_language_suggests_keyboard_and_time_zone(self):
+        r = ai.change_region(ai.new_region(), "locale", "fr_FR.UTF-8", self.d)
+        self.assertEqual((r["locale"], r["layout"], r["timezone"]), ("fr_FR.UTF-8", "fr", "Europe/Paris"))
+        back = ai.change_region(r, "locale", "en_US.UTF-8", self.d)
+        self.assertEqual((back["layout"], back["timezone"]), ("us", "geoip"))                # untouched: they follow again
+
+    def test_what_the_user_chose_by_hand_is_kept(self):
+        r = ai.change_region(ai.new_region(), "layout", "gb", self.d)
+        r = ai.change_region(r, "timezone", "America/New_York", self.d)
+        r = ai.change_region(r, "locale", "fr_FR.UTF-8", self.d)
+        self.assertEqual((r["locale"], r["layout"], r["timezone"]), ("fr_FR.UTF-8", "gb", "America/New_York"))
+
+    def test_change_does_not_modify_the_old_region(self):
+        old = ai.new_region()
+        ai.change_region(old, "locale", "de_DE.UTF-8", self.d)
+        self.assertEqual((old["locale"], old["layout"], old["touched"]), ("en_US.UTF-8", "us", set()))
+
+    def test_unknown_field_and_bad_value(self):
+        with self.assertRaises(ValueError):
+            ai.change_region(ai.new_region(), "hostname", "x", self.d)
+        with self.assertRaises(ValueError):
+            ai.change_region(ai.new_region(), "timezone", "not a zone", self.d)
+
+    def test_describe(self):
+        self.assertEqual(ai.describe_region(ai.new_region(), self.d),
+                         "English (United States), keyboard: English (US), time zone: detected automatically")
+        r = ai.change_region(ai.new_region(), "locale", "de_DE.UTF-8", self.d)
+        r = ai.change_region(r, "timezone", "Europe/Berlin", self.d)
+        self.assertEqual(ai.describe_region(r, self.d), "German (Germany), keyboard: German, time zone: Berlin, Germany")
+        self.assertEqual(ai.describe_region(ai.new_region(), self.d), ai.DEFAULT_REGION_TEXT)
+
+
+class RegionDialogTests(unittest.TestCase):
+    """The language, keyboard and time zone dialogs: what they ask, and how each answer is read."""
+
+    def setUp(self):
+        self.calls = []
+        self.d = region_data()
+
+    def scripted(self, *answers):
+        left = list(answers)
+
+        def fz(args, **kw):
+            self.calls.append(args)
+            rc, out = left.pop(0)
+            return subprocess.CompletedProcess(args, rc, out, "")
+        return fz
+
+    def test_confirmation_has_the_region_button_and_names_the_choice(self):
+        disks, _ = classify([stick(), nvme()], "/dev/sda3")
+        t = by_path(disks)["/dev/nvme0n1"]
+        with mock.patch.object(ai, "zenity", self.scripted((1, ai.BTN_REGION + "\n"))):
+            self.assertEqual(ai.confirm_dialog(t, "abcd-efgh-jkmn-pqrs", [], "German (Germany), keyboard: German, time zone: Berlin"),
+                             "region")
+        args = self.calls[0]
+        self.assertIn("--extra-button=" + ai.BTN_REGION, args)
+        self.assertIn("--extra-button=" + ai.BTN_NORMAL, args)
+        self.assertIn("--default-cancel", args)                                  # Enter still never erases
+        text = next(a for a in args if a.startswith("--text="))
+        self.assertIn("German (Germany), keyboard: German, time zone: Berlin", text)
+        self.assertIn(ai.BTN_REGION, text)
+
+    def test_confirmation_answers(self):
+        disks, _ = classify([stick(), nvme()], "/dev/sda3")
+        t = by_path(disks)["/dev/nvme0n1"]
+        for (rc, out), want in (((0, ""), "install"), ((1, ai.BTN_NORMAL + "\n"), "normal"), ((1, ai.BTN_REGION + "\n"), "region"),
+                                ((1, ""), "cancel"), ((-9, ""), "cancel"), ((0, "x"), "install")):
+            with mock.patch.object(ai, "zenity", self.scripted((rc, out))):
+                self.assertEqual(ai.confirm_dialog(t, "pw", []), want, (rc, out))
+
+    def test_button_labels_are_plain_ascii(self):
+        # a launcher without a UTF-8 locale must not turn the label into something the answer no longer matches
+        self.assertTrue(ai.BTN_REGION.isascii() and ai.BTN_NORMAL.isascii())
+
+    def test_pick_one_reads_the_code_and_refuses_anything_else(self):
+        rows = self.d["layouts"]
+        with mock.patch.object(ai, "zenity", self.scripted((0, "de\n"))):
+            self.assertEqual(ai.pick_one("Keyboard", "Now: English (US)", rows), "de")
+        args = self.calls[0]
+        self.assertEqual(args[args.index("German") + 1], "de")                   # name, then code
+        self.assertIn("--hide-column=2", args)
+        self.assertIn("--print-column=2", args)
+        for rc, out in ((1, "de\n"), (0, ""), (0, "xx\n"), (0, "German\n")):
+            with mock.patch.object(ai, "zenity", self.scripted((rc, out))):
+                self.assertIsNone(ai.pick_one("Keyboard", "t", rows), (rc, out))
+
+    def test_menu_changes_one_setting_at_a_time_and_keeps_the_rest(self):
+        z = self.scripted((0, "Language\n"), (0, "de_DE.UTF-8\n"),      # language: German
+                          (0, "Time zone\n"), (0, "Europe/Berlin\n"),   # time zone: Berlin
+                          (1, ""))                                      # Done
+        with mock.patch.object(ai, "zenity", z):
+            r = ai.choose_region(ai.new_region(), self.d)
+        self.assertEqual((r["locale"], r["layout"], r["timezone"]), ("de_DE.UTF-8", "de", "Europe/Berlin"))
+        menu_after_language = self.calls[2]
+        self.assertIn("German (Germany)", menu_after_language)
+        self.assertIn("German", menu_after_language)                           # the keyboard row followed
+        self.assertIn("Detect automatically (needs the internet)", self.calls[0])
+        self.assertIn("--cancel-label=Done", self.calls[0])
+
+    def test_back_and_done_keep_the_answers(self):
+        start = ai.new_region()
+        with mock.patch.object(ai, "zenity", self.scripted((1, ""))):
+            self.assertIs(ai.choose_region(start, self.d), start)
+        with mock.patch.object(ai, "zenity", self.scripted((0, "Language\n"), (1, ""), (1, ""))):   # Back out of the list, then Done
+            self.assertEqual(ai.choose_region(start, self.d)["locale"], "en_US.UTF-8")
+
+    def test_an_empty_or_unknown_menu_answer_asks_again(self):
+        with mock.patch.object(ai, "zenity", self.scripted((0, ""), (0, "Hostname\n"), (1, ""))):
+            self.assertEqual(ai.choose_region(ai.new_region(), self.d)["locale"], "en_US.UTF-8")
+        self.assertEqual(len(self.calls), 3)
+
+    def test_titles_and_text_are_escaped(self):
+        rows = [("Tom & <Jerry>", "us")]
+        with mock.patch.object(ai, "zenity", self.scripted((1, ""))):
+            ai.pick_one("Keyboard", "Now: A & B", rows)
+        text = next(a for a in self.calls[0] if a.startswith("--text="))
+        self.assertIn("A &amp; B", text)
+
+
+class RegionFlowTests(unittest.TestCase):
+    """interactive() with the region menu in the loop."""
+
+    def run_flow(self, answers, region_after=None):
+        devs = [stick(), nvme()]
+        answers = list(answers)
+        seen, runs = [], []
+
+        def confirm(target, password, others, text=ai.DEFAULT_REGION_TEXT):
+            seen.append((password, text))
+            return answers.pop(0)
+        with Env(devs, "/dev/sda3"), RegionFiles(), \
+                mock.patch.object(ai, "is_live", return_value=True), mock.patch.object(ai, "take_lock", return_value=True), \
+                mock.patch.object(ai.shutil, "which", return_value="/usr/bin/zenity"), \
+                mock.patch.object(ai, "hash_password", return_value="$6$x$y"), \
+                mock.patch.object(ai, "choose_disk", side_effect=lambda c, d: d), \
+                mock.patch.object(ai, "confirm_dialog", side_effect=confirm), \
+                mock.patch.object(ai, "choose_region", side_effect=lambda r, d: region_after or r), \
+                mock.patch.object(ai, "error_dialog"), mock.patch.object(ai, "normal_installer", return_value=0), \
+                mock.patch.object(ai, "run_install", side_effect=lambda *a: runs.append(a) or 0):
+            rc = ai.interactive()
+        return rc, seen, runs
+
+    def german(self):
+        d = region_data()
+        r = ai.change_region(ai.new_region(), "locale", "de_DE.UTF-8", d)
+        return ai.change_region(r, "timezone", "Europe/Berlin", d)
+
+    def test_without_a_change_the_install_is_english_us_geoip(self):
+        rc, seen, runs = self.run_flow(["install"])
+        self.assertEqual(len(seen), 1)
+        self.assertEqual(seen[0][1], ai.DEFAULT_REGION_TEXT)
+        self.assertIn("locale: en_US.UTF-8", runs[0][1])
+        self.assertIn("layout: us", runs[0][1])
+        self.assertIn("timezone: geoip", runs[0][1])
+
+    def test_the_region_button_asks_again_with_the_same_password_and_installs_the_new_answers(self):
+        rc, seen, runs = self.run_flow(["region", "install"], region_after=self.german())
+        self.assertEqual(rc, 0)
+        self.assertEqual(len(seen), 2)
+        self.assertEqual(seen[0][0], seen[1][0])                                  # the one-time password does not change
+        self.assertIn("German (Germany)", seen[1][1])
+        self.assertIn("time zone: Berlin, Germany", seen[1][1])
+        self.assertEqual(len(runs), 1)
+        y = runs[0][1]
+        self.assertIn("locale: de_DE.UTF-8", y)
+        self.assertRegex(y, r"keyboard:\n    layout: de\n")
+        self.assertIn("timezone: Europe/Berlin", y)
+        self.assertNotIn(runs[0][2], y)
+
+    def test_cancel_and_normal_after_a_change_install_nothing(self):
+        for last, want in (("cancel", 6), ("normal", 0)):
+            rc, seen, runs = self.run_flow(["region", last], region_after=self.german())
+            self.assertEqual((rc, runs), (want, []), last)
+
+    def test_the_menu_can_be_opened_again_and_again(self):
+        rc, seen, runs = self.run_flow(["region", "region", "region", "install"])
+        self.assertEqual((rc, len(seen), len(runs)), (0, 4, 1))
+
+    def test_cli_values_start_the_dialog_and_the_plan(self):
+        buf = io.StringIO()
+        with Env([stick(), nvme()], "/dev/sda3"), RegionFiles(), redirect_stdout(buf):
+            rc = ai.main(["--plan", "--locale", "de_DE.UTF-8", "--keyboard", "de", "--timezone", "Europe/Berlin"])
+        out = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("LANGUAGE, KEYBOARD, TIME ZONE: German (Germany), keyboard: German, time zone: Berlin, Germany", out)
+        self.assertIn("locale: de_DE.UTF-8", out)
+        self.assertIn("timezone: Europe/Berlin", out)
+
+    def test_bad_cli_values_are_refused_before_anything_happens(self):
+        for argv in (["--locale", "english"], ["--keyboard", "US layout"], ["--timezone", "Mars/Olympus; rm"]):
+            err = io.StringIO()
+            with mock.patch.object(ai, "interactive") as inter, mock.patch("sys.stderr", err):
+                self.assertEqual(ai.main(argv), 2, argv)
+            inter.assert_not_called()
+            self.assertIn("ci-os-auto-install:", err.getvalue())
 
 
 class FakePopen:
@@ -1808,7 +2226,7 @@ class SourceRulesTests(unittest.TestCase):
 
     # Long options in the helper that belong to something other than zenity: its own command line (argparse), curl, blockdev,
     # curtin in-target.
-    NOT_ZENITY = {"--plan", "--disks", "--live-setup", "--max-time", "--unix-socket", "--getsize64", "--target"}
+    NOT_ZENITY = {"--plan", "--disks", "--live-setup", "--locale", "--keyboard", "--timezone", "--max-time", "--unix-socket", "--getsize64", "--target"}
 
     def test_every_zenity_option_exists_in_the_zenity_of_the_image(self):
         # zenity 4.0.1 rejected --class and --name: every dialog, including the confirmation, failed. The list is

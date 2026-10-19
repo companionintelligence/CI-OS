@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Companion setup progress
+Comment=Shows what the first-boot setup is doing, until it is done
+Exec=/usr/libexec/ci-os/setup-progress
+OnlyShowIn=GNOME;
+X-GNOME-Autostart-Delay=15
+NoDisplay=true
+Terminal=false

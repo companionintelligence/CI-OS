@@ -39,10 +39,10 @@ On Windows use Rufus (DD Image mode) or balenaEtcher (not tested here).
 
 **4. Install.**
 
-- Ubuntu edition: choose **Install Companion OS (automatic)**. The dialog names the disk and what is on it and shows a one-time password for the user `companion`. **Erase the disk and install** is the only action that writes anything; Enter never confirms. The machine turns itself off at the end: remove the stick, turn it on. Or choose **Try or Install Companion OS** for the interactive installer. [I]
+- Ubuntu edition: choose **Install Companion OS (automatic)**. The dialog names the disk and what is on it and shows a one-time password for the user `companion`. English, a US keyboard and an automatically detected time zone are used unless you press **Language, keyboard, time zone...** first. **Erase the disk and install** is the only action that writes anything; Enter never confirms. The machine turns itself off at the end: remove the stick, turn it on. Or choose **Try or Install Companion OS** for the interactive installer. [I]
 - Plasma edition: choose **Companion OS (Plasma)**, connect to the internet, open the application menu and start **Install Companion OS**, then follow Calamares: choose **Erase disk**, create your user, **Install**. It took 22 to 28 minutes on an emulated machine (a virtual machine, not real hardware). [V]
 
-**5. First boot.** Sign in. With a network the machine provisions itself in the background (Docker, Ollama, the tools and about 18.8 GB of models; 16 to 22 minutes on a fast link). Check:
+**5. First boot.** Sign in. With a network the machine provisions itself in the background (Docker, Ollama, the tools and about 18.8 GB of models; 16 to 22 minutes on a fast link). On the Ubuntu edition a notification shows the step it is at and tells you when it is ready [I]. Check:
 
 ```bash
 ls /var/lib/ci-os/.first-boot-setup-done       # present when it has succeeded

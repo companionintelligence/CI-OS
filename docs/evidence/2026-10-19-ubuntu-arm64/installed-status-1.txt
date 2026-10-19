@@ -1,0 +1,70 @@
+== 03:56:40 uname: aarch64  uptime: up 4 minutes  load: 0.95 0.53 0.22
+== system state: degraded
+Startup finished in 1.268s (kernel) + 18.536s (userspace) = 19.805s 
+graphical.target reached after 18.496s in userspace.
+== first-boot unit / timer
+NEXT LEFT LAST                              PASSED UNIT                         ACTIVATES
+-       - Mon 2026-10-19 03:55:24 UTC 1min 15s ago ci-os-first-boot-setup.timer ci-os-first-boot-setup.service
+
+ActiveState=active SubState=running Type=exec Result=success Nice=19 CPUSchedulingPolicy=5 
+== first-boot log (last 14)
+pulling 970aa74c0a90:   1% ▕                  ▏ 1.7 MB/274 MB                  [K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:   1% ▕                  ▏ 3.1 MB/274 MB                  [K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:   2% ▕                  ▏ 4.3 MB/274 MB                  [K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:   4% ▕                  ▏  11 MB/274 MB                  [K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:   6% ▕█                 ▏  17 MB/274 MB                  [K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:   8% ▕█                 ▏  21 MB/274 MB                  [K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:   8% ▕█                 ▏  21 MB/274 MB                  [K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:   9% ▕█                 ▏  24 MB/274 MB                  [K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:  11% ▕█                 ▏  30 MB/274 MB   30 MB/s      8s[K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:  16% ▕██                ▏  45 MB/274 MB   30 MB/s      7s[K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:  18% ▕███               ▏  48 MB/274 MB   30 MB/s      7s[K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:  18% ▕███               ▏  50 MB/274 MB   30 MB/s      7s[K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:  21% ▕███               ▏  57 MB/274 MB   30 MB/s      7s[K[?25h[?2026l[?2026h[?25l[A[1Gpulling manifest [K
+pulling 970aa74c0a90:  24% ▕████              ▏  67 MB/274 MB   30 MB/s      6s[K[?25h[?2026l
+== marker
+drwxr-xr-x  2 root root 4096 Oct 19 03:56 .
+drwxr-xr-x 80 root root 4096 Oct 19 03:52 ..
+-rw-r--r--  1 root root    0 Oct 19 03:52 .first-boot-rebrand-done
+-rw-r--r--  1 root root    2 Oct 19 03:56 first-boot-setup-attempts
+== docker / hub
+ls: cannot access '/home/companion/.local/share/companion-hub': No such file or directory
+== ollama
+active
+NAME    ID    SIZE    MODIFIED 
+== dock now
+['ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop', 'Companion Hub.desktop', 'companion-capture.desktop', 'companion-docs.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Ptyxis.desktop']
+== desktop
+total 28
+drwxr-xr-x  2 companion companion 4096 Oct 19 03:11 .
+drwxr-x--- 15 companion companion 4096 Oct 19 03:54 ..
+-rwxr-xr-x  1 companion companion  247 Oct 19 03:11 companion-app-store.desktop
+-rwxr-xr-x  1 companion companion  251 Oct 19 03:11 companion-community.desktop
+-rwxr-xr-x  1 companion companion  256 Oct 19 03:11 companion-docs.desktop
+-rwxr-xr-x  1 companion companion  275 Oct 19 03:11 companion-getting-started.desktop
+-rwxr-xr-x  1 companion companion  229 Oct 19 03:11 companion-support.desktop
+display name: companion-docs.desktop
+  metadata::trusted: true
+== first-run stamp / welcome stamp
+-rw-r--r-- 1 companion companion 0 Oct 19 03:11 /home/companion/.config/gnome-initial-setup-done
+
+/home/companion/.config/ci-os/:
+total 8
+drwxrwxr-x  2 companion companion 4096 Oct 19 03:55 .
+drwxr-xr-x 12 companion companion 4096 Oct 19 03:55 ..
+== login text
+
+Companion OS is built on Ubuntu. The programs included with it are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Companion OS comes with ABSOLUTELY NO WARRANTY, to the extent permitted by
+applicable law.
+root root 644 /etc/update-motd.d/50-motd-news
+root root 644 /etc/update-motd.d/00-header
+root root 644 /etc/update-motd.d/91-contract-ua-esm-status
+root root 644 /etc/update-motd.d/10-help-text
+== arch / packages
+arm64
+ii  companion-hub  0.3.5        arm64        Desktop app for managing and accessing the Co
+dpkg-query: no packages found matching companion-capture

@@ -227,9 +227,9 @@ expect "  the URL is https on dl.ci.computer/applet, for this version, and names
 
 expect "the Capture knob is validated as 0 or 1 with the others" grep -q -E '^for _k in .*CI_OS_BAKE_CAPTURE' "$SCRIPT"
 expect "the cache file is named <package>_<version>_amd64.deb (what a person places there)" \
-    grep -q -F 'TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_amd64.deb"' "$SCRIPT"
+    grep -q -F 'TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_${TB_ARCH}.deb"' "$SCRIPT"
 before "the download happens only after the cache file failed its check" \
-    'if \[\[ ! -f "\$TB_CAPTURE_DEB" \]\]' 'tb_fetch "\$CAPTURE_URL"'
+    'if \[\[ ! -f "\$TB_CAPTURE_DEB" \]\]' 'tb_fetch "\$\(tb_pin CAPTURE_URL\)"'
 expect "  and needs no GitHub credentials (no gh)" bash -c '! sed -n "/TB_CAPTURE_DEB=/,/tb_expect_sha256 \"\$TB_CAPTURE_DEB\"/p" "$1" | grep -q "gh "' _ "$SCRIPT"
 before "the Capture .deb is checked against the sha256 pin before the chroot is touched" \
     'tb_expect_sha256 "\$TB_CAPTURE_DEB"' 'chroot "\$CHROOT_PATH" /tmp/preinstall-tier-b\.sh'
@@ -289,6 +289,31 @@ echo
 echo "== 10. the first run and the login text are Companion OS's, not Ubuntu's"
 # gnome-initial-setup (Canonical's first-run: raccoon artwork, Ubuntu Pro, "Help improve Ubuntu") runs unless this stamp is in the home
 expect "the skel carries gnome-initial-setup-done, so no new user gets Canonical's first-run" grep -q -F ': > "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup-done"' "$SCRIPT"
+# The same screen returns as the "welcome to the new release" page: gnome-initial-setup-upgrade-login.service runs when the stamp above
+# exists and ~/.config/gnome-initial-setup/upgrade-<release>-done does not (found on the first installed arm64 image, 2026-10-19).
+# The block is RUN against a fake chroot holding the real unit (fixtures/gnome-initial-setup-upgrade-login.service, captured from the image).
+GIS_FIX="$HERE/fixtures/gnome-initial-setup-upgrade-login.service"
+GIS_BLOCK="$WORK/gis-block.sh"
+body_of 'gis-upgrade-stamp begin' 'gis-upgrade-stamp end' > "$GIS_BLOCK"
+expect "the skel stamp block of Step 10g is found (and is not empty)" test "$(wc -l < "$GIS_BLOCK" | tr -d ' ')" -gt 8
+gis_run() { # gis_run <unit file or "-" for none> -> prints "<exit>|<skel stamps found>|<stderr first line>"
+    local root="$WORK/gis-root.$$.$RANDOM" rc err
+    mkdir -p "$root/usr/lib/systemd/user" "$root/etc/skel/.config"
+    [[ "$1" == "-" ]] || cp "$1" "$root/usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service"
+    err="$(CHROOT_PATH="$root" bash -c 'set -euo pipefail; . "$1"' _ "$GIS_BLOCK" 2>&1 >/dev/null)"; rc=$?
+    echo "$rc|$(cd "$root/etc/skel/.config" && find . -type f | sed 's|^\./||' | sort | tr '\n' ',')|$(printf '%s' "$err" | head -n 1 | cut -c1-60)"
+    rm -rf "$root"
+}
+expect "the real 26.04 unit: exit 0 and the skel gets gnome-initial-setup/upgrade-26.04-done" test "$(gis_run "$GIS_FIX")" = "0|gnome-initial-setup/upgrade-26.04-done,|"
+sed 's/upgrade-26\.04-done/upgrade-26.10-done/' "$GIS_FIX" > "$WORK/unit-2610.service"
+expect "  a later release's unit: the stamp is named by the unit (upgrade-26.10-done), not written as 26.04" test "$(gis_run "$WORK/unit-2610.service")" = "0|gnome-initial-setup/upgrade-26.10-done,|"
+grep -v 'upgrade-26' "$GIS_FIX" > "$WORK/unit-nostamp.service"
+gis_nostamp="$(gis_run "$WORK/unit-nostamp.service")"
+case "$gis_nostamp" in
+    "1||[ERROR] Step 10g:"*) pass "  a unit that names no stamp stops the build (exit 1, Step 10g named) and writes nothing" ;;
+    *) fail "  a unit that names no stamp stops the build (got: $gis_nostamp)" ;;
+esac
+expect "  no upgrade unit in the image: exit 0 and no stamp (nothing to skip)" test "$(gis_run -)" = "0||"
 # an upgrade restores the executable bit of a motd script; dpkg-statoverride is what keeps it off
 for m in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
     expect "motd script $m is kept off by dpkg-statoverride, not only by chmod" bash -c 'grep -q -E "for _motd in .*$1" "$2"' _ "$m" "$SCRIPT"
@@ -298,6 +323,51 @@ expect "/etc/legal is diverted, then rewritten for Companion OS" bash -c 'grep -
 expect "  the new text keeps the distribution-terms sentence and the no-warranty sentence" bash -c 'sed -n "/cat > \"\$CHROOT_PATH\/etc\/legal\"/,/^LEGAL$/p" "$1" | grep -c -E "exact distribution terms|ABSOLUTELY NO WARRANTY" | grep -q "^2$"' _ "$SCRIPT"
 expect "  and says nothing about Ubuntu except that it is the base" bash -c 'sed -n "/cat > \"\$CHROOT_PATH\/etc\/legal\"/,/^LEGAL$/p" "$1" | grep -i -c "ubuntu" | grep -q "^1$"' _ "$SCRIPT"
 expect "the Ubuntu Pro autostart notification is diverted aside (not just deleted)" grep -q -F 'dpkg-divert --local --rename --divert /etc/xdg/autostart/ubuntu-advantage-notification.desktop.disabled --add' "$SCRIPT"
+
+echo
+echo "== 11. one script for two architectures (amd64 and arm64)"
+BUILD_ISO="$HERE/../../iso/scripts/build-iso.sh"
+CONTROL="$HERE/../../headless-package/DEBIAN/control"
+[[ -f "$BUILD_ISO" && -f "$CONTROL" ]] || { echo "missing $BUILD_ISO or $CONTROL" >&2; exit 2; }
+for k in OLLAMA_URL OLLAMA_SHA256 OLLAMA_SIZE LAUNCHER_URL LAUNCHER_SHA256 LAUNCHER_SIZE; do
+    expect "arm64 pin ${k}_ARM64 is set" test -n "$(pin "${k}_ARM64")"
+done
+for k in OLLAMA LAUNCHER; do
+    expect "  ${k}_SHA256_ARM64 is a sha256, and not the amd64 one" bash -c '[[ "$1" =~ ^[0-9a-f]{64}$ && "$1" != "$2" ]]' _ "$(pin "${k}_SHA256_ARM64")" "$(pin "${k}_SHA256")"
+done
+expect "  the arm64 Ollama and Launcher URLs name an arm64 file" bash -c '[[ "$1" == *arm64* && "$2" == *arm64* ]]' _ "$(pin OLLAMA_URL_ARM64)" "$(pin LAUNCHER_URL_ARM64)"
+expect "  Companion Capture publishes no arm64 build: its arm64 pins are empty, so an arm64 image does not bake it" bash -c '[[ -z "$1$2$3" ]]' _ "$(pin CAPTURE_URL_ARM64)" "$(pin CAPTURE_SHA256_ARM64)" "$(pin CAPTURE_SIZE_ARM64)"
+expect "the chroot script takes its architecture from CI_OS_ARCH and refuses anything but amd64 or arm64" bash -c 'grep -q -F "CI_ARCH=\"\${CI_OS_ARCH:-amd64}\"" "$1" && grep -q -F "CI_OS_ARCH must be amd64 or arm64" "$1"' _ "$SCRIPT"
+expect "Step 10e resolves every pin of the image's architecture through tb_pin" bash -c 'grep -q -F "tb_pin() {" "$1" && [[ $(grep -c "tb_pin " "$1") -ge 12 ]]' _ "$SCRIPT"
+expect "an explicit CI_OS_BAKE_CAPTURE=1 on an image with no Capture build stops the build" grep -q -F 'publishes no $TB_ARCH build' "$SCRIPT"
+expect "the gh apt source is for the image's architecture, not always amd64" bash -c 'grep -q -F "deb [arch=%s signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg]" "$1" && ! grep -q "arch=amd64" "$1"' _ "$SCRIPT"
+expect "amd64-microcode is installed on amd64 only (apt refuses the name on arm64)" bash -c 'sed -n "/dpkg --print-architecture/,/^fi$/p" "$1" | grep -q "amd64-microcode"' _ "$SCRIPT"
+expect "the ROCm helper command is made on amd64 only" bash -c 'sed -n "/ROCm is x86-64 only/,/^fi$/p" "$1" | grep -q "ci-os-install-rocm"' _ "$SCRIPT"
+expect "the setup-device package is Architecture: all (its payload is shell, Python and config: an arm64 chroot must be able to install it)" grep -q -x 'Architecture: all' "$CONTROL"
+expect "build-iso.sh takes --arch, validates it and exports CI_OS_ARCH" bash -c 'grep -q -F -- "--arch)" "$1" && grep -q -F "amd64 | arm64) ;;" "$1" && grep -q -F "export CI_OS_ARCH" "$1"' _ "$BUILD_ISO"
+expect "  the output name carries the architecture" bash -c 'grep -q -F "companion-os-\${CI_OS_VERSION}-\${CI_OS_ARCH}.iso" "$1" && ! grep -q "CI_OS_VERSION}-amd64.iso" "$1"' _ "$BUILD_ISO"
+expect "  the base ISO must be the image's architecture (its volume id ends with it)" grep -q -F 'needs the $CI_OS_ARCH desktop ISO' "$BUILD_ISO"
+
+echo
+echo "== 12. a quiet first sign-in, and a setup log without leftovers"
+# Found on the first installed arm64 image (2026-10-19): a second Firefox tab ("Firefox Privacy Notice"), an "80 Updates Available" notice,
+# a setup log with lines from an older flow, and a ci-os-info that offered a command arm64 does not have.
+POLICY="$HERE/../payload/firefox/etc/firefox/policies/policies.json"
+PROVISION="$HERE/../../provision/provision.sh"
+CIHUB="$HERE/../../../../core/lib/ci-hub.sh"
+policy_keys() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(",".join(sorted("%s=%s" % (k, json.dumps(v)) for k, v in d["policies"].items())))' "$POLICY" 2>&1; }
+expect "the Firefox policy file is JSON with exactly the four policies, as proved on a fresh user" test "$(policy_keys)" = 'DisableTelemetry=true,DontCheckDefaultBrowser=true,OverrideFirstRunPage="",OverridePostUpdatePage=""'
+expect "Step 10g installs it as /etc/firefox/policies/policies.json, mode 0644" grep -q -F 'install -m 0644 "$REPO_ROOT/backends/ubuntu/chroot/payload/firefox/etc/firefox/policies/policies.json" "$CHROOT_PATH/etc/firefox/policies/policies.json"' "$SCRIPT"
+expect "the update notifier's pop-ups are off by dconf default (section and key)" bash -c 'grep -q -F "[com/ubuntu/update-notifier]" "$1" && grep -q -F "no-show-notifications=true" "$1" && grep -q -F "03-ci-os-quiet-first-run" "$1"' _ "$SCRIPT"
+before "  and the default is written before the dconf database is compiled" '03-ci-os-quiet-first-run" << ' 'chroot_exec "dconf update"'
+expect "ci-os-info is installed from its payload (a test can run it), not written inline" bash -c 'grep -q -F "install -m 0755 \"\$REPO_ROOT/backends/ubuntu/chroot/payload/info/usr/local/bin/ci-os-info\"" "$1" && ! grep -q "cat > \"\$CHROOT_PATH/usr/local/bin/ci-os-info\"" "$1"' _ "$SCRIPT"
+expect "the first-boot wrapper no longer ends by telling the user to log out for Docker and PATH" bash -c '! grep -q "NOTE: Log out and back in for Docker group and PATH" "$1"' _ "$SCRIPT"
+for stale in "Create deploy read key" "log in as 'ci' user" "Start Ollama service: systemctl start ollama" "Verify installations: docker --version, node --version, pnpm"; do
+    expect "provision.sh no longer prints: $stale" bash -c '! grep -q -F -- "$1" "$2"' _ "$stale" "$PROVISION"
+done
+expect "provision.sh: the missing-desktop-user case is a note, not a WARNING" bash -c '! grep -q "log_warning \"gsettings not available or no valid user detected. Skipping GNOME Power" "$1" && grep -q "log_info \"No desktop user to configure" "$1"' _ "$PROVISION"
+expect "ci-hub.sh no longer says \"not deployed\" and sends the user to a portal that does not do this" bash -c '! grep -q "CI-Hub not deployed" "$1" && ! grep -q "run the WiFi/pairing portal, to enable this step" "$1"' _ "$CIHUB"
+expect "provision.sh's next steps name Hub, ci-os-info and the Docker group" bash -c 'grep -q "Open Companion Hub (from the dock" "$1" && grep -q "See how the machine is doing at any time: ci-os-info" "$1" && grep -q "no permission for Docker, sign out and back in" "$1"' _ "$PROVISION"
 
 echo
 echo "$PASS passed, $FAIL failed"

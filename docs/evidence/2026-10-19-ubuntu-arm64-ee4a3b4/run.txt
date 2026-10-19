@@ -1,0 +1,12 @@
+# The arm64 image of ee4a3b4, fresh install, first sign-in (2026-10-19). QEMU with HVF; the ISO as a USB drive; a file-backed NVMe disk.
+2026-10-19T20:32:12Z  build starts (clean checkout of ee4a3b4, native arm64 container)
+2026-10-19T20:45:26Z  build rc=0 after 747 s;   verify-iso: 442 passed, 0 failed (438 + the 4 new first-sign-in and ci-os-info checks)
+2026-10-19T20:46:58Z  first boot of the ISO: the screen froze on a text boot log and the guest sat idle (host load average 14); restarted, a one-off.
+2026-10-19T20:55:00Z  one-click install confirmed;   2026-10-19T21:04:22Z  the installer powered the machine off: 9 min 22 s
+21:06                 first sign-in: one-time password, forced new password, then Firefox with ONE tab (the Companion page), no notification
+                      in 15 frames over 70 s (guest-text: 78 packages were waiting; the update notifier's pop-ups were off by dconf default)
+~21:09:41             first-boot job finished (setup log: no 'not deployed', no 'deploy read key', no 'gsettings not available', no 'NOTE: Log out')
+                      ci-os-info on the installed system (frame arm64-11-ci-os-info.png in docs/ui/companion-os/ubuntu/):
+                      Setup finished, Hub answering at the address on the route out, models, disk, 1 failed service (pd-mapper.service, KI-28)
+Baseline for comparison (the image of 4b7597d, same steps): a second tab 'Firefox Privacy Notice' and 'Software Updater: 79 Updates Available'
+(docs/evidence/2026-10-19-ubuntu-arm64-4b7597d/frames/01-first-sign-in-with-software-updater-notice.png).

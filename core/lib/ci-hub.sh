@@ -50,8 +50,7 @@ REGISTRY_PASSWORD="${REGISTRY_PASSWORD:-}"
 # provisioning failure — CI-Hub deploy is expected to be skipped until the
 # device is paired) rather than failing partway through image pull.
 if [ -z "$REGISTRY_USERNAME" ] || [ -z "$REGISTRY_PASSWORD" ]; then
-  echo "CI-Hub not deployed: REGISTRY_USERNAME/REGISTRY_PASSWORD not set."
-  echo "Set them in the environment, or run the WiFi/pairing portal, to enable this step."
+  echo "CI-Hub registry deploy skipped: no REGISTRY_USERNAME/REGISTRY_PASSWORD set (not needed when Companion Hub is installed from its package)."
   exit 0
 fi
 

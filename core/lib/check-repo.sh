@@ -111,7 +111,9 @@ fi
 echo "── no block-letter banner art in backends/, core/ and .github/"
 # A grep for the retired names reads text, not pictures: the MOTD banner drew the letters C, I, O, S in full-block
 # characters, which spelled "CI OS" and passed every check above. Draw no names; write them.
-block_art="$(git grep -InF '█' -- backends core .github ':(exclude)core/lib/check-repo.sh' 2>/dev/null || true)"
+# One file is exempt: a captured log of "ollama pull" progress bars (U+2588 is the bar's fill), the fixture of the progress-filter test.
+# It is 40 KB of "pulling <layer>: N% ▕█   ▏ x MB/y MB" lines, not a picture; a test reads it byte for byte, so it cannot be rewritten.
+block_art="$(git grep -InF '█' -- backends core .github ':(exclude)core/lib/check-repo.sh' ':(exclude)backends/ubuntu/chroot/tests/fixtures/ollama-pull-raw.txt' 2>/dev/null || true)"
 if [ -n "$block_art" ]; then
   echo "✖ block-letter art (U+2588) is back; it can spell a retired name that no text check can see:"; echo "$block_art"; rc=1
 fi
@@ -252,7 +254,12 @@ for suite in \
   "Companion links and welcome|bash backends/ubuntu/lib/tests/start-links.sh" \
   ".deb member names (needs dpkg-deb)|bash backends/ubuntu/lib/tests/deb-members.sh" \
   "first-boot wait-quiet|bash backends/ubuntu/chroot/tests/wait-quiet.sh" \
+  "ci-os-info command|bash backends/ubuntu/chroot/tests/ci-os-info.sh" \
+  "QMP driver keyboard layouts|python3 backends/ubuntu/iso/tests/test_qmp_layouts.py" \
+  "first-boot progress library|bash core/lib/tests/setup-status.sh" \
+  "first-boot progress notification|bash backends/ubuntu/chroot/tests/setup-progress.sh" \
   "Companion Hub first-boot start|bash backends/ubuntu/chroot/tests/start-companion-hub.sh" \
+  "ollama pull progress filter|bash backends/ubuntu/chroot/tests/pull-progress-filter.sh" \
   "gresource provenance|bash core/render/tests/gresource-provenance.sh" \
   "live GRUB menu modules|bash backends/ubuntu/iso/tests/grub-live-menu-modules.sh" \
   "untracked-file guard|bash core/lib/tests/untracked-deps.sh"; do

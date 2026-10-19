@@ -1,0 +1,175 @@
+{
+  "run": "2026-10-19 arm64, frames 01-10 commit 4b7597d, frame 11 ee4a3b4, frames 12-19b b124745 (second run, below)",
+  "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware",
+  "frames": [
+    {
+      "file": "arm64-01-live-grub-menu.png",
+      "sha256": "463999d98140e0bddfa8a12891c9d6685749d807a8c22addf8cc8992b186f6bc",
+      "bytes": 15245,
+      "size": "1280x800",
+      "shows": "The boot menu of the arm64 live medium: Companion mark, four entries, 15 s countdown",
+      "taken_approx_utc": "05:35:32Z + 12 s"
+    },
+    {
+      "file": "arm64-02-live-installer-welcome.png",
+      "sha256": "dd4550c96c566cd40cc25ca7c5bc6e9b2e664c5304d14bb80666dc61201a5478",
+      "bytes": 480842,
+      "size": "1280x800",
+      "shows": "Canonical's installer window, which opens first in the live session (its text stays Ubuntu's)",
+      "taken_approx_utc": "about 2 min after power-on"
+    },
+    {
+      "file": "arm64-03-live-desktop.png",
+      "sha256": "745ebf7808414fa441f88591712588e23cc37afe28309c7aa182174baf64f2ff",
+      "bytes": 1334029,
+      "size": "1280x800",
+      "shows": "The live desktop after the installer window is closed: dock, five trusted Companion shortcuts, two installer launchers",
+      "taken_approx_utc": "05:38:02Z"
+    },
+    {
+      "file": "arm64-04-one-click-confirmation.png",
+      "sha256": "170f2ab679bba88b41bde6776eec4e37a41e49b9eebfa2d9710b8510dcd9f899",
+      "bytes": 1016121,
+      "size": "1280x800",
+      "shows": "The one-click installer's only dialog; the one-time password is hidden (redacted bar over the line)",
+      "taken_approx_utc": "05:38:20Z"
+    },
+    {
+      "file": "arm64-05-one-click-progress.png",
+      "sha256": "7cb770be36017b113eec3da7d3b8a2ec04ca41d289147f607439414f336bc532",
+      "bytes": 1240007,
+      "size": "1280x800",
+      "shows": "The progress window during the install; the sentence that carries the one-time password is replaced by a redacted copy",
+      "taken_approx_utc": "05:38:50Z"
+    },
+    {
+      "file": "arm64-06-installed-greeter.png",
+      "sha256": "bac1eba94ce3525f08d967a6c7b968b30865c410e6698dcfe07af7616b6f137e",
+      "bytes": 26350,
+      "size": "1280x800",
+      "shows": "The installed system's GDM greeter, 50 s after power-on",
+      "taken_approx_utc": "05:51:39Z"
+    },
+    {
+      "file": "arm64-07-forced-password-change.png",
+      "sha256": "0a27380e70dc10f6887b948b859c85eb7f78c369d711fd9f3df29b528641c13e",
+      "bytes": 34167,
+      "size": "1280x800",
+      "shows": "The first sign-in asks for a new password (chage -d 0)",
+      "taken_approx_utc": "05:55:20Z"
+    },
+    {
+      "file": "arm64-08-first-sign-in-welcome-page.png",
+      "sha256": "77ac1f221097e64a637be02787d38ed849a3f1391c795f7c54dfe639a203a8ee",
+      "bytes": 159936,
+      "size": "1280x800",
+      "shows": "After the new password: no Canonical first-run screen; the Companion getting-started page is open in Firefox",
+      "taken_approx_utc": "05:57:00Z"
+    },
+    {
+      "file": "arm64-09-installed-desktop.png",
+      "sha256": "d6a09115d4285e5599e80fae3f7a9e7de9d5658c7097f15f7ce57b6954dd52e2",
+      "bytes": 1312595,
+      "size": "1280x800",
+      "shows": "The installed desktop: dock (Hub, Docs, Files, Terminal) and the five trusted Companion shortcuts",
+      "taken_approx_utc": "05:57:20Z"
+    },
+    {
+      "file": "arm64-10-hub-pairing.png",
+      "sha256": "be2c97a253ab555b3664b0a52800840af99ed31c931854c6f1a8df1c3748e86f",
+      "bytes": 79941,
+      "size": "1280x800",
+      "shows": "Companion Hub's first screen on arm64: pairing code and device registration (pairing is a person's step)",
+      "taken_approx_utc": "05:57:50Z"
+    },
+    {
+      "file": "arm64-11-ci-os-info.png",
+      "sha256": "b692e4984047084d51dae2a22910131c1c02bbcb5f4fc13bdb3cd188544ea4b3",
+      "bytes": 69856,
+      "size": "1280x800",
+      "shows": "ci-os-info on the installed system after the first-boot job: setup finished, Hub answering at the address on the route out, the models, disk, one failed service (pd-mapper.service, KI-28). From the image of ee4a3b4, not 4b7597d",
+      "taken_approx_utc": "21:10:00Z"
+    },
+    {
+      "file": "arm64-12-one-click-language-keyboard-time-zone.png",
+      "sha256": "427c3be915604f2a5ccb2458223ea1812bdedd51b6789c96e0f4dc4ccda7cf3b",
+      "bytes": 1112631,
+      "size": "1280x800",
+      "shows": "The menu behind the one-click dialog's 'Language, keyboard, time zone...' button after German (Germany) and Berlin were picked: the keyboard row followed to German",
+      "taken_approx_utc": "22:20:10Z",
+      "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    },
+    {
+      "file": "arm64-13-one-click-language-search.png",
+      "sha256": "0ea48453ce62319a3c1a06a88b243079465fb2777797eaf3b293c157dfd77ed9",
+      "bytes": 884385,
+      "size": "1280x800",
+      "shows": "The language list with the search field: 'Germany' typed, one row left (German (Germany)); 'Now: English (United States)' above the list",
+      "taken_approx_utc": "22:19:40Z",
+      "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    },
+    {
+      "file": "arm64-14-one-click-confirmation-german.png",
+      "sha256": "3451a3e30a83c650d08ff086ac09a71d16770e70dee895365aaf1d4fd23ef782",
+      "bytes": 820579,
+      "size": "1280x800",
+      "shows": "The confirmation after the choice: 'German (Germany), keyboard: German, time zone: Berlin, Germany', the same one-time password (redacted: a dark bar), four buttons",
+      "taken_approx_utc": "22:20:20Z",
+      "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    },
+    {
+      "file": "arm64-15-installed-greeter-german.png",
+      "sha256": "c562c954890f2ec46f943a361db97d97873e213047d2b6cadc6f0ae0cd2c4988",
+      "bytes": 27754,
+      "size": "1280x800",
+      "shows": "The greeter of the installed system in German ('Nicht aufgeführt?', '20. Okt 00:33', Berlin time): the language and time zone chosen in the dialog reached the installed system",
+      "taken_approx_utc": "22:33:00Z",
+      "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    },
+    {
+      "file": "arm64-16-setup-notification-getting-ready.png",
+      "sha256": "34356a776213725659aea3140693a15138d8c9214da408a66421d897c1b915b4",
+      "bytes": 1288569,
+      "size": "1280x800",
+      "shows": "The first notification after the first sign-in, before the setup has started: 'Companion OS is getting ready'. The time stamp 'Gerade eben' is German",
+      "taken_approx_utc": "22:34:07Z",
+      "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    },
+    {
+      "file": "arm64-17-setup-notification-step-3.png",
+      "sha256": "03e63819ce3f6c1ff8c54ecaeb5a463341937651031180b03501157e105ed4db",
+      "bytes": 133715,
+      "size": "1280x800",
+      "shows": "The notification while the first-boot setup runs: 'Setting up Companion OS: step 3 of 7', 'Installing developer tools'",
+      "taken_approx_utc": "22:36:27Z",
+      "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    },
+    {
+      "file": "arm64-18-setup-notification-step-5.png",
+      "sha256": "0c28003f744c8500b412cfee43c79a18ad3004f01abaa2a60fb73c3cbbf6d178",
+      "bytes": 134443,
+      "size": "1280x800",
+      "shows": "The same notification at step 5 of 7: 'Downloading the AI models (the longest step)'",
+      "taken_approx_utc": "22:36:41Z",
+      "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    },
+    {
+      "file": "arm64-19-setup-notification-ready.png",
+      "sha256": "6388fbe453852d8d91e7cd15acdf8fefd1fd7962c2f231a18d3fc6081fd48a04",
+      "bytes": 133406,
+      "size": "1280x800",
+      "shows": "'Companion OS is ready' as built into the image of b124745 ('Open Companion Hub to pair this com...'; it carried no button, see notify-send-actions.txt)",
+      "taken_approx_utc": "22:38:15Z",
+      "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    },
+    {
+      "file": "arm64-19b-setup-notification-ready-revised.png",
+      "sha256": "7abfac832eadc5789cce20a6f6da525717e1716ab141b893097db829d7a97dbd",
+      "bytes": 125139,
+      "size": "1280x800",
+      "shows": "The ready message of the revised script (c8de040): 'Open Companion Hub, the first icon in the dock...'. The script of that commit run in the same guest against a fake status file, not a first boot of an image of c8de040",
+      "taken_approx_utc": "22:48:00Z",
+      "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    }
+  ]
+}

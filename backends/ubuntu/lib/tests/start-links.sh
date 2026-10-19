@@ -240,7 +240,9 @@ run_trust() { # LIVE_PATH
 }
 : > "$TMP/apps/firefox_firefox.desktop"
 touch "$TMP/w/live-marker"; run_trust "$TMP/w/live-marker"
-eq "in a live session nothing is marked trusted" "$(grep -c . "$TMP/gio.log" | tr -d ' ')" "0"
+eq "in a live session the unchanged shortcut is marked trusted too (an untrusted one shows as a red cross and a file name)" "$(cat "$TMP/gio.log")" "set $DESK/companion-docs.desktop metadata::trusted true"
+eq "  but the page is not opened there" "$(grep -c . "$TMP/open.log" | tr -d ' ')" "0"
+rm -f "$TMP/w/desktop-trusted"
 run_trust "$TMP/w/no-live-marker"
 eq "on an installed system the unchanged shortcut is marked trusted" "$(cat "$TMP/gio.log")" "set $DESK/companion-docs.desktop metadata::trusted true"
 eq "  the edited one and the foreign file are not" "$(grep -c -E 'support|other' "$TMP/gio.log" | tr -d ' ')" "0"

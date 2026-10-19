@@ -9,7 +9,7 @@
 # every login.
 #
 # The CI_OS_WELCOME_* variables exist so a test can run this without a session; nothing in the image sets them.
-# (Besides opening the page, this marks the desktop shortcuts trusted on that first login: see below.)
+# (Besides opening the page, this marks the desktop shortcuts trusted on the first login, live session included: see below.)
 url="${CI_OS_WELCOME_URL:-https://docs.ci.computer/docs/getting-started}"
 stamp="${CI_OS_WELCOME_STAMP:-${XDG_CONFIG_HOME:-$HOME/.config}/ci-os/welcome-done}"
 live="${CI_OS_WELCOME_LIVE:-/cdrom/casper/vmlinuz}"
@@ -17,10 +17,9 @@ tries="${CI_OS_WELCOME_TRIES:-90}"
 pause="${CI_OS_WELCOME_SLEEP:-20}"
 appdirs="${CI_OS_WELCOME_APPDIRS:-/usr/share/applications /var/lib/snapd/desktop/applications $HOME/.local/share/applications}"
 
-[ -e "$live" ] && exit 0
-
-# The Companion shortcuts that /etc/skel put on the desktop: mark them trusted once, which is what "Allow Launching" does,
-# so the desktop launches them on a click instead of asking first. Only files identical to the system copy of the same
+# The Companion shortcuts that /etc/skel put on the desktop: mark them trusted once, which is what "Allow Launching" does.
+# Without it the desktop shows each one as an untrusted launcher (a red cross and the file name instead of the name: seen on the
+# first arm64 boot), in a live session as much as on an installed system, so this runs before the live-session check below. Only files identical to the system copy of the same
 # name are marked: a shortcut the user edited, or any other file, is left alone.
 trust_stamp="$(dirname "$stamp")/desktop-trusted"
 if [ ! -e "$trust_stamp" ] && command -v gio >/dev/null 2>&1; then
@@ -31,6 +30,8 @@ if [ ! -e "$trust_stamp" ] && command -v gio >/dev/null 2>&1; then
     mkdir -p "$(dirname "$trust_stamp")" 2>/dev/null && : > "$trust_stamp" 2>/dev/null
 fi
 
+
+[ -e "$live" ] && exit 0
 [ -e "$stamp" ] && exit 0
 
 # The default handler of https links must name a desktop file that is really installed.

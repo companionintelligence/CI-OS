@@ -1,0 +1,6 @@
+2026-10-19T03:07:51Z arm64 build of commit ee25b63 starts
+2026-10-19T03:07:53Z clean checkout in /private/tmp/claude-501/-Users-liam-devel-ci-CI-OS--claude-worktrees-stalled-ci-os-ftue-sessions-4d4964/608072a3-6216-43b7-8ae7-994cacc688d0/scratchpad/build-wt-arm
+2026-10-19T03:08:52Z native arm64 container ready (arm64); build starts
+2026-10-19T03:28:13Z build rc=0 after 1161 s
+2026-10-19T03:28:13Z verify-iso rc=2: 
+2026-10-19T03:28:59Z ISO copied to /private/tmp/claude-501/-Users-liam-devel-ci-CI-OS--claude-worktrees-stalled-ci-os-ftue-sessions-4d4964/608072a3-6216-43b7-8ae7-994cacc688d0/scratchpad/arm64-build/iso: MD5SUMS SHA256SUMS companion-os-1.0-arm64.iso packages 

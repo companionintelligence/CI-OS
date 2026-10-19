@@ -14,7 +14,8 @@ Evidence tags: **[V]** verified (run, result seen), **[I]** read from code or do
 | CachyOS live-ISO boot supervisor | `backends/cachyos/iso/tests/qemu-boot.sh` | Boots the live ISO in `direct`, `bios` or `uefi` mode, asks the guest agent whether `plasmashell` and `kwin_wayland` run, takes screenshots |
 | Stick boot tests | `stick/tests/qemu/run.sh`, `stick/tests/secureboot/run-on-mac.sh` | Flash a sparse stick image and boot it as a USB stick (development chain; Secure Boot A/B/C) |
 | QMP helper for the repo's tests | `backends/ubuntu/iso/tests/lib/qmp.py` | `shot FILE.png`, `status`, `quit` over a QMP socket (standard library only) |
-| Full live-to-installed capture runs | a session harness, not in the repository; the recipe is below | Interactive GUI VM driven over QMP, with a guest agent for read-only checks |
+| arm64 live-to-installed runs (Ubuntu edition) | `backends/ubuntu/iso/tests/boot-arm64-vm.sh`, `backends/ubuntu/iso/tests/lib/qmp-drive.py` | Boots an arm64 image as a USB drive at near-native speed (HVF), photographs it, clicks and types over QMP; the runs of 2026-10-19 used exactly these two files **[V]** |
+| Full x86-64 live-to-installed capture runs | a session harness, not in the repository; the recipe is below | Interactive GUI VM driven over QMP, with a guest agent for read-only checks |
 
 The supervisor scripts start and stop QEMU themselves. For anything interactive (clicking through an installer, taking documentation screenshots) start QEMU yourself with the command line below and drive it over QMP.
 
@@ -190,6 +191,32 @@ The documentation screenshots and the "does it really install" evidence come fro
 3. **Installed.** Boot the disk with no CD-ROM and a fresh overlay per boot: once **offline** (`restrict=on`) for clean product frames, once **online** for the first-boot provisioning. The stage 3 findings (the `$HOME` panic that made provisioning end "degraded", the boot targets held by a oneshot, the model-pull flood in the journal, the disk budget) came from this stage.
 
 Credentials: use a throwaway account, a random password from `openssl rand -base64 30 | tr -d '/+=\n' | cut -c1-20` written to a file with mode 0600, typed into the installer straight from that file through a shell variable, never echoed, never with the "show" control. Scan every frame, manifest and log for the password before anything is published (the runs found 0 occurrences). Hard rules: QEMU uses **file-backed images only**; never attach or write a physical USB stick or any host block device; stop and thin Time Machine snapshots if the Data volume falls under 30 GiB; keep the Mac awake.
+
+## The arm64 run on an Apple-silicon Mac (Ubuntu edition)
+
+An arm64 guest on an Apple-silicon Mac runs with HVF, the host's own accelerator, so it is a different world from the TCG numbers above: the live desktop
+appeared in about 2 minutes, a one-click install took 9 min 35 s and 12 min 10 s, the greeter came 50 s after power-on and the first-boot job took 1 min 58 s
+(2026-10-19, `docs/evidence/2026-10-19-ubuntu-arm64-4b7597d/`) **[V]**. The harness is two committed files:
+
+```bash
+T=backends/ubuntu/iso/tests
+$T/boot-arm64-vm.sh start output/companion-os-1.0-arm64.iso ./target.qcow2   # the ISO as a USB drive, a file-backed NVMe target (created, 64 GiB sparse)
+$T/boot-arm64-vm.sh shot frame.png                                           # a screenshot; also: status, stop, info
+python3 -I $T/lib/qmp-drive.py /tmp/ci-arm64-vm/qmp.sock click 33 64 1280x800    # key, type, click, dclick, rclick, scroll
+$T/boot-arm64-vm.sh start - ./target.qcow2                                   # after the installer powers off: boot the installed disk alone
+```
+
+Facts the runs taught:
+
+* `type` sends PHYSICAL keys (QMP names them by their US position). A guest installed with another keyboard layout needs `QMP_LAYOUT=de` (German is the one table there is: y and z swapped, `-` on the slash key, `:` on shift+dot, `|` on AltGr+less); without it the one-time password and every command come out wrong. `qmp-drive.py - keys de "text"` prints the keys without a VM. The table is tested against an independent copy of the layout (`test_qmp_layouts.py`).
+* The screen is 1280 by 800; the dock's first launcher is at (33, 64) and a window's close button at the top right. Look at a frame before you click.
+* Under load a key can be dropped or a modifier can stick: `QMP_HOLD=0.1`, `QMP_TYPE_DELAY=0.08`, and tap `shift shift_r ctrl alt` once to release everything. The guest is slow
+  while the first-boot job runs (3 min after boot): wait 20 s after a sign-in step and look before you type the next.
+* The one-click dialog and its progress window show a one-time password. **Read it from the picture, not only from OCR**: `tesseract` read one character wrong (`c` as `e`) and five
+  sign-ins failed without a message. Save the password to a 0600 file outside the repository, type it from the file, and redact the dialog's frames before they are kept.
+* A text channel is easier than screenshots: serve a script directory from `127.0.0.1` with any small HTTP server, run `curl http://10.0.2.2:<port>/script.sh | sh` in the guest
+  terminal (user networking reaches the host at `10.0.2.2`) and have the script `POST` its output back. The first-boot status, the journal and the unit settings were read this way.
+* The guest has no Secure Boot firmware under Homebrew's QEMU; `qemu-efi-aarch64` on Ubuntu has `AAVMF_CODE.ms.fd`, not tried **[N]**.
 
 ## Safety rules
 

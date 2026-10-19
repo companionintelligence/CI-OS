@@ -1,0 +1,18 @@
+Notifications the session sent (dbus-monitor on org.freedesktop.Notifications.Notify, started about a minute after the first sign-in;
+the first notice, "Companion OS is getting ready", was sent before it started and is in frame arm64-16).
+Format: id it replaces | title | body
+
+A. The real first boot of the installed image b124745 (setup-progress as built into the image; all replace notification 1):
+replaces id 1 | Setting up Companion OS | Getting the computer ready. You can keep using the computer meanwhile; it usually takes a few minutes, longer on a slow connection.
+replaces id 1 | Setting up Companion OS: step 3 of 7 | Installing developer tools. You can keep using the computer meanwhile; it usually takes a few minutes, longer on a slow connection.
+replaces id 1 | Setting up Companion OS: step 5 of 7 | Downloading the AI models (the longest step). You can keep using the computer meanwhile; it usually takes a few minutes, longer on a slow connection.
+replaces id 1 | Setting up Companion OS: step 7 of 7 | Starting Companion Hub. You can keep using the computer meanwhile; it usually takes a few minutes, longer on a slow connection.
+replaces id 1 | Companion OS is ready | Everything is installed. Open Companion Hub to pair this computer with your account.
+
+B. The revised script of commit c8de040 (copied into the same guest and run against a fake status file that was moved through the states; started
+   from the terminal, so GNOME showed only the last banner, frame arm64-19b; the D-Bus calls are the record of the rest):
+replaces id 0 | Companion OS is getting ready | Setup starts in a few minutes and runs in the background. You can keep using the computer.
+replaces id 8 | Companion OS is waiting for the internet | Connect to the internet (menu at the top right). Setup carries on by itself.
+replaces id 8 | Setting up Companion OS: step 2 of 7 | Installing Docker. You can keep using the computer meanwhile; it usually takes a few minutes, longer on a slow connection.
+replaces id 8 | Companion OS setup needs attention | Setup stopped while: Installing the AI runtime (Ollama). It tries again by itself; to try now, run: sudo ci-os-setup. More: ci-os-info
+replaces id 8 | Companion OS is ready | Everything is installed. Open Companion Hub, the first icon in the dock, to pair this computer with your account.

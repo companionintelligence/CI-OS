@@ -1,0 +1,8 @@
+{
+  "policies": {
+    "DisableTelemetry": true,
+    "OverrideFirstRunPage": "",
+    "OverridePostUpdatePage": "",
+    "DontCheckDefaultBrowser": true
+  }
+}

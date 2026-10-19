@@ -1,0 +1,31 @@
+#!/bin/sh
+# pull-progress-filter: turn the output of `ollama pull` into a log instead of a movie.
+#
+# `ollama pull` redraws its progress bar several times a second with cursor-movement escape sequences. Written to a log or the
+# journal that is hundreds of lines per model: the first-boot log of one install had 542 lines and 3,058 escape sequences for two small
+# models (68 KB), and a 17 GB model would write tens of thousands. This keeps what a person reads: every line that is not progress, once
+# each, and for each layer one progress line per 10 percent. Escape sequences are removed. Reads stdin, writes stdout; nothing else.
+#
+#   ollama pull gemma3:1b 2>&1 | /usr/libexec/ci-os/pull-progress-filter
+#
+# (Use `set -o pipefail` around it, or the pull's own exit status is the filter's.)
+awk '
+BEGIN { esc = sprintf("%c", 27) }
+{
+    gsub(esc "\\[[0-9;?]*[A-Za-z]", "")      # cursor moves, line clears, mode switches
+    gsub(/\r/, "")
+    gsub(/ +pulling /, "\npulling ")           # one redraw can hold several records
+    n = split($0, rec, "\n")
+    for (i = 1; i <= n; i++) emit(rec[i])
+}
+function emit(l,   id, pct, b) {
+    sub(/[ \t]+$/, "", l); if (l == "") return
+    if (l ~ /^pulling [0-9a-f]+:/) {
+        id = l; sub(/^pulling /, "", id); sub(/:.*/, "", id)
+        pct = l; sub(/^[^:]*: */, "", pct); pct = pct + 0
+        b = int(pct / 10)
+        if (!(id in best) || b > best[id]) { best[id] = b; print l }
+        return
+    }
+    if (!(l in seen)) { seen[l] = 1; print l }
+}'

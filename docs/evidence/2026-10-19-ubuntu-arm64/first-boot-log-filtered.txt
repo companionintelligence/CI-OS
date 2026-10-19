@@ -1,0 +1,214 @@
+[CI-OS] First-boot setup starting at Mon Oct 19 03:55:24 AM UTC 2026
+[CI-OS] Waiting for network...
+[CI-OS] Network available.
+wait-quiet: quiet after 30s (load 0.94, 6 CPUs)
+[CI-OS] Removing unwanted snaps...
+snap-store removed
+thunderbird removed
+[CI-OS] Unwanted snaps removed.
+[CI-OS] Running provision.sh --tier=core (automatic attempt 1/3)...
+[INFO] CI-OS provisioning (tiers: core)
+[INFO] ====================================
+[INFO] Detected user: root (home: /root)
+[INFO] ✓ Running with root privileges (EUID: 0)
+[INFO] ✓ All system operations will run with root privileges
+[INFO] ✓ User-specific operations will run as user: root
+[INFO] Starting installation process...
+[INFO] curl is already installed, skipping...
+[INFO] Ensuring apt uses IPv4 (workaround for IPv6 network issues)
+[INFO] Wrote apt IPv4 config to /etc/apt/apt.conf.d/99force-ipv4
+[INFO] No stale installer media apt sources detected
+[INFO] Updating apt package lists...
+Hit:1 https://cli.github.com/packages stable InRelease
+Hit:2 https://download.docker.com/linux/ubuntu resolute InRelease
+Hit:3 http://us.archive.ubuntu.com/ubuntu resolute InRelease
+Hit:4 http://security.ubuntu.com/ubuntu resolute-security InRelease
+Hit:5 https://pkg.cloudflare.com/cloudflared any InRelease
+Get:6 https://pkgs.tailscale.com/stable/ubuntu resolute InRelease
+Hit:7 http://us.archive.ubuntu.com/ubuntu resolute-updates InRelease
+Hit:8 http://us.archive.ubuntu.com/ubuntu resolute-backports InRelease
+Fetched 6,652 B in 2s (4,193 B/s)
+Reading package lists...
+[SUCCESS] apt package lists updated
+[INFO] make is already installed, skipping...
+[INFO] Docker is already installed, skipping installation...
+[INFO] Ensuring user root is in the docker group...
+[SUCCESS] User root added to docker group
+[WARNING] Note: User root must open a new login session for docker group to apply to existing terminals (or run: newgrp docker)
+[SUCCESS] Docker CLI verified for root (docker info as that user)
+[INFO] Installing UV for user root...
+downloading uv 0.13.1 aarch64-unknown-linux-gnu
+installing to /root/.local/bin
+  uv
+  uvx
+everything's installed!
+To add $HOME/.local/bin to your PATH, either restart your shell or run:
+    source $HOME/.local/bin/env (sh, bash, zsh)
+    source $HOME/.local/bin/env.fish (fish)
+[SUCCESS] UV installed
+[INFO] Installing apt packages for asdf / Node.js (git, curl, gpg, build tools)...
+Building dependency tree...
+Reading state information...
+ca-certificates is already the newest version (20260601~26.04.1).
+curl is already the newest version (8.18.0-1ubuntu2.8).
+git is already the newest version (1:2.53.0-1ubuntu1).
+gnupg is already the newest version (2.4.8-4ubuntu3.1).
+dirmngr is already the newest version (2.4.8-4ubuntu3.1).
+dirmngr set to manually installed.
+build-essential is already the newest version (12.12ubuntu2.26.04.2).
+python3 is already the newest version (3.14.3-0ubuntu2).
+python3 set to manually installed.
+Solving dependencies...
+The following packages were automatically installed and are no longer required:
+  linux-headers-7.0.0-30 linux-headers-7.0.0-30-generic
+  linux-image-unsigned-7.0.0-30-generic
+  linux-main-modules-zfs-7.0.0-30-generic linux-modules-7.0.0-30-generic
+  linux-tools-7.0.0-30 linux-tools-7.0.0-30-generic
+Use 'apt autoremove' to remove them.
+0 upgraded, 0 newly installed, 0 to remove and 79 not upgraded.
+[SUCCESS] asdf / Node.js apt prerequisites ready
+[INFO] Installing asdf and Node.js for user root...
+Cloning into '/root/.asdf'...
+Note: switching to 'ccdd47df9b73d0a22235eb06ad4c48eb57360832'.
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+  git switch -c <new-branch-name>
+Or undo this operation with:
+  git switch -
+Turn off this advice by setting config variable advice.detachedHead to false
+Cloning node-build...
+To follow progress, use 'tail -f /tmp/node-build.20261019035631.9100.log' or pass --verbose
+Downloading node-v22.15.1-linux-arm64.tar.gz...
+-> https://nodejs.org/dist/v22.15.1/node-v22.15.1-linux-arm64.tar.gz
+WARNING: node-v22.15.1-linux-arm64 is in LTS Maintenance mode and nearing its end of life.
+It only receives *critical* security updates, *critical* bug fixes and documentation updates.
+Installing node-v22.15.1-linux-arm64...
+Installed node-v22.15.1-linux-arm64 to /root/.asdf/installs/nodejs/22.15.1
+asdf: Warn: You have configured asdf to preserve downloaded files (with always_keep_download=yes or --keep-download). But
+asdf: Warn: the current plugin (nodejs) does not support that. Downloaded files will not be preserved.
+[INFO] Inserted asdf bootstrap before non-interactive early return in /root/.bashrc
+[INFO] Appended asdf PATH tail to /root/.bashrc
+[SUCCESS] asdf and Node.js installed
+[INFO] Setting global Node.js version to 22.15.1 for user root...
+[SUCCESS] Global Node.js version set to 22.15.1
+[INFO] Note: User root should start a new shell or run 'source ~/.bashrc' to use new tools
+[INFO] Docker: if 'docker ps' says permission denied but setup verified OK, run 'newgrp docker' once, or log out and back in (GUI sessions keep old group set until then)
+[INFO] Creating CI user...
+[SUCCESS] CI user created
+[INFO] Adding CI user to docker group...
+[SUCCESS] CI user added to docker group
+[WARNING] Note: User 'ci' will need to log out and back in (or use 'newgrp docker') for docker group changes to take effect
+[INFO] GitHub CLI is already installed, skipping installation...
+[INFO] Ollama is already installed, skipping installation...
+[INFO] Configuring Ollama service...
+[INFO] Ollama service is already enabled, skipping...
+[INFO] Created Ollama service override
+[INFO] Setting hardware-aware Ollama default context length (8192)
+[SUCCESS] Ollama GPU/context drop-ins configured
+[SUCCESS] Ollama service configured
+[INFO] Checking Ollama models...
+[INFO] Skipping qwen3.6:27b: not a Strix Halo-class APU (need Ryzen AI Max / gfx1151 / Radeon 8060S)
+Pulling nomic-embed-text...
+pulling manifest ⠋
+pulling manifest ⠙
+pulling manifest ⠸
+pulling manifest ⠼
+pulling manifest ⠴
+pulling manifest ⠧
+pulling manifest ⠇
+pulling manifest ⠹
+pulling manifest ⠦
+pulling manifest ⠏
+pulling manifest
+pulling 970aa74c0a90:   0% ▕                  ▏ 444 KB/274 MB
+pulling 970aa74c0a90:  11% ▕█                 ▏  30 MB/274 MB   30 MB/s      8spulling manifest
+pulling 970aa74c0a90:  21% ▕███               ▏  57 MB/274 MB   30 MB/s      7spulling manifest
+pulling 970aa74c0a90:  31% ▕█████             ▏  83 MB/274 MB   41 MB/s      4spulling manifest
+pulling 970aa74c0a90:  40% ▕███████           ▏ 110 MB/274 MB   41 MB/s      3spulling manifest
+pulling 970aa74c0a90:  51% ▕█████████         ▏ 140 MB/274 MB   43 MB/s      3spulling manifest
+pulling 970aa74c0a90:  61% ▕███████████       ▏ 168 MB/274 MB   43 MB/s      2spulling manifest
+pulling 970aa74c0a90:  71% ▕████████████      ▏ 195 MB/274 MB   42 MB/s      1spulling manifest
+pulling 970aa74c0a90:  80% ▕██████████████    ▏ 219 MB/274 MB   41 MB/s      1spulling manifest
+pulling 970aa74c0a90:  90% ▕████████████████  ▏ 245 MB/274 MB   41 MB/s      0spulling manifest
+pulling 970aa74c0a90: 100% ▕█████████████████ ▏ 274 MB/274 MB   38 MB/s      0spulling manifest
+pulling 31df23ea7daa: 100% ▕██████████████████▏  420 B
+verifying sha256 digest ⠋
+verifying sha256 digest
+writing manifest
+success
+Pulling gemma3:1b...
+pulling 2f8c3d137f24:   0% ▕                  ▏  75 KB/806 MB
+pulling 2f8c3d137f24:  10% ▕█                 ▏  78 MB/806 MB   48 MB/s     14spulling manifest
+pulling 2f8c3d137f24:  20% ▕███               ▏ 160 MB/806 MB   61 MB/s     10spulling manifest
+pulling 2f8c3d137f24:  30% ▕█████             ▏ 242 MB/806 MB   59 MB/s      9spulling manifest
+pulling 2f8c3d137f24:  40% ▕███████           ▏ 319 MB/806 MB   58 MB/s      8spulling manifest
+pulling 2f8c3d137f24:  50% ▕████████          ▏ 399 MB/806 MB   54 MB/s      7spulling manifest
+pulling 2f8c3d137f24:  60% ▕██████████        ▏ 481 MB/806 MB   50 MB/s      6spulling manifest
+pulling 2f8c3d137f24:  70% ▕████████████      ▏ 563 MB/806 MB   46 MB/s      5spulling manifest
+pulling 2f8c3d137f24:  80% ▕██████████████    ▏ 642 MB/806 MB   41 MB/s      3spulling manifest
+pulling 2f8c3d137f24:  90% ▕████████████████  ▏ 722 MB/806 MB   37 MB/s      2spulling manifest
+pulling 2f8c3d137f24: 100% ▕█████████████████ ▏ 804 MB/806 MB   28 MB/s      0spulling manifest
+pulling 76a6b777faea: 100% ▕██████████████████▏  140 B
+verifying sha256 digest ⠙
+verifying sha256 digest ⠹
+verifying sha256 digest ⠸
+verifying sha256 digest ⠼
+[SUCCESS] Ollama models checked/pulled
+[INFO] cloudflared is already installed, skipping installation...
+[INFO] Enabling corepack and pnpm for user root...
+corepack enable: ok
+Preparing pnpm@latest for immediate activation...
+corepack prepare pnpm@latest --activate: ok
+node:internal/modules/cjs/loader:1404
+  throw err;
+  ^
+Error: Cannot find module '/root/.cache/node/corepack/v1/pnpm/12.14.0/bin/pnpm.cjs'
+    at Function._resolveFilename (node:internal/modules/cjs/loader:1401:15)
+    at defaultResolveImpl (node:internal/modules/cjs/loader:1057:19)
+    at resolveForCJSWithHooks (node:internal/modules/cjs/loader:1062:22)
+    at Function._load (node:internal/modules/cjs/loader:1211:37)
+    at TracingChannel.traceSync (node:diagnostics_channel:322:14)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)
+    at executeUserEntryPoint (node:internal/modules/run_main:170:5)
+    at process.processTicksAndRejections (node:internal/process/task_queues:89:21) {
+  code: 'MODULE_NOT_FOUND',
+  requireStack: []
+}
+Node.js v22.15.1
+pnpm  on PATH
+[SUCCESS] pnpm is available for root (Corepack + asdf shims)
+[INFO] Removing Ubuntu telemetry...
+[*] Ensuring telemetry domains resolve to localhost
+[*] Added www.metrics.ubuntu.com to /etc/hosts
+[*] Added metrics.ubuntu.com to /etc/hosts
+[*] Added www.popcon.ubuntu.com to /etc/hosts
+[*] Added popcon.ubuntu.com to /etc/hosts
+[*] Removing telemetry services
+ubuntu-report was already set on hold.
+popularity-contest was already set on hold.
+apport was already set on hold.
+whoopsie was already set on hold.
+apport-symptoms was already set on hold.
+[+] Telemetry services successfully removed and blacklisted.
+[SUCCESS] Telemetry removal complete
+[INFO] Tailscale is already installed, skipping...
+[INFO] Deploying CI Hub Service...
+CI-Hub not deployed: REGISTRY_USERNAME/REGISTRY_PASSWORD not set.
+Set them in the environment, or run the WiFi/pairing portal, to enable this step.
+[INFO] Starting Companion Hub as companion (companion-hub --detached)...
+Hub started successfully (detached headless mode)
+[SUCCESS] Companion Hub started. Pair it with your CI Account from the Companion Hub window (docs.ci.computer/docs/getting-started).
+[SUCCESS] Setup completed successfully!
+[INFO] Next steps:
+  • User root: Log out and log back in (or start a new shell) to use new tools; for Docker without re-login run: newgrp docker
+  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group
+  • Start Ollama service: systemctl start ollama
+  • Verify installations: docker --version, node --version, pnpm --version, ollama --version, gh --version
+  • Note: 'Create deploy read key' step was not specified - please add this manually if needed
+[WARNING] gsettings not available or no valid user detected. Skipping GNOME Power Mode setting.
+[CI-OS] First-boot setup completed at Mon Oct 19 03:58:12 AM UTC 2026
+[CI-OS] Log saved to /var/log/ci-os-first-boot-setup.log
+[CI-OS] NOTE: Log out and back in for Docker group and PATH changes.

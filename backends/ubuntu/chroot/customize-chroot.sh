@@ -45,6 +45,11 @@ source "$REPO_ROOT/backends/ubuntu/lib/start-links.sh"
 # shellcheck source=../lib/deb-members.sh
 source "$REPO_ROOT/backends/ubuntu/lib/deb-members.sh"
 
+# The architecture of the image: amd64 (the default) or arm64. build-iso.sh --arch sets CI_OS_ARCH. The chroot is built for this
+# architecture: natively on a host of the same one, or under emulation (Rosetta or qemu-user) on the other.
+CI_ARCH="${CI_OS_ARCH:-amd64}"
+case "$CI_ARCH" in amd64 | arm64) ;; *) echo "[ERROR] CI_OS_ARCH must be amd64 or arm64 (got '$CI_ARCH')" >&2; exit 1 ;; esac
+
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
 
@@ -438,6 +443,16 @@ cat > "$CHROOT_PATH/etc/dconf/db/local.d/02-ci-os-dock" << EOF
 favorite-apps=$DOCK_FAVORITES_VALUE
 EOF
 
+# The first sign-in is quiet. Ubuntu's Software Updater announces the build day's pending packages ("80 Updates Available") the moment
+# a new user signs in, which reads as "something is wrong" on a machine the user has had for two minutes. Security updates install by
+# themselves (unattended-upgrades), so the notifier's pop-ups are turned off for every user; `ci-os-info` says when a restart is
+# waiting, and `sudo apt update && sudo apt upgrade` still works. (A user can turn the pop-ups back on in their own settings.)
+# Found on the first installed arm64 image, 2026-10-19.
+cat > "$CHROOT_PATH/etc/dconf/db/local.d/03-ci-os-quiet-first-run" << 'EOF'
+[com/ubuntu/update-notifier]
+no-show-notifications=true
+EOF
+
 # ── Configure GDM (login screen) branding ──────────────────────────────────
 # GDM reads from its OWN dconf database, not the user's local.d.
 # The profile at /usr/share/dconf/profile/gdm tells GDM to read:
@@ -554,29 +569,38 @@ echo "[*] Step 4: Configuring GRUB..."
 # shellcheck source=../../../core/lib/grub-merge.sh
 source "$REPO_ROOT/core/lib/grub-merge.sh"
 
-# Kernel cmdline stays as its own explicit sed (not a branding key, no reason
-# to route it through the merge helper). Branding keys below use
-# ci_grub_merge_key so they never clobber other keys already in this file.
-sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' "$CHROOT_PATH/etc/default/grub" || true
-
-ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_DISTRIBUTOR "Companion OS"
-ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_GFXMODE "auto"
-ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT_STYLE "menu"
-ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT "5"
-
-# Render and install the GRUB background (colors-only theming, same as
-# Plymouth below — see docs/architecture/multi-distro-design.md). Deliberately
-# does not set GRUB_TERMINAL: a hardcoded GRUB_TERMINAL=console previously
-# found in an old, now-deleted config silently disabled GRUB_BACKGROUND
-# entirely (console mode is text-only). Leaving it unset lets GRUB default to
-# gfxterm when a background is present.
-GRUB_BG_DEST_REL="usr/share/pixmaps/ci-os-grub-bg.png"
-if bash "$REPO_ROOT/core/render/render-grub-background.sh" "$CHROOT_PATH/$GRUB_BG_DEST_REL"; then
-    chmod 644 "$CHROOT_PATH/$GRUB_BG_DEST_REL"
-    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_BACKGROUND "/$GRUB_BG_DEST_REL"
-    echo "[+] GRUB background installed: /$GRUB_BG_DEST_REL"
+# The arm64 base image has no GRUB at all (no grub package in any of its three layers: the installer installs grub-efi-arm64-signed
+# from the ISO's /pool into the target), so there is no /etc/default/grub to edit. The installed GRUB then writes its own defaults,
+# and its GRUB_DISTRIBUTOR reads NAME from /etc/os-release, which this script has already set to Companion OS. The GRUB background of
+# the installed system is therefore left stock on arm64. amd64 keeps the hard failure: there the file must exist.
+if [[ ! -f "$CHROOT_PATH/etc/default/grub" && "$CI_ARCH" == arm64 ]]; then
+    echo "[i] Step 4: no /etc/default/grub in the arm64 base image (GRUB is installed by the installer): installed-system GRUB defaults not edited"
 else
-    echo "[!] Could not render GRUB background — GRUB will use its default background"
+    # Kernel cmdline stays as its own explicit sed (not a branding key, no reason
+    # to route it through the merge helper). Branding keys below use
+    # ci_grub_merge_key so they never clobber other keys already in this file.
+    sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' "$CHROOT_PATH/etc/default/grub" || true
+
+    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_DISTRIBUTOR "Companion OS"
+    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_GFXMODE "auto"
+    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT_STYLE "menu"
+    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT "5"
+
+    # Render and install the GRUB background (colors-only theming, same as
+    # Plymouth below — see docs/architecture/multi-distro-design.md). Deliberately
+    # does not set GRUB_TERMINAL: a hardcoded GRUB_TERMINAL=console previously
+    # found in an old, now-deleted config silently disabled GRUB_BACKGROUND
+    # entirely (console mode is text-only). Leaving it unset lets GRUB default to
+    # gfxterm when a background is present.
+    GRUB_BG_DEST_REL="usr/share/pixmaps/ci-os-grub-bg.png"
+    if bash "$REPO_ROOT/core/render/render-grub-background.sh" "$CHROOT_PATH/$GRUB_BG_DEST_REL"; then
+        chmod 644 "$CHROOT_PATH/$GRUB_BG_DEST_REL"
+        ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_BACKGROUND "/$GRUB_BG_DEST_REL"
+        echo "[+] GRUB background installed: /$GRUB_BG_DEST_REL"
+    else
+        echo "[!] Could not render GRUB background — GRUB will use its default background"
+    fi
+
 fi
 
 echo "[+] GRUB configured"
@@ -687,7 +711,12 @@ export DEBIAN_FRONTEND=noninteractive
 # For ROCm, we'll document manual installation post-install due to kernel dependencies
 
 # Ensure amdgpu firmware is installed (both are in the stock image already; a failure here is not fatal)
-apt-get install -y linux-firmware amd64-microcode || true
+# amd64-microcode exists for x86 only: on arm64 apt would refuse the name and `|| true` would hide that.
+if [ "$(dpkg --print-architecture)" = amd64 ]; then
+    apt-get install -y linux-firmware amd64-microcode || true
+else
+    apt-get install -y linux-firmware || true
+fi
 
 # The 64-bit Vulkan stack. One call of its own, and a failure is NOT hidden: this line used to list the :i386 libraries
 # too, and with `|| true` a single unavailable name made apt install none of them and the build went on without
@@ -708,8 +737,9 @@ chmod +x "$CHROOT_PATH/tmp/install-amd.sh"
 chroot_exec "/tmp/install-amd.sh"
 rm "$CHROOT_PATH/tmp/install-amd.sh"
 
-# Create post-install ROCm setup script
+# Create post-install ROCm setup script (ROCm is x86-64 only: an arm64 image has no such command)
 mkdir -p "$CHROOT_PATH/usr/local/bin"
+if [[ "$CI_ARCH" == amd64 ]]; then
 cat > "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm" << 'EOFSCRIPT'
 #!/bin/bash
 # Delegates to the maintained Companion OS ROCm installer (ROCm from the Ubuntu 26.04 archive).
@@ -726,8 +756,9 @@ exit 1
 EOFSCRIPT
 
 chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm"
+fi
 
-echo "[+] AMD GPU support configured (ROCm available via ci-os-install-rocm)"
+echo "[+] AMD GPU support configured$([[ "$CI_ARCH" == amd64 ]] && echo " (ROCm available via ci-os-install-rocm)")"
 
 #=============================================================================
 # 7. Installer
@@ -795,66 +826,10 @@ echo "[+] MOTD created"
 #=============================================================================
 echo "[*] Step 9: Creating CI-OS info command..."
 
-cat > "$CHROOT_PATH/usr/local/bin/ci-os-info" << 'EOF'
-#!/bin/bash
-#=============================================================================
-# CI-OS System Information
-# Displays CI-OS version, AMD GPU info, and system status
-#=============================================================================
-
-echo "======================================"
-echo "  Companion OS System Information"
-echo "======================================"
-echo
-
-# OS Version
-if [[ -f /etc/os-release ]]; then
-    . /etc/os-release
-    echo "OS: $PRETTY_NAME"
-    echo "Version: $VERSION_ID"
-    echo "Codename: $UBUNTU_CODENAME"
-fi
-echo
-
-# Kernel
-echo "Kernel: $(uname -r)"
-echo
-
-# AMD GPU Detection
-echo "AMD GPU Information:"
-if lspci | grep -i "VGA.*AMD" > /dev/null; then
-    lspci | grep -i "VGA.*AMD"
-    echo
-    
-    # Check for amdgpu driver
-    if lsmod | grep amdgpu > /dev/null; then
-        echo "✓ amdgpu driver loaded"
-    else
-        echo "✗ amdgpu driver not loaded"
-    fi
-    
-    # Check for ROCm
-    if command -v rocminfo > /dev/null 2>&1; then
-        echo "✓ ROCm installed"
-    else
-        echo "✗ ROCm not installed (run: sudo ci-os-install-rocm)"
-    fi
-else
-    echo "No AMD GPU detected"
-fi
-echo
-
-# User groups (for GPU access)
-echo "User groups: $(groups)"
-echo
-
-echo "======================================"
-echo "For ROCm installation: sudo ci-os-install-rocm"
-echo "For support: https://ci.computer/support"
-echo "======================================"
-EOF
-
-chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-info"
+# The command lives in its own file so a test can run it (backends/ubuntu/chroot/tests/ci-os-info.sh): setup state, Hub address,
+# models, disk, failed services, pending restart, AMD GPU. It offers the ROCm command only where that command exists (amd64).
+mkdir -p "$CHROOT_PATH/usr/local/bin"
+install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/info/usr/local/bin/ci-os-info" "$CHROOT_PATH/usr/local/bin/ci-os-info"
 
 echo "[+] CI-OS info command created"
 
@@ -1118,7 +1093,11 @@ while IFS='|' read -r _id _name _url _comment _icon _desktop; do
 done <<<"$START_LINKS_ROWS"
 install -m 0755 "$START_PAYLOAD/usr/libexec/ci-os/welcome-once"              "$CHROOT_PATH/usr/libexec/ci-os/welcome-once"
 install -m 0644 "$START_PAYLOAD/etc/xdg/autostart/ci-os-welcome.desktop"     "$CHROOT_PATH/etc/xdg/autostart/ci-os-welcome.desktop"
+# What the first-boot setup is doing, as one desktop notification (core/lib/setup-status.sh writes the file it reads).
+install -m 0755 "$START_PAYLOAD/usr/libexec/ci-os/setup-progress"            "$CHROOT_PATH/usr/libexec/ci-os/setup-progress"
+install -m 0644 "$START_PAYLOAD/etc/xdg/autostart/ci-os-setup-progress.desktop" "$CHROOT_PATH/etc/xdg/autostart/ci-os-setup-progress.desktop"
 install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexec/ci-os/wait-quiet" "$CHROOT_PATH/usr/libexec/ci-os/wait-quiet"
+install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexec/ci-os/pull-progress-filter" "$CHROOT_PATH/usr/libexec/ci-os/pull-progress-filter"
 
 # Canonical's first-run screen ("Welcome to Companion OS 1.0!" with Ubuntu's raccoon, then Ubuntu Pro and "Help improve Ubuntu") is
 # gnome-initial-setup, started by gnome-initial-setup-first-login.service unless ~/.config/gnome-initial-setup-done exists. A user
@@ -1128,6 +1107,34 @@ install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexe
 install -d -m 0755 "$CHROOT_PATH/etc/skel/.config"
 : > "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup-done"
 chmod 0644 "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup-done"
+# The same screen comes back as the "welcome to the new release" page. gnome-initial-setup-upgrade-login.service runs
+# `gnome-initial-setup --upgrade-user` when the stamp above exists but ~/.config/gnome-initial-setup/upgrade-<release>-done does not;
+# the first sign-in on a freshly installed arm64 image showed "Welcome to Companion OS 1.0!" with the raccoon for exactly that reason
+# (2026-10-19, KI-27). The unit names the stamp it looks for, so read the name from the unit instead of writing "26.04" here: a
+# newer base then keeps working, and a base whose unit has no such condition stops the build instead of shipping the screen.
+# gis-upgrade-stamp begin
+GIS_UPGRADE_UNIT="$CHROOT_PATH/usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service"
+if [[ -f "$GIS_UPGRADE_UNIT" ]]; then
+    GIS_UPGRADE_STAMP="$(sed -n 's|^ConditionPathExists=!%E/\(gnome-initial-setup/upgrade-[0-9.]*-done\)$|\1|p' "$GIS_UPGRADE_UNIT" | head -n 1)"
+    if [[ -z "$GIS_UPGRADE_STAMP" ]]; then
+        echo "[ERROR] Step 10g: $GIS_UPGRADE_UNIT names no ~/.config/gnome-initial-setup/upgrade-<release>-done stamp; Canonical's upgrade welcome page would show at the first sign-in" >&2
+        exit 1
+    fi
+    install -d -m 0755 "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup"
+    : > "$CHROOT_PATH/etc/skel/.config/$GIS_UPGRADE_STAMP"
+    chmod 0644 "$CHROOT_PATH/etc/skel/.config/$GIS_UPGRADE_STAMP"
+    echo "[+] first-run: the upgrade welcome page is skipped too (skel stamp $GIS_UPGRADE_STAMP)"
+fi
+# gis-upgrade-stamp end
+
+# Firefox's own first-run opens a second tab, "Firefox Privacy Notice", next to the Companion welcome page (found on the first installed
+# arm64 image, 2026-10-19: the welcome page is what starts Firefox for the first time). An enterprise policy file ends that: no
+# first-run and post-update pages, no telemetry (which is what the notice is about; Companion OS removes Ubuntu's telemetry too), no
+# default-browser question. The Firefox snap reads /etc/firefox/policies through its etc-firefox system-files interface (shown by
+# `snap connections firefox`), so a file here applies to the snap and to a deb alike. Proved on a fresh user in the installed image.
+install -d -m 0755 "$CHROOT_PATH/etc/firefox/policies"
+install -m 0644 "$REPO_ROOT/backends/ubuntu/chroot/payload/firefox/etc/firefox/policies/policies.json" "$CHROOT_PATH/etc/firefox/policies/policies.json"
+echo "[+] first-run: Firefox starts without its privacy-notice tab (policy /etc/firefox/policies/policies.json)"
 echo "[+] Companion links installed ($(grep -c . <<<"$START_LINKS_ROWS") links, $(grep -c '|yes$' <<<"$START_LINKS_ROWS") on the desktop of a new user)"
 
 
@@ -1153,6 +1160,7 @@ echo "[*] Step 10e: Pre-installing optional tools (Tier B)..."
 CI_OS_BAKE_THIRD_PARTY="${CI_OS_BAKE_THIRD_PARTY:-1}"
 CI_OS_BAKE_OLLAMA="${CI_OS_BAKE_OLLAMA:-1}"
 CI_OS_BAKE_LAUNCHER="${CI_OS_BAKE_LAUNCHER:-1}"
+CI_OS_BAKE_CAPTURE_SET="${CI_OS_BAKE_CAPTURE:-}"   # was it set on purpose (an arm64 image has no Capture to bake)
 CI_OS_BAKE_CAPTURE="${CI_OS_BAKE_CAPTURE:-1}"
 CI_OS_OLLAMA_CUDA="${CI_OS_OLLAMA_CUDA:-all}"
 CI_OS_LAUNCHER_AUTOSTART="${CI_OS_LAUNCHER_AUTOSTART:-0}"
@@ -1170,6 +1178,16 @@ else
     [[ -f "$TIERB_PINS" ]] || tb_die "pins file not found: $TIERB_PINS"
     # shellcheck source=../../../core/manifest/tier-b-pins.env
     source "$TIERB_PINS"
+
+    # Pins of an arm64 image carry the suffix _ARM64 (core/manifest/tier-b-pins.env). tb_pin NAME prints the one for this image.
+    TB_ARCH="$CI_ARCH"
+    TB_SUF=""; [[ "$TB_ARCH" == arm64 ]] && TB_SUF="_ARM64"
+    tb_pin() { local n="${1}${TB_SUF}"; printf '%s' "${!n:-}"; }
+    if [[ "$CI_OS_BAKE_CAPTURE" == 1 && -z "$(tb_pin CAPTURE_URL)" ]]; then
+        [[ -z "$CI_OS_BAKE_CAPTURE_SET" ]] || tb_die "CI_OS_BAKE_CAPTURE=1, but Companion Capture publishes no $TB_ARCH build (CAPTURE_URL$TB_SUF is empty)"
+        echo "[i] Step 10e: Companion Capture has no $TB_ARCH build: not baked"
+        CI_OS_BAKE_CAPTURE=0
+    fi
 
     for _t in curl gpg sha256sum tar zstd awk dpkg-deb install mktemp; do
         command -v "$_t" >/dev/null 2>&1 || tb_die "build host is missing '$_t'"
@@ -1247,15 +1265,15 @@ else
 
     TB_LAUNCHER_DEB=""
     if [[ "$CI_OS_BAKE_LAUNCHER" == 1 ]]; then
-        TB_LAUNCHER_DEB="$TB_CACHE/${LAUNCHER_PACKAGE}_${LAUNCHER_VERSION}_amd64.deb"
-        if [[ ! -f "$TB_LAUNCHER_DEB" ]] || [[ "$(tb_sha256_of "$TB_LAUNCHER_DEB")" != "$LAUNCHER_SHA256" ]]; then
-            tb_fetch "$LAUNCHER_URL" "$TB_LAUNCHER_DEB.part"; mv "$TB_LAUNCHER_DEB.part" "$TB_LAUNCHER_DEB"
+        TB_LAUNCHER_DEB="$TB_CACHE/${LAUNCHER_PACKAGE}_${LAUNCHER_VERSION}_${TB_ARCH}.deb"
+        if [[ ! -f "$TB_LAUNCHER_DEB" ]] || [[ "$(tb_sha256_of "$TB_LAUNCHER_DEB")" != "$(tb_pin LAUNCHER_SHA256)" ]]; then
+            tb_fetch "$(tb_pin LAUNCHER_URL)" "$TB_LAUNCHER_DEB.part"; mv "$TB_LAUNCHER_DEB.part" "$TB_LAUNCHER_DEB"
         fi
-        tb_expect_sha256 "$TB_LAUNCHER_DEB" "$LAUNCHER_SHA256" "Companion Launcher .deb"
-        [[ "$(tb_size_of "$TB_LAUNCHER_DEB")" == "$LAUNCHER_SIZE" ]] || tb_die "Companion Launcher .deb size differs from the pin"
+        tb_expect_sha256 "$TB_LAUNCHER_DEB" "$(tb_pin LAUNCHER_SHA256)" "Companion Launcher .deb"
+        [[ "$(tb_size_of "$TB_LAUNCHER_DEB")" == "$(tb_pin LAUNCHER_SIZE)" ]] || tb_die "Companion Launcher .deb size differs from the pin"
         [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Package)" == "$LAUNCHER_PACKAGE" ]] || tb_die "unexpected package name in the Launcher .deb"
         [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Version)" == "$LAUNCHER_VERSION" ]] || tb_die "unexpected version in the Launcher .deb"
-        [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Architecture)" == "amd64" ]] || tb_die "Launcher .deb is not amd64"
+        [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Architecture)" == "$TB_ARCH" ]] || tb_die "Launcher .deb is not $TB_ARCH"
         # Member names only (perms owner size date time NAME [-> target]); written to a file so no pipe is closed early.
         dpkg-deb -c "$TB_LAUNCHER_DEB" | sed -E -e 's/^[^ ]+ +[^ ]+ +[0-9]+ +[0-9-]+ +[0-9:]+ +//' -e 's/ -> .*$//' > "$TB_WORK/launcher.members"
         grep -qx './usr/bin/companion-hub' "$TB_WORK/launcher.members" || tb_die "Launcher .deb has no /usr/bin/companion-hub"
@@ -1267,15 +1285,15 @@ else
 
     TB_CAPTURE_DEB=""
     if [[ "$CI_OS_BAKE_CAPTURE" == 1 ]]; then
-        TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_amd64.deb"
-        if [[ ! -f "$TB_CAPTURE_DEB" ]] || [[ "$(tb_sha256_of "$TB_CAPTURE_DEB")" != "$CAPTURE_SHA256" ]]; then
-            tb_fetch "$CAPTURE_URL" "$TB_CAPTURE_DEB.part"; mv "$TB_CAPTURE_DEB.part" "$TB_CAPTURE_DEB"
+        TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_${TB_ARCH}.deb"
+        if [[ ! -f "$TB_CAPTURE_DEB" ]] || [[ "$(tb_sha256_of "$TB_CAPTURE_DEB")" != "$(tb_pin CAPTURE_SHA256)" ]]; then
+            tb_fetch "$(tb_pin CAPTURE_URL)" "$TB_CAPTURE_DEB.part"; mv "$TB_CAPTURE_DEB.part" "$TB_CAPTURE_DEB"
         fi
-        tb_expect_sha256 "$TB_CAPTURE_DEB" "$CAPTURE_SHA256" "Companion Capture .deb"
-        [[ "$(tb_size_of "$TB_CAPTURE_DEB")" == "$CAPTURE_SIZE" ]] || tb_die "Companion Capture .deb size differs from the pin"
+        tb_expect_sha256 "$TB_CAPTURE_DEB" "$(tb_pin CAPTURE_SHA256)" "Companion Capture .deb"
+        [[ "$(tb_size_of "$TB_CAPTURE_DEB")" == "$(tb_pin CAPTURE_SIZE)" ]] || tb_die "Companion Capture .deb size differs from the pin"
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Package)" == "$CAPTURE_PACKAGE" ]] || tb_die "unexpected package name in the Capture .deb"
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Version)" == "$CAPTURE_VERSION" ]] || tb_die "unexpected version in the Capture .deb"
-        [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Architecture)" == "amd64" ]] || tb_die "Capture .deb is not amd64"
+        [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Architecture)" == "$TB_ARCH" ]] || tb_die "Capture .deb is not $TB_ARCH"
         # Names without a leading "./": this .deb stores "usr/bin/x" where the Launcher's stores "./usr/bin/x" (backends/ubuntu/lib/deb-members.sh).
         deb_members "$TB_CAPTURE_DEB" > "$TB_WORK/capture.members" || tb_die "cannot list the members of the Capture .deb"
         grep -qx "usr/bin/$CAPTURE_BINARY" "$TB_WORK/capture.members" || tb_die "Capture .deb has no /usr/bin/$CAPTURE_BINARY"
@@ -1288,11 +1306,11 @@ else
 
     TB_OLLAMA_TAR=""
     if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
-        TB_OLLAMA_TAR="$TB_CACHE/ollama-linux-amd64-${OLLAMA_VERSION}.tar.zst"
-        if [[ ! -f "$TB_OLLAMA_TAR" ]] || [[ "$(tb_size_of "$TB_OLLAMA_TAR")" != "$OLLAMA_SIZE" ]] || [[ "$(tb_sha256_of "$TB_OLLAMA_TAR")" != "$OLLAMA_SHA256" ]]; then
-            tb_fetch "$OLLAMA_URL" "$TB_OLLAMA_TAR.part"; mv "$TB_OLLAMA_TAR.part" "$TB_OLLAMA_TAR"
+        TB_OLLAMA_TAR="$TB_CACHE/ollama-linux-${TB_ARCH}-${OLLAMA_VERSION}.tar.zst"
+        if [[ ! -f "$TB_OLLAMA_TAR" ]] || [[ "$(tb_size_of "$TB_OLLAMA_TAR")" != "$(tb_pin OLLAMA_SIZE)" ]] || [[ "$(tb_sha256_of "$TB_OLLAMA_TAR")" != "$(tb_pin OLLAMA_SHA256)" ]]; then
+            tb_fetch "$(tb_pin OLLAMA_URL)" "$TB_OLLAMA_TAR.part"; mv "$TB_OLLAMA_TAR.part" "$TB_OLLAMA_TAR"
         fi
-        tb_expect_sha256 "$TB_OLLAMA_TAR" "$OLLAMA_SHA256" "Ollama tarball"
+        tb_expect_sha256 "$TB_OLLAMA_TAR" "$(tb_pin OLLAMA_SHA256)" "Ollama tarball"
         # The tarball is root-owned and extracted as root: refuse anything but bin/ollama and lib/ollama/**.
         zstd -dc "$TB_OLLAMA_TAR" | tar -t > "$TB_WORK/ollama.members"
         grep -q . "$TB_WORK/ollama.members" || tb_die "Ollama tarball is empty"
@@ -1320,7 +1338,7 @@ else
             "$TB_CODENAME" > "$CHROOT_PATH/etc/apt/sources.list.d/tailscale.list"
         printf 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main\n' \
             > "$CHROOT_PATH/etc/apt/sources.list.d/cloudflared.list"
-        printf 'deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\n' \
+        printf 'deb [arch=%s signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\n' "$TB_ARCH" \
             > "$CHROOT_PATH/etc/apt/sources.list.d/github-cli.list"
         chmod 0644 "$CHROOT_PATH"/etc/apt/sources.list.d/{tailscale,cloudflared,github-cli}.list
 
@@ -1509,7 +1527,7 @@ EOSCRIPT
         [[ "$CI_OS_BAKE_CAPTURE" == 1 ]]     && chroot "$CHROOT_PATH" dpkg-query -W -f='${Package}=${Version}\n' "$CAPTURE_PACKAGE"
         if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
             echo "ollama=$OLLAMA_VERSION"
-            echo "ollama-tarball-sha256=$OLLAMA_SHA256"
+            echo "ollama-tarball-sha256=$(tb_pin OLLAMA_SHA256)"
             echo "ollama-bin-sha256=$(tb_sha256_of "$CHROOT_PATH/usr/bin/ollama")"
             echo "ollama-cuda=$CI_OS_OLLAMA_CUDA"
         fi
@@ -1643,6 +1661,18 @@ if ! flock -n 9; then
     exit 0
 fi
 
+# What the desktop shows while this runs: core/lib/setup-status.sh writes /var/lib/ci-os/setup-status (the desktop's setup-progress turns it
+# into a notification) and provision.sh adds the steps. Without the library the calls are no-ops.
+export CI_OS_SETUP_STATUS="/var/lib/ci-os/setup-status"
+if [[ -f "$BOOTSTRAP_ROOT/core/lib/setup-status.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$BOOTSTRAP_ROOT/core/lib/setup-status.sh"
+else
+    ci_os_status_set() { :; }
+    ci_os_status_state() { :; }
+    ci_os_status_reload() { :; }
+fi
+
 if [[ "$MANUAL" != true ]]; then
     # Automatic run (boot or timer): skip once completed...
     if [[ -f "$MARKER_FILE" ]]; then
@@ -1668,6 +1698,7 @@ network_up() {
 }
 
 NETWORK_OK=false
+ci_os_status_set waiting 0 0 "Waiting for the internet"
 echo "[CI-OS] Waiting for network..."
 for i in $(seq 1 30); do
     if network_up; then
@@ -1684,8 +1715,10 @@ if [[ "$NETWORK_OK" != "true" ]]; then
     # minutes, tries again. Not counted as a failed attempt.
     echo "[CI-OS] WARNING: Network not available after 60s. Setup will retry automatically"
     echo "[CI-OS] (next boot, or within 15 minutes); or run once online: sudo ci-os-setup"
+    ci_os_status_set waiting 0 0 "No internet connection yet. Setup tries again by itself"
     exit 0
 fi
+ci_os_status_set running 0 0 "Getting the computer ready"
 
 # ── Stay out of the desktop's way ─────────────────────────────────────────
 # A person may log in for the first time while this runs. Wait until the machine is quiet (best effort, never for good), and keep
@@ -1713,6 +1746,7 @@ if [[ ! -x "$PROVISION_SH" ]]; then
     # A broken image, not a transient failure: retrying cannot help.
     echo "[CI-OS] WARNING: $PROVISION_SH not found or not executable; skipping provisioning."
     echo "no provisioner - $(date -u)" > "$MARKER_FILE"
+    ci_os_status_set failed 0 0 "Setup could not start" "this image has no setup program"
     exit 0
 fi
 
@@ -1729,6 +1763,8 @@ else
 fi
 
 if ! bash "$PROVISION_SH" --tier=core; then
+    ci_os_status_reload
+    ci_os_status_state failed "Setup stopped" "${CI_OS_STATUS_TITLE:-}"
     if [[ "$MANUAL" == true ]]; then
         echo "[CI-OS] provision.sh reported issues (see above). Fix them and re-run: sudo ci-os-setup"
     elif (( attempts < MAX_AUTO_ATTEMPTS )); then
@@ -1742,10 +1778,12 @@ fi
 # ── Mark complete ─────────────────────────────────────────────────────────
 date -u > "$MARKER_FILE"
 rm -f "$ATTEMPTS_FILE"
+ci_os_status_reload
+CI_OS_STATUS_STEP="${CI_OS_STATUS_STEPS:-0}"
+ci_os_status_state done "Companion OS is set up"
 
 echo "[CI-OS] First-boot setup completed at $(date -u)"
 echo "[CI-OS] Log saved to $LOG_FILE"
-echo "[CI-OS] NOTE: Log out and back in for Docker group and PATH changes."
 BOOTSTRAP_SCRIPT
 
 chmod +x "$CHROOT_PATH/usr/lib/ci-os/first-boot-setup.sh"

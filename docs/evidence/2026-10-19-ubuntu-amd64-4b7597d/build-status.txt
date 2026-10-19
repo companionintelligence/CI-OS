@@ -1,0 +1,8 @@
+2026-10-19T05:17:50Z build of commit 4b7597d starts
+2026-10-19T05:17:50Z clean checkout in <scratch>/build-wt
+2026-10-19T05:18:34Z container ready; build starts
+2026-10-19T05:37:07Z build rc=0 after 1113 s
+2026-10-19T05:37:54Z verify-iso rc=0: == Summary: 446 passed, 0 failed
+2026-10-19T05:38:43Z ISO copied to <scratch>/v10/iso: MD5SUMS SHA256SUMS companion-os-1.0-amd64.iso packages 
+7f4dab41005c0fa3fcc92e116317b2135eeefaa77e4e4b381b4a7a7cf56e69df  /vol/out/companion-os-1.0-amd64.iso
+7086276608

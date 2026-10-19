@@ -6,7 +6,7 @@ Every document under `docs/` is listed here with one line, grouped as overview, 
 plans. Documentation that lives next to the code is listed at the end. The front page of the repository is
 [`../README.md`](../README.md); the guide for agents and new maintainers is [`../CLAUDE.md`](../CLAUDE.md).
 
-Companion OS has two supported targets: Companion OS on Ubuntu 26.04.1 LTS and Companion OS on CachyOS (Plasma edition).
+Companion OS has two supported targets: Companion OS on Ubuntu 26.04.1 LTS (amd64, and arm64 since 2026-10-19) and Companion OS on CachyOS (Plasma edition, x86-64).
 Evidence tags used throughout: **[V]** verified, **[I]** implemented and not proven end to end, **[N]** not implemented.
 
 ## Start here, by task
@@ -33,6 +33,7 @@ Evidence tags used throughout: **[V]** verified, **[I]** implemented and not pro
 
 | Document | What it is |
 |---|---|
+| [Companion OS on arm64](architecture/arm64.md) | The arm64 architecture of the Ubuntu edition (supported since 2026-10-19): what was built and run on 2026-10-19 (build 19 min, verify 436/0, install 12 min, Hub up), what differs from amd64, how to build it, what is not proven |
 | [Supported targets](architecture/supported-targets.md) | The support policy: the two targets, what "supported" means, the capability matrix with evidence tags, per-target caveats, pending evidence, the retirement notice and the restore recipe, and how a target is added. |
 | [Core and backends design](architecture/multi-distro-design.md) | How `core/` and `backends/<name>/` fit together, the Ubuntu gresource mechanic, the CachyOS backend, the frozen Arch engine and the findings frozen code cites, the ecosystem manifest, the per-backend contract and the rollout history. The file name is historical. |
 | [Known issues and decisions](architecture/known-issues-and-decisions.md) | The open defects and open decisions, each with severity, evidence, an owner column and the decision needed. |
@@ -85,6 +86,7 @@ Design records. Each states its own status and evidence.
 | [Test evidence](architecture/test-evidence.md) | What has been run, where, with what result and count, split into verified, implemented-unproven and not implemented, and the table of pending evidence for the Ubuntu 26.04 image. |
 | [Evidence records](evidence/README.md) | The small text records behind the verified rows: build records, verifier logs, installed-boot results and the sha256 of each image, with the rules for adding a run. |
 | [`ui/`](ui/) | Screenshots. `setup-portal-*.png` are the six states of the setup portal (used by the README). Edition screenshots are under `ui/companion-os/`, indexed in [`ui/companion-os/README.md`](ui/companion-os/README.md). |
+| [`ui/companion-os/ubuntu/`](ui/companion-os/ubuntu/CAPTURE.md) | The Ubuntu edition (arm64 image of `4b7597d`, 2026-10-19): 10 frames from the boot menu to Hub's pairing screen, in a virtual machine with hardware acceleration, with `CAPTURE.md` (inputs, times, redactions, what went wrong in the run) and `MANIFEST.json`. |
 | [`ui/companion-os/plasma/`](ui/companion-os/plasma/CAPTURE.md) | The Plasma edition capture of ISO #6 (2026-10-18): 29 frames of the live medium, the installer and the installed system, in a virtual machine, with `CAPTURE.md` (command lines, timings, what was fixed and found, hygiene checks) and `MANIFEST.json`. The Ubuntu frames are still to be captured; the documents carry commented-out placeholders for them, and the one table of figure names is in the [Figures section of the test evidence page](architecture/test-evidence.md#figures). |
 
 The text records of the main runs are in `docs/evidence/`, and the records and frames of the Plasma ISO #6 run are in `docs/evidence/2026-10-18-plasma-iso6/` and

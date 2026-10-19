@@ -139,9 +139,11 @@ check() { # check "<label>" <command...>
 # ── extract what we need ────────────────────────────────────────────────────
 echo "ISO: $ISO ($(du -h "$ISO" | cut -f1))"
 ISOX="$WORK/iso"; mkdir -p "$ISOX"
+# loopback.cfg in its own run: the arm64 ISO has none, and an -extract of an absent path aborts the rest of its xorriso command line
+# (the first arm64 verify stopped with "could not extract /casper/minimal.squashfs" for this reason).
+xorriso -osirrox on -indev "$ISO" -extract /boot/grub/loopback.cfg "$ISOX/loopback.cfg" >/dev/null 2>&1
 xorriso -osirrox on -indev "$ISO" \
     -extract /boot/grub/grub.cfg "$ISOX/grub.cfg" \
-    -extract /boot/grub/loopback.cfg "$ISOX/loopback.cfg" \
     -extract /.disk/info "$ISOX/disk-info" \
     -extract /casper/initrd "$ISOX/initrd" \
     -extract /casper/install-sources.yaml "$ISOX/install-sources.yaml" \
@@ -159,10 +161,22 @@ for f in minimal.size minimal.standard.size minimal.standard.live.size \
          minimal.manifest.full minimal.standard.manifest.full minimal.standard.live.manifest.full; do
     xorriso -osirrox on -indev "$ISO" -extract "/casper/$f" "$ISOX/$f" >/dev/null 2>&1
 done
+# The architecture of the image: VERIFY_ARCH, else read from the volume id ("Ubuntu 26.04.1 LTS amd64" / "... arm64"). It decides the
+# firmware file names (bootx64/grubx64/mmx64 or bootaa64/grubaa64/mmaa64), which Ollama files a build must have and whether
+# Companion Capture (x86-64 only) is expected.
+VARCH="${VERIFY_ARCH:-}"
+if [[ -z "$VARCH" ]]; then
+    case "$(xorriso -indev "$ISO" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -1)" in
+        *arm64) VARCH=arm64 ;;
+        *) VARCH=amd64 ;;
+    esac
+fi
+case "$VARCH" in amd64) EFIS=x64 ;; arm64) EFIS=aa64 ;; *) echo "VERIFY_ARCH must be amd64 or arm64 (got '$VARCH')" >&2; exit 2 ;; esac
+echo "Architecture: $VARCH (EFI files: boot$EFIS.efi, grub$EFIS.efi, mm$EFIS.efi)"
 xorriso -osirrox on -indev "$ISO" \
-    -extract /EFI/boot/bootx64.efi "$ISOX/bootx64.efi" \
-    -extract /EFI/boot/grubx64.efi "$ISOX/grubx64.efi" \
-    -extract /EFI/boot/mmx64.efi "$ISOX/mmx64.efi" >/dev/null 2>&1
+    -extract "/EFI/boot/boot$EFIS.efi" "$ISOX/bootx64.efi" \
+    -extract "/EFI/boot/grub$EFIS.efi" "$ISOX/grubx64.efi" \
+    -extract "/EFI/boot/mm$EFIS.efi" "$ISOX/mmx64.efi" >/dev/null 2>&1
 PVD_VOLID="$(xorriso -indev "$ISO" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -1)"
 
 SQ="$ISOX/minimal.squashfs"
@@ -174,7 +188,7 @@ R="$WORK/root"; mkdir -p "$R"
 unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/os-release usr/lib/os-release etc/os-release.ubuntu-base etc/lsb-release etc/issue etc/issue.net etc/hostname \
     etc/casper.conf etc/default/grub var/lib/dpkg/status var/lib/snapd/seed/seed.yaml var/lib/snapd/state.json etc/cloud/cloud.cfg \
-    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications \
+    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service etc/firefox \
     usr/share/glib-2.0/schemas \
     usr/share/gnome-background-properties \
     etc/update-motd.d etc/systemd/system etc/sudoers.d etc/netplan \
@@ -374,13 +388,20 @@ else
     PINS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../core/manifest/tier-b-pins.env"
     # shellcheck source=../../../../core/manifest/tier-b-pins.env
     if [[ -f "$PINS" ]]; then source "$PINS"; else fail "pins file not found: $PINS"; fi
+    # The pins of an arm64 image carry the suffix _ARM64 (core/manifest/tier-b-pins.env).
+    PIN_SUF=""; [[ "$VARCH" == arm64 ]] && PIN_SUF="_ARM64"
+    pin_of() { local n="${1}${PIN_SUF}"; printf '%s' "${!n:-}"; }
+    PIN_OLLAMA_SHA256="$(pin_of OLLAMA_SHA256)"
+    PIN_CAPTURE_URL="$(pin_of CAPTURE_URL)"
     BAKED="$R/usr/lib/ci-os/baked-hub-tools.txt"
     baked_has() { grep -q -E -- "$1" "$BAKED" 2>/dev/null; }
     guarded() { file_has "$R/etc/systemd/system/$1.d/10-not-live.conf" '^ConditionPathExists=!/cdrom/casper/vmlinuz'; }
 
     # 8.1 what was baked is recorded, and the knobs were all on
     for k in bake-third-party bake-ollama bake-launcher bake-capture; do
-        if baked_has "^${k}=1\$"; then pass "baked-hub-tools.txt: ${k}=1"; else fail "baked-hub-tools.txt does not say ${k}=1 (rebuild, or run with VERIFY_TIERB=0)"; fi
+        want=1
+        [[ "$k" == bake-capture && -z "$PIN_CAPTURE_URL" ]] && want=0   # no Companion Capture build for this architecture
+        if baked_has "^${k}=${want}\$"; then pass "baked-hub-tools.txt: ${k}=${want}"; else fail "baked-hub-tools.txt does not say ${k}=${want} (rebuild, or run with VERIFY_TIERB=0)"; fi
     done
 
     # 8.2 apt-installed third-party tools: package, binary, source list with Signed-By, keyring on disk
@@ -434,8 +455,10 @@ EOF_LISTS
     if in_listing ' /var/lib/tailscale/tailscaled\.state$'; then fail "tailscaled ran during the build (state file in the image)"; else pass "no tailscaled state in the image"; fi
 
     # 8.4 Ollama: binary, libs, user, unit (enabled + guarded), no models, binary checksum equals the recorded one
-    for f in /usr/bin/ollama /usr/lib/ollama/libggml-base.so.0 /usr/lib/ollama/vulkan/libggml-vulkan.so \
-             /etc/systemd/system/ollama.service /usr/libexec/ci-os/ollama-models-env; do
+    # The Vulkan runner is in the x86-64 tarball only (the arm64 one has CPU, CUDA and Jetson runners).
+    OLLAMA_FILES=(/usr/bin/ollama /usr/lib/ollama/libggml-base.so.0 /etc/systemd/system/ollama.service /usr/libexec/ci-os/ollama-models-env)
+    [[ "$VARCH" == amd64 ]] && OLLAMA_FILES+=(/usr/lib/ollama/vulkan/libggml-vulkan.so)
+    for f in "${OLLAMA_FILES[@]}"; do
         if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
     done
     if file_has "$R/etc/passwd" '^ollama:x:[0-9]{2,3}:[0-9]+:[^:]*:/usr/share/ollama:/bin/false$'; then pass "system user 'ollama' (uid < 1000, home /usr/share/ollama, no login)"; else fail "no suitable 'ollama' system user"; fi
@@ -452,7 +475,7 @@ EOF_LISTS
     else
         fail "usr/bin/ollama could not be extracted"
     fi
-    if baked_has "^ollama=${OLLAMA_VERSION:-x}\$" && baked_has "^ollama-tarball-sha256=${OLLAMA_SHA256:-x}\$"; then pass "baked Ollama is the pinned release (${OLLAMA_VERSION:-?})"; else fail "baked Ollama version/tarball hash differs from core/manifest/tier-b-pins.env"; fi
+    if baked_has "^ollama=${OLLAMA_VERSION:-x}\$" && baked_has "^ollama-tarball-sha256=${PIN_OLLAMA_SHA256:-x}\$"; then pass "baked Ollama is the pinned release (${OLLAMA_VERSION:-?})"; else fail "baked Ollama version/tarball hash differs from core/manifest/tier-b-pins.env"; fi
 
     # 8.5 Companion Launcher: right package and binary name (drift: ci-os-hub-desktop is the CRATE name, not the binary)
     if pkg_ok "${LAUNCHER_PACKAGE:-companion-hub}"; then pass "package installed: ${LAUNCHER_PACKAGE:-companion-hub}"; else fail "package NOT installed: ${LAUNCHER_PACKAGE:-companion-hub}"; fi
@@ -469,11 +492,16 @@ EOF_LISTS
 
     # 8.5b Companion Capture: the pinned .deb, its binary and dock entry; and nothing that starts it. It records the screen,
     # so the image must not run it for the user (no autostart, no service).
-    if pkg_ok "${CAPTURE_PACKAGE:-companion-capture}"; then pass "package installed: ${CAPTURE_PACKAGE:-companion-capture}"; else fail "package NOT installed: ${CAPTURE_PACKAGE:-companion-capture}"; fi
-    for f in "/usr/bin/${CAPTURE_BINARY:-companion-capture}" /usr/share/applications/companion-capture.desktop; do
-        if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
-    done
-    if baked_has "^${CAPTURE_PACKAGE:-companion-capture}=${CAPTURE_VERSION:-x}\$"; then pass "baked Capture is the pinned release (${CAPTURE_VERSION:-?})"; else fail "baked Capture version differs from the pin"; fi
+    if [[ -n "$PIN_CAPTURE_URL" ]]; then
+        if pkg_ok "${CAPTURE_PACKAGE:-companion-capture}"; then pass "package installed: ${CAPTURE_PACKAGE:-companion-capture}"; else fail "package NOT installed: ${CAPTURE_PACKAGE:-companion-capture}"; fi
+        for f in "/usr/bin/${CAPTURE_BINARY:-companion-capture}" /usr/share/applications/companion-capture.desktop; do
+            if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
+        done
+        if baked_has "^${CAPTURE_PACKAGE:-companion-capture}=${CAPTURE_VERSION:-x}\$"; then pass "baked Capture is the pinned release (${CAPTURE_VERSION:-?})"; else fail "baked Capture version differs from the pin"; fi
+    else
+        note "Companion Capture has no $VARCH build: not expected in this image (the checks below, that nothing starts it, still run)"
+        if pkg_ok "${CAPTURE_PACKAGE:-companion-capture}"; then fail "package installed although Capture has no $VARCH build: ${CAPTURE_PACKAGE:-companion-capture}"; else pass "Capture is not installed (no $VARCH build exists)"; fi
+    fi
     if in_listing ' /etc/xdg/autostart/companion-capture\.desktop$'; then fail "Capture has an XDG autostart entry: it must not start by itself"; else pass "no Capture autostart entry"; fi
     if in_listing ' /(usr/lib|etc)/systemd/system/companion-capture[^ ]*\.service( ->|$)'; then fail "a companion-capture systemd unit is present: Capture must not run as a service"; else pass "no Capture systemd unit"; fi
 
@@ -714,8 +742,10 @@ casper_kernel_lines() { # casper_kernel_lines <menu>: the `linux /casper/vmlinuz
 }
 stock_kernel_line() { # a squeezed kernel line on stdin is the stock shape: only the words the stock menus use, and the one Companion adds
     awk '{ bad = ($1 != "linux" || $2 != "/casper/vmlinuz")
-           for (i = 3; i <= NF && $i != "---"; i++) if ($i != "nomodeset" && $i != "iso-scan/filename=${iso_path}" && $i != "ci.autoinstall=1") bad = 1
-           if ($i != "---" || $(i + 1) != "quiet" || $(i + 2) != "splash" || NF != i + 2) bad = 1
+           for (i = 3; i <= NF && $i != "---"; i++) if ($i != "nomodeset" && $i != "$cmdline" && $i != "iso-scan/filename=${iso_path}" && $i != "ci.autoinstall=1") bad = 1
+           # after the "---": quiet splash, and on the arm64 stock menu also console=tty0
+           if ($i != "---" || $(i + 1) != "quiet" || $(i + 2) != "splash") bad = 1
+           else if (NF != i + 2 && !(NF == i + 3 && $(i + 3) == "console=tty0")) bad = 1
            exit bad }'
 }
 
@@ -931,6 +961,9 @@ else pass "minimal.manifest does not list casper"; fi
 # carries the layer path in its own configuration), and a parameter such as boot= or layerfs-path= is how a change to
 # the layer layout gets "fixed" in the menu instead of in the layers. The one Companion addition is ci.autoinstall=1.
 for menu in grub.cfg loopback.cfg; do
+    if [[ ! -s "$ISOX/$menu" && "$menu" == loopback.cfg && "$VARCH" == arm64 ]]; then
+        note "$menu: the arm64 ISO has none (it is a GRUB-from-a-file feature of the x86-64 image)"; continue
+    fi
     if [[ ! -s "$ISOX/$menu" ]]; then fail "could not extract $menu from the ISO"; continue; fi
     klines="$(casper_kernel_lines "$ISOX/$menu")"
     nk="$(printf '%s\n' "$klines" | grep -c . || true)"; nbad=0
@@ -950,6 +983,8 @@ if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
             stock="$(casper_kernel_lines "$BASEMENU/$menu" | sort -u)"
             if [[ "$ours" == "$stock" ]]; then pass "$menu: the kernel lines equal the base ISO's (apart from ci.autoinstall=1)"
             else fail "$menu: the kernel lines differ from the base ISO's"; fi
+        elif [[ "$menu" == loopback.cfg && "$VARCH" == arm64 && ! -s "$BASEMENU/$menu" && ! -s "$ISOX/$menu" ]]; then
+            note "$menu: neither the base ISO nor this one has it (arm64): nothing to compare"
         else
             fail "$menu: could not compare the kernel lines with the base ISO's"
         fi
@@ -1021,7 +1056,12 @@ else
 fi
 check "/etc/issue is Companion OS" file_has "$R/etc/issue" 'Companion OS'
 check "installed-system hostname is companion-os" file_has "$R/etc/hostname" '^companion-os$'
-check "GRUB_DISTRIBUTOR is Companion OS" file_has "$R/etc/default/grub" '^GRUB_DISTRIBUTOR="Companion OS"'
+if [[ "$VARCH" == arm64 && ! -e "$R/etc/default/grub" ]]; then
+    note "GRUB_DISTRIBUTOR: the arm64 base image has no /etc/default/grub (the installer installs GRUB); the installed GRUB names itself from os-release: $(sed -n 's/^NAME=//p' "$R/etc/os-release" | head -1)"
+    check "arm64: os-release NAME is Companion OS (what the installed GRUB's GRUB_DISTRIBUTOR reads)" grep -q -x 'NAME="Companion OS"' "$R/etc/os-release"
+else
+    check "GRUB_DISTRIBUTOR is Companion OS" file_has "$R/etc/default/grub" '^GRUB_DISTRIBUTOR="Companion OS"'
+fi
 check "live session host name is not 'ubuntu'" bash -c "! grep -q -E '^export HOST=\"ubuntu\"' '$CASPER_CONF'"
 check "live session user is not 'ubuntu'" bash -c "! grep -q -E '^export USERNAME=\"ubuntu\"' '$CASPER_CONF'"
 check "casper keeps BUILD_SYSTEM=Ubuntu (casper logic depends on it)" file_has "$CASPER_CONF" '^export BUILD_SYSTEM="Ubuntu"'
@@ -1532,7 +1572,7 @@ fi
 # image's list. The producer and this check once agreed on all_video while the real binary has no such module.
 GRUB_MODS_TOOL="$VERIFY_REPO/stick/scripts/grub-builtin-modules.py"
 if [[ ! -s "$ISOX/grubx64.efi" ]]; then
-    fail "grub.cfg's insmod modules could not be compared with the signed GRUB: /EFI/boot/grubx64.efi is missing from the ISO"
+    fail "grub.cfg's insmod modules could not be compared with the signed GRUB: /EFI/boot/grub$EFIS.efi is missing from the ISO"
 elif [[ ! -f "$GRUB_MODS_TOOL" ]] || ! command -v python3 >/dev/null 2>&1; then
     skip "the grub.cfg insmod modules are not compared with the signed GRUB's built-in list: run this script from the repo checkout (stick/scripts/grub-builtin-modules.py) with python3"
 elif [[ -z "$insmods" ]]; then
@@ -1541,11 +1581,11 @@ else
     mods_out="$(python3 -I "$GRUB_MODS_TOOL" "$ISOX/grubx64.efi" --require "$(printf '%s' "${insmods% }" | tr ' ' ',')" 2>&1)"; mods_rc=$?
     if [[ "$mods_rc" -eq 0 ]]; then
         mods_n="$(sed -n 's/.*(\([0-9][0-9]*\) in total).*/\1/p' <<<"$mods_out")"
-        pass "every module grub.cfg insmods (${insmods% }) is built into the signed GRUB on the ISO (/EFI/boot/grubx64.efi has ${mods_n:-?} built-in modules)"
+        pass "every module grub.cfg insmods (${insmods% }) is built into the signed GRUB on the ISO (/EFI/boot/grub$EFIS.efi has ${mods_n:-?} built-in modules)"
     elif [[ "$mods_rc" -eq 1 ]]; then
         fail "grub.cfg insmods a module that is NOT built into the signed GRUB on the ISO (${mods_out##*: }); under Secure Boot shim refuses a module loaded from disk"
     else
-        fail "the built-in modules of /EFI/boot/grubx64.efi could not be read: ${mods_out}"
+        fail "the built-in modules of /EFI/boot/grub$EFIS.efi could not be read: ${mods_out}"
     fi
 fi
 if [[ -f "$VERIFY_REPO/core/lib/grub-merge.sh" && -f "$VERIFY_REPO/vendor/brand/tokens/tokens.sh" ]]; then
@@ -1569,7 +1609,9 @@ fi
 
 # The installed system's GRUB background is rendered by the same script and must be the same kind of file.
 GRUB_BG_ROOT="$R/usr/share/pixmaps/ci-os-grub-bg.png"
-if [[ -f "$GRUB_BG_ROOT" ]] && png_is "$GRUB_BG_ROOT"; then
+if [[ "$VARCH" == arm64 && ! -e "$R/etc/default/grub" ]]; then
+    note "installed-system GRUB background: not made on arm64 (no GRUB in the base image to configure)"
+elif [[ -f "$GRUB_BG_ROOT" ]] && png_is "$GRUB_BG_ROOT"; then
     d="$(png_depth "$GRUB_BG_ROOT")"
     if [[ "$d" == 8 ]]; then pass "installed-system GRUB background (/usr/share/pixmaps/ci-os-grub-bg.png) has 8-bit depth"; else fail "installed-system GRUB background has IHDR bit depth ${d:-unknown} (want 8)"; fi
 else
@@ -1580,9 +1622,9 @@ fi
 if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
     BASEX="$WORK/base"; mkdir -p "$BASEX"
     xorriso -osirrox on -indev "$VERIFY_BASE_ISO" \
-        -extract /EFI/boot/bootx64.efi "$BASEX/bootx64.efi" \
-        -extract /EFI/boot/grubx64.efi "$BASEX/grubx64.efi" \
-        -extract /EFI/boot/mmx64.efi "$BASEX/mmx64.efi" >/dev/null 2>&1
+        -extract "/EFI/boot/boot$EFIS.efi" "$BASEX/bootx64.efi" \
+        -extract "/EFI/boot/grub$EFIS.efi" "$BASEX/grubx64.efi" \
+        -extract "/EFI/boot/mm$EFIS.efi" "$BASEX/mmx64.efi" >/dev/null 2>&1
     for f in bootx64.efi grubx64.efi mmx64.efi; do
         if [[ -s "$ISOX/$f" && -s "$BASEX/$f" && "$(sha256sum < "$ISOX/$f")" == "$(sha256sum < "$BASEX/$f")" ]]; then
             pass "Secure Boot chain: /EFI/boot/$f is byte-identical to the base ISO's"
@@ -1656,6 +1698,28 @@ fi
 # /etc/skel; the motd scripts that advertise Ubuntu Pro are held off by dpkg-statoverride (an upgrade restores a plain chmod -x);
 # /etc/legal says Companion OS; the first-boot setup is started by its timer, not at boot, and waits for a quiet machine.
 check "first-run: /etc/skel/.config/gnome-initial-setup-done exists (no Canonical first-run for a new user)" test -e "$R/etc/skel/.config/gnome-initial-setup-done"
+# gnome-initial-setup-upgrade-login.service shows "Welcome to <release>!" (the raccoon) when the stamp above exists and the stamp it
+# names itself does not: found on the first installed arm64 image, 2026-10-19. The stamp's name is read from the unit in the image.
+_gis_unit="$R/usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service"
+if [[ -f "$_gis_unit" ]]; then
+    _gis_stamp="$(sed -n 's|^ConditionPathExists=!%E/\(gnome-initial-setup/upgrade-[0-9.]*-done\)$|\1|p' "$_gis_unit" | head -n 1)"
+    check "first-run: the upgrade-login unit names a stamp (${_gis_stamp:-none})" test -n "$_gis_stamp"
+    check "first-run: /etc/skel/.config/${_gis_stamp:-<none>} exists (no 'Welcome to Companion OS' page after the first sign-in)" test -n "$_gis_stamp" -a -e "$R/etc/skel/.config/$_gis_stamp"
+else
+    note "gnome-initial-setup-upgrade-login.service is not in this image: no upgrade-welcome stamp is needed"
+fi
+
+# The rest of a quiet first sign-in (found on the first installed arm64 image, 2026-10-19): Firefox opens no "Firefox Privacy Notice" tab
+# (an enterprise policy, which the snap reads through its etc-firefox interface), the update notifier does not announce the build day's
+# pending packages, and ci-os-info offers the ROCm command only where that command exists.
+check "quiet first sign-in: /etc/firefox/policies/policies.json is JSON with the four policies" python3 -c '
+import json, sys
+p = json.load(open(sys.argv[1]))["policies"]
+assert p == {"DisableTelemetry": True, "OverrideFirstRunPage": "", "OverridePostUpdatePage": "", "DontCheckDefaultBrowser": True}, p
+' "$R/etc/firefox/policies/policies.json"
+check "quiet first sign-in: the update notifier's pop-ups are off by default (dconf local.d)" grep -q -F 'no-show-notifications=true' "$R/etc/dconf/db/local.d/03-ci-os-quiet-first-run"
+check "ci-os-info: reports the setup, Hub, models and health, not only the GPU" grep -q -F 'Hub:      answering at' "$R/usr/local/bin/ci-os-info"
+check "ci-os-info: the ROCm command is offered only behind a check for it (arm64 has none)" bash -c 'grep -q "command -v ci-os-install-rocm" "$1" && ! grep -q "^echo \"For ROCm installation" "$1"' _ "$R/usr/local/bin/ci-os-info"
 for _m in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
     check "login text: motd script $_m is held off by dpkg-statoverride" grep -q -E "^root root 644 /etc/update-motd\\.d/$_m\$" "$R/var/lib/dpkg/statoverride"
 done
@@ -1665,6 +1729,15 @@ check "login text: the stock /etc/legal is diverted aside (a base-files upgrade 
 check "login text: the Ubuntu Pro autostart notification is diverted aside" bash -c "grep -q 'ubuntu-advantage-notification.desktop' '$R/var/lib/dpkg/diversions' && test ! -e '$R/etc/xdg/autostart/ubuntu-advantage-notification.desktop'"
 check "first boot: the setup is started by its timer at 3 minutes, not linked into multi-user.target" bash -c "grep -q -x 'OnBootSec=3min' '$R/usr/lib/systemd/system/ci-os-first-boot-setup.timer' && test ! -e '$R/etc/systemd/system/multi-user.target.wants/ci-os-first-boot-setup.service'"
 check "first boot: wait-quiet is installed and executable" test -x "$R/usr/libexec/ci-os/wait-quiet"
+check "first boot progress: setup-progress is installed, executable, and skips a live session" bash -c "test -x '$R/usr/libexec/ci-os/setup-progress' && grep -qF 'CI_OS_PROGRESS_LIVE:-/cdrom/casper/vmlinuz' '$R/usr/libexec/ci-os/setup-progress'"
+check "first boot progress: its autostart entry runs it, hidden, for GNOME" bash -c "grep -qx 'Exec=/usr/libexec/ci-os/setup-progress' '$R/etc/xdg/autostart/ci-os-setup-progress.desktop' && grep -qx 'NoDisplay=true' '$R/etc/xdg/autostart/ci-os-setup-progress.desktop' && grep -qx 'OnlyShowIn=GNOME;' '$R/etc/xdg/autostart/ci-os-setup-progress.desktop'"
+check "first boot progress: the status library is in the bootstrap tree, and the wrapper and provision.sh use it" bash -c "test -f '$R/usr/lib/ci-os/bootstrap/core/lib/setup-status.sh' && grep -qF 'export CI_OS_SETUP_STATUS=\"/var/lib/ci-os/setup-status\"' '$R/usr/lib/ci-os/first-boot-setup.sh' && grep -qF 'ci_os_status_step \"Downloading the AI models' '$R/usr/lib/ci-os/bootstrap/backends/ubuntu/provision/provision.sh'"
+# The library is run here, on the host that built and verifies the image (Ubuntu 26.04: uutils tr and date), against the file the first boot writes.
+_ss="$WORK/setup-status-check"; rm -rf "$_ss"; mkdir -p "$_ss"
+check "first boot progress: the library writes the status file the desktop reads (state, step, steps, title; world-readable; one line each)" bash -c "
+  export CI_OS_SETUP_STATUS='$_ss/status'; . '$R/usr/lib/ci-os/bootstrap/core/lib/setup-status.sh' && ci_os_status_begin 7 && ci_os_status_step 'Installing Docker' &&
+  grep -qx 'state=running' '$_ss/status' && grep -qx 'step=1' '$_ss/status' && grep -qx 'steps=7' '$_ss/status' && grep -qx 'title=Installing Docker' '$_ss/status' &&
+  test \"\$(grep -c . '$_ss/status')\" = 6 && test \"\$(stat -c %a '$_ss/status')\" = 644"
 
 section "7. Branding: live boot splash and live identity (initrd)"
 # build-iso.sh appends a small zstd-compressed cpio overlay to casper/initrd (the kernel unpacks concatenated
@@ -1901,7 +1974,9 @@ if [[ -n "$OVL_OFF" ]]; then
 fi
 # The no-tool fallback in render-grub-background.sh leaves a ~17 byte placeholder, so check the size too.
 grub_bg_size="$(awk '$NF == "/usr/share/pixmaps/ci-os-grub-bg.png" {print $3; exit}' "$LISTING")"
-if [[ -n "$grub_bg_size" && "$grub_bg_size" -ge 5000 ]]; then
+if [[ "$VARCH" == arm64 && ! -e "$R/etc/default/grub" ]]; then
+    note "GRUB background image of the installed system: not made on arm64 (the live menu's background is /boot/grub/ci-os-bg.png, checked above)"
+elif [[ -n "$grub_bg_size" && "$grub_bg_size" -ge 5000 ]]; then
     pass "GRUB background image is installed (${grub_bg_size} bytes)"
 else
     fail "GRUB background image is missing or a placeholder (${grub_bg_size:-absent} bytes): build host lacks rsvg-convert/imagemagick?"

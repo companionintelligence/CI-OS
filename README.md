@@ -10,7 +10,7 @@ Companion OS uses the [PolyForm Noncommercial License 1.0.0](LICENSE.md). See th
 
 ## What Companion OS is
 
-1. Companion OS is the operating system of the Companion Intelligence appliance: a private, local-first AI memory box that runs on an ordinary x86-64 PC.
+1. Companion OS is the operating system of the Companion Intelligence appliance: a private, local-first AI memory box that runs on an ordinary x86-64 PC (the Ubuntu edition also builds for arm64, see [`docs/architecture/arm64.md`](docs/architecture/arm64.md)).
 2. It comes in two editions, both live-and-installer ISOs: one on **Ubuntu 26.04.1 LTS** (GNOME) and a **Plasma edition based on CachyOS**.
 3. A first-boot step provisions Docker, Ollama with three local models, CI Hub and the network tools. A machine with no screen is reached through a Wi-Fi setup hotspot.
 4. The **Companion Stick** (`ci-stick`) turns a USB stick into a bootable, verifiable carrier for the Ubuntu edition, its installers and its model packs.
@@ -23,15 +23,16 @@ The support policy and the full capability matrix are in [`docs/architecture/sup
 
 1. [The two editions side by side](#the-two-editions-side-by-side)
 2. [Get an ISO](#get-an-iso)
-3. [Make a Companion Stick](#make-a-companion-stick)
-4. [Install](#install)
-5. [First boot and hotspot setup](#first-boot-and-hotspot-setup)
-6. [Models and model packs](#models-and-model-packs)
-7. [Work on an existing machine (Ubuntu)](#work-on-an-existing-machine-ubuntu)
-8. [Run the checks](#run-the-checks)
-9. [Repo layout](#repo-layout)
-10. [Status and evidence](#status-and-evidence)
-11. [Documentation](#documentation)
+3. [Flash the USB installer](#flash-the-usb-installer)
+4. [Make a Companion Stick](#make-a-companion-stick)
+5. [Install](#install)
+6. [First boot and hotspot setup](#first-boot-and-hotspot-setup)
+7. [Models and model packs](#models-and-model-packs)
+8. [Work on an existing machine (Ubuntu)](#work-on-an-existing-machine-ubuntu)
+9. [Test suite](#test-suite)
+10. [Repo layout](#repo-layout)
+11. [Status and evidence](#status-and-evidence)
+12. [Documentation](#documentation)
 
 ---
 
@@ -41,21 +42,26 @@ The support policy and the full capability matrix are in [`docs/architecture/sup
 |---|---|---|
 | Base | The stock Ubuntu 26.04.1 LTS Desktop ISO, repacked. GNOME 50, one Wayland session. | The pinned CachyOS-Live-ISO profile (archiso) plus a Companion overlay. KDE Plasma 6. |
 | Backend | `backends/ubuntu/` | `backends/cachyos/` (runs `backends/arch/` on first boot) |
-| Image | `companion-os-<version>-amd64.iso`, 7,076,577,280 bytes in both full builds **[V]** | `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso`, 3,217,129,472 bytes **[V]** |
+| Image | `companion-os-<version>-amd64.iso`, 7,076,577,280 bytes in both full builds **[V]**; `-arm64.iso` for arm64 (supported since 2026-10-19, [`arm64.md`](docs/architecture/arm64.md)) | `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso`, 3,217,129,472 bytes **[V]** |
 | Build host | Ubuntu 26.04 as root; a privileged container on a Mac | Any host with Docker |
 | Package source | Ubuntu archive at build time, vendor apt repositories with pinned keys | CachyOS and Arch repositories, rolling, on build day and again on install day |
 | Installer | Canonical's installer, plus "Install Companion OS (automatic)" | Calamares, online only |
-| One-click install | Yes **[I]**, 121 unit tests, not yet driven on a booted ISO | No **[N]** |
+| One-click install | Yes: **[V]** on the arm64 image in a virtual machine (dialog, install in 12 min 10 s, power-off, installed boot); **[I]** on amd64 (204 unit tests, not driven on a booted ISO) | No **[N]** |
 | Companion Stick boot | Yes. The stock 26.04.1 ISO boots from a stick under Secure Boot to early systemd **[V]**; a Companion image on a stick **[I]** | No **[N]**: the stick's boot menu is built for casper |
 | Secure Boot | Inherited from the base ISO **[I]** | No **[N]**: unsigned GRUB and kernels |
 | Hotspot setup | `setup-device` package, installed system **[I]** | Payload staged by the installer **[I]** |
 | Models | Ollama baked in; models pulled at first boot **[I]** | Ollama installed by the installer; three models pulled at first boot **[V]** |
 | Docker | Baked in, also in live sessions **[I]** | Installed system **[V]**; not on the live medium |
 | GPU, ROCm | ROCm from the Ubuntu archive and Strix Halo boot parameters, Strix Halo class only **[I]** | Vulkan Ollama; ROCm only on request **[I]**; no boot parameters **[N]** |
-| Status | Built from a clean checkout and statically verified (393 checks) **[V]**; a harness-assembled disk of the fix-pass image booted to the GDM greeter **[V]**; live session, installer runs and first boot pending | Live boot, install, installed boot and first boot ran end to end in QEMU three times (ISO #4, #5, #6) **[V]**; ISO #6 (`ad37b64`) installed on its first attempt with the keyring-step fix working, passed `verify-iso.sh` (215 passed, 0 failed) and ended first boot clean **[V]**. Virtual machine only, one run of the fix; open: highlight gaps, a CachyOS name in raw pacman output, the splash wording |
+| Status | amd64: built from a clean checkout and statically verified (446 checks on `4b7597d`) **[V]**; its live session booted under emulation to the desktop, without desktop icons **[V]**; install and first boot of the amd64 image pending. arm64 (a supported architecture since 2026-10-19): built, verified (438), live desktop, one-click install, installed boot, first sign-in, first boot and Hub pairing screen all ran in a virtual machine **[V]** | Live boot, install, installed boot and first boot ran end to end in QEMU three times (ISO #4, #5, #6) **[V]**; ISO #6 (`ad37b64`) installed on its first attempt with the keyring-step fix working, passed `verify-iso.sh` (215 passed, 0 failed) and ended first boot clean **[V]**. Virtual machine only, one run of the fix; open: highlight gaps, a CachyOS name in raw pacman output, the splash wording |
 
-<!-- figure: docs/ui/companion-os/ubuntu/NN-live-grub-boot-menu.png -->
-<!-- figure: docs/ui/companion-os/ubuntu/NN-live-desktop.png -->
+![The boot menu of the Ubuntu edition's arm64 live medium: the Companion mark on a dark teal screen and four entries, Try or Install Companion OS highlighted.](docs/ui/companion-os/ubuntu/arm64-01-live-grub-menu.png)
+
+*Ubuntu edition (arm64 image): the boot menu of the live medium, captured in a virtual machine with hardware acceleration (not real hardware).*
+
+![The Ubuntu edition's live desktop: the dock on the left, five Companion shortcuts and two Install Companion OS launchers on the right, on the Companion wallpaper.](docs/ui/companion-os/ubuntu/arm64-03-live-desktop.png)
+
+*Ubuntu edition (arm64 image): the live desktop, about two minutes after power-on. All frames of the run: [`docs/ui/companion-os/ubuntu/`](docs/ui/companion-os/ubuntu/CAPTURE.md).*
 ![Boot menu on a navy background with the Companion mark and six entries; Companion OS (Plasma) is highlighted.](docs/ui/companion-os/plasma/01-live-grub-boot-menu.png)
 
 *Plasma edition: the boot menu of the live medium, captured in a virtual machine (QEMU, software emulation; not real hardware).*
@@ -165,6 +171,142 @@ The records of the 772 s build (build record, exit status, verifier log) and of 
 
 ---
 
+## Flash the USB installer
+
+Every Companion OS image is a hybrid ISO: write it byte for byte to a USB stick and a UEFI machine boots the stick. Nothing is
+extracted or "burned", and **writing erases the whole stick**. The same file also boots as a virtual machine's USB drive, which is how the
+screenshots below were taken ([Test suite](#test-suite)).
+
+**Evidence.** The ISO attached to a QEMU machine as a USB mass-storage drive (what a flashed stick looks like to the firmware) booted,
+installed and ran first boot on the arm64 image, 2026-10-19 **[V]**. The write and verify commands below were rehearsed on regular files
+and on no device **[V for the commands, N for a physical stick]**. No Companion OS image has been written to a physical stick in this repository yet **[N]**.
+
+### 1. Pick the image and the stick
+
+| You have | Write this file | With | Notes |
+|---|---|---|---|
+| An x86-64 PC, Ubuntu edition | `companion-os-<version>-amd64.iso` (6.6 GiB) | `dd`, Rufus (DD Image mode), balenaEtcher, or `ci-stick flash` for the A/B stick | Boots with Secure Boot on: the chain is Canonical's, inherited from the base ISO **[I]** |
+| An arm64 PC or VM, Ubuntu edition | `companion-os-<version>-arm64.iso` (5.2 GiB) | `dd`, Rufus, balenaEtcher. `ci-stick` does not take it **[N]** | No Companion Capture on arm64. An Apple-silicon Mac cannot boot a USB stick into it: use the VM recipe in the [Test suite](#test-suite) |
+| An x86-64 PC, Plasma edition | `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso` (3.0 GiB) | `dd`, Rufus, balenaEtcher | **Secure Boot must be off** |
+
+Use a stick larger than the file; 16 GB or more is comfortable and 8 GB is the least that holds the amd64 image. The install target needs at
+least 25 GB (the one-click installer refuses a smaller disk, a removable disk and the boot medium); give a machine that will also pull the
+models 64 GB or more.
+
+### 2. Check the file
+
+Each build writes `SHA256SUMS` next to the ISO. Run this in the folder that holds both:
+
+```bash
+sha256sum -c SHA256SUMS         # Linux
+shasum -a 256 -c SHA256SUMS     # macOS
+```
+
+On Windows PowerShell, `Get-FileHash .\companion-os-1.0-amd64.iso -Algorithm SHA256` prints the hash to compare with the file. For the full
+verifier of an image (444 checks on amd64, 436 on arm64) see [Verify an image](#verify-an-image).
+
+### 3. Find the stick, and be sure it is the stick
+
+```bash
+lsblk -o NAME,SIZE,MODEL,TRAN,RM,MOUNTPOINTS   # Linux: the stick has TRAN=usb, RM=1 and the size you expect, and nothing of yours mounted
+diskutil list external physical                # macOS: the stick is the external, physical disk of the right size
+```
+
+Unplug the stick, run the command, plug it in and run it again: the line that appears is the stick. You write to the **whole device**
+(`/dev/sdX`, `/dev/diskN`), never to a partition (`/dev/sdX1`). Anything that holds `/`, your home folder or a mounted volume you care about is
+not the stick. `dd` has no safety net: it writes to what you name. `ci-stick flash` refuses the system disk and anything mounted; no other
+tool here does.
+
+### 4. Write it
+
+```bash
+# Linux
+ISO=companion-os-1.0-amd64.iso               # or the arm64 or Plasma file
+DEV=/dev/sdX                                 # the whole device from step 3
+sudo umount "$DEV"?* 2>/dev/null || true
+sudo dd if="$ISO" of="$DEV" bs=4M conv=fsync oflag=direct status=progress
+sync
+```
+
+```bash
+# macOS
+ISO=companion-os-1.0-amd64.iso
+N=4                                          # the disk number from step 3
+diskutil unmountDisk /dev/disk$N
+sudo dd if="$ISO" of=/dev/rdisk$N bs=4m      # press Control-T to see progress; there is no status=progress
+diskutil eject /dev/disk$N
+```
+
+On Windows use [Rufus](https://rufus.ie) and pick **DD Image** mode when it asks, or [balenaEtcher](https://etcher.balena.io); neither was tried
+for this repository **[N]**. The write takes a few minutes: it is limited by the stick, not by the machine.
+
+### 5. Check the write
+
+A stick that fails halfway can still look fine. Read back exactly as many bytes as the ISO has and compare the hashes:
+
+```bash
+# Linux
+SZ=$(wc -c < "$ISO"); want=$(sha256sum "$ISO" | cut -c1-64)
+got=$(sudo dd if="$DEV" bs=1M count=$(( (SZ + 1048575) / 1048576 )) 2>/dev/null | head -c "$SZ" | sha256sum | cut -c1-64)
+[ "$want" = "$got" ] && echo "the stick matches the ISO" || echo "MISMATCH: write it again, or try another stick or port"
+```
+
+```bash
+# macOS
+SZ=$(wc -c < "$ISO" | tr -d ' '); want=$(shasum -a 256 "$ISO" | cut -c1-64)
+got=$(sudo dd if=/dev/rdisk$N bs=1m count=$(( (SZ + 1048575) / 1048576 )) 2>/dev/null | head -c "$SZ" | shasum -a 256 | cut -c1-64)
+[ "$want" = "$got" ] && echo "the stick matches the ISO" || echo "MISMATCH: write it again, or try another stick or port"
+```
+
+(Do not use `cmp -n "$SZ"` on macOS: its `-n` stops one byte late and reports an end-of-file difference even when the two are identical.
+The hash form above was run against a file standing in for a stick, once matching and once with one byte flipped **[V]**.)
+
+### 6. Boot it and install
+
+1. Plug the stick into the target machine, power on and open the firmware's boot menu (usually Esc, F2, F10, F12 or Del) and pick the stick's
+   **UEFI** entry. A "legacy" or "CSM" entry will not boot it. Secure Boot may stay on for the Ubuntu images (the chain is Canonical's; a boot under Secure Boot firmware has not been done **[I]**), and must be off for Plasma. If the firmware refuses the stick, turn Secure Boot off.
+2. The boot menu has two entries: **Try or Install Companion OS** (the default, after 15 seconds) and **Install Companion OS (automatic)**.
+   On arm64 the screen shows kernel messages while the live system starts, and the desktop takes about two minutes under a virtual machine
+   with hardware acceleration.
+3. On the live desktop the left dock starts with **Install Companion OS (automatic)**. The five Companion shortcuts (Support, Getting
+   Started, Docs, Community, App Store) are on the desktop. Canonical's installer window opens first; closing it is safe.
+4. **One dialog** names the disk it will erase (model, size, device node, and everything found on it), shows a one-time password for the
+   user `companion`, says which language, keyboard and time zone it will use (a button changes them) and defaults to **Cancel**. After "Erase the disk and install" a progress window follows the installer; the computer turns itself off when it is done.
+   Remove the stick, then turn the machine on. Safety rules: [`docs/architecture/one-click-install.md`](docs/architecture/one-click-install.md).
+5. First sign-in: the one-time password, then a forced new one. A Companion welcome page opens once in the browser. About three minutes after
+   boot a first-boot job waits for a quiet machine and then pulls the models and starts Companion Hub (`http://localhost:5002`, which leads to
+   device registration: pairing is a person's step).
+
+![The boot menu of the arm64 live medium: a navy screen with the Companion mark and four entries, the first highlighted.](docs/ui/companion-os/ubuntu/arm64-01-live-grub-menu.png)
+
+*The boot menu of the arm64 image, from a virtual machine started with the ISO attached as a USB drive.*
+
+![The live desktop: the Companion dock on the left, five Companion shortcuts and the Install Companion OS launchers on the right, on the Companion wallpaper.](docs/ui/companion-os/ubuntu/arm64-03-live-desktop.png)
+
+*The live desktop, about two minutes after power-on. The shortcuts show their own icons and names. All ten frames, with the run's times, are in [`docs/ui/companion-os/ubuntu/`](docs/ui/companion-os/ubuntu/CAPTURE.md).*
+
+![The one-click installer's confirmation: it names the disk to be erased and offers Cancel, Erase the disk and install, or the normal installer.](docs/ui/companion-os/ubuntu/arm64-04-one-click-confirmation.png)
+
+*The one-click installer's only dialog. The one-time password is hidden in this capture; the disk is a file-backed virtual NVMe drive.*
+
+![The sign-in screen asking for the current password, with the line Changing password for companion.](docs/ui/companion-os/ubuntu/arm64-07-forced-password-change.png)
+
+*First sign-in: the one-time password, then a forced new one.*
+
+![The installed desktop: the dock holds Companion Hub, Docs, Files and Terminal, and the five Companion shortcuts are on the desktop.](docs/ui/companion-os/ubuntu/arm64-09-installed-desktop.png)
+
+*The installed desktop. No first-run page from Canonical appears; the Companion getting-started page opens once in the browser instead.*
+
+![Companion Hub on its first screen: Step 1, get your pairing code, and Step 2, connect this device, with the device ID and a pairing-code field.](docs/ui/companion-os/ubuntu/arm64-10-hub-pairing.png)
+
+*Companion Hub, started by the first-boot job, on its pairing screen. Pairing is a person's step.*
+
+If the stick is not offered by the firmware: write it again (steps 4 and 5), try another port, and check that the machine boots UEFI. If the
+one-click dialog says no disk qualifies, the machine has no internal disk of 25 GB or more besides the stick. A stick can also carry the
+**Companion Stick** layout (A/B boot slots, persistence, model packs) instead of a plain image: that is the next section, and it takes the amd64 Ubuntu image only.
+
+---
+
 ## Make a Companion Stick
 
 `ci-stick` (Rust, `stick/`) builds and verifies a signed bundle, plans the partition layout, flashes a stick or a sparse stick image
@@ -205,8 +347,8 @@ usage and exit codes: [`stick/README.md`](stick/README.md). Architecture and tru
 
 ## Install
 
-Both ISOs are hybrid images: write one to a USB stick (`dd`, an imaging tool, or `ci-stick` for the Ubuntu edition) or attach it to a
-virtual machine, and boot it. The Plasma edition needs Secure Boot off.
+Both ISOs are hybrid images: write one to a USB stick ([Flash the USB installer](#flash-the-usb-installer): `dd`, an imaging tool, or `ci-stick`
+for the amd64 Ubuntu image) or attach it to a virtual machine, and boot it. The Plasma edition needs Secure Boot off.
 
 ### Ubuntu edition
 
@@ -217,7 +359,7 @@ The GRUB menu has two entries: **Try or Install Companion OS** and **Install Com
   user `companion`. Enter never confirms; the default is **Cancel**. After the click a progress window follows the installer, the
   computer turns off when it is done, and the first sign-in forces a new password. The tool never offers the boot medium, a removable
   disk or one under 25 GB. Safety rules, state machine and tests: [`docs/architecture/one-click-install.md`](docs/architecture/one-click-install.md).
-  Status **[I]**: unit-tested, not yet driven on a booted image.
+  Status: **[V]** on the arm64 image in a virtual machine (the frames are in [Flash the USB installer](#flash-the-usb-installer)); **[I]** on amd64: unit-tested, not yet driven on a booted image.
 * **Interactive.** Pick the first entry and use Canonical's installer. Its window keeps Ubuntu's own text (it is a Canonical snap); the
   launcher label and the last page read "Companion OS".
 
@@ -237,7 +379,7 @@ The GRUB menu has two entries: **Try or Install Companion OS** and **Install Com
 
 *Plasma edition: the first page of the installer, started from the live session, captured in a virtual machine.*
 
-<!-- figure: docs/ui/companion-os/ubuntu/NN-install-one-click-confirmation.png -->
+The one-click dialog and the installed system are pictured in [Flash the USB installer](#flash-the-usb-installer).
 
 Disk size: the installed system takes about 7.9 GiB and the model set adds about 18.8 GB (a 30 GiB disk ended 88 % full). Give the
 Plasma edition 64 GiB or more. Step-by-step instructions, recovery and troubleshooting:
@@ -370,22 +512,66 @@ On the Plasma edition the first-boot unit provisions the machine; `sudo ci-os-se
 
 ---
 
-## Run the checks
+## Test suite
+
+The tests are layered from seconds to hours. Run the cheapest layer that covers your change, and the whole gate before you push.
+A suite that needs a tool the host lacks exits 2 and is reported "cannot run here", never as a pass. Which suite to run for which
+change is in [Running the tests](docs/guides/running-the-tests.md); the per-suite tables are in
+[`backends/ubuntu/iso/README.md`](backends/ubuntu/iso/README.md) ("Script tests") and [`backends/cachyos/README.md`](backends/cachyos/README.md) ("Tests").
+
+| Layer | Command | Needs | Time | What it proves |
+|---|---|---|---|---|
+| 1. The gate | `./core/lib/check-repo.sh` | `git`, `shellcheck`, `python3` with PyYAML, `yamllint` (macOS: `brew install shellcheck yamllint`) | about 6 minutes on a quiet laptop, 25 to 40 on a Mac that is also running builds and VMs | Syntax and lint of every shell, Python and YAML file, the retired-name and block-art guards, and about 35 host-side suites of both editions |
+| 2. One behaviour | `bash <suite>` from [Running the tests](docs/guides/running-the-tests.md), for example `backends/ubuntu/chroot/tests/customize-chroot-checks.sh` (159 checks) | `bash` | seconds | One script, one rule: the dock list (40), the Companion links and welcome page (70), the first-boot load gate (11), the headless Hub start (20), the download-progress filter (21), the one-click installer (121 unit tests) |
+| 3. A built image, read | `VERIFY_BASE_ISO=<stock ISO> VERIFY_REQUIRE_CANON=1 backends/ubuntu/iso/scripts/verify-iso.sh <ISO>` | `xorriso`, `squashfs-tools`, `zstd`, `cpio`, `python3` | 35 to 90 s | The finished ISO against the stock one and against what the build meant to do: 444 checks on amd64, 436 on arm64 (the architecture is read from the volume id) |
+| 4. A built image, run | `backends/ubuntu/iso/tests/boot-arm64-vm.sh`, `installed-boot.sh`, `stick/tests/qemu/run.sh` | QEMU, firmware, a container for some | 2 to 20 min (arm64 with hardware acceleration); hours for x86-64 under emulation | The live desktop, the one-click install, the installed boot and the first-boot job, as a person would see them |
+| 5. Real hardware | none | a machine | | **[N]** no run is recorded (KI-17) |
+
+### Walk an image through the whole chain (arm64 on an Apple-silicon Mac)
+
+This is the run behind the screenshots on this page. The same steps work for the amd64 image, much more slowly: an x86-64 guest on a Mac
+is software emulation, so the live desktop takes 6 to 15 minutes and an install about six hours ([`docs/guides/testing-in-qemu.md`](docs/guides/testing-in-qemu.md)).
 
 ```bash
-./core/lib/check-repo.sh                                                   # the fast gate; about 6 minutes on a loaded laptop
-(cd stick && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)   # the "stick" job
-stick/tests/qemu/run.sh                                                    # Stick flash and boot in QEMU (TCG works without /dev/kvm)
+# 1. Build and verify (the arm64 container recipe of "Get an ISO", with --arch arm64 and the arm64 desktop ISO from cdimage.ubuntu.com)
+# 2. Boot the ISO as a USB drive, with a blank file-backed disk to install to (created at 64 GiB, sparse)
+T=backends/ubuntu/iso/tests
+$T/boot-arm64-vm.sh start output/companion-os-1.0-arm64.iso ./target.qcow2   # prints the QMP socket and the serial log
+$T/boot-arm64-vm.sh shot live.png                                            # take a screenshot at any time
+python3 $T/lib/qmp-drive.py /tmp/ci-arm64-vm/qmp.sock click 33 64 1280x800  # click, type, press keys: see the script header
+$T/boot-arm64-vm.sh stop
+# 3. After the installer powers the machine off, boot the installed disk alone
+$T/boot-arm64-vm.sh start - ./target.qcow2
 ```
 
-`check-repo.sh` needs `git`, `shellcheck`, `python3` with PyYAML and `yamllint` (macOS: `brew install shellcheck yamllint`). It runs
-bash syntax and `shellcheck -S error`, `py_compile`, `yamllint`, the retired-name guards (`core/lib/retired-names.allow`), the
-untracked-file guard (`core/lib/check-untracked-deps.sh`), and the fast suites of both backends, the setup payload and the model
-tools. A suite that needs a missing tool exits 2 and is reported "cannot run here". `git add` a new file before you trust it. The
-container, QEMU and network suites are manual. [Running the tests](docs/guides/running-the-tests.md) lists every suite, what it needs and which one
-to run for the change you made; the detailed tables are in [`backends/ubuntu/iso/README.md`](backends/ubuntu/iso/README.md)
-("Script tests") and [`backends/cachyos/README.md`](backends/cachyos/README.md) ("Tests"). The workflows in `.github/workflows/` are
-manual-only (`ci-local:gated`); [`docs/CI.md`](docs/CI.md) explains how to start a gated workflow with `gh workflow run`.
+The runner needs `qemu-system-aarch64`, `qemu-img`, `python3` and the edk2 aarch64 firmware (macOS: `brew install qemu`). It refuses a block
+or character device as the disk, so a test cannot write to a real one. The guest has no Secure Boot firmware under Homebrew's QEMU.
+
+What a good run shows, in order. Each line is a check you make on a screenshot or in the guest, and each leaves a record in
+[`docs/evidence/`](docs/evidence/README.md):
+
+| Step | Expect | Seen on arm64 (HVF, 2026-10-19) |
+|---|---|---|
+| Boot menu | The Companion mark and four entries, the first highlighted, a 15 s countdown | **[V]** |
+| Live desktop | Companion wallpaper; dock: installer, Hub, Docs, Files, Terminal; five desktop shortcuts **with their icons and names** (a red cross means an untrusted launcher) | **[V]**, about 2 min |
+| One-click dialog | Names the disk and what is on it; default **Cancel**; a one-time password | **[V]** |
+| Install | A progress window, then the machine powers itself off | **[V]**, 9 min 35 s and 12 min 10 s |
+| Installed boot | Branded greeter, `graphical.target` in about 20 s of userspace | **[V]** |
+| First sign-in | The one-time password, then a forced new one; **no** "Welcome to Companion OS" page with the raccoon; the Companion getting-started page in the browser | **[V]** on the current image. The first rebuild showed the raccoon page (KI-27); the fix is in [Status and evidence](#status-and-evidence) |
+| First-boot job | Starts 3 min after boot; `wait-quiet` passes; `ollama.service` runs at `CPUWeight=20`; two models pulled; Hub containers healthy; about 280 journal lines, not 40 KB of progress bars | **[V]**, 1 min 58 s |
+| Hub | The Companion Hub window opens on the pairing screen; `http://localhost:5002` answers 200 | **[V]** |
+| Failed units | Only `pd-mapper.service` on arm64 (KI-28) | **[V]** |
+
+A text channel into the guest is easier to read than screenshots: serve a script directory from `127.0.0.1` with any small HTTP server and
+`curl http://10.0.2.2:<port>/script.sh | sh` from the guest terminal (QEMU's user networking reaches the host at `10.0.2.2`); have the script `POST` its output back.
+
+### Adding a test
+
+Register the suite in `core/lib/check-repo.sh` (exit 2 when a tool is missing, never a silent skip), put a row in
+[Running the tests](docs/guides/running-the-tests.md), and **mutation-check it**: break the line it guards and watch the test go red. The
+tests of the first-boot and first-run scripts do this; the stamp that skips Canonical's upgrade welcome page is checked against the real unit
+captured from an image (`backends/ubuntu/chroot/tests/fixtures/`). A claim about behaviour needs an evidence tag and a record: see
+[`docs/evidence/README.md`](docs/evidence/README.md).
 
 ---
 
@@ -429,17 +615,17 @@ manual-only (`ci-local:gated`); [`docs/CI.md`](docs/CI.md) explains how to start
 
 ## Status and evidence
 
-As of 2026-10-18 (branch `liam/companion-os-single-click-install`, local commits only). The columns say what was run, not
+As of 2026-10-19 (branch `liam/companion-os-arm64`, local commits only; the Plasma column is of 2026-10-18). The columns say what was run, not
 what is intended. The sources and the pending items are in [`docs/architecture/test-evidence.md`](docs/architecture/test-evidence.md)
 and [`docs/architecture/supported-targets.md`](docs/architecture/supported-targets.md).
 
 | Area | Ubuntu 26.04.1 | Plasma (CachyOS) |
 |---|---|---|
 | Build | **[V]** clean checkout at `02c575e`, 772 s; fix-pass snapshot, 860 s | **[V]** six ISOs (#6 from the clean commit `ad37b64`) |
-| Static verifier | **[V]** 393 passed, 0 failed (both images) | **[V]** 215 passed, 0 failed on ISO #6; 187 on ISO #2; no log of ISO #4 or #5 |
-| Live session boots | GRUB menu under Secure Boot **[V]** (fix-pass image); GNOME desktop pending | **[V]** to the Plasma desktop under QEMU/OVMF (ISO #4, #5, #6; frames in [`docs/ui/companion-os/plasma/`](docs/ui/companion-os/plasma/CAPTURE.md)) |
-| Install to disk | pending; a harness-assembled disk of the fix-pass image (version 9.9, `dce9eb71...`, not a commit) booted to the GDM greeter in 230 s **[V]**; the clean-checkout image (`709b8485...`) has only the `--no-boot` checks | **[V]** ISO #4 22 min 9 s; ISO #5 23 min 20 s on its third attempt (two failed at the 30 s keyring limit, KI-20); ISO #6 28 min 26 s on its first attempt (keyring step 32 s under the explicit limit of the fix) |
-| First boot and models | pending | **[V]** ISO #4: models pulled in 16 min, ended "degraded" (defect); ISO #5: 21 min 49 s, status 0, no "degraded"; ISO #6: 21 min 19 s, status 0, three models, 301-line log |
+| Static verifier | **[V]** amd64 446 passed, arm64 438 passed, 0 failed (commit `4b7597d`; 393 on the images of 2026-10-18) | **[V]** 215 passed, 0 failed on ISO #6; 187 on ISO #2; no log of ISO #4 or #5 |
+| Live session boots | arm64: **[V]** to the GNOME desktop in about 2 min (QEMU, HVF), shortcuts trusted. amd64: GRUB menu under Secure Boot **[V]** (earlier image); live desktop of the current image under emulation: dock correct with Capture, **no desktop icons** (KI-27) | **[V]** to the Plasma desktop under QEMU/OVMF (ISO #4, #5, #6; frames in [`docs/ui/companion-os/plasma/`](docs/ui/companion-os/plasma/CAPTURE.md)) |
+| Install to disk | arm64: **[V]** one-click install in 9 min 35 s and 12 min 10 s, then installed boot with the greeter 50 s after power-on. amd64: pending; a harness-assembled disk of an earlier image (version 9.9, `dce9eb71...`, not a commit) booted to the GDM greeter in 230 s **[V]**; the clean-checkout image (`709b8485...`) has only the `--no-boot` checks | **[V]** ISO #4 22 min 9 s; ISO #5 23 min 20 s on its third attempt (two failed at the 30 s keyring limit, KI-20); ISO #6 28 min 26 s on its first attempt (keyring step 32 s under the explicit limit of the fix) |
+| First boot and models | arm64: **[V]** 1 min 58 s, two models, Hub healthy, no first-run page from Canonical (the first rebuild showed one: KI-27). amd64: pending | **[V]** ISO #4: models pulled in 16 min, ended "degraded" (defect); ISO #5: 21 min 49 s, status 0, no "degraded"; ISO #6: 21 min 19 s, status 0, three models, 301-line log |
 | Stick boot | stock ISO under Secure Boot to early systemd **[V]** | **[N]** |
 | Real hardware | **[N]** | **[N]** |
 

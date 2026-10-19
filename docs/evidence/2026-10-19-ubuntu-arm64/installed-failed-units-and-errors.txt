@@ -1,0 +1,58 @@
+== 03:57:32 system: degraded
+== failed (system)
+● pd-mapper.service loaded failed failed Qualcomm PD mapper service
+== failed (user)
+== errors this boot (priority err, last 18)
+Oct 19 03:52:25 companion-os kernel: PCI: OF: of_root node is NULL, cannot create PCI host bridge node
+Oct 19 03:52:30 companion-os resolvconf[1646]: Failed to resolve interface "NetworkManager": No such device
+Oct 19 03:52:31 companion-os systemd[1]: Failed to start pd-mapper.service - Qualcomm PD mapper service.
+Oct 19 03:52:33 companion-os resolvconf[2338]: Failed to resolve interface "NetworkManager": No such device
+Oct 19 03:54:04 companion-os gdm-password][3711]: gkr-pam: unable to locate daemon control file
+Oct 19 03:54:59 companion-os gdm-password][3711]: gkr-pam: unable to locate daemon control file
+Oct 19 03:57:19 companion-os networkctl[11334]: Interface "veth7796e56" not found.
+Oct 19 03:57:22 companion-os networkctl[11446]: Interface "vetha78012a" not found.
+Oct 19 03:57:22 companion-os networkctl[11543]: Interface "veth5d48b72" not found.
+Oct 19 03:57:22 companion-os networkctl[11638]: Interface "veth28006a4" not found.
+Oct 19 03:57:25 companion-os networkctl[11773]: Interface "vethfe6322b" not found.
+Oct 19 03:57:25 companion-os networkctl[11870]: Interface "veth12d8295" not found.
+Oct 19 03:57:26 companion-os networkctl[12311]: Interface "veth7877bff" not found.
+Oct 19 03:57:26 companion-os networkctl[12407]: Interface "veth37f5a5c" not found.
+== first-boot log head
+[CI-OS] First-boot setup starting at Mon Oct 19 03:55:24 AM UTC 2026
+[CI-OS] Waiting for network...
+[CI-OS] Network available.
+wait-quiet: quiet after 30s (load 0.94, 6 CPUs)
+[CI-OS] Removing unwanted snaps...
+snap-store removed
+thunderbird removed
+[CI-OS] Unwanted snaps removed.
+[CI-OS] Running provision.sh --tier=core (automatic attempt 1/3)...
+[0;34m[INFO][0m CI-OS provisioning (tiers: core)
+[0;34m[INFO][0m ====================================
+
+== wait-quiet line
+wait-quiet: quiet after 30s (load 0.94, 6 CPUs)
+== ollama throttle
+CPUWeight=20 IOWeight=20 
+== snap state
+Name                       Version                         Rev    Tracking      
+bare                       1.0                             5      latest/stable 
+core24                     20260410                        1644   latest/stable 
+desktop-security-center    0+git.25daa58                   152    1/stable/…  
+firefox                    154.0-1                         8762   latest/stable/
+gnome-46-2404              0+git.f1cd5fa-sdk0+git.ca9c59c  154    latest/stable/
+gtk-common-themes          0.1-81-g442e511                 1535   latest/stable/
+mesa-2404                  25.2.8-snap288                  1836   latest/stable/
+prompting-client           0+git.33cd821                   221    1/stable/…  
+snapd                      2.76.2                          27709  latest/stable 
+snapd-desktop-integration  0.9                             396    latest/stable/
+== welcome stamp
+total 8
+drwxrwxr-x  2 companion companion 4096 Oct 19 03:55 .
+drwxr-xr-x 12 companion companion 4096 Oct 19 03:55 ..
+-rw-rw-r--  1 companion companion    0 Oct 19 03:55 desktop-trusted
+-rw-rw-r--  1 companion companion    0 Oct 19 03:55 welcome-done
+== hub
+app-data
+apps
+backups

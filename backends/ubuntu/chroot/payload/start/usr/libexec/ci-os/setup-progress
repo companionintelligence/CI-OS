@@ -1,0 +1,103 @@
+#!/bin/sh
+# Tell the person at the desktop what the first-boot setup is doing, in one notification that updates in place.
+#
+# After the install the machine sets itself up in the background (Docker, the AI runtime, the models, Companion Hub; about 3 minutes on a fast connection, recorded in a VM)
+# and, until now, said nothing on screen: the first sign-in looked finished while the computer was busy and Hub did not answer yet. The
+# setup (first-boot-setup.sh and provision.sh, through core/lib/setup-status.sh) writes its state to /var/lib/ci-os/setup-status; this reads
+# it at every sign-in and shows one desktop notification: "Setting up Companion OS: step 3 of 7", then, when it is over, "Companion OS is
+# ready". Nothing is shown when nothing changes, and nothing at all once the ready message has been shown. There is no button on the
+# message: on the 26.04 image notify-send -A prints "Actions are not supported by this notifications server" and sends none (found on the
+# first installed run, 2026-10-19; the server's capability list does name "actions"), so the message says where Hub is instead.
+#
+#   no status file, no marker   an installed system from before this existed (or the setup has not started): the marker decides. With
+#                               no marker either, one "getting ready" notice, then it waits for the file for up to about three hours
+#   state=waiting               "waiting for the internet"
+#   state=running               "step n of m" and the step's title; one notification per step
+#   state=failed                "needs attention": it retries by itself (timer) or `sudo ci-os-setup`
+#   state=done                  "ready" and where Hub is, once ever (a stamp in the user's config)
+#
+# Never in a live session. Quiet when there is no notify-send. It polls a file; it never touches the setup. The CI_OS_PROGRESS_*
+# variables exist so a test can run this without a session; nothing in the image sets them.
+file="${CI_OS_PROGRESS_FILE:-/var/lib/ci-os/setup-status}"
+marker="${CI_OS_PROGRESS_MARKER:-/var/lib/ci-os/.first-boot-setup-done}"
+stamp="${CI_OS_PROGRESS_STAMP:-${XDG_CONFIG_HOME:-$HOME/.config}/ci-os/setup-ready-shown}"
+live="${CI_OS_PROGRESS_LIVE:-/cdrom/casper/vmlinuz}"
+pause="${CI_OS_PROGRESS_SLEEP:-15}"
+polls="${CI_OS_PROGRESS_POLLS:-720}"
+notify="${CI_OS_PROGRESS_NOTIFY:-notify-send}"
+
+[ -e "$live" ] && exit 0
+command -v "$notify" >/dev/null 2>&1 || exit 0
+
+# field KEY: the value of KEY= in the status file ("" when the file or the key is missing); only the first = splits
+field() { sed -n "s/^$1=//p" "$file" 2>/dev/null | head -n 1; }
+
+id=""
+# say TITLE BODY: one notification, replacing the previous one of ours
+say() {
+    if [ -n "$id" ]; then
+        new="$("$notify" -a "Companion OS" -i dialog-information -p -r "$id" "$1" "$2" 2>/dev/null)"
+    else
+        new="$("$notify" -a "Companion OS" -i dialog-information -p "$1" "$2" 2>/dev/null)"
+    fi
+    case "$new" in
+        ''|*[!0-9]*) ;;
+        *) id="$new" ;;
+    esac
+}
+
+# The last message. The notification stays in the list until it is dismissed.
+ready() {
+    mkdir -p "$(dirname "$stamp")" 2>/dev/null && : > "$stamp" 2>/dev/null
+    say "Companion OS is ready" "Everything is installed. Open Companion Hub, the first icon in the dock, to pair this computer with your account."
+    exit 0
+}
+
+last=""
+n=0
+while :; do
+    state="$(field state)"
+    case "$state" in
+        '')
+            [ -e "$marker" ] && exit 0
+            key="pending"
+            title="Companion OS is getting ready"
+            body="Setup starts in a few minutes and runs in the background. You can keep using the computer."
+            ;;
+        waiting)
+            key="waiting|$(field title)"
+            title="Companion OS is waiting for the internet"
+            body="Connect to the internet (menu at the top right). Setup carries on by itself."
+            ;;
+        running)
+            step="$(field step)"; steps="$(field steps)"; what="$(field title)"
+            key="running|$step|$what"
+            case "$step/$steps" in
+                [1-9]*/[1-9]*) title="Setting up Companion OS: step $step of $steps" ;;
+                *) title="Setting up Companion OS" ;;
+            esac
+            body="$what. You can keep using the computer meanwhile; it usually takes a few minutes, longer on a slow connection."
+            ;;
+        failed)
+            key="failed|$(field detail)"
+            title="Companion OS setup needs attention"
+            what="$(field detail)"
+            body="Setup stopped${what:+ while: $what}. It tries again by itself; to try now, run: sudo ci-os-setup. More: ci-os-info"
+            ;;
+        done)
+            [ -e "$stamp" ] && exit 0
+            ready
+            ;;
+        *)
+            key="other"
+            title=""
+            ;;
+    esac
+    if [ -n "$title" ] && [ "$key" != "$last" ]; then
+        say "$title" "$body"
+        last="$key"
+    fi
+    n=$((n + 1))
+    [ "$n" -ge "$polls" ] && exit 0
+    sleep "$pause"
+done

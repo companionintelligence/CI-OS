@@ -1,0 +1,25 @@
+== stamps in the new user's home
+-rw-r--r-- 1 companion companion 0 Oct 19 05:21 /home/companion/.config/gnome-initial-setup-done
+
+/home/companion/.config/gnome-initial-setup/:
+total 8
+drwxr-xr-x  2 companion companion 4096 Oct 19 05:21 .
+drwxr-xr-x 13 companion companion 4096 Oct 19 05:57 ..
+-rw-r--r--  1 companion companion    0 Oct 19 05:21 upgrade-26.04-done
+== the two first-run units, this session
+Oct 19 05:56:32 companion-os systemd[12701]: gnome-initial-setup-first-login.service - GNOME Initial Setup skipped, unmet condition check ConditionPathExists=!/home/companion/.config/gnome-initial-setup-done
+Oct 19 05:56:32 companion-os systemd[12701]: gnome-initial-setup-upgrade-login.service - GNOME Initial Setup skipped, unmet condition check ConditionPathExists=!/home/companion/.config/gnome-initial-setup/upgra
+== welcome-once stamps
+total 8
+drwxrwxr-x  2 companion companion 4096 Oct 19 05:56 .
+drwxr-xr-x 13 companion companion 4096 Oct 19 05:57 ..
+-rw-rw-r--  1 companion companion    0 Oct 19 05:56 desktop-trusted
+-rw-rw-r--  1 companion companion    0 Oct 19 05:56 welcome-done
+== desktop shortcuts and their trust
+companion-app-store.desktop:   metadata::trusted: true
+companion-community.desktop:   metadata::trusted: true
+companion-docs.desktop:   metadata::trusted: true
+companion-getting-started.desktop:   metadata::trusted: true
+companion-support.desktop:   metadata::trusted: true
+== update notifier
+80

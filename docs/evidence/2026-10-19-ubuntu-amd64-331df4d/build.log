@@ -1,0 +1,1353 @@
+[INFO] CI-OS ISO Builder starting...
+[INFO] © Companion Intelligence — Lifescope Inc
+
+[INFO] Build host: Ubuntu 26.04
+[INFO] Checking dependencies...
+[INFO] All dependencies satisfied
+[INFO] Configuration validated
+[INFO]   Architecture: amd64
+[INFO]   Base ISO: /base/ubuntu-base.iso
+[INFO]   Output directory: /vol/out
+[INFO]   Work directory: /vol/work
+[INFO]   CI-OS version: 1.0
+[INFO]   Skip packages: false
+[INFO] Checking the base ISO's md5sum.txt (the listing convention, then every file's hash; under a minute)...
+stock md5sum.txt convention holds: 948 entries, 950 regular files, 2 excluded, sorted by path (C locale)
+SUMMARY entries=948 matched=948 mismatched=0 missing=0 unlisted=0 duplicate=0 malformed=0
+[INFO] Setting up directories...
+[WARN] Cleaning work directory: /vol/work
+[INFO] Directories ready
+[INFO] Building packages (including branded gresource)...
+[*] Building CI-OS packages...
+[*] Output directory: /vol/out/packages
+[*] Building package: ci-os-branding
+[*] Generating branded GNOME Shell gresource for ci-os-branding
+[PROVENANCE] gresource source: the running system
+[PROVENANCE]   os-release: ubuntu 26.04 (resolute)
+[PROVENANCE]   package: yaru-theme-gnome-shell 26.04.5.1ubuntu
+[PROVENANCE]   source file: /usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource 1320373 bytes, sha256 da1d2019b8f5c498d1d5570e8bfd0ef33445153095ebad77ba34802b29e384ac
+[*] SOURCE_XML not found on disk; auto-generating from gresource binary...
+[*] Generated XML: 11 resources across 2 prefixes
+[*] Extracting Yaru gresource (all resources)...
+[*] Copying upstream gresource XML...
+[*] Replacing targeted Yaru widget assets...
+[WARN] No Yaru resource named checkbox-focused-light.svg found in gresource contents
+[WARN] No Yaru resource named checkbox-light.svg found in gresource contents
+[WARN] No Yaru resource named checkbox-off-focused-light.svg found in gresource contents
+[WARN] No Yaru resource named toggle-on-light.svg found in gresource contents
+[*] Replacing upstream-distro logo SVG files with the CI logo...
+[+] Total logo/banner replacements: 0
+[+] Replaced gnome-shell-start.svg (Activities button logo)
+[*] Applying accent color remapping in CSS from /vol/repo/backends/ubuntu/iso/scripts/yaru-color-map.pl...
+[*] Auditing default + GDM CSS for remaining pre-rebrand colors...
+[+] Audit clean — no remaining pre-rebrand colors found in CSS
+[*] Compiling branded gresource...
+[+] Branded gresource built: /vol/repo/backends/ubuntu/packages/ci-os-branding/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource
+[PROVENANCE] output: 1325684 bytes, sha256 0a0ec5cdc97ac1d6f01279111b0efce1cba6d3f9fcf4b3f83b9d3280d394c2f1
+dpkg-deb: building package 'ci-os-branding' in '/vol/out/packages/ci-os-branding_1.0_all.deb'.
+[+] Built: ci-os-branding
+
+[+] All packages built successfully
+[+] Location: /vol/out/packages
+-rw-r--r-- 1 root root 38K Oct 19 04:07 /vol/out/packages/ci-os-branding_1.0_all.deb
+[INFO] Packages built
+[INFO] Extracting base ISO...
+[INFO] Copying ISO contents (all files including squashfs layers)...
+[INFO] Staging layer for extraction: minimal.squashfs
+[INFO] Staging layer for extraction: minimal.standard.squashfs
+[INFO] Staging layer for extraction: minimal.standard.live.squashfs
+[INFO] ISO extracted successfully
+[INFO] Extracting squashfs filesystem (layered)...
+[INFO] Extracting layer: minimal.squashfs (this may take a few minutes)...
+[/                                                         ]    208/314008   0%[-                                                         ]   5467/314008   1%[=|                                                        ]   7955/314008   2%[=/                                                        ]   9620/314008   3%[==|                                                       ]  13780/314008   4%[===/                                                      ]  18842/314008   6%[====\                                                     ]  22991/314008   7%[====/                                                     ]  26190/314008   8%[=====\                                                    ]  30244/314008   9%[======|                                                   ]  33382/314008  10%[======/                                                   ]  37593/314008  11%[=======-                                                  ]  39171/314008  12%[=======|                                                  ]  42299/314008  13%[========/                                                 ]  47356/314008  15%[=========|                                                ]  52028/314008  16%[=========/                                                ]  54825/314008  17%[===========-                                              ]  60795/314008  19%[===========\                                              ]  63028/314008  20%[============-                                             ]  67000/314008  21%[============-                                             ]  69307/314008  22%[=============/                                            ]  72732/314008  23%[=============\                                            ]  75850/314008  24%[==============/                                           ]  78821/314008  25%[==============/                                           ]  81647/314008  26%[===============\                                          ]  85597/314008  27%[================|                                         ]  88851/314008  28%[=================\                                        ]  95120/314008  30%[=================|                                        ]  98952/314008  31%[==================/                                       ] 100696/314008  32%[===================\                                      ] 105127/314008  33%[===================|                                      ] 106984/314008  34%[====================-                                     ] 112280/314008  35%[====================|                                     ] 113381/314008  36%[=====================|                                    ] 116713/314008  37%[=====================\                                    ] 120490/314008  38%[======================-                                   ] 123829/314008  39%[======================\                                   ] 126202/314008  40%[=======================|                                  ] 129591/314008  41%[========================-                                 ] 132526/314008  42%[========================\                                 ] 135068/314008  43%[=========================|                                ] 139890/314008  44%[=========================/                                ] 142920/314008  45%[==========================-                               ] 145660/314008  46%[==========================\                               ] 148699/314008  47%[============================|                             ] 156053/314008  49%[============================/                             ] 158776/314008  50%[=============================-                            ] 161970/314008  51%[==============================\                           ] 167431/314008  53%[==============================|                           ] 170695/314008  54%[===============================/                          ] 172932/314008  55%[================================|                         ] 177073/314008  56%[================================/                         ] 179086/314008  57%[=================================\                        ] 182602/314008  58%[==================================|                       ] 187993/314008  59%[==================================/                       ] 188973/314008  60%[==================================\                       ] 192039/314008  61%[===================================|                      ] 197725/314008  62%[====================================/                     ] 200899/314008  63%[====================================-                     ] 202770/314008  64%[======================================\                   ] 212807/314008  67%[=======================================|                  ] 216921/314008  69%[========================================\                 ] 222504/314008  70%[========================================|                 ] 225568/314008  71%[=========================================/                ] 229396/314008  73%[==========================================-               ] 234510/314008  74%[===========================================\              ] 240356/314008  76%[============================================|             ] 243807/314008  77%[============================================/             ] 247702/314008  78%[=============================================-            ] 250537/314008  79%[=============================================\            ] 251811/314008  80%[==============================================-           ] 255441/314008  81%[==============================================-           ] 257761/314008  82%[================================================|         ] 264497/314008  84%[================================================|         ] 268532/314008  85%[=================================================-        ] 271833/314008  86%[=================================================\        ] 273786/314008  87%[==================================================/       ] 279634/314008  89%[===================================================\      ] 285644/314008  90%[===================================================|      ] 285928/314008  91%[=====================================================-    ] 293909/314008  93%[======================================================\   ] 298958/314008  95%[======================================================\   ] 301511/314008  96%[=======================================================-  ] 304595/314008  97%[=======================================================\  ] 307783/314008  98%[========================================================- ] 310921/314008  99%[=========================================================/] 314008/314008 100%
+[INFO] Extracting layer: minimal.standard.squashfs (this may take a few minutes)...
+[/                                                         ]    250/105936   0%[\                                                         ]   1611/105936   1%[=/                                                        ]   2472/105936   2%[=-                                                        ]   3498/105936   3%[==|                                                       ]   5172/105936   4%[==/                                                       ]   5375/105936   5%[===/                                                      ]   6647/105936   6%[=====\                                                    ]   9328/105936   8%[======|                                                   ]  12672/105936  11%[========/                                                 ]  15499/105936  14%[========-                                                 ]  16356/105936  15%[=========\                                                ]  18219/105936  17%[==========|                                               ]  19623/105936  18%[=============/                                            ]  24679/105936  23%[================-                                         ]  31014/105936  29%[====================\                                     ]  38624/105936  36%[========================|                                 ]  45137/105936  42%[===============================/                          ]  57873/105936  54%[=================================-                        ]  61739/105936  58%[======================================\                   ]  70722/105936  66%[===========================================|              ]  80238/105936  75%[==============================================/           ]  86995/105936  82%[================================================-         ]  89971/105936  84%[================================================\         ]  90605/105936  85%[=================================================|        ]  91606/105936  86%[=================================================-        ]  92282/105936  87%[==================================================/       ]  93289/105936  88%[==================================================\       ]  94303/105936  89%[===================================================|      ]  96543/105936  91%[=====================================================/    ]  99673/105936  94%[======================================================-   ] 100886/105936  95%[======================================================-   ] 101765/105936  96%[=========================================================|] 105936/105936 100%
+[INFO] Extracting layer: minimal.standard.live.squashfs (this may take a few minutes)...
+[========/                                                   ]  1651/11099  14%[============-                                               ]  2342/11099  21%[==========================\                                 ]  4897/11099  44%[===========================\                                ]  5205/11099  46%[=============================/                              ]  5542/11099  49%[=============================-                              ]  5575/11099  50%[==============================-                             ]  5667/11099  51%[==============================-                             ]  5775/11099  52%[================================\                           ]  6039/11099  54%[=================================|                          ]  6310/11099  56%[===================================/                        ]  6617/11099  59%[====================================-                       ]  6894/11099  62%[======================================\                     ]  7190/11099  64%[=======================================|                    ]  7491/11099  67%[=========================================/                  ]  7855/11099  70%[===========================================-                ]  8231/11099  74%[=============================================\              ]  8630/11099  77%[================================================|           ]  9094/11099  81%[==================================================/         ]  9561/11099  86%[=====================================================-      ] 10088/11099  90%[========================================================\   ] 10718/11099  96%[===========================================================\] 11099/11099 100%
+[INFO] Squashfs extracted to: /vol/work/chroot
+[INFO] Setting up chroot environment...
+[INFO] Chroot environment ready
+[INFO] Applying CI-OS customizations...
+[*] Customizing chroot: /vol/work/chroot
+[*] CI-OS Version: 1.0
+[INFO] Rendered 256px logo mark: /tmp/tmp.MMnCLGoYxr/companion-logo.png
+[INFO] Rendered 128px logo mark: /tmp/tmp.MMnCLGoYxr/plymouth/core/render/output/ci-os-bgrt-fallback.png
+[INFO] Rendered 192px #0a6358 logo mark: /tmp/tmp.MMnCLGoYxr/about/core/render/output/ci-os-about-logo.png
+[INFO] Rendered 192px #c5e8dc logo mark: /tmp/tmp.MMnCLGoYxr/about/core/render/output/ci-os-about-logo-dark.png
+[*] Step 1: Updating OS identity...
+[*] Base Ubuntu identity: 26.04 (resolute)
+[INFO] Updating /etc/os-release (Companion OS branding, Ubuntu-compatible ID for apt/ROCm)...
+[SUCCESS] OS identity updated (PRETTY_NAME=Companion OS 1.0, ID=ubuntu, UBUNTU_CODENAME=resolute)
+[+] OS identity configured (Ubuntu-compatible IDs for installer, CI-OS rebrand on first boot)
+[+] OS identity updated
+[*] Step 1b: Pinning the initramfs generator (no dracut)...
+[+] dracut and dracut-core are pinned to priority -1 (/etc/apt/preferences.d/ci-os-no-dracut)
+[*] Step 2: Removing telemetry and bloatware...
+Hit:1 http://archive.ubuntu.com/ubuntu resolute InRelease
+Get:2 http://archive.ubuntu.com/ubuntu resolute-updates InRelease [137 kB]
+Get:3 http://security.ubuntu.com/ubuntu resolute-security InRelease [137 kB]
+Get:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease [137 kB]
+Get:5 http://archive.ubuntu.com/ubuntu resolute-updates/main i386 Packages [331 kB]
+Get:6 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 Packages [738 kB]
+Get:7 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Packages [602 kB]
+Get:8 http://archive.ubuntu.com/ubuntu resolute-updates/main Translation-en [174 kB]
+Get:9 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 Components [110 kB]
+Get:10 http://archive.ubuntu.com/ubuntu resolute-updates/main Icons (48x48) [32.3 kB]
+Get:11 http://archive.ubuntu.com/ubuntu resolute-updates/main Icons (64x64) [46.4 kB]
+Get:12 http://archive.ubuntu.com/ubuntu resolute-updates/universe i386 Packages [172 kB]
+Get:13 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 Packages [329 kB]
+Get:14 http://archive.ubuntu.com/ubuntu resolute-updates/universe Translation-en [108 kB]
+Get:15 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 Components [201 kB]
+Get:16 http://archive.ubuntu.com/ubuntu resolute-updates/universe Icons (48x48) [55.0 kB]
+Get:17 http://archive.ubuntu.com/ubuntu resolute-updates/universe Icons (64x64) [93.0 kB]
+Get:18 http://archive.ubuntu.com/ubuntu resolute-updates/restricted i386 Packages [14.4 kB]
+Get:19 http://archive.ubuntu.com/ubuntu resolute-updates/restricted amd64 Packages [508 kB]
+Get:20 http://archive.ubuntu.com/ubuntu resolute-updates/restricted Translation-en [101 kB]
+Get:21 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse i386 Packages [4984 B]
+Get:22 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse amd64 Packages [21.0 kB]
+Get:23 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse Translation-en [4168 B]
+Get:24 http://archive.ubuntu.com/ubuntu resolute-backports/universe amd64 Packages [3136 B]
+Get:25 http://archive.ubuntu.com/ubuntu resolute-backports/universe amd64 Components [1060 B]
+Get:26 http://security.ubuntu.com/ubuntu resolute-security/main i386 Packages [233 kB]
+Get:27 http://security.ubuntu.com/ubuntu resolute-security/main Translation-en [139 kB]
+Get:28 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Components [46.7 kB]
+Get:29 http://security.ubuntu.com/ubuntu resolute-security/universe i386 Packages [115 kB]
+Get:30 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 Packages [202 kB]
+Get:31 http://security.ubuntu.com/ubuntu resolute-security/universe Translation-en [65.9 kB]
+Get:32 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 Components [55.5 kB]
+Get:33 http://security.ubuntu.com/ubuntu resolute-security/universe Icons (48x48) [17.3 kB]
+Get:34 http://security.ubuntu.com/ubuntu resolute-security/universe Icons (64x64) [26.3 kB]
+Get:35 http://security.ubuntu.com/ubuntu resolute-security/restricted amd64 Packages [495 kB]
+Get:36 http://security.ubuntu.com/ubuntu resolute-security/restricted i386 Packages [14.4 kB]
+Get:37 http://security.ubuntu.com/ubuntu resolute-security/restricted Translation-en [99.6 kB]
+Get:38 http://security.ubuntu.com/ubuntu resolute-security/multiverse amd64 Packages [20.0 kB]
+Get:39 http://security.ubuntu.com/ubuntu resolute-security/multiverse i386 Packages [4984 B]
+Get:40 http://security.ubuntu.com/ubuntu resolute-security/multiverse Translation-en [3728 B]
+Fetched 5598 kB in 3s (1764 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Package 'popularity-contest' is not installed, so not removed
+Package 'landscape-common' is not installed, so not removed
+Solving dependencies...
+The following packages were automatically installed and are no longer required:
+  gdb libbabeltrace1 libc6-dbg libipt2 libsource-highlight-common
+  libsource-highlight4t64 python3-apport python3-problem-report
+  python3-systemd
+Use 'apt autoremove' to remove them.
+The following packages will be REMOVED:
+  apport* apport-core-dump-handler* apport-gtk* apport-symptoms*
+  ubuntu-report* whoopsie*
+0 upgraded, 0 newly installed, 6 to remove and 316 not upgraded.
+After this operation, 9291 kB disk space will be freed.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 209506 files and directories currently installed.)
+Removing apport-gtk (2.34.1-0ubuntu0.1) ...
+Removing apport-symptoms (0.25build1) ...
+Removing ubuntu-report (1.7.3ubuntu4) ...
+Removing whoopsie (0.2.82ubuntu) ...
+invoke-rc.d: could not determine current runlevel
+/lib/init/init-d-script: 12: /etc/init.d/whoopsie: -c: not found
+Removing apport (2.34.1-0ubuntu0.1) ...
+Removing apport-core-dump-handler (2.34.1-0ubuntu0.1) ...
+invoke-rc.d: could not determine current runlevel
+Processing triggers for hicolor-icon-theme (0.18-2build1) ...
+Processing triggers for gnome-menus (3.38.1-1ubuntu1) ...
+Processing triggers for man-db (2.13.1-1build1) ...
+Processing triggers for desktop-file-utils (0.28-1build1) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 209388 files and directories currently installed.)
+Purging configuration files for whoopsie (0.2.82ubuntu) ...
+Purging configuration files for apport-core-dump-handler (2.34.1-0ubuntu0.1) ...
+Purging configuration files for apport (2.34.1-0ubuntu0.1) ...
+Purging configuration files for ubuntu-report (1.7.3ubuntu4) ...
+dpkg: warning: while removing ubuntu-report, directory '/etc/systemd/user/default.target.wants' not empty so not removed
+ubuntu-report set on hold.
+popularity-contest set on hold.
+apport set on hold.
+whoopsie set on hold.
+apport-symptoms set on hold.
+landscape-common set on hold.
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Package 'aisleriot' is not installed, so not removed
+Package 'gnome-mahjongg' is not installed, so not removed
+Package 'gnome-mines' is not installed, so not removed
+Package 'gnome-sudoku' is not installed, so not removed
+Solving dependencies...
+The following packages were automatically installed and are no longer required:
+  gdb libbabeltrace1 libc6-dbg libipt2 libsource-highlight-common
+  libsource-highlight4t64 python3-apport python3-problem-report
+  python3-systemd
+Use 'apt autoremove' to remove them.
+0 upgraded, 0 newly installed, 0 to remove and 316 not upgraded.
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following packages will be REMOVED:
+  gdb libbabeltrace1 libc6-dbg libipt2 libsource-highlight-common
+  libsource-highlight4t64 python3-apport python3-problem-report
+  python3-systemd
+0 upgraded, 0 newly installed, 9 to remove and 315 not upgraded.
+After this operation, 23.7 MB disk space will be freed.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 209374 files and directories currently installed.)
+Removing gdb (17.1-2ubuntu1) ...
+Removing libbabeltrace1:amd64 (1.5.11-5build1) ...
+Removing libc6-dbg:amd64 (2.43-2ubuntu2.3) ...
+Removing libipt2 (2.1.2-3) ...
+Removing libsource-highlight4t64:amd64 (3.1.9-4.3build2) ...
+Removing libsource-highlight-common (3.1.9-4.3build2) ...
+Removing python3-apport (2.34.1-0ubuntu0.1) ...
+Removing python3-problem-report (2.34.1-0ubuntu0.1) ...
+Removing python3-systemd (235-1build9) ...
+Processing triggers for man-db (2.13.1-1build1) ...
+Processing triggers for libc-bin (2.43-2ubuntu2.3) ...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+[+] Telemetry and bloatware removed
+[*] Step 2b: Applying CI-OS GNOME Shell / GDM theme...
+[+] GDM/GNOME Shell theme applied: /usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource (ubuntu session, GDM greeter)
+[+] /usr/share/gnome-shell/gnome-shell-theme.gresource kept as Ubuntu ships it: the branded theme lacks 3 of its resources
+    (e.g. /org/gnome/shell/theme/gnome-shell-dark.css) that the session modes without a theme of their own load, so they keep Ubuntu's stock look
+[*] Step 3: Installing CI-OS branding...
+[+] Wallpaper installed from core/render/inputs/background.png
+Adding 'local diversion of /usr/share/gnome-background-properties/resolute-wallpapers.xml to /usr/share/gnome-background-properties/resolute-wallpapers.xml.disabled'
+Adding 'local diversion of /usr/share/gnome-background-properties/ubuntu-wallpapers.xml to /usr/share/gnome-background-properties/ubuntu-wallpapers.xml.disabled'
+[+] Branding installed
+[*] Step 4: Configuring GRUB...
+[INFO] Rendering GRUB background with rsvg-convert...
+[SUCCESS] GRUB background rendered: /vol/work/chroot/usr/share/pixmaps/ci-os-grub-bg.png
+[+] GRUB background installed: /usr/share/pixmaps/ci-os-grub-bg.png
+[+] GRUB configured
+[*] Step 5: Configuring Plymouth splash...
+[INFO] Replacing Plymouth watermark with CI branding...
+[INFO] Diverted stock file: /usr/share/plymouth/themes/spinner/watermark.png -> /usr/share/plymouth/themes/spinner/watermark.png.ubuntu-stock
+[INFO] Diverted stock file: /usr/share/plymouth/themes/spinner/bgrt-fallback.png -> /usr/share/plymouth/themes/spinner/bgrt-fallback.png.ubuntu-stock
+[INFO] Diverted stock file: /usr/share/plymouth/themes/spinner/spinner.plymouth -> /usr/share/plymouth/themes/spinner/spinner.plymouth.ubuntu-stock
+[INFO] Diverted stock file: /usr/share/plymouth/themes/bgrt/bgrt.plymouth -> /usr/share/plymouth/themes/bgrt/bgrt.plymouth.ubuntu-stock
+[INFO] Diverted stock file: /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth.in -> /usr/share/plymouth/themes/ubuntu-text/ubuntu-text.plymouth.in.ubuntu-stock
+[INFO] Regenerating initramfs for Plymouth...
+[SUCCESS] Plymouth CI branding applied (image build: no backup)
+[+] Plymouth configured from the canon tokens (installed-system boots, live initrd overlay source)
+[*] Step 5b: Replacing the dock start icon...
+[INFO] Diverted stock file: /usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg -> /usr/share/icons/Yaru/scalable/places/start-here-symbolic.svg.ubuntu-stock
+[SUCCESS] Start icon replaced in 1 Yaru theme(s). Stock files kept as start-here-symbolic.svg.ubuntu-stock.
+[+] Dock start icon replaced
+[*] Step 5c: Replacing the Settings > About logo...
+dpkg-divert: warning: diverting file '/usr/share/pixmaps/ubuntu-logo-text.svg' from an Essential package with rename is dangerous, use --no-rename
+[INFO] Diverted stock file: /usr/share/pixmaps/ubuntu-logo-text.svg -> /usr/share/pixmaps/ubuntu-logo-text.svg.ubuntu-stock
+dpkg-divert: warning: diverting file '/usr/share/pixmaps/ubuntu-logo-text-dark.svg' from an Essential package with rename is dangerous, use --no-rename
+[INFO] Diverted stock file: /usr/share/pixmaps/ubuntu-logo-text-dark.svg -> /usr/share/pixmaps/ubuntu-logo-text-dark.svg.ubuntu-stock
+dpkg-divert: warning: diverting file '/usr/share/pixmaps/ubuntu-logo-text.png' from an Essential package with rename is dangerous, use --no-rename
+[INFO] Diverted stock file: /usr/share/pixmaps/ubuntu-logo-text.png -> /usr/share/pixmaps/ubuntu-logo-text.png.ubuntu-stock
+dpkg-divert: warning: diverting file '/usr/share/pixmaps/ubuntu-logo-text-dark.png' from an Essential package with rename is dangerous, use --no-rename
+[INFO] Diverted stock file: /usr/share/pixmaps/ubuntu-logo-text-dark.png -> /usr/share/pixmaps/ubuntu-logo-text-dark.png.ubuntu-stock
+[SUCCESS] About logo (SVG and PNG, light + dark) and ci-os-logo icon installed from the canon mark
+[+] About logo replaced (light and dark)
+[*] Step 5d: Renaming the visible Ubuntu display names...
+[INFO] Diverted stock file: /usr/share/wayland-sessions/ubuntu.desktop -> /usr/share/wayland-sessions/ubuntu.desktop.ubuntu-stock
+[INFO] Renamed: /usr/share/wayland-sessions/ubuntu.desktop
+[INFO] Diverted stock file: /usr/share/applications/gnome-ubuntu-panel.desktop -> /usr/share/applications/gnome-ubuntu-panel.desktop.ubuntu-stock
+[INFO] Renamed: /usr/share/applications/gnome-ubuntu-panel.desktop
+[INFO] Diverted stock file: /usr/share/gnome-shell/extensions/ubuntu-dock@ubuntu.com/metadata.json -> /usr/share/gnome-shell/extensions/ubuntu-dock@ubuntu.com/metadata.json.ubuntu-stock
+[INFO] Renamed: /usr/share/gnome-shell/extensions/ubuntu-dock@ubuntu.com/metadata.json
+[INFO] Diverted stock file: /usr/share/gnome-shell/extensions/ubuntu-appindicators@ubuntu.com/metadata.json -> /usr/share/gnome-shell/extensions/ubuntu-appindicators@ubuntu.com/metadata.json.ubuntu-stock
+[INFO] Renamed: /usr/share/gnome-shell/extensions/ubuntu-appindicators@ubuntu.com/metadata.json
+[INFO] Diverted stock file: /usr/share/gnome-shell/extensions/tiling-assistant@ubuntu.com/metadata.json -> /usr/share/gnome-shell/extensions/tiling-assistant@ubuntu.com/metadata.json.ubuntu-stock
+[INFO] Renamed: /usr/share/gnome-shell/extensions/tiling-assistant@ubuntu.com/metadata.json
+[SUCCESS] Companion OS display names: 5 file(s) renamed, 0 already done or without a stock name (the session picker and the Settings entry change at the next login)
+[+] Session picker, Settings entry and extension names read Companion OS
+[*] Step 6: Installing AMD GPU support...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+linux-firmware is already the newest version (20260319.git217ca6e4.1ubuntu).
+linux-firmware set to manually installed.
+amd64-microcode is already the newest version (3.20251202.1ubuntu2).
+amd64-microcode set to manually installed.
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 315 not upgraded.
+Reading package lists...
+Building dependency tree...
+Reading state information...
+mesa-vulkan-drivers is already the newest version (26.0.8-1ubuntu0.3).
+mesa-vulkan-drivers set to manually installed.
+libvulkan1 is already the newest version (1.4.341.0-1).
+libvulkan1 set to manually installed.
+Solving dependencies...
+The following NEW packages will be installed:
+  vulkan-tools
+0 upgraded, 1 newly installed, 0 to remove and 315 not upgraded.
+Need to get 411 kB of archives.
+After this operation, 1818 kB of additional disk space will be used.
+Get:1 http://archive.ubuntu.com/ubuntu resolute/universe amd64 vulkan-tools amd64 1.4.341.0+dfsg1-1 [411 kB]
+Fetched 411 kB in 1s (326 kB/s)
+Selecting previously unselected package vulkan-tools.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 208937 files and directories currently installed.)
+Preparing to unpack .../vulkan-tools_1.4.341.0+dfsg1-1_amd64.deb ...
+Unpacking vulkan-tools (1.4.341.0+dfsg1-1) ...
+Setting up vulkan-tools (1.4.341.0+dfsg1-1) ...
+Processing triggers for man-db (2.13.1-1build1) ...
+[+] AMD GPU support configured (ROCm available via ci-os-install-rocm)
+[*] Step 7: Installer: nothing to configure (launcher label comes from /.disk/info)
+[*] Step 8: Creating Companion OS MOTD...
+Adding 'local diversion of /etc/legal to /etc/legal.ubuntu-stock'
+dpkg-divert: warning: diverting file '/etc/legal' from an Essential package with rename is dangerous, use --no-rename
+Adding 'local diversion of /etc/xdg/autostart/ubuntu-advantage-notification.desktop to /etc/xdg/autostart/ubuntu-advantage-notification.desktop.disabled'
+[+] MOTD created
+[*] Step 9: Creating CI-OS info command...
+[+] CI-OS info command created
+[*] Step 10: Setting up package repository configuration...
+[+] Package repository template created
+[*] Step 10b: Pre-installing development packages...
+Hit:1 http://security.ubuntu.com/ubuntu resolute-security InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu resolute InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu resolute-updates InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu resolute-backports InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+ca-certificates is already the newest version (20260601~26.04.1).
+ca-certificates set to manually installed.
+lsb-release is already the newest version (12.1-2build1).
+lsb-release set to manually installed.
+software-properties-common is already the newest version (0.120.1).
+software-properties-common set to manually installed.
+wget is already the newest version (1.25.0-2ubuntu4.4).
+wget set to manually installed.
+jq is already the newest version (1.8.1-4ubuntu2).
+jq set to manually installed.
+unzip is already the newest version (6.0-29ubuntu1).
+unzip set to manually installed.
+Solving dependencies...
+The following additional packages will be installed:
+  dirmngr dpkg-dev fakeroot g++ g++-15 g++-15-x86-64-linux-gnu
+  g++-x86-64-linux-gnu gcc gcc-15 gcc-15-x86-64-linux-gnu gcc-x86-64-linux-gnu
+  git-man gnupg-l10n gpg gpg-agent gpg-wks-client gpgconf gpgsm
+  libalgorithm-diff-perl libalgorithm-diff-xs-perl libalgorithm-merge-perl
+  libasan8 libcc1-0 libcrypt-dev libcurl3t64-gnutls libcurl4t64 libdpkg-perl
+  liberror-perl libfakeroot libfile-fcntllock-perl libgcc-15-dev libhwasan0
+  libitm1 liblsan0 libpython3.14 libpython3.14-minimal libpython3.14-stdlib
+  libquadmath0 libstdc++-15-dev libtsan2 libubsan1 lto-disabled-list make
+  ncurses-term openssh-client openssh-sftp-server python3-packaging
+  python3-pip-whl python3-setuptools-whl python3-wheel python3.14
+  python3.14-gdbm python3.14-minimal python3.14-venv ssh-import-id
+Suggested packages:
+  debian-keyring debian-tag2upload-keyring g++-multilib g++-15-multilib
+  gcc-15-doc gcc-multilib autoconf automake libtool flex bison gdb gcc-doc
+  gcc-15-multilib gcc-15-locales gdb-x86-64-linux-gnu git-doc git-email
+  git-gui gitk gitweb git-cvs git-svn lm-sensors bzr libstdc++-15-doc make-doc
+  molly-guard monkeysphere ssh-askpass
+Recommended packages:
+  python3-dev
+The following NEW packages will be installed:
+  apt-transport-https build-essential curl dpkg-dev fakeroot g++ g++-15
+  g++-15-x86-64-linux-gnu g++-x86-64-linux-gnu gcc gcc-15
+  gcc-15-x86-64-linux-gnu gcc-x86-64-linux-gnu git git-man htop
+  libalgorithm-diff-perl libalgorithm-diff-xs-perl libalgorithm-merge-perl
+  libasan8 libcc1-0 libcrypt-dev libdpkg-perl liberror-perl libfakeroot
+  libfile-fcntllock-perl libgcc-15-dev libhwasan0 libitm1 liblsan0
+  libquadmath0 libstdc++-15-dev libtsan2 libubsan1 lto-disabled-list make
+  ncurses-term net-tools openssh-server openssh-sftp-server python3-packaging
+  python3-pip python3-pip-whl python3-setuptools-whl python3-venv
+  python3-wheel python3.14-venv ssh-import-id tree
+The following packages will be upgraded:
+  dirmngr gnupg gnupg-l10n gpg gpg-agent gpg-wks-client gpgconf gpgsm
+  libcurl3t64-gnutls libcurl4t64 libpython3.14 libpython3.14-minimal
+  libpython3.14-stdlib openssh-client python3.14 python3.14-gdbm
+  python3.14-minimal
+17 upgraded, 49 newly installed, 0 to remove and 298 not upgraded.
+Need to get 83.1 MB of archives.
+After this operation, 256 MB of additional disk space will be used.
+Get:1 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libpython3.14 amd64 3.14.4-1ubuntu0.2 [2579 kB]
+Get:2 http://security.ubuntu.com/ubuntu resolute-security/main amd64 openssh-client amd64 1:10.2p1-2ubuntu3.8 [936 kB]
+Get:3 http://security.ubuntu.com/ubuntu resolute-security/main amd64 libcurl4t64 amd64 8.18.0-1ubuntu2.8 [430 kB]
+Get:4 http://security.ubuntu.com/ubuntu resolute-security/main amd64 curl amd64 8.18.0-1ubuntu2.8 [273 kB]
+Get:5 http://security.ubuntu.com/ubuntu resolute-security/main amd64 libcurl3t64-gnutls amd64 8.18.0-1ubuntu2.8 [421 kB]
+Get:6 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 python3.14 amd64 3.14.4-1ubuntu0.2 [830 kB]
+Get:7 http://security.ubuntu.com/ubuntu resolute-security/main amd64 openssh-sftp-server amd64 1:10.2p1-2ubuntu3.8 [37.4 kB]
+Get:8 http://security.ubuntu.com/ubuntu resolute-security/main amd64 openssh-server amd64 1:10.2p1-2ubuntu3.8 [622 kB]
+Get:9 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libpython3.14-stdlib amd64 3.14.4-1ubuntu0.2 [2415 kB]
+Get:10 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 python3.14-minimal amd64 3.14.4-1ubuntu0.2 [2579 kB]
+Get:11 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 libpython3.14-minimal amd64 3.14.4-1ubuntu0.2 [916 kB]
+Get:12 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 python3.14-gdbm amd64 3.14.4-1ubuntu0.2 [29.5 kB]
+Get:13 http://archive.ubuntu.com/ubuntu resolute/universe amd64 apt-transport-https all 3.2.0 [3928 B]
+Get:14 http://archive.ubuntu.com/ubuntu resolute/main amd64 libcc1-0 amd64 16-20260322-1ubuntu1 [51.2 kB]
+Get:15 http://archive.ubuntu.com/ubuntu resolute/main amd64 libitm1 amd64 16-20260322-1ubuntu1 [30.0 kB]
+Get:16 http://archive.ubuntu.com/ubuntu resolute/main amd64 libasan8 amd64 16-20260322-1ubuntu1 [3184 kB]
+Get:17 http://archive.ubuntu.com/ubuntu resolute/main amd64 liblsan0 amd64 16-20260322-1ubuntu1 [1394 kB]
+Get:18 http://archive.ubuntu.com/ubuntu resolute/main amd64 libtsan2 amd64 16-20260322-1ubuntu1 [2849 kB]
+Get:19 http://archive.ubuntu.com/ubuntu resolute/main amd64 libubsan1 amd64 16-20260322-1ubuntu1 [1240 kB]
+Get:20 http://archive.ubuntu.com/ubuntu resolute/main amd64 libhwasan0 amd64 16-20260322-1ubuntu1 [1731 kB]
+Get:21 http://archive.ubuntu.com/ubuntu resolute/main amd64 libquadmath0 amd64 16-20260322-1ubuntu1 [155 kB]
+Get:22 http://archive.ubuntu.com/ubuntu resolute/main amd64 libgcc-15-dev amd64 15.2.0-16ubuntu1 [2866 kB]
+Get:23 http://archive.ubuntu.com/ubuntu resolute/main amd64 gcc-15-x86-64-linux-gnu amd64 15.2.0-16ubuntu1 [25.4 MB]
+Get:24 http://archive.ubuntu.com/ubuntu resolute/main amd64 gcc-15 amd64 15.2.0-16ubuntu1 [539 kB]
+Get:25 http://archive.ubuntu.com/ubuntu resolute/main amd64 gcc-x86-64-linux-gnu amd64 4:15.2.0-5ubuntu1 [1208 B]
+Get:26 http://archive.ubuntu.com/ubuntu resolute/main amd64 gcc amd64 4:15.2.0-5ubuntu1 [5010 B]
+Get:27 http://archive.ubuntu.com/ubuntu resolute/main amd64 libstdc++-15-dev amd64 15.2.0-16ubuntu1 [2920 kB]
+Get:28 http://archive.ubuntu.com/ubuntu resolute/main amd64 g++-15-x86-64-linux-gnu amd64 15.2.0-16ubuntu1 [14.4 MB]
+Get:29 http://archive.ubuntu.com/ubuntu resolute/main amd64 g++-15 amd64 15.2.0-16ubuntu1 [26.7 kB]
+Get:30 http://archive.ubuntu.com/ubuntu resolute/main amd64 g++-x86-64-linux-gnu amd64 4:15.2.0-5ubuntu1 [968 B]
+Get:31 http://archive.ubuntu.com/ubuntu resolute/main amd64 g++ amd64 4:15.2.0-5ubuntu1 [1100 B]
+Get:32 http://archive.ubuntu.com/ubuntu resolute/main amd64 make amd64 4.4.1-3 [197 kB]
+Get:33 http://archive.ubuntu.com/ubuntu resolute/main amd64 libdpkg-perl all 1.23.7ubuntu1 [289 kB]
+Get:34 http://archive.ubuntu.com/ubuntu resolute/main amd64 lto-disabled-list all 79 [14.2 kB]
+Get:35 http://archive.ubuntu.com/ubuntu resolute/main amd64 dpkg-dev all 1.23.7ubuntu1 [1062 kB]
+Get:36 http://archive.ubuntu.com/ubuntu resolute/main amd64 libcrypt-dev amd64 1:4.5.1-1 [122 kB]
+Get:37 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 build-essential amd64 12.12ubuntu2.26.04.2 [5158 B]
+Get:38 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gpg-wks-client amd64 2.4.8-4ubuntu3.1 [71.9 kB]
+Get:39 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 dirmngr amd64 2.4.8-4ubuntu3.1 [327 kB]
+Get:40 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gpg-agent amd64 2.4.8-4ubuntu3.1 [236 kB]
+Get:41 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gpg amd64 2.4.8-4ubuntu3.1 [637 kB]
+Get:42 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gpgconf amd64 2.4.8-4ubuntu3.1 [106 kB]
+Get:43 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gnupg all 2.4.8-4ubuntu3.1 [311 kB]
+Get:44 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gpgsm amd64 2.4.8-4ubuntu3.1 [239 kB]
+Get:45 http://archive.ubuntu.com/ubuntu resolute/main amd64 libfakeroot amd64 1.37.2-1 [34.0 kB]
+Get:46 http://archive.ubuntu.com/ubuntu resolute/main amd64 fakeroot amd64 1.37.2-1 [68.3 kB]
+Get:47 http://archive.ubuntu.com/ubuntu resolute/main amd64 liberror-perl all 0.17030-1 [23.5 kB]
+Get:48 http://archive.ubuntu.com/ubuntu resolute/main amd64 git-man all 1:2.53.0-1ubuntu1 [1202 kB]
+Get:49 http://archive.ubuntu.com/ubuntu resolute/main amd64 git amd64 1:2.53.0-1ubuntu1 [4227 kB]
+Get:50 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 gnupg-l10n all 2.4.8-4ubuntu3.1 [68.8 kB]
+Get:51 http://archive.ubuntu.com/ubuntu resolute/main amd64 htop amd64 3.4.1-5build2 [177 kB]
+Get:52 http://archive.ubuntu.com/ubuntu resolute/main amd64 libalgorithm-diff-perl all 1.201-1 [41.8 kB]
+Get:53 http://archive.ubuntu.com/ubuntu resolute/main amd64 libalgorithm-diff-xs-perl amd64 0.04-9 [11.5 kB]
+Get:54 http://archive.ubuntu.com/ubuntu resolute/main amd64 libalgorithm-merge-perl all 0.08-5 [11.4 kB]
+Get:55 http://archive.ubuntu.com/ubuntu resolute/main amd64 libfile-fcntllock-perl amd64 0.22-4ubuntu6 [32.8 kB]
+Get:56 http://archive.ubuntu.com/ubuntu resolute/main amd64 ncurses-term all 6.6+20251231-1 [280 kB]
+Get:57 http://archive.ubuntu.com/ubuntu resolute/main amd64 net-tools amd64 2.10-2ubuntu1 [151 kB]
+Get:58 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-packaging all 26.0-1 [58.7 kB]
+Get:59 http://archive.ubuntu.com/ubuntu resolute/universe amd64 python3-wheel all 0.46.3-2 [27.9 kB]
+Get:60 http://archive.ubuntu.com/ubuntu resolute/universe amd64 python3-pip all 25.1.1+dfsg-1ubuntu2 [1416 kB]
+Get:61 http://archive.ubuntu.com/ubuntu resolute/universe amd64 python3-pip-whl all 25.1.1+dfsg-1ubuntu2 [1430 kB]
+Get:62 http://archive.ubuntu.com/ubuntu resolute/universe amd64 python3-setuptools-whl all 78.1.1-0.1build1 [1174 kB]
+Get:63 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 python3.14-venv amd64 3.14.4-1ubuntu0.2 [5356 B]
+Get:64 http://archive.ubuntu.com/ubuntu resolute/universe amd64 python3-venv amd64 3.14.3-0ubuntu2 [1032 B]
+Get:65 http://archive.ubuntu.com/ubuntu resolute/universe amd64 tree amd64 2.3.1-1 [53.5 kB]
+Get:66 http://archive.ubuntu.com/ubuntu resolute/main amd64 ssh-import-id all 5.11-0ubuntu4 [10.2 kB]
+Preconfiguring packages ...
+Fetched 83.1 MB in 8s (11.0 MB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 208946 files and directories currently installed.)
+Preparing to unpack .../00-libpython3.14_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking libpython3.14:amd64 (3.14.4-1ubuntu0.2) over (3.14.4-1ubuntu0.1) ...
+Preparing to unpack .../01-python3.14_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking python3.14 (3.14.4-1ubuntu0.2) over (3.14.4-1ubuntu0.1) ...
+Preparing to unpack .../02-libpython3.14-stdlib_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking libpython3.14-stdlib:amd64 (3.14.4-1ubuntu0.2) over (3.14.4-1ubuntu0.1) ...
+Preparing to unpack .../03-python3.14-minimal_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking python3.14-minimal (3.14.4-1ubuntu0.2) over (3.14.4-1ubuntu0.1) ...
+Preparing to unpack .../04-libpython3.14-minimal_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking libpython3.14-minimal:amd64 (3.14.4-1ubuntu0.2) over (3.14.4-1ubuntu0.1) ...
+Preparing to unpack .../05-openssh-client_1%3a10.2p1-2ubuntu3.8_amd64.deb ...
+Unpacking openssh-client (1:10.2p1-2ubuntu3.8) over (1:10.2p1-2ubuntu3.5) ...
+Preparing to unpack .../06-python3.14-gdbm_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking python3.14-gdbm (3.14.4-1ubuntu0.2) over (3.14.4-1ubuntu0.1) ...
+Selecting previously unselected package apt-transport-https.
+Preparing to unpack .../07-apt-transport-https_3.2.0_all.deb ...
+Unpacking apt-transport-https (3.2.0) ...
+Selecting previously unselected package libcc1-0:amd64.
+Preparing to unpack .../08-libcc1-0_16-20260322-1ubuntu1_amd64.deb ...
+Unpacking libcc1-0:amd64 (16-20260322-1ubuntu1) ...
+Selecting previously unselected package libitm1:amd64.
+Preparing to unpack .../09-libitm1_16-20260322-1ubuntu1_amd64.deb ...
+Unpacking libitm1:amd64 (16-20260322-1ubuntu1) ...
+Selecting previously unselected package libasan8:amd64.
+Preparing to unpack .../10-libasan8_16-20260322-1ubuntu1_amd64.deb ...
+Unpacking libasan8:amd64 (16-20260322-1ubuntu1) ...
+Selecting previously unselected package liblsan0:amd64.
+Preparing to unpack .../11-liblsan0_16-20260322-1ubuntu1_amd64.deb ...
+Unpacking liblsan0:amd64 (16-20260322-1ubuntu1) ...
+Selecting previously unselected package libtsan2:amd64.
+Preparing to unpack .../12-libtsan2_16-20260322-1ubuntu1_amd64.deb ...
+Unpacking libtsan2:amd64 (16-20260322-1ubuntu1) ...
+Selecting previously unselected package libubsan1:amd64.
+Preparing to unpack .../13-libubsan1_16-20260322-1ubuntu1_amd64.deb ...
+Unpacking libubsan1:amd64 (16-20260322-1ubuntu1) ...
+Selecting previously unselected package libhwasan0:amd64.
+Preparing to unpack .../14-libhwasan0_16-20260322-1ubuntu1_amd64.deb ...
+Unpacking libhwasan0:amd64 (16-20260322-1ubuntu1) ...
+Selecting previously unselected package libquadmath0:amd64.
+Preparing to unpack .../15-libquadmath0_16-20260322-1ubuntu1_amd64.deb ...
+Unpacking libquadmath0:amd64 (16-20260322-1ubuntu1) ...
+Selecting previously unselected package libgcc-15-dev:amd64.
+Preparing to unpack .../16-libgcc-15-dev_15.2.0-16ubuntu1_amd64.deb ...
+Unpacking libgcc-15-dev:amd64 (15.2.0-16ubuntu1) ...
+Selecting previously unselected package gcc-15-x86-64-linux-gnu.
+Preparing to unpack .../17-gcc-15-x86-64-linux-gnu_15.2.0-16ubuntu1_amd64.deb ...
+Unpacking gcc-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+Selecting previously unselected package gcc-15.
+Preparing to unpack .../18-gcc-15_15.2.0-16ubuntu1_amd64.deb ...
+Unpacking gcc-15 (15.2.0-16ubuntu1) ...
+Selecting previously unselected package gcc-x86-64-linux-gnu.
+Preparing to unpack .../19-gcc-x86-64-linux-gnu_4%3a15.2.0-5ubuntu1_amd64.deb ...
+Unpacking gcc-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+Selecting previously unselected package gcc.
+Preparing to unpack .../20-gcc_4%3a15.2.0-5ubuntu1_amd64.deb ...
+Unpacking gcc (4:15.2.0-5ubuntu1) ...
+Selecting previously unselected package libstdc++-15-dev:amd64.
+Preparing to unpack .../21-libstdc++-15-dev_15.2.0-16ubuntu1_amd64.deb ...
+Unpacking libstdc++-15-dev:amd64 (15.2.0-16ubuntu1) ...
+Selecting previously unselected package g++-15-x86-64-linux-gnu.
+Preparing to unpack .../22-g++-15-x86-64-linux-gnu_15.2.0-16ubuntu1_amd64.deb ...
+Unpacking g++-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+Selecting previously unselected package g++-15.
+Preparing to unpack .../23-g++-15_15.2.0-16ubuntu1_amd64.deb ...
+Unpacking g++-15 (15.2.0-16ubuntu1) ...
+Selecting previously unselected package g++-x86-64-linux-gnu.
+Preparing to unpack .../24-g++-x86-64-linux-gnu_4%3a15.2.0-5ubuntu1_amd64.deb ...
+Unpacking g++-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+Selecting previously unselected package g++.
+Preparing to unpack .../25-g++_4%3a15.2.0-5ubuntu1_amd64.deb ...
+Unpacking g++ (4:15.2.0-5ubuntu1) ...
+Selecting previously unselected package make.
+Preparing to unpack .../26-make_4.4.1-3_amd64.deb ...
+Unpacking make (4.4.1-3) ...
+Selecting previously unselected package libdpkg-perl.
+Preparing to unpack .../27-libdpkg-perl_1.23.7ubuntu1_all.deb ...
+Unpacking libdpkg-perl (1.23.7ubuntu1) ...
+Selecting previously unselected package lto-disabled-list.
+Preparing to unpack .../28-lto-disabled-list_79_all.deb ...
+Unpacking lto-disabled-list (79) ...
+Selecting previously unselected package dpkg-dev.
+Preparing to unpack .../29-dpkg-dev_1.23.7ubuntu1_all.deb ...
+Unpacking dpkg-dev (1.23.7ubuntu1) ...
+Selecting previously unselected package libcrypt-dev:amd64.
+Preparing to unpack .../30-libcrypt-dev_1%3a4.5.1-1_amd64.deb ...
+Unpacking libcrypt-dev:amd64 (1:4.5.1-1) ...
+Selecting previously unselected package build-essential.
+Preparing to unpack .../31-build-essential_12.12ubuntu2.26.04.2_amd64.deb ...
+Unpacking build-essential (12.12ubuntu2.26.04.2) ...
+Preparing to unpack .../32-libcurl4t64_8.18.0-1ubuntu2.8_amd64.deb ...
+Unpacking libcurl4t64:amd64 (8.18.0-1ubuntu2.8) over (8.18.0-1ubuntu2.4) ...
+Selecting previously unselected package curl.
+Preparing to unpack .../33-curl_8.18.0-1ubuntu2.8_amd64.deb ...
+Unpacking curl (8.18.0-1ubuntu2.8) ...
+Preparing to unpack .../34-gpg-wks-client_2.4.8-4ubuntu3.1_amd64.deb ...
+Unpacking gpg-wks-client (2.4.8-4ubuntu3.1) over (2.4.8-4ubuntu3) ...
+Preparing to unpack .../35-dirmngr_2.4.8-4ubuntu3.1_amd64.deb ...
+Unpacking dirmngr (2.4.8-4ubuntu3.1) over (2.4.8-4ubuntu3) ...
+Preparing to unpack .../36-gpg-agent_2.4.8-4ubuntu3.1_amd64.deb ...
+Unpacking gpg-agent (2.4.8-4ubuntu3.1) over (2.4.8-4ubuntu3) ...
+Preparing to unpack .../37-gpg_2.4.8-4ubuntu3.1_amd64.deb ...
+Unpacking gpg (2.4.8-4ubuntu3.1) over (2.4.8-4ubuntu3) ...
+Preparing to unpack .../38-gpgconf_2.4.8-4ubuntu3.1_amd64.deb ...
+Unpacking gpgconf (2.4.8-4ubuntu3.1) over (2.4.8-4ubuntu3) ...
+Preparing to unpack .../39-gnupg_2.4.8-4ubuntu3.1_all.deb ...
+Unpacking gnupg (2.4.8-4ubuntu3.1) over (2.4.8-4ubuntu3) ...
+Preparing to unpack .../40-gpgsm_2.4.8-4ubuntu3.1_amd64.deb ...
+Unpacking gpgsm (2.4.8-4ubuntu3.1) over (2.4.8-4ubuntu3) ...
+Selecting previously unselected package libfakeroot:amd64.
+Preparing to unpack .../41-libfakeroot_1.37.2-1_amd64.deb ...
+Unpacking libfakeroot:amd64 (1.37.2-1) ...
+Selecting previously unselected package fakeroot.
+Preparing to unpack .../42-fakeroot_1.37.2-1_amd64.deb ...
+Unpacking fakeroot (1.37.2-1) ...
+Preparing to unpack .../43-libcurl3t64-gnutls_8.18.0-1ubuntu2.8_amd64.deb ...
+Unpacking libcurl3t64-gnutls:amd64 (8.18.0-1ubuntu2.8) over (8.18.0-1ubuntu2.4) ...
+Selecting previously unselected package liberror-perl.
+Preparing to unpack .../44-liberror-perl_0.17030-1_all.deb ...
+Unpacking liberror-perl (0.17030-1) ...
+Selecting previously unselected package git-man.
+Preparing to unpack .../45-git-man_1%3a2.53.0-1ubuntu1_all.deb ...
+Unpacking git-man (1:2.53.0-1ubuntu1) ...
+Selecting previously unselected package git.
+Preparing to unpack .../46-git_1%3a2.53.0-1ubuntu1_amd64.deb ...
+Unpacking git (1:2.53.0-1ubuntu1) ...
+Preparing to unpack .../47-gnupg-l10n_2.4.8-4ubuntu3.1_all.deb ...
+Unpacking gnupg-l10n (2.4.8-4ubuntu3.1) over (2.4.8-4ubuntu3) ...
+Selecting previously unselected package htop.
+Preparing to unpack .../48-htop_3.4.1-5build2_amd64.deb ...
+Unpacking htop (3.4.1-5build2) ...
+Selecting previously unselected package libalgorithm-diff-perl.
+Preparing to unpack .../49-libalgorithm-diff-perl_1.201-1_all.deb ...
+Unpacking libalgorithm-diff-perl (1.201-1) ...
+Selecting previously unselected package libalgorithm-diff-xs-perl.
+Preparing to unpack .../50-libalgorithm-diff-xs-perl_0.04-9_amd64.deb ...
+Unpacking libalgorithm-diff-xs-perl (0.04-9) ...
+Selecting previously unselected package libalgorithm-merge-perl.
+Preparing to unpack .../51-libalgorithm-merge-perl_0.08-5_all.deb ...
+Unpacking libalgorithm-merge-perl (0.08-5) ...
+Selecting previously unselected package libfile-fcntllock-perl.
+Preparing to unpack .../52-libfile-fcntllock-perl_0.22-4ubuntu6_amd64.deb ...
+Unpacking libfile-fcntllock-perl (0.22-4ubuntu6) ...
+Selecting previously unselected package ncurses-term.
+Preparing to unpack .../53-ncurses-term_6.6+20251231-1_all.deb ...
+Unpacking ncurses-term (6.6+20251231-1) ...
+Selecting previously unselected package net-tools.
+Preparing to unpack .../54-net-tools_2.10-2ubuntu1_amd64.deb ...
+Unpacking net-tools (2.10-2ubuntu1) ...
+Selecting previously unselected package openssh-sftp-server.
+Preparing to unpack .../55-openssh-sftp-server_1%3a10.2p1-2ubuntu3.8_amd64.deb ...
+Unpacking openssh-sftp-server (1:10.2p1-2ubuntu3.8) ...
+Selecting previously unselected package openssh-server.
+Preparing to unpack .../56-openssh-server_1%3a10.2p1-2ubuntu3.8_amd64.deb ...
+Unpacking openssh-server (1:10.2p1-2ubuntu3.8) ...
+Selecting previously unselected package python3-packaging.
+Preparing to unpack .../57-python3-packaging_26.0-1_all.deb ...
+Unpacking python3-packaging (26.0-1) ...
+Selecting previously unselected package python3-wheel.
+Preparing to unpack .../58-python3-wheel_0.46.3-2_all.deb ...
+Unpacking python3-wheel (0.46.3-2) ...
+Selecting previously unselected package python3-pip.
+Preparing to unpack .../59-python3-pip_25.1.1+dfsg-1ubuntu2_all.deb ...
+Unpacking python3-pip (25.1.1+dfsg-1ubuntu2) ...
+Selecting previously unselected package python3-pip-whl.
+Preparing to unpack .../60-python3-pip-whl_25.1.1+dfsg-1ubuntu2_all.deb ...
+Unpacking python3-pip-whl (25.1.1+dfsg-1ubuntu2) ...
+Selecting previously unselected package python3-setuptools-whl.
+Preparing to unpack .../61-python3-setuptools-whl_78.1.1-0.1build1_all.deb ...
+Unpacking python3-setuptools-whl (78.1.1-0.1build1) ...
+Selecting previously unselected package python3.14-venv.
+Preparing to unpack .../62-python3.14-venv_3.14.4-1ubuntu0.2_amd64.deb ...
+Unpacking python3.14-venv (3.14.4-1ubuntu0.2) ...
+Selecting previously unselected package python3-venv.
+Preparing to unpack .../63-python3-venv_3.14.3-0ubuntu2_amd64.deb ...
+Unpacking python3-venv (3.14.3-0ubuntu2) ...
+Selecting previously unselected package tree.
+Preparing to unpack .../64-tree_2.3.1-1_amd64.deb ...
+Unpacking tree (2.3.1-1) ...
+Selecting previously unselected package ssh-import-id.
+Preparing to unpack .../65-ssh-import-id_5.11-0ubuntu4_all.deb ...
+Unpacking ssh-import-id (5.11-0ubuntu4) ...
+Setting up net-tools (2.10-2ubuntu1) ...
+Setting up python3-setuptools-whl (78.1.1-0.1build1) ...
+Setting up lto-disabled-list (79) ...
+Setting up apt-transport-https (3.2.0) ...
+Setting up libcurl4t64:amd64 (8.18.0-1ubuntu2.8) ...
+Setting up libfile-fcntllock-perl (0.22-4ubuntu6) ...
+Setting up python3-pip-whl (25.1.1+dfsg-1ubuntu2) ...
+Setting up libalgorithm-diff-perl (1.201-1) ...
+Setting up htop (3.4.1-5build2) ...
+Setting up openssh-client (1:10.2p1-2ubuntu3.8) ...
+Setting up ssh-import-id (5.11-0ubuntu4) ...
+Setting up libpython3.14-minimal:amd64 (3.14.4-1ubuntu0.2) ...
+Setting up libcurl3t64-gnutls:amd64 (8.18.0-1ubuntu2.8) ...
+Setting up libfakeroot:amd64 (1.37.2-1) ...
+Setting up fakeroot (1.37.2-1) ...
+update-alternatives: using /usr/bin/fakeroot-sysv to provide /usr/bin/fakeroot (fakeroot) in auto mode
+Setting up liberror-perl (0.17030-1) ...
+Setting up python3-packaging (26.0-1) ...
+Setting up python3.14-gdbm (3.14.4-1ubuntu0.2) ...
+Setting up make (4.4.1-3) ...
+Setting up gnupg-l10n (2.4.8-4ubuntu3.1) ...
+Setting up libquadmath0:amd64 (16-20260322-1ubuntu1) ...
+Setting up tree (2.3.1-1) ...
+Setting up libdpkg-perl (1.23.7ubuntu1) ...
+Setting up libubsan1:amd64 (16-20260322-1ubuntu1) ...
+Setting up libhwasan0:amd64 (16-20260322-1ubuntu1) ...
+Setting up libcrypt-dev:amd64 (1:4.5.1-1) ...
+Setting up libasan8:amd64 (16-20260322-1ubuntu1) ...
+Setting up gpgconf (2.4.8-4ubuntu3.1) ...
+Setting up git-man (1:2.53.0-1ubuntu1) ...
+Setting up curl (8.18.0-1ubuntu2.8) ...
+Setting up libtsan2:amd64 (16-20260322-1ubuntu1) ...
+Setting up libalgorithm-diff-xs-perl (0.04-9) ...
+Setting up python3.14-minimal (3.14.4-1ubuntu0.2) ...
+Setting up libcc1-0:amd64 (16-20260322-1ubuntu1) ...
+Setting up gpg (2.4.8-4ubuntu3.1) ...
+Setting up liblsan0:amd64 (16-20260322-1ubuntu1) ...
+Setting up libitm1:amd64 (16-20260322-1ubuntu1) ...
+Setting up libalgorithm-merge-perl (0.08-5) ...
+Setting up ncurses-term (6.6+20251231-1) ...
+Setting up openssh-sftp-server (1:10.2p1-2ubuntu3.8) ...
+Setting up libgcc-15-dev:amd64 (15.2.0-16ubuntu1) ...
+Setting up gpg-agent (2.4.8-4ubuntu3.1) ...
+Setting up openssh-server (1:10.2p1-2ubuntu3.8) ...
+Creating config file /etc/ssh/sshd_config with new version
+Creating SSH2 RSA key; this may take some time ...
+3072 SHA256:Ok5fWxMUxxwv+iI/LYgUnyAZo31962AkYhouvNGt0FI root@321a14ce8cff (RSA)
+Creating SSH2 ECDSA key; this may take some time ...
+256 SHA256:zrCv9vuOOdgZoBRy2/TNLix7xCvcfSuGfmZAkd/BmyU root@321a14ce8cff (ECDSA)
+Creating SSH2 ED25519 key; this may take some time ...
+256 SHA256:CGvDxGYj/RVoIXHMJWOSgydSaHhzC8NmQEVS5AaKv4E root@321a14ce8cff (ED25519)
+Creating user 'sshd' (sshd user) with UID 974 and GID 65534.
+invoke-rc.d: could not determine current runlevel
+Created symlink '/etc/systemd/system/sockets.target.wants/ssh.socket' → '/usr/lib/systemd/system/ssh.socket'.
+Created symlink '/etc/systemd/system/ssh.service.requires/ssh.socket' → '/usr/lib/systemd/system/ssh.socket'.
+Created symlink '/etc/systemd/system/ssh.service.wants/sshd-keygen.service' → '/usr/lib/systemd/system/sshd-keygen.service'.
+Created symlink '/etc/systemd/system/sshd.service.wants/sshd-keygen.service' → '/usr/lib/systemd/system/sshd-keygen.service'.
+Created symlink '/etc/systemd/system/sshd@.service.wants/sshd-keygen.service' → '/usr/lib/systemd/system/sshd-keygen.service'.
+Created symlink '/etc/systemd/system/ssh.socket.wants/sshd-keygen.service' → '/usr/lib/systemd/system/sshd-keygen.service'.
+Setting up libpython3.14-stdlib:amd64 (3.14.4-1ubuntu0.2) ...
+Setting up gpgsm (2.4.8-4ubuntu3.1) ...
+Setting up python3-wheel (0.46.3-2) ...
+Setting up dpkg-dev (1.23.7ubuntu1) ...
+Setting up gcc-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+Setting up dirmngr (2.4.8-4ubuntu3.1) ...
+Setting up gcc-15 (15.2.0-16ubuntu1) ...
+Setting up libstdc++-15-dev:amd64 (15.2.0-16ubuntu1) ...
+Setting up git (1:2.53.0-1ubuntu1) ...
+Setting up python3-pip (25.1.1+dfsg-1ubuntu2) ...
+Setting up gnupg (2.4.8-4ubuntu3.1) ...
+Setting up libpython3.14:amd64 (3.14.4-1ubuntu0.2) ...
+Setting up python3.14 (3.14.4-1ubuntu0.2) ...
+Setting up g++-15-x86-64-linux-gnu (15.2.0-16ubuntu1) ...
+Setting up gcc-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+Setting up gpg-wks-client (2.4.8-4ubuntu3.1) ...
+Setting up gcc (4:15.2.0-5ubuntu1) ...
+Setting up python3.14-venv (3.14.4-1ubuntu0.2) ...
+Setting up python3-venv (3.14.3-0ubuntu2) ...
+Setting up g++-x86-64-linux-gnu (4:15.2.0-5ubuntu1) ...
+Setting up g++-15 (15.2.0-16ubuntu1) ...
+Setting up g++ (4:15.2.0-5ubuntu1) ...
+update-alternatives: using /usr/bin/g++ to provide /usr/bin/c++ (c++) in auto mode
+Setting up build-essential (12.12ubuntu2.26.04.2) ...
+Processing triggers for desktop-file-utils (0.28-1build1) ...
+Processing triggers for hicolor-icon-theme (0.18-2build1) ...
+Processing triggers for gnome-menus (3.38.1-1ubuntu1) ...
+Processing triggers for libc-bin (2.43-2ubuntu2.3) ...
+Processing triggers for ufw (0.36.2-9build1) ...
+Processing triggers for systemd (259.5-0ubuntu3.4) ...
+Processing triggers for man-db (2.13.1-1build1) ...
+Processing triggers for install-info (7.2-5ubuntu2) ...
+[+] Development packages pre-installed
+[*] Step 10d: Pre-installing wireless setup stack, Docker and CI-Hub tooling...
+Get:1 http://security.ubuntu.com/ubuntu resolute-security InRelease [137 kB]
+Get:2 http://archive.ubuntu.com/ubuntu resolute InRelease [136 kB]
+Get:3 http://security.ubuntu.com/ubuntu resolute-security/main i386 Packages [233 kB]
+Get:4 http://archive.ubuntu.com/ubuntu resolute-updates InRelease [137 kB]
+Get:5 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Packages [602 kB]
+Get:6 http://archive.ubuntu.com/ubuntu resolute-backports InRelease [137 kB]
+Get:7 http://security.ubuntu.com/ubuntu resolute-security/main Translation-en [139 kB]
+Get:8 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Components [46.7 kB]
+Get:9 http://security.ubuntu.com/ubuntu resolute-security/main Icons (48x48) [20.8 kB]
+Get:10 http://security.ubuntu.com/ubuntu resolute-security/main Icons (64x64) [29.3 kB]
+Get:11 http://security.ubuntu.com/ubuntu resolute-security/main Icons (64x64@2) [29 B]
+Get:12 http://security.ubuntu.com/ubuntu resolute-security/main amd64 c-n-f Metadata [4616 B]
+Get:13 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 Packages [202 kB]
+Get:14 http://security.ubuntu.com/ubuntu resolute-security/universe i386 Packages [115 kB]
+Get:15 http://security.ubuntu.com/ubuntu resolute-security/universe Translation-en [65.9 kB]
+Get:16 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 Components [55.5 kB]
+Get:17 http://security.ubuntu.com/ubuntu resolute-security/universe Icons (48x48) [17.3 kB]
+Get:18 http://archive.ubuntu.com/ubuntu resolute/main i386 Packages [1069 kB]
+Get:19 http://security.ubuntu.com/ubuntu resolute-security/universe Icons (64x64) [26.3 kB]
+Get:20 http://security.ubuntu.com/ubuntu resolute-security/universe Icons (64x64@2) [29 B]
+Get:21 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 c-n-f Metadata [3552 B]
+Get:22 http://security.ubuntu.com/ubuntu resolute-security/restricted amd64 Packages [495 kB]
+Get:23 http://security.ubuntu.com/ubuntu resolute-security/restricted i386 Packages [14.4 kB]
+Get:24 http://security.ubuntu.com/ubuntu resolute-security/restricted Translation-en [99.6 kB]
+Get:25 http://security.ubuntu.com/ubuntu resolute-security/restricted amd64 Components [212 B]
+Get:26 http://security.ubuntu.com/ubuntu resolute-security/restricted Icons (48x48) [29 B]
+Get:27 http://security.ubuntu.com/ubuntu resolute-security/restricted Icons (64x64) [29 B]
+Get:28 http://security.ubuntu.com/ubuntu resolute-security/restricted Icons (64x64@2) [29 B]
+Get:29 http://security.ubuntu.com/ubuntu resolute-security/restricted amd64 c-n-f Metadata [396 B]
+Get:30 http://security.ubuntu.com/ubuntu resolute-security/multiverse amd64 Packages [20.0 kB]
+Get:31 http://security.ubuntu.com/ubuntu resolute-security/multiverse i386 Packages [4984 B]
+Get:32 http://security.ubuntu.com/ubuntu resolute-security/multiverse Translation-en [3728 B]
+Get:33 http://security.ubuntu.com/ubuntu resolute-security/multiverse amd64 Components [212 B]
+Get:34 http://security.ubuntu.com/ubuntu resolute-security/multiverse Icons (48x48) [29 B]
+Get:35 http://security.ubuntu.com/ubuntu resolute-security/multiverse Icons (64x64) [29 B]
+Get:36 http://security.ubuntu.com/ubuntu resolute-security/multiverse Icons (64x64@2) [29 B]
+Get:37 http://security.ubuntu.com/ubuntu resolute-security/multiverse amd64 c-n-f Metadata [120 B]
+Get:38 http://archive.ubuntu.com/ubuntu resolute/main amd64 Packages [1480 kB]
+Get:39 http://archive.ubuntu.com/ubuntu resolute/main Translation-en [524 kB]
+Get:40 http://archive.ubuntu.com/ubuntu resolute/main amd64 Components [395 kB]
+Get:41 http://archive.ubuntu.com/ubuntu resolute/main Icons (48x48) [82.8 kB]
+Get:42 http://archive.ubuntu.com/ubuntu resolute/main Icons (64x64) [117 kB]
+Get:43 http://archive.ubuntu.com/ubuntu resolute/main Icons (64x64@2) [33.5 kB]
+Get:44 http://archive.ubuntu.com/ubuntu resolute/main amd64 c-n-f Metadata [32.4 kB]
+Get:45 http://archive.ubuntu.com/ubuntu resolute/universe i386 Packages [8511 kB]
+Get:46 http://archive.ubuntu.com/ubuntu resolute/universe amd64 Packages [16.0 MB]
+Get:47 http://archive.ubuntu.com/ubuntu resolute/universe Translation-en [6329 kB]
+Get:48 http://archive.ubuntu.com/ubuntu resolute/universe amd64 Components [4556 kB]
+Get:49 http://archive.ubuntu.com/ubuntu resolute/universe Icons (48x48) [3633 kB]
+Get:50 http://archive.ubuntu.com/ubuntu resolute/universe Icons (64x64) [7483 kB]
+Get:51 http://archive.ubuntu.com/ubuntu resolute/universe Icons (64x64@2) [122 kB]
+Get:52 http://archive.ubuntu.com/ubuntu resolute/universe amd64 c-n-f Metadata [313 kB]
+Get:53 http://archive.ubuntu.com/ubuntu resolute/restricted i386 Packages [13.6 kB]
+Get:54 http://archive.ubuntu.com/ubuntu resolute/restricted amd64 Packages [152 kB]
+Get:55 http://archive.ubuntu.com/ubuntu resolute/restricted Translation-en [25.8 kB]
+Get:56 http://archive.ubuntu.com/ubuntu resolute/restricted amd64 Components [556 B]
+Get:57 http://archive.ubuntu.com/ubuntu resolute/restricted Icons (48x48) [29 B]
+Get:58 http://archive.ubuntu.com/ubuntu resolute/restricted Icons (64x64) [29 B]
+Get:59 http://archive.ubuntu.com/ubuntu resolute/restricted Icons (64x64@2) [29 B]
+Get:60 http://archive.ubuntu.com/ubuntu resolute/restricted amd64 c-n-f Metadata [388 B]
+Get:61 http://archive.ubuntu.com/ubuntu resolute/multiverse i386 Packages [135 kB]
+Get:62 http://archive.ubuntu.com/ubuntu resolute/multiverse amd64 Packages [290 kB]
+Get:63 http://archive.ubuntu.com/ubuntu resolute/multiverse Translation-en [127 kB]
+Get:64 http://archive.ubuntu.com/ubuntu resolute/multiverse amd64 Components [50.0 kB]
+Get:65 http://archive.ubuntu.com/ubuntu resolute/multiverse Icons (48x48) [76.4 kB]
+Get:66 http://archive.ubuntu.com/ubuntu resolute/multiverse Icons (64x64) [179 kB]
+Get:67 http://archive.ubuntu.com/ubuntu resolute/multiverse Icons (64x64@2) [904 B]
+Get:68 http://archive.ubuntu.com/ubuntu resolute/multiverse amd64 c-n-f Metadata [8276 B]
+Get:69 http://archive.ubuntu.com/ubuntu resolute-updates/main i386 Packages [331 kB]
+Get:70 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 Packages [738 kB]
+Get:71 http://archive.ubuntu.com/ubuntu resolute-updates/main Translation-en [174 kB]
+Get:72 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 Components [110 kB]
+Get:73 http://archive.ubuntu.com/ubuntu resolute-updates/main Icons (48x48) [32.3 kB]
+Get:74 http://archive.ubuntu.com/ubuntu resolute-updates/main Icons (64x64) [46.4 kB]
+Get:75 http://archive.ubuntu.com/ubuntu resolute-updates/main Icons (64x64@2) [29 B]
+Get:76 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 c-n-f Metadata [5756 B]
+Get:77 http://archive.ubuntu.com/ubuntu resolute-updates/universe i386 Packages [172 kB]
+Get:78 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 Packages [329 kB]
+Get:79 http://archive.ubuntu.com/ubuntu resolute-updates/universe Translation-en [108 kB]
+Get:80 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 Components [201 kB]
+Get:81 http://archive.ubuntu.com/ubuntu resolute-updates/universe Icons (48x48) [55.0 kB]
+Get:82 http://archive.ubuntu.com/ubuntu resolute-updates/universe Icons (64x64) [93.0 kB]
+Get:83 http://archive.ubuntu.com/ubuntu resolute-updates/universe Icons (64x64@2) [29 B]
+Get:84 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 c-n-f Metadata [4704 B]
+Get:85 http://archive.ubuntu.com/ubuntu resolute-updates/restricted amd64 Packages [508 kB]
+Get:86 http://archive.ubuntu.com/ubuntu resolute-updates/restricted i386 Packages [14.4 kB]
+Get:87 http://archive.ubuntu.com/ubuntu resolute-updates/restricted Translation-en [101 kB]
+Get:88 http://archive.ubuntu.com/ubuntu resolute-updates/restricted amd64 Components [212 B]
+Get:89 http://archive.ubuntu.com/ubuntu resolute-updates/restricted Icons (48x48) [29 B]
+Get:90 http://archive.ubuntu.com/ubuntu resolute-updates/restricted Icons (64x64) [29 B]
+Get:91 http://archive.ubuntu.com/ubuntu resolute-updates/restricted Icons (64x64@2) [29 B]
+Get:92 http://archive.ubuntu.com/ubuntu resolute-updates/restricted amd64 c-n-f Metadata [392 B]
+Get:93 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse i386 Packages [4984 B]
+Get:94 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse amd64 Packages [21.0 kB]
+Get:95 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse Translation-en [4168 B]
+Get:96 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse amd64 Components [216 B]
+Get:97 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse Icons (48x48) [29 B]
+Get:98 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse Icons (64x64) [29 B]
+Get:99 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse Icons (64x64@2) [29 B]
+Get:100 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse amd64 c-n-f Metadata [256 B]
+Get:101 http://archive.ubuntu.com/ubuntu resolute-backports/main amd64 Components [212 B]
+Get:102 http://archive.ubuntu.com/ubuntu resolute-backports/main Icons (48x48) [29 B]
+Get:103 http://archive.ubuntu.com/ubuntu resolute-backports/main Icons (64x64) [29 B]
+Get:104 http://archive.ubuntu.com/ubuntu resolute-backports/main Icons (64x64@2) [29 B]
+Get:105 http://archive.ubuntu.com/ubuntu resolute-backports/main amd64 c-n-f Metadata [112 B]
+Get:106 http://archive.ubuntu.com/ubuntu resolute-backports/universe i386 Packages [1156 B]
+Get:107 http://archive.ubuntu.com/ubuntu resolute-backports/universe amd64 Packages [3136 B]
+Get:108 http://archive.ubuntu.com/ubuntu resolute-backports/universe Translation-en [7988 B]
+Get:109 http://archive.ubuntu.com/ubuntu resolute-backports/universe amd64 Components [1060 B]
+Get:110 http://archive.ubuntu.com/ubuntu resolute-backports/universe Icons (48x48) [2879 B]
+Get:111 http://archive.ubuntu.com/ubuntu resolute-backports/universe Icons (64x64) [3645 B]
+Get:112 http://archive.ubuntu.com/ubuntu resolute-backports/universe Icons (64x64@2) [29 B]
+Get:113 http://archive.ubuntu.com/ubuntu resolute-backports/universe amd64 c-n-f Metadata [116 B]
+Get:114 http://archive.ubuntu.com/ubuntu resolute-backports/restricted amd64 Components [216 B]
+Get:115 http://archive.ubuntu.com/ubuntu resolute-backports/restricted Icons (48x48) [29 B]
+Get:116 http://archive.ubuntu.com/ubuntu resolute-backports/restricted Icons (64x64) [29 B]
+Get:117 http://archive.ubuntu.com/ubuntu resolute-backports/restricted Icons (64x64@2) [29 B]
+Get:118 http://archive.ubuntu.com/ubuntu resolute-backports/restricted amd64 c-n-f Metadata [120 B]
+Get:119 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse amd64 Components [216 B]
+Get:120 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse Icons (48x48) [29 B]
+Get:121 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse Icons (64x64) [29 B]
+Get:122 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse Icons (64x64@2) [29 B]
+Get:123 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse amd64 c-n-f Metadata [120 B]
+Fetched 57.5 MB in 8s (7476 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (8.18.0-1ubuntu2.8).
+iw is already the newest version (6.17-1).
+iw set to manually installed.
+ca-certificates is already the newest version (20260601~26.04.1).
+gnupg is already the newest version (2.4.8-4ubuntu3.1).
+gnupg set to manually installed.
+Solving dependencies...
+0 upgraded, 0 newly installed, 0 to remove and 298 not upgraded.
+gpg: directory '/root/.gnupg' created
+gpg: keybox '/root/.gnupg/pubring.kbx' created
+gpg: /root/.gnupg/trustdb.gpg: trustdb created
+Hit:1 http://security.ubuntu.com/ubuntu resolute-security InRelease
+Get:2 https://download.docker.com/linux/ubuntu resolute InRelease [32.5 kB]
+Hit:3 http://archive.ubuntu.com/ubuntu resolute InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu resolute-updates InRelease
+Hit:5 http://archive.ubuntu.com/ubuntu resolute-backports InRelease
+Get:6 https://download.docker.com/linux/ubuntu resolute/stable amd64 Packages [30.0 kB]
+Fetched 62.5 kB in 1s (47.5 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following additional packages will be installed:
+  docker-ce-rootless-extras pigz
+Suggested packages:
+  cgroupfs-mount | cgroup-lite docker-model-plugin
+The following NEW packages will be installed:
+  containerd.io docker-buildx-plugin docker-ce docker-ce-cli
+  docker-ce-rootless-extras docker-compose-plugin pigz
+0 upgraded, 7 newly installed, 0 to remove and 298 not upgraded.
+Need to get 102 MB of archives.
+After this operation, 388 MB of additional disk space will be used.
+Get:1 https://download.docker.com/linux/ubuntu resolute/stable amd64 containerd.io amd64 2.4.2-2~ubuntu.26.04~resolute [23.3 MB]
+Get:2 http://archive.ubuntu.com/ubuntu resolute/universe amd64 pigz amd64 2.8-1build1 [66.8 kB]
+Get:3 https://download.docker.com/linux/ubuntu resolute/stable amd64 docker-ce-cli amd64 5:29.9.1-1~ubuntu.26.04~resolute [17.6 MB]
+Get:4 https://download.docker.com/linux/ubuntu resolute/stable amd64 docker-ce amd64 5:29.9.1-1~ubuntu.26.04~resolute [24.6 MB]
+Get:5 https://download.docker.com/linux/ubuntu resolute/stable amd64 docker-buildx-plugin amd64 0.38.0-1~ubuntu.26.04~resolute [17.8 MB]
+Get:6 https://download.docker.com/linux/ubuntu resolute/stable amd64 docker-ce-rootless-extras amd64 5:29.9.1-1~ubuntu.26.04~resolute [10.2 MB]
+Get:7 https://download.docker.com/linux/ubuntu resolute/stable amd64 docker-compose-plugin amd64 5.6.0-1~ubuntu.26.04~resolute [8081 kB]
+Fetched 102 MB in 4s (26.6 MB/s)
+Selecting previously unselected package containerd.io.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 215841 files and directories currently installed.)
+Preparing to unpack .../0-containerd.io_2.4.2-2~ubuntu.26.04~resolute_amd64.deb ...
+Unpacking containerd.io (2.4.2-2~ubuntu.26.04~resolute) ...
+Selecting previously unselected package docker-ce-cli.
+Preparing to unpack .../1-docker-ce-cli_5%3a29.9.1-1~ubuntu.26.04~resolute_amd64.deb ...
+Unpacking docker-ce-cli (5:29.9.1-1~ubuntu.26.04~resolute) ...
+Selecting previously unselected package docker-ce.
+Preparing to unpack .../2-docker-ce_5%3a29.9.1-1~ubuntu.26.04~resolute_amd64.deb ...
+Unpacking docker-ce (5:29.9.1-1~ubuntu.26.04~resolute) ...
+Selecting previously unselected package pigz.
+Preparing to unpack .../3-pigz_2.8-1build1_amd64.deb ...
+Unpacking pigz (2.8-1build1) ...
+Selecting previously unselected package docker-buildx-plugin.
+Preparing to unpack .../4-docker-buildx-plugin_0.38.0-1~ubuntu.26.04~resolute_amd64.deb ...
+Unpacking docker-buildx-plugin (0.38.0-1~ubuntu.26.04~resolute) ...
+Selecting previously unselected package docker-ce-rootless-extras.
+Preparing to unpack .../5-docker-ce-rootless-extras_5%3a29.9.1-1~ubuntu.26.04~resolute_amd64.deb ...
+Unpacking docker-ce-rootless-extras (5:29.9.1-1~ubuntu.26.04~resolute) ...
+Selecting previously unselected package docker-compose-plugin.
+Preparing to unpack .../6-docker-compose-plugin_5.6.0-1~ubuntu.26.04~resolute_amd64.deb ...
+Unpacking docker-compose-plugin (5.6.0-1~ubuntu.26.04~resolute) ...
+Setting up docker-buildx-plugin (0.38.0-1~ubuntu.26.04~resolute) ...
+Setting up containerd.io (2.4.2-2~ubuntu.26.04~resolute) ...
+Created symlink '/etc/systemd/system/multi-user.target.wants/containerd.service' → '/usr/lib/systemd/system/containerd.service'.
+Setting up docker-compose-plugin (5.6.0-1~ubuntu.26.04~resolute) ...
+Setting up docker-ce-cli (5:29.9.1-1~ubuntu.26.04~resolute) ...
+Setting up pigz (2.8-1build1) ...
+Setting up docker-ce-rootless-extras (5:29.9.1-1~ubuntu.26.04~resolute) ...
+Setting up docker-ce (5:29.9.1-1~ubuntu.26.04~resolute) ...
+invoke-rc.d: could not determine current runlevel
+invoke-rc.d: policy-rc.d denied execution of start.
+Created symlink '/etc/systemd/system/multi-user.target.wants/docker.service' → '/usr/lib/systemd/system/docker.service'.
+Created symlink '/etc/systemd/system/sockets.target.wants/docker.socket' → '/usr/lib/systemd/system/docker.socket'.
+Processing triggers for man-db (2.13.1-1build1) ...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following additional packages will be installed:
+  dnsmasq gunicorn hostapd libnginx-mod-http-echo nginx nginx-common
+  nginx-light python3-asgiref python3-flask python3-gunicorn
+  python3-itsdangerous python3-openssl python3-pyasyncore python3-pyinotify
+  python3-werkzeug
+Suggested packages:
+  python3-pastedeploy python3-tornado fcgiwrap nginx-doc python3-dotenv
+  python-flask-doc python-openssl-doc python-pyinotify-doc ipython3
+  python-werkzeug-doc python3-lxml python3-watchdog
+The following NEW packages will be installed:
+  dnsmasq gunicorn hostapd libnginx-mod-http-echo nginx nginx-common
+  nginx-light python3-asgiref python3-flask python3-gunicorn
+  python3-itsdangerous python3-openssl python3-pyasyncore python3-pyinotify
+  python3-werkzeug setup-device
+0 upgraded, 16 newly installed, 0 to remove and 298 not upgraded.
+Need to get 2177 kB/2310 kB of archives.
+After this operation, 7211 kB of additional disk space will be used.
+Get:1 /tmp/setup-device.deb setup-device all 1.0.0 [132 kB]
+Get:2 http://archive.ubuntu.com/ubuntu resolute/universe amd64 hostapd amd64 2:2.11-0ubuntu5 [964 kB]
+Get:3 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 dnsmasq all 2.92-1ubuntu0.5 [17.9 kB]
+Get:4 http://archive.ubuntu.com/ubuntu resolute/universe amd64 python3-gunicorn all 25.1.0-1 [131 kB]
+Get:5 http://archive.ubuntu.com/ubuntu resolute/universe amd64 gunicorn all 25.1.0-1 [7800 B]
+Get:6 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 nginx-common all 1.28.3-2ubuntu1.11 [37.9 kB]
+Get:7 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 nginx amd64 1.28.3-2ubuntu1.11 [617 kB]
+Get:8 http://archive.ubuntu.com/ubuntu resolute/universe amd64 libnginx-mod-http-echo amd64 1:0.64-1build3 [20.6 kB]
+Get:9 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 nginx-light all 1.28.3-2ubuntu1.11 [3416 B]
+Get:10 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-asgiref all 3.11.0-1 [25.2 kB]
+Get:11 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-itsdangerous all 2.2.0-2build1 [15.4 kB]
+Get:12 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-werkzeug all 3.1.5-1 [170 kB]
+Get:13 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-flask all 3.1.3-1ubuntu1 [85.0 kB]
+Get:14 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-openssl all 25.3.0-1ubuntu1 [46.4 kB]
+Get:15 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-pyasyncore all 1.0.2-3build1 [10.4 kB]
+Get:16 http://archive.ubuntu.com/ubuntu resolute/main amd64 python3-pyinotify all 0.9.6-5build1 [25.5 kB]
+Preconfiguring packages ...
+Fetched 2177 kB in 3s (869 kB/s)
+Selecting previously unselected package hostapd.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 216078 files and directories currently installed.)
+Preparing to unpack .../00-hostapd_2%3a2.11-0ubuntu5_amd64.deb ...
+Unpacking hostapd (2:2.11-0ubuntu5) ...
+Selecting previously unselected package dnsmasq.
+Preparing to unpack .../01-dnsmasq_2.92-1ubuntu0.5_all.deb ...
+Unpacking dnsmasq (2.92-1ubuntu0.5) ...
+Selecting previously unselected package python3-gunicorn.
+Preparing to unpack .../02-python3-gunicorn_25.1.0-1_all.deb ...
+Unpacking python3-gunicorn (25.1.0-1) ...
+Selecting previously unselected package gunicorn.
+Preparing to unpack .../03-gunicorn_25.1.0-1_all.deb ...
+Unpacking gunicorn (25.1.0-1) ...
+Selecting previously unselected package nginx-common.
+Preparing to unpack .../04-nginx-common_1.28.3-2ubuntu1.11_all.deb ...
+Unpacking nginx-common (1.28.3-2ubuntu1.11) ...
+Selecting previously unselected package nginx.
+Preparing to unpack .../05-nginx_1.28.3-2ubuntu1.11_amd64.deb ...
+Unpacking nginx (1.28.3-2ubuntu1.11) ...
+Selecting previously unselected package libnginx-mod-http-echo.
+Preparing to unpack .../06-libnginx-mod-http-echo_1%3a0.64-1build3_amd64.deb ...
+Unpacking libnginx-mod-http-echo (1:0.64-1build3) ...
+Selecting previously unselected package nginx-light.
+Preparing to unpack .../07-nginx-light_1.28.3-2ubuntu1.11_all.deb ...
+Unpacking nginx-light (1.28.3-2ubuntu1.11) ...
+Selecting previously unselected package python3-asgiref.
+Preparing to unpack .../08-python3-asgiref_3.11.0-1_all.deb ...
+Unpacking python3-asgiref (3.11.0-1) ...
+Selecting previously unselected package python3-itsdangerous.
+Preparing to unpack .../09-python3-itsdangerous_2.2.0-2build1_all.deb ...
+Unpacking python3-itsdangerous (2.2.0-2build1) ...
+Selecting previously unselected package python3-werkzeug.
+Preparing to unpack .../10-python3-werkzeug_3.1.5-1_all.deb ...
+Unpacking python3-werkzeug (3.1.5-1) ...
+Selecting previously unselected package python3-flask.
+Preparing to unpack .../11-python3-flask_3.1.3-1ubuntu1_all.deb ...
+Unpacking python3-flask (3.1.3-1ubuntu1) ...
+Selecting previously unselected package python3-openssl.
+Preparing to unpack .../12-python3-openssl_25.3.0-1ubuntu1_all.deb ...
+Unpacking python3-openssl (25.3.0-1ubuntu1) ...
+Selecting previously unselected package python3-pyasyncore.
+Preparing to unpack .../13-python3-pyasyncore_1.0.2-3build1_all.deb ...
+Unpacking python3-pyasyncore (1.0.2-3build1) ...
+Selecting previously unselected package python3-pyinotify.
+Preparing to unpack .../14-python3-pyinotify_0.9.6-5build1_all.deb ...
+Unpacking python3-pyinotify (0.9.6-5build1) ...
+Selecting previously unselected package setup-device.
+Preparing to unpack .../15-setup-device.deb ...
+Unpacking setup-device (1.0.0) ...
+Setting up python3-openssl (25.3.0-1ubuntu1) ...
+Setting up nginx-common (1.28.3-2ubuntu1.11) ...
+Created symlink '/etc/systemd/system/multi-user.target.wants/nginx.service' → '/usr/lib/systemd/system/nginx.service'.
+Setting up python3-itsdangerous (2.2.0-2build1) ...
+Setting up dnsmasq (2.92-1ubuntu0.5) ...
+invoke-rc.d: could not determine current runlevel
+invoke-rc.d: policy-rc.d denied execution of start.
+Created symlink '/etc/systemd/system/multi-user.target.wants/dnsmasq.service' → '/usr/lib/systemd/system/dnsmasq.service'.
+Setting up hostapd (2:2.11-0ubuntu5) ...
+invoke-rc.d: could not determine current runlevel
+invoke-rc.d: policy-rc.d denied execution of start.
+Created symlink '/etc/systemd/system/multi-user.target.wants/hostapd.service' → '/usr/lib/systemd/system/hostapd.service'.
+Setting up python3-werkzeug (3.1.5-1) ...
+Setting up python3-gunicorn (25.1.0-1) ...
+Setting up python3-pyasyncore (1.0.2-3build1) ...
+Setting up python3-asgiref (3.11.0-1) ...
+Setting up nginx (1.28.3-2ubuntu1.11) ...
+invoke-rc.d: could not determine current runlevel
+invoke-rc.d: policy-rc.d denied execution of start.
+Setting up python3-flask (3.1.3-1ubuntu1) ...
+Setting up python3-pyinotify (0.9.6-5build1) ...
+Setting up gunicorn (25.1.0-1) ...
+Setting up libnginx-mod-http-echo (1:0.64-1build3) ...
+Setting up nginx-light (1.28.3-2ubuntu1.11) ...
+Setting up setup-device (1.0.0) ...
+Setting up headless device configuration...
+Verifying systemd unit files...
+✓ Unit files verified
+Resetting setup state for fresh start...
+Enabling services for boot-time startup...
+Setup netplan profile installed (apply deferred).
+Configuring hosts mapping...
+✓ Nginx configuration is valid
+systemd is not running (image or chroot install): the backend and the monitor are enabled and will start on first boot.
+Processing triggers for hicolor-icon-theme (0.18-2build1) ...
+Processing triggers for gnome-menus (3.38.1-1ubuntu1) ...
+Processing triggers for ufw (0.36.2-9build1) ...
+Processing triggers for man-db (2.13.1-1build1) ...
+Processing triggers for desktop-file-utils (0.28-1build1) ...
+Processing triggers for nginx (1.28.3-2ubuntu1.11) ...
+Synchronizing state of dnsmasq.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install disable dnsmasq
+Removed '/etc/systemd/system/multi-user.target.wants/dnsmasq.service'.
+Synchronizing state of docker.service with SysV service script with /usr/lib/systemd/systemd-sysv-install.
+Executing: /usr/lib/systemd/systemd-sysv-install enable docker
+Created symlink '/etc/systemd/system/multi-user.target.wants/ci-os-docker-group.service' → '/usr/lib/systemd/system/ci-os-docker-group.service'.
+[+] Wireless setup stack, Docker and CI-Hub tooling pre-installed
+[*] Step 10f: Installing the one-click automatic installer...
+[+] One-click automatic installer installed
+[*] Step 10g: Installing the Companion links, desktop shortcuts and first-login welcome...
+[+] Companion links installed (8 links, 5 on the desktop of a new user)
+[*] Step 10e: Pre-installing optional tools (Tier B)...
+Get:1 https://cli.github.com/packages stable InRelease [3917 B]
+Get:2 http://security.ubuntu.com/ubuntu resolute-security InRelease [137 kB]
+Get:3 http://archive.ubuntu.com/ubuntu resolute InRelease [136 kB]
+Get:4 https://cli.github.com/packages stable/main amd64 Packages [356 B]
+Get:5 https://pkgs.tailscale.com/stable/ubuntu resolute InRelease
+Get:6 https://download.docker.com/linux/ubuntu resolute InRelease [32.5 kB]
+Get:7 http://security.ubuntu.com/ubuntu resolute-security/main i386 Packages [233 kB]
+Get:8 https://pkgs.tailscale.com/stable/ubuntu resolute/main amd64 Packages [16.5 kB]
+Get:9 https://pkgs.tailscale.com/stable/ubuntu resolute/main all Packages [351 B]
+Get:10 http://archive.ubuntu.com/ubuntu resolute-updates InRelease [137 kB]
+Get:11 https://pkg.cloudflare.com/cloudflared any InRelease [5039 B]
+Get:12 https://pkgs.tailscale.com/stable/ubuntu resolute/main i386 Packages [16.1 kB]
+Get:13 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Packages [602 kB]
+Get:14 http://archive.ubuntu.com/ubuntu resolute-backports InRelease [137 kB]
+Get:15 https://download.docker.com/linux/ubuntu resolute/stable amd64 Packages [30.0 kB]
+Get:16 http://archive.ubuntu.com/ubuntu resolute/main i386 Packages [1069 kB]
+Get:17 http://security.ubuntu.com/ubuntu resolute-security/main Translation-en [139 kB]
+Get:18 http://security.ubuntu.com/ubuntu resolute-security/main amd64 Components [46.7 kB]
+Get:19 http://security.ubuntu.com/ubuntu resolute-security/main Icons (48x48) [20.8 kB]
+Get:20 http://security.ubuntu.com/ubuntu resolute-security/main Icons (64x64) [29.3 kB]
+Get:21 http://security.ubuntu.com/ubuntu resolute-security/main Icons (64x64@2) [29 B]
+Get:22 http://security.ubuntu.com/ubuntu resolute-security/main amd64 c-n-f Metadata [4616 B]
+Get:23 http://security.ubuntu.com/ubuntu resolute-security/universe i386 Packages [115 kB]
+Get:24 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 Packages [202 kB]
+Get:25 http://security.ubuntu.com/ubuntu resolute-security/universe Translation-en [65.9 kB]
+Get:26 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 Components [55.5 kB]
+Get:27 http://security.ubuntu.com/ubuntu resolute-security/universe Icons (48x48) [17.3 kB]
+Get:28 https://pkg.cloudflare.com/cloudflared any/main amd64 Packages [375 B]
+Get:29 http://security.ubuntu.com/ubuntu resolute-security/universe Icons (64x64) [26.3 kB]
+Get:30 http://security.ubuntu.com/ubuntu resolute-security/universe Icons (64x64@2) [29 B]
+Get:31 http://security.ubuntu.com/ubuntu resolute-security/universe amd64 c-n-f Metadata [3552 B]
+Get:32 http://security.ubuntu.com/ubuntu resolute-security/restricted amd64 Packages [495 kB]
+Get:33 http://security.ubuntu.com/ubuntu resolute-security/restricted i386 Packages [14.4 kB]
+Get:34 http://security.ubuntu.com/ubuntu resolute-security/restricted Translation-en [99.6 kB]
+Get:35 http://security.ubuntu.com/ubuntu resolute-security/restricted amd64 Components [212 B]
+Get:36 http://security.ubuntu.com/ubuntu resolute-security/restricted Icons (48x48) [29 B]
+Get:37 http://security.ubuntu.com/ubuntu resolute-security/restricted Icons (64x64) [29 B]
+Get:38 http://security.ubuntu.com/ubuntu resolute-security/restricted Icons (64x64@2) [29 B]
+Get:39 http://security.ubuntu.com/ubuntu resolute-security/restricted amd64 c-n-f Metadata [396 B]
+Get:40 http://security.ubuntu.com/ubuntu resolute-security/multiverse i386 Packages [4984 B]
+Get:41 http://security.ubuntu.com/ubuntu resolute-security/multiverse amd64 Packages [20.0 kB]
+Get:42 http://archive.ubuntu.com/ubuntu resolute/main amd64 Packages [1480 kB]
+Get:43 http://security.ubuntu.com/ubuntu resolute-security/multiverse Translation-en [3728 B]
+Get:44 http://security.ubuntu.com/ubuntu resolute-security/multiverse amd64 Components [212 B]
+Get:45 http://security.ubuntu.com/ubuntu resolute-security/multiverse Icons (48x48) [29 B]
+Get:46 http://security.ubuntu.com/ubuntu resolute-security/multiverse Icons (64x64) [29 B]
+Get:47 http://security.ubuntu.com/ubuntu resolute-security/multiverse Icons (64x64@2) [29 B]
+Get:48 http://security.ubuntu.com/ubuntu resolute-security/multiverse amd64 c-n-f Metadata [120 B]
+Get:49 http://archive.ubuntu.com/ubuntu resolute/main Translation-en [524 kB]
+Get:50 http://archive.ubuntu.com/ubuntu resolute/main amd64 Components [395 kB]
+Get:51 http://archive.ubuntu.com/ubuntu resolute/main Icons (48x48) [82.8 kB]
+Get:52 http://archive.ubuntu.com/ubuntu resolute/main Icons (64x64) [117 kB]
+Get:53 http://archive.ubuntu.com/ubuntu resolute/main Icons (64x64@2) [33.5 kB]
+Get:54 http://archive.ubuntu.com/ubuntu resolute/main amd64 c-n-f Metadata [32.4 kB]
+Get:55 http://archive.ubuntu.com/ubuntu resolute/universe i386 Packages [8511 kB]
+Get:56 http://archive.ubuntu.com/ubuntu resolute/universe amd64 Packages [16.0 MB]
+Get:57 http://archive.ubuntu.com/ubuntu resolute/universe Translation-en [6329 kB]
+Get:58 http://archive.ubuntu.com/ubuntu resolute/universe amd64 Components [4556 kB]
+Get:59 http://archive.ubuntu.com/ubuntu resolute/universe Icons (48x48) [3633 kB]
+Get:60 http://archive.ubuntu.com/ubuntu resolute/universe Icons (64x64) [7483 kB]
+Get:61 http://archive.ubuntu.com/ubuntu resolute/universe Icons (64x64@2) [122 kB]
+Get:62 http://archive.ubuntu.com/ubuntu resolute/universe amd64 c-n-f Metadata [313 kB]
+Get:63 http://archive.ubuntu.com/ubuntu resolute/restricted amd64 Packages [152 kB]
+Get:64 http://archive.ubuntu.com/ubuntu resolute/restricted i386 Packages [13.6 kB]
+Get:65 http://archive.ubuntu.com/ubuntu resolute/restricted Translation-en [25.8 kB]
+Get:66 http://archive.ubuntu.com/ubuntu resolute/restricted amd64 Components [556 B]
+Get:67 http://archive.ubuntu.com/ubuntu resolute/restricted Icons (48x48) [29 B]
+Get:68 http://archive.ubuntu.com/ubuntu resolute/restricted Icons (64x64) [29 B]
+Get:69 http://archive.ubuntu.com/ubuntu resolute/restricted Icons (64x64@2) [29 B]
+Get:70 http://archive.ubuntu.com/ubuntu resolute/restricted amd64 c-n-f Metadata [388 B]
+Get:71 http://archive.ubuntu.com/ubuntu resolute/multiverse amd64 Packages [290 kB]
+Get:72 http://archive.ubuntu.com/ubuntu resolute/multiverse i386 Packages [135 kB]
+Get:73 http://archive.ubuntu.com/ubuntu resolute/multiverse Translation-en [127 kB]
+Get:74 http://archive.ubuntu.com/ubuntu resolute/multiverse amd64 Components [50.0 kB]
+Get:75 http://archive.ubuntu.com/ubuntu resolute/multiverse Icons (48x48) [76.4 kB]
+Get:76 http://archive.ubuntu.com/ubuntu resolute/multiverse Icons (64x64) [179 kB]
+Get:77 http://archive.ubuntu.com/ubuntu resolute/multiverse Icons (64x64@2) [904 B]
+Get:78 http://archive.ubuntu.com/ubuntu resolute/multiverse amd64 c-n-f Metadata [8276 B]
+Get:79 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 Packages [738 kB]
+Get:80 http://archive.ubuntu.com/ubuntu resolute-updates/main i386 Packages [331 kB]
+Get:81 http://archive.ubuntu.com/ubuntu resolute-updates/main Translation-en [174 kB]
+Get:82 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 Components [110 kB]
+Get:83 http://archive.ubuntu.com/ubuntu resolute-updates/main Icons (48x48) [32.3 kB]
+Get:84 http://archive.ubuntu.com/ubuntu resolute-updates/main Icons (64x64) [46.4 kB]
+Get:85 http://archive.ubuntu.com/ubuntu resolute-updates/main Icons (64x64@2) [29 B]
+Get:86 http://archive.ubuntu.com/ubuntu resolute-updates/main amd64 c-n-f Metadata [5756 B]
+Get:87 http://archive.ubuntu.com/ubuntu resolute-updates/universe i386 Packages [172 kB]
+Get:88 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 Packages [329 kB]
+Get:89 http://archive.ubuntu.com/ubuntu resolute-updates/universe Translation-en [108 kB]
+Get:90 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 Components [201 kB]
+Get:91 http://archive.ubuntu.com/ubuntu resolute-updates/universe Icons (48x48) [55.0 kB]
+Get:92 http://archive.ubuntu.com/ubuntu resolute-updates/universe Icons (64x64) [93.0 kB]
+Get:93 http://archive.ubuntu.com/ubuntu resolute-updates/universe Icons (64x64@2) [29 B]
+Get:94 http://archive.ubuntu.com/ubuntu resolute-updates/universe amd64 c-n-f Metadata [4704 B]
+Get:95 http://archive.ubuntu.com/ubuntu resolute-updates/restricted amd64 Packages [508 kB]
+Get:96 http://archive.ubuntu.com/ubuntu resolute-updates/restricted i386 Packages [14.4 kB]
+Get:97 http://archive.ubuntu.com/ubuntu resolute-updates/restricted Translation-en [101 kB]
+Get:98 http://archive.ubuntu.com/ubuntu resolute-updates/restricted amd64 Components [212 B]
+Get:99 http://archive.ubuntu.com/ubuntu resolute-updates/restricted Icons (48x48) [29 B]
+Get:100 http://archive.ubuntu.com/ubuntu resolute-updates/restricted Icons (64x64) [29 B]
+Get:101 http://archive.ubuntu.com/ubuntu resolute-updates/restricted Icons (64x64@2) [29 B]
+Get:102 http://archive.ubuntu.com/ubuntu resolute-updates/restricted amd64 c-n-f Metadata [392 B]
+Get:103 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse amd64 Packages [21.0 kB]
+Get:104 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse i386 Packages [4984 B]
+Get:105 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse Translation-en [4168 B]
+Get:106 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse amd64 Components [216 B]
+Get:107 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse Icons (48x48) [29 B]
+Get:108 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse Icons (64x64) [29 B]
+Get:109 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse Icons (64x64@2) [29 B]
+Get:110 http://archive.ubuntu.com/ubuntu resolute-updates/multiverse amd64 c-n-f Metadata [256 B]
+Get:111 http://archive.ubuntu.com/ubuntu resolute-backports/main amd64 Components [212 B]
+Get:112 http://archive.ubuntu.com/ubuntu resolute-backports/main Icons (48x48) [29 B]
+Get:113 http://archive.ubuntu.com/ubuntu resolute-backports/main Icons (64x64) [29 B]
+Get:114 http://archive.ubuntu.com/ubuntu resolute-backports/main Icons (64x64@2) [29 B]
+Get:115 http://archive.ubuntu.com/ubuntu resolute-backports/main amd64 c-n-f Metadata [112 B]
+Get:116 http://archive.ubuntu.com/ubuntu resolute-backports/universe i386 Packages [1156 B]
+Get:117 http://archive.ubuntu.com/ubuntu resolute-backports/universe amd64 Packages [3136 B]
+Get:118 http://archive.ubuntu.com/ubuntu resolute-backports/universe Translation-en [7988 B]
+Get:119 http://archive.ubuntu.com/ubuntu resolute-backports/universe amd64 Components [1060 B]
+Get:120 http://archive.ubuntu.com/ubuntu resolute-backports/universe Icons (48x48) [2879 B]
+Get:121 http://archive.ubuntu.com/ubuntu resolute-backports/universe Icons (64x64) [3645 B]
+Get:122 http://archive.ubuntu.com/ubuntu resolute-backports/universe Icons (64x64@2) [29 B]
+Get:123 http://archive.ubuntu.com/ubuntu resolute-backports/universe amd64 c-n-f Metadata [116 B]
+Get:124 http://archive.ubuntu.com/ubuntu resolute-backports/restricted amd64 Components [216 B]
+Get:125 http://archive.ubuntu.com/ubuntu resolute-backports/restricted Icons (48x48) [29 B]
+Get:126 http://archive.ubuntu.com/ubuntu resolute-backports/restricted Icons (64x64) [29 B]
+Get:127 http://archive.ubuntu.com/ubuntu resolute-backports/restricted Icons (64x64@2) [29 B]
+Get:128 http://archive.ubuntu.com/ubuntu resolute-backports/restricted amd64 c-n-f Metadata [120 B]
+Get:129 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse amd64 Components [216 B]
+Get:130 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse Icons (48x48) [29 B]
+Get:131 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse Icons (64x64) [29 B]
+Get:132 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse Icons (64x64@2) [29 B]
+Get:133 http://archive.ubuntu.com/ubuntu resolute-backports/multiverse amd64 c-n-f Metadata [120 B]
+Fetched 57.6 MB in 10s (5698 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+Recommended packages:
+  tailscale-archive-keyring
+The following NEW packages will be installed:
+  cloudflared gh tailscale
+0 upgraded, 3 newly installed, 0 to remove and 298 not upgraded.
+Need to get 75.8 MB of archives.
+After this operation, 161 MB of additional disk space will be used.
+Get:1 https://cli.github.com/packages stable/main amd64 gh amd64 2.102.0 [15.4 MB]
+Get:2 https://pkgs.tailscale.com/stable/ubuntu resolute/main amd64 tailscale amd64 1.104.1 [40.5 MB]
+Get:3 https://pkg.cloudflare.com/cloudflared any/main amd64 cloudflared amd64 2026.10.1 [19.9 MB]
+Fetched 75.8 MB in 9s (8527 kB/s)
+Selecting previously unselected package cloudflared.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 216533 files and directories currently installed.)
+Preparing to unpack .../cloudflared_2026.10.1_amd64.deb ...
+Unpacking cloudflared (2026.10.1) ...
+Selecting previously unselected package gh.
+Preparing to unpack .../archives/gh_2.102.0_amd64.deb ...
+Unpacking gh (2.102.0) ...
+Selecting previously unselected package tailscale.
+Preparing to unpack .../tailscale_1.104.1_amd64.deb ...
+Unpacking tailscale (1.104.1) ...
+Setting up cloudflared (2026.10.1) ...
+Setting up gh (2.102.0) ...
+Setting up tailscale (1.104.1) ...
+Created symlink '/etc/systemd/system/multi-user.target.wants/tailscaled.service' -> '/usr/lib/systemd/system/tailscaled.service'.
+Processing triggers for man-db (2.13.1-1build1) ...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following NEW packages will be installed:
+  companion-hub
+0 upgraded, 1 newly installed, 0 to remove and 298 not upgraded.
+Need to get 0 B/39.4 MB of archives.
+After this operation, 108 MB of additional disk space will be used.
+Get:1 /tmp/companion-hub.deb companion-hub amd64 0.3.5 [39.4 MB]
+Selecting previously unselected package companion-hub.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 216777 files and directories currently installed.)
+Preparing to unpack /tmp/companion-hub.deb ...
+Unpacking companion-hub (0.3.5) ...
+Setting up companion-hub (0.3.5) ...
+Processing triggers for hicolor-icon-theme (0.18-2build1) ...
+Processing triggers for gnome-menus (3.38.1-1ubuntu1) ...
+Processing triggers for desktop-file-utils (0.28-1build1) ...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+Solving dependencies...
+The following additional packages will be installed:
+  libxdo3
+The following NEW packages will be installed:
+  companion-capture libxdo3
+0 upgraded, 2 newly installed, 0 to remove and 298 not upgraded.
+Need to get 22.5 kB/12.7 MB of archives.
+After this operation, 36.0 MB of additional disk space will be used.
+Get:1 /tmp/companion-capture.deb companion-capture amd64 0.2.0-alpha.7 [12.7 MB]
+Get:2 http://archive.ubuntu.com/ubuntu resolute/universe amd64 libxdo3 amd64 1:3.20160805.1-5.1build1 [22.5 kB]
+Fetched 22.5 kB in 1s (28.5 kB/s)
+Selecting previously unselected package libxdo3:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 216791 files and directories currently installed.)
+Preparing to unpack .../libxdo3_1%3a3.20160805.1-5.1build1_amd64.deb ...
+Unpacking libxdo3:amd64 (1:3.20160805.1-5.1build1) ...
+Selecting previously unselected package companion-capture.
+Preparing to unpack /tmp/companion-capture.deb ...
+Unpacking companion-capture (0.2.0-alpha.7) ...
+Setting up libxdo3:amd64 (1:3.20160805.1-5.1build1) ...
+Setting up companion-capture (0.2.0-alpha.7) ...
+Processing triggers for hicolor-icon-theme (0.18-2build1) ...
+Processing triggers for gnome-menus (3.38.1-1ubuntu1) ...
+Processing triggers for libc-bin (2.43-2ubuntu2.3) ...
+Processing triggers for desktop-file-utils (0.28-1build1) ...
+Created symlink '/etc/systemd/system/multi-user.target.wants/ollama.service' -> '/etc/systemd/system/ollama.service'.
+Warning: could not connect to a running Ollama instance
+Warning: client version is 0.40.3
+[+] Step 10e: optional tools pre-installed (third-party=1 ollama=1 launcher=1 capture=1)
+[*] Step 10c: Setting up first-boot bootstrap service...
+[+] Copied provision.sh
+[+] Copied install-models.sh
+[+] Copied backends/ubuntu/lib/*.sh
+[+] Copied core/lib/*.sh (including ci-hub.sh)
+[+] First-boot bootstrap service installed
+[+] Bootstrap scripts copied to /usr/lib/ci-os/bootstrap/
+[+] Manual re-run available via: sudo ci-os-setup
+[*] Step 11: Final cleanup...
+[+] Cleanup complete
+[+] Final cleanup complete
+
+[+] CI-OS customization complete!
+[+] Chroot: /vol/work/chroot
+[+] Version: 1.0
+[INFO] Customizations applied
+[INFO] Restored /etc/apt/sources.list.d/cdrom.sources (the ISO pool source subiquity 26.04 expects in the installed layer)
+[INFO] split: seed-orphans: 5 snap file(s) in seed/snaps that seed.yaml does not name removed
+[INFO] Removed the encryption variant's snapd seed (seed/systems and the snap files seed.yaml does not name) from the rootfs: 2641395712 -> 1979244544 bytes in seed/
+[INFO] Generating package manifest...
+[INFO] Cleaning up chroot mounts...
+[INFO] Chroot cleaned up
+[INFO] Repacking squashfs filesystem...
+[INFO] Removed 164 stock layer file(s) from casper/ (layers, language and enhanced-secureboot variants, their .size/.manifest/.manifest.full)
+[INFO] Splitting the rootfs into the installer's base layer (minimal.squashfs) and the live-only layer (this takes 5-15 minutes)...
+[INFO] split: applying the table to a copy-on-write view of the rootfs...
+[INFO] split: dpkg --purge casper finalrd
+(Reading database ... 216798 files and directories currently installed.)
+Removing casper (26.04.2) ...
+Purging configuration files for casper (26.04.2) ...
+Removing finalrd (9build2) ...
+Purging configuration files for finalrd (9build2) ...
+Processing triggers for man-db (2.13.1-1build1) ...
+[INFO] split: rm /etc/initramfs-tools/conf.d/casperize.conf (1)
+[INFO] split: rm /etc/initramfs-tools/conf.d/default-layer.conf (1)
+[INFO] split: rm /usr/share/glib-2.0/schemas/livecd-rootfs.gschema.override (1)
+[INFO] split: glib schemas recompiled without the live overrides
+[INFO] split: rm /usr/lib/systemd/user/ubuntu-desktop-installer.service (1)
+[INFO] split: rm /etc/systemd/user/graphical-session.target.wants/ubuntu-desktop-installer.service (1)
+[INFO] split: rm /usr/lib/systemd/system/subiquity_config.mount (1)
+[INFO] split: rm /etc/systemd/system/dev-disk-by*.device.d naming subiquity_config.mount (1)
+[INFO] split: installer snaps (ubuntu-desktop-bootstrap): 49 paths removed
+[INFO] split: restore /var/lib/snapd/state.json from the stock standard stack
+[INFO] split: restore /var/lib/snapd/system-key from the stock standard stack
+[INFO] split: restore /var/lib/snapd/seed/seed.yaml from the stock standard stack
+[INFO] split: restore /var/lib/snapd/seed/assertions from the stock standard stack
+[INFO] split: restore /var/lib/snapd/assertions from the stock standard stack
+[INFO] split: restore /var/lib/snapd/apparmor/profiles from the stock standard stack
+[INFO] split: restore /var/lib/snapd/cgroup from the stock standard stack
+[INFO] split: restore /var/lib/snapd/cookie from the stock standard stack
+[INFO] split: restore /var/lib/snapd/desktop/applications from the stock standard stack
+[INFO] split: restore /var/lib/snapd/inhibit from the stock standard stack
+[INFO] split: restore /var/lib/snapd/mount from the stock standard stack
+[INFO] split: restore /var/lib/snapd/seccomp/bpf from the stock standard stack
+[INFO] split: restore /var/lib/snapd/sequence from the stock standard stack
+[INFO] split: restore /var/cache/snapd/aux from the stock standard stack
+[INFO] split: seed-orphans: 0 snap file(s) in seed/snaps that seed.yaml does not name removed
+[INFO] split: restore /etc/cloud/cloud.cfg from the stock standard stack
+[INFO] split: restore /usr/lib/systemd/systemd-networkd-wait-online from the stock standard stack
+[INFO] split: rm /var/lib/cloud/seed/nocloud (1)
+[INFO] split: rmdir /var/lib/cloud/seed
+[INFO] split: rmdir /var/lib/cloud
+[INFO] split: rm /etc/cloud/cloud.cfg.d/06_quiet.cfg (1)
+[INFO] split: rm /etc/apt/preferences.d.save/preferences.d (1)
+[INFO] split: rm /root/packages.chroot (1)
+[INFO] split: rm /usr/lib/systemd/system/getty@tty1.service (1)
+[INFO] split: rm /usr/lib/systemd/system/udisks2-inhibit.service (1)
+[INFO] split: rm /usr/lib/systemd/system/graphical.target.wants/udisks2-inhibit.service (1)
+[INFO] split: rmdir /usr/lib/systemd/system/graphical.target.wants
+[INFO] split: rm /usr/lib/systemd/system/local-fs.target.wants/media-filesystem.mount (1)
+[INFO] split: rm /etc/systemd/system/snapd.service.d/snapd-snap-reexec.conf (1)
+[INFO] split: rmdir /etc/systemd/system/snapd.service.d
+[INFO] split: rm /etc/polkit-1/rules.d/10-allow-installer-wait-on-snap.rules (1)
+[INFO] split: rm /etc/sysctl.d/20-apparmor.conf (1)
+[INFO] split: rm /etc/systemd/system/display-manager.service.d/wait-for-snapd-seeding.conf (1)
+[INFO] split: rmdir /etc/systemd/system/display-manager.service.d
+[INFO] split: rm /etc/systemd/journald.conf.d/no-rate-limit.conf (1)
+[INFO] split: rm /etc/systemd/system/systemd-journald.service.d/no-compact.conf (1)
+[INFO] split: rm /etc/systemd/system/systemd-journald.service.d/no-hardening.conf (1)
+[INFO] split: rmdir /etc/systemd/journald.conf.d
+[INFO] split: rmdir /etc/systemd/system/systemd-journald.service.d
+[INFO] split: base layer B has 1876 packages, C has 1878
+[INFO] split: L staged: 249 path(s) taken from C, 0 whiteout(s)
+[INFO] split: packed B (base, from the merged view): 5547356160 bytes in 536 s
+[INFO] split: packed L (live delta): 117485568 bytes in 16 s
+[INFO] split: B and L written in 563 s
+[INFO] Creating placeholder layer: minimal.standard.squashfs
+[INFO] split: comparing the stack of the three layers with the rootfs (full; this reads both trees)...

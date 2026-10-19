@@ -159,11 +159,12 @@ This erases **one internal disk** and installs with one question.
 1. Boot the stick and choose **Install Companion OS (automatic)**. The live session starts and the dialog opens by itself. From the normal entry, click **Install Companion OS (automatic)**, which is first in the dock and in the app grid (Ubuntu 26.04's live session draws no desktop icons).
 2. The dialog **names the disk**: model, size, device, and **everything found on it** (each partition and filesystem, any RAID or LUKS signature), lists the other disks that will be left alone, and shows a **one-time password** for the user `companion`. Write the password down. **Enter never confirms: the default is Cancel.**
 3. With more than one internal disk you first pick one from a list; nothing is guessed.
-4. Click **Erase the disk and install**. A progress window follows the installer's state and repeats the sign-in details. Choose **Cancel** or **Use the normal installer** to stop; nothing has been written before the click.
-5. When it finishes the computer **turns off**. Remove the stick and turn it on.
-6. Sign in as `companion` with the one-time password; the system forces a new password at the first sign-in.
+4. The dialog says which language, keyboard and time zone it will use (English, US and automatic detection unless you change them). To change them press **Language, keyboard, time zone...**, pick a row, search the list by typing, and press **Done**; choosing a language also suggests its keyboard and, for a country with one time zone, that zone. The dialog comes back with your choice and the same password.
+5. Click **Erase the disk and install**. A progress window follows the installer's state and repeats the sign-in details. Choose **Cancel** or **Use the normal installer** to stop; nothing has been written before the click.
+6. When it finishes the computer **turns off**. Remove the stick and turn it on.
+7. Sign in as `companion` with the one-time password; the system forces a new password at the first sign-in.
 
-What it decides for you: language `en_US.UTF-8`, keyboard `us`, time zone from GeoIP (UTC when offline), erase the chosen disk, no proprietary drivers or codecs, security updates only, host name `companion-os`, no installer self-update.
+What it decides for you: by default language `en_US.UTF-8`, keyboard `us` and time zone from GeoIP (UTC when offline; all three can be changed in the dialog), erase the chosen disk, no proprietary drivers or codecs, security updates only, host name `companion-os`, no installer self-update.
 
 What it refuses: the disk it booted from, the stick, any disk that carries a Companion Stick label, USB, SD and removable disks, read-only disks, and disks under 25 GB. If it cannot work out where it booted from, it offers no disk and sends you to the normal installer. The safety rules and their tests are in [one-click-install.md](../architecture/one-click-install.md).
 
@@ -258,8 +259,11 @@ On the ISO #4 build provisioning always ended "degraded" although everything was
 
 *Designed behaviour; not yet seen on a booted image.* After the installed system boots and you sign in, `ci-os-first-boot-setup.service` waits for a network (30 tries, 2 seconds apart), removes the snaps that could not be removed at build time, runs `provision.sh --tier=core` (Docker group membership, Node.js, Ollama configuration and models, the CI-Hub tools) and writes `/var/lib/ci-os/.first-boot-setup-done` on success. It runs at every boot and every 15 minutes while pending, at most three failed automatic attempts; its log is `/var/log/ci-os-first-boot-setup.log`. After it finishes, **log out and back in** for the Docker group and `PATH`.
 
+**What you see while it runs** (a desktop notification; **[V]** on the arm64 image `b124745` in a virtual machine with a German desktop, see KI-29). The setup writes its progress to `/var/lib/ci-os/setup-status` (`core/lib/setup-status.sh`), and a small autostart script, `/usr/libexec/ci-os/setup-progress`, shows one notification that updates in place at every sign-in until the setup is over: "Companion OS is getting ready" before the setup has started, "Companion OS is waiting for the internet", then "Setting up Companion OS: step 3 of 7" with the step's name (the preparation, Docker, the developer tools, the AI runtime, the models, the network tools, Companion Hub), "Companion OS setup needs attention" if it stopped (it tries again by itself every 15 minutes, or run `sudo ci-os-setup`), and at the end "Companion OS is ready", which says Hub is the first icon in the dock. A step that takes under one 15-second look is not shown, so the numbers skip (the run showed steps 3, 5 and 7). The ready message is shown once. Nothing is shown in a live session, and nothing on an image from before this existed. The same step is in `ci-os-info`. GNOME's Do Not Disturb hides the banners; the notifications are still in the list at the top of the screen. The text is English whatever the language chosen at the install.
+
 ```bash
-ci-os-info                                  # OS version, kernel, GPU and ROCm status, groups
+cat /var/lib/ci-os/setup-status             # state, step, steps, title of the setup right now
+ci-os-info                                  # the setup, Hub's address, models, disk, failed services, a pending restart, GPU, groups
 sudo ci-os-setup                            # run the setup again, even if it completed
 sudo ci-os-install-rocm                     # AMD Strix Halo-class machines only: ROCm from the Ubuntu archive
 ```

@@ -1,0 +1,8 @@
+2026-10-19T21:58:38Z arm64 build of commit b124745 starts
+2026-10-19T21:58:38Z clean checkout in <scratch>/build-wt-arm
+2026-10-19T21:59:22Z native arm64 container ready (arm64); build starts
+2026-10-19T22:14:01Z build rc=0 after 879 s
+2026-10-19T22:14:29Z verify-iso rc=0: == Summary: 446 passed, 0 failed
+2026-10-19T22:15:03Z ISO copied to <scratch>/arm64-build/iso: MD5SUMS SHA256SUMS companion-os-1.0-arm64.iso packages 
+sha256 87cb21d6292492fd0613ca80e10199502f183e3ada137ef53748434ab68cfcba  companion-os-1.0-arm64.iso
+bytes 5593038848

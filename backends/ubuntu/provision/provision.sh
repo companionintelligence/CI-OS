@@ -54,6 +54,17 @@ tier_requested() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
+# Progress for the person at the desktop (core/lib/setup-status.sh): a file that the desktop turns into a notification. It writes nothing
+# unless CI_OS_SETUP_STATUS is set, and only first-boot-setup.sh sets it, so a run by hand is as quiet as before. Without the library
+# (a copy of this script on its own) the calls are no-ops.
+if [[ -f "$REPO_ROOT/core/lib/setup-status.sh" ]]; then
+    # shellcheck source=../../../core/lib/setup-status.sh
+    source "$REPO_ROOT/core/lib/setup-status.sh"
+else
+    ci_os_status_begin() { :; }
+    ci_os_status_step() { :; }
+fi
+
 # Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -999,21 +1010,29 @@ pull_ollama_models() {
         log_warning "Hardware support check missing; skipping qwen3.6:27b"
     fi
 
+    # `ollama pull` redraws a progress bar several times a second; written to the first-boot log and the journal that is hundreds of lines
+    # per model. The image has a filter that keeps one line per 10 percent per layer (a checkout has not: then the output is left alone).
+    PULL_FILTER=cat
+    [[ -x /usr/libexec/ci-os/pull-progress-filter ]] && PULL_FILTER=/usr/libexec/ci-os/pull-progress-filter
+
     # Check and pull models as the actual user (ollama stores models in user's home)
     sudo -u "$ACTUAL_USER" bash <<EOF || log_warning "Failed to pull some Ollama models"
+# the filter must not hide a failed pull: with pipefail the pipeline's status is the pull's, and a failure is remembered for the exit status
+set -o pipefail
+rc=0
 # Check if models are already pulled
 if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     echo "nomic-embed-text already installed"
 else
     echo "Pulling nomic-embed-text..."
-    ollama pull nomic-embed-text
+    ollama pull nomic-embed-text 2>&1 | $PULL_FILTER || rc=1
 fi
 
 if ollama list 2>/dev/null | grep -q "gemma3:1b"; then
     echo "gemma3:1b already installed"
 else
     echo "Pulling gemma3:1b..."
-    ollama pull gemma3:1b
+    ollama pull gemma3:1b 2>&1 | $PULL_FILTER || rc=1
 fi
 
 # Add qwen3.6:27b only on supported hardware (see PULL_QWEN above).
@@ -1022,9 +1041,10 @@ if ollama list 2>/dev/null | grep -q "qwen3.6:27b"; then
      echo "qwen3.6:27b already installed"
 else
      echo "Pulling qwen3.6:27b..."
-     ollama pull qwen3.6:27b
+     ollama pull qwen3.6:27b 2>&1 | $PULL_FILTER || rc=1
 fi
 fi
+exit \$rc
 EOF
     
     log_success "Ollama models checked/pulled"
@@ -1676,6 +1696,14 @@ main() {
     log_info "Starting installation process..."
     echo
 
+    # The steps a person sees in the setup notification: one for the preparation, six for the core tier, one for the extended tier. Keep
+    # this count equal to the ci_os_status_step calls below (backends/ubuntu/chroot/tests/setup-progress.sh checks it).
+    status_steps=1
+    if tier_requested core; then status_steps=$((status_steps + 6)); fi
+    if tier_requested extended; then status_steps=$((status_steps + 1)); fi
+    ci_os_status_begin "$status_steps"
+
+    ci_os_status_step "Preparing the system"
     install_curl
     fix_docker_apt_conflicts
     enable_apt_force_ipv4
@@ -1683,24 +1711,31 @@ main() {
     update_apt
     install_make
     if tier_requested core; then
+        ci_os_status_step "Installing Docker"
         install_docker
+        ci_os_status_step "Installing developer tools"
         install_uv
         install_asdf_nodejs
         set_global_nodejs || true
         note_bashrc
         create_ci_user
         install_github_cli
+        ci_os_status_step "Installing the AI runtime (Ollama)"
         install_ollama
         configure_ollama
+        ci_os_status_step "Downloading the AI models (the longest step)"
         pull_ollama_models
+        ci_os_status_step "Installing network tools"
         install_cloudflared
         enable_corepack
         remove_telemetry
         install_tailscale
+        ci_os_status_step "Starting Companion Hub"
         deploy_ci_hub
         start_companion_hub
     fi
     if tier_requested extended; then
+        ci_os_status_step "Installing optional apps"
         # Homebrew is optional; don't fail the run if it has issues (Node/Bun use apt)
         set +e
         install_homebrew || log_warning "Homebrew had issues; Node.js will use apt"
@@ -1715,11 +1750,11 @@ main() {
     log_success "Setup completed successfully!"
     echo
     log_info "Next steps:"
-    echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools; for Docker without re-login run: newgrp docker"
-    echo "  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group"
-    echo "  • Start Ollama service: systemctl start ollama"
-    echo "  • Verify installations: docker --version, node --version, pnpm --version, ollama --version, gh --version"
-    echo "  • Note: 'Create deploy read key' step was not specified - please add this manually if needed"
+    echo "  • Open Companion Hub (from the dock, or at http://<this machine's address>:5002) and pair it with your CI Account."
+    if command -v ci-os-info >/dev/null 2>&1; then
+        echo "  • See how the machine is doing at any time: ci-os-info"
+    fi
+    echo "  • If a command says it has no permission for Docker, sign out and back in so the new group applies (or run: newgrp docker)."
 }
 
 # Run main function
@@ -1841,10 +1876,10 @@ set_gnome_power_performance() {
                 gsettings set org.gnome.settings-daemon.plugins.power power-profile 'performance' 2>/dev/null || true
             log_success "GNOME Power Mode set to 'performance' for $ACTUAL_USER"
         else
-            log_warning "No D-Bus session for ${ACTUAL_USER}. User may not be logged in. Power mode will apply on next login if set via dconf defaults."
+            log_info "No desktop session for ${ACTUAL_USER} right now; GNOME power mode stays at its default."
         fi
     else
-        log_warning "gsettings not available or no valid user detected. Skipping GNOME Power Mode setting."
+        log_info "No desktop user to configure; GNOME power mode stays at its default."
     fi
 }
 
