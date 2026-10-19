@@ -54,6 +54,17 @@ tier_requested() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
+# Progress for the person at the desktop (core/lib/setup-status.sh): a file that the desktop turns into a notification. It writes nothing
+# unless CI_OS_SETUP_STATUS is set, and only first-boot-setup.sh sets it, so a run by hand is as quiet as before. Without the library
+# (a copy of this script on its own) the calls are no-ops.
+if [[ -f "$REPO_ROOT/core/lib/setup-status.sh" ]]; then
+    # shellcheck source=../../../core/lib/setup-status.sh
+    source "$REPO_ROOT/core/lib/setup-status.sh"
+else
+    ci_os_status_begin() { :; }
+    ci_os_status_step() { :; }
+fi
+
 # Color definitions
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -1685,6 +1696,14 @@ main() {
     log_info "Starting installation process..."
     echo
 
+    # The steps a person sees in the setup notification: one for the preparation, six for the core tier, one for the extended tier. Keep
+    # this count equal to the ci_os_status_step calls below (backends/ubuntu/chroot/tests/setup-progress.sh checks it).
+    status_steps=1
+    if tier_requested core; then status_steps=$((status_steps + 6)); fi
+    if tier_requested extended; then status_steps=$((status_steps + 1)); fi
+    ci_os_status_begin "$status_steps"
+
+    ci_os_status_step "Preparing the system"
     install_curl
     fix_docker_apt_conflicts
     enable_apt_force_ipv4
@@ -1692,24 +1711,31 @@ main() {
     update_apt
     install_make
     if tier_requested core; then
+        ci_os_status_step "Installing Docker"
         install_docker
+        ci_os_status_step "Installing developer tools"
         install_uv
         install_asdf_nodejs
         set_global_nodejs || true
         note_bashrc
         create_ci_user
         install_github_cli
+        ci_os_status_step "Installing the AI runtime (Ollama)"
         install_ollama
         configure_ollama
+        ci_os_status_step "Downloading the AI models (the longest step)"
         pull_ollama_models
+        ci_os_status_step "Installing network tools"
         install_cloudflared
         enable_corepack
         remove_telemetry
         install_tailscale
+        ci_os_status_step "Starting Companion Hub"
         deploy_ci_hub
         start_companion_hub
     fi
     if tier_requested extended; then
+        ci_os_status_step "Installing optional apps"
         # Homebrew is optional; don't fail the run if it has issues (Node/Bun use apt)
         set +e
         install_homebrew || log_warning "Homebrew had issues; Node.js will use apt"

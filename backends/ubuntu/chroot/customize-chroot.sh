@@ -1093,6 +1093,9 @@ while IFS='|' read -r _id _name _url _comment _icon _desktop; do
 done <<<"$START_LINKS_ROWS"
 install -m 0755 "$START_PAYLOAD/usr/libexec/ci-os/welcome-once"              "$CHROOT_PATH/usr/libexec/ci-os/welcome-once"
 install -m 0644 "$START_PAYLOAD/etc/xdg/autostart/ci-os-welcome.desktop"     "$CHROOT_PATH/etc/xdg/autostart/ci-os-welcome.desktop"
+# What the first-boot setup is doing, as one desktop notification (core/lib/setup-status.sh writes the file it reads).
+install -m 0755 "$START_PAYLOAD/usr/libexec/ci-os/setup-progress"            "$CHROOT_PATH/usr/libexec/ci-os/setup-progress"
+install -m 0644 "$START_PAYLOAD/etc/xdg/autostart/ci-os-setup-progress.desktop" "$CHROOT_PATH/etc/xdg/autostart/ci-os-setup-progress.desktop"
 install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexec/ci-os/wait-quiet" "$CHROOT_PATH/usr/libexec/ci-os/wait-quiet"
 install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexec/ci-os/pull-progress-filter" "$CHROOT_PATH/usr/libexec/ci-os/pull-progress-filter"
 
@@ -1658,6 +1661,18 @@ if ! flock -n 9; then
     exit 0
 fi
 
+# What the desktop shows while this runs: core/lib/setup-status.sh writes /var/lib/ci-os/setup-status (the desktop's setup-progress turns it
+# into a notification) and provision.sh adds the steps. Without the library the calls are no-ops.
+export CI_OS_SETUP_STATUS="/var/lib/ci-os/setup-status"
+if [[ -f "$BOOTSTRAP_ROOT/core/lib/setup-status.sh" ]]; then
+    # shellcheck disable=SC1091
+    source "$BOOTSTRAP_ROOT/core/lib/setup-status.sh"
+else
+    ci_os_status_set() { :; }
+    ci_os_status_state() { :; }
+    ci_os_status_reload() { :; }
+fi
+
 if [[ "$MANUAL" != true ]]; then
     # Automatic run (boot or timer): skip once completed...
     if [[ -f "$MARKER_FILE" ]]; then
@@ -1683,6 +1698,7 @@ network_up() {
 }
 
 NETWORK_OK=false
+ci_os_status_set waiting 0 0 "Waiting for the internet"
 echo "[CI-OS] Waiting for network..."
 for i in $(seq 1 30); do
     if network_up; then
@@ -1699,8 +1715,10 @@ if [[ "$NETWORK_OK" != "true" ]]; then
     # minutes, tries again. Not counted as a failed attempt.
     echo "[CI-OS] WARNING: Network not available after 60s. Setup will retry automatically"
     echo "[CI-OS] (next boot, or within 15 minutes); or run once online: sudo ci-os-setup"
+    ci_os_status_set waiting 0 0 "No internet connection yet. Setup tries again by itself"
     exit 0
 fi
+ci_os_status_set running 0 0 "Getting the computer ready"
 
 # ── Stay out of the desktop's way ─────────────────────────────────────────
 # A person may log in for the first time while this runs. Wait until the machine is quiet (best effort, never for good), and keep
@@ -1728,6 +1746,7 @@ if [[ ! -x "$PROVISION_SH" ]]; then
     # A broken image, not a transient failure: retrying cannot help.
     echo "[CI-OS] WARNING: $PROVISION_SH not found or not executable; skipping provisioning."
     echo "no provisioner - $(date -u)" > "$MARKER_FILE"
+    ci_os_status_set failed 0 0 "Setup could not start" "this image has no setup program"
     exit 0
 fi
 
@@ -1744,6 +1763,8 @@ else
 fi
 
 if ! bash "$PROVISION_SH" --tier=core; then
+    ci_os_status_reload
+    ci_os_status_state failed "Setup stopped" "${CI_OS_STATUS_TITLE:-}"
     if [[ "$MANUAL" == true ]]; then
         echo "[CI-OS] provision.sh reported issues (see above). Fix them and re-run: sudo ci-os-setup"
     elif (( attempts < MAX_AUTO_ATTEMPTS )); then
@@ -1757,6 +1778,9 @@ fi
 # ── Mark complete ─────────────────────────────────────────────────────────
 date -u > "$MARKER_FILE"
 rm -f "$ATTEMPTS_FILE"
+ci_os_status_reload
+CI_OS_STATUS_STEP="${CI_OS_STATUS_STEPS:-0}"
+ci_os_status_state done "Companion OS is set up"
 
 echo "[CI-OS] First-boot setup completed at $(date -u)"
 echo "[CI-OS] Log saved to $LOG_FILE"

@@ -1729,6 +1729,15 @@ check "login text: the stock /etc/legal is diverted aside (a base-files upgrade 
 check "login text: the Ubuntu Pro autostart notification is diverted aside" bash -c "grep -q 'ubuntu-advantage-notification.desktop' '$R/var/lib/dpkg/diversions' && test ! -e '$R/etc/xdg/autostart/ubuntu-advantage-notification.desktop'"
 check "first boot: the setup is started by its timer at 3 minutes, not linked into multi-user.target" bash -c "grep -q -x 'OnBootSec=3min' '$R/usr/lib/systemd/system/ci-os-first-boot-setup.timer' && test ! -e '$R/etc/systemd/system/multi-user.target.wants/ci-os-first-boot-setup.service'"
 check "first boot: wait-quiet is installed and executable" test -x "$R/usr/libexec/ci-os/wait-quiet"
+check "first boot progress: setup-progress is installed, executable, and skips a live session" bash -c "test -x '$R/usr/libexec/ci-os/setup-progress' && grep -qF 'CI_OS_PROGRESS_LIVE:-/cdrom/casper/vmlinuz' '$R/usr/libexec/ci-os/setup-progress'"
+check "first boot progress: its autostart entry runs it, hidden, for GNOME" bash -c "grep -qx 'Exec=/usr/libexec/ci-os/setup-progress' '$R/etc/xdg/autostart/ci-os-setup-progress.desktop' && grep -qx 'NoDisplay=true' '$R/etc/xdg/autostart/ci-os-setup-progress.desktop' && grep -qx 'OnlyShowIn=GNOME;' '$R/etc/xdg/autostart/ci-os-setup-progress.desktop'"
+check "first boot progress: the status library is in the bootstrap tree, and the wrapper and provision.sh use it" bash -c "test -f '$R/usr/lib/ci-os/bootstrap/core/lib/setup-status.sh' && grep -qF 'export CI_OS_SETUP_STATUS=\"/var/lib/ci-os/setup-status\"' '$R/usr/lib/ci-os/first-boot-setup.sh' && grep -qF 'ci_os_status_step \"Downloading the AI models' '$R/usr/lib/ci-os/bootstrap/backends/ubuntu/provision/provision.sh'"
+# The library is run here, on the host that built and verifies the image (Ubuntu 26.04: uutils tr and date), against the file the first boot writes.
+_ss="$WORK/setup-status-check"; rm -rf "$_ss"; mkdir -p "$_ss"
+check "first boot progress: the library writes the status file the desktop reads (state, step, steps, title; world-readable; one line each)" bash -c "
+  export CI_OS_SETUP_STATUS='$_ss/status'; . '$R/usr/lib/ci-os/bootstrap/core/lib/setup-status.sh' && ci_os_status_begin 7 && ci_os_status_step 'Installing Docker' &&
+  grep -qx 'state=running' '$_ss/status' && grep -qx 'step=1' '$_ss/status' && grep -qx 'steps=7' '$_ss/status' && grep -qx 'title=Installing Docker' '$_ss/status' &&
+  test \"\$(grep -c . '$_ss/status')\" = 6 && test \"\$(stat -c %a '$_ss/status')\" = 644"
 
 section "7. Branding: live boot splash and live identity (initrd)"
 # build-iso.sh appends a small zstd-compressed cpio overlay to casper/initrd (the kernel unpacks concatenated

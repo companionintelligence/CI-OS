@@ -39,14 +39,21 @@ echo
 #-----------------------------------------------------------------------------
 echo "Companion"
 
-# The first-time setup (starts about 3 minutes after the machine starts, takes about 2)
+# The first-time setup (starts about 3 minutes after the machine starts; the first arm64 install's took under 3 minutes). While it runs it
+# writes the step it is at to $state_dir/setup-status (core/lib/setup-status.sh).
 marker="$state_dir/.first-boot-setup-done"
+status_file="$state_dir/setup-status"
+status_field() { sed -n "s/^$1=//p" "$status_file" 2>/dev/null | head -n 1; }
 if [[ -s "$marker" ]]; then
     echo "  Setup:    finished $(head -n 1 "$marker")"
 elif [[ -e "$marker" ]]; then
     echo "  Setup:    finished"
 elif systemctl is-active --quiet ci-os-first-boot-setup.service 2>/dev/null; then
-    echo "  Setup:    running now (about 2 minutes)"
+    step="$(status_field step)"; steps="$(status_field steps)"; what="$(status_field title)"
+    case "$step/$steps" in
+        [1-9]*/[1-9]*) echo "  Setup:    running now: step $step of $steps, $what" ;;
+        *) echo "  Setup:    running now${what:+: $what}" ;;
+    esac
 else
     echo "  Setup:    not finished yet. It starts about 3 minutes after the machine starts."
     echo "            Log: $setup_log   Run it now: sudo ci-os-setup"

@@ -83,6 +83,12 @@ has "not started: says when it starts" "starts about 3 minutes after the machine
 has "  and how to run it now" "sudo ci-os-setup"
 reset; T_SETUP_ACTIVE=yes; run
 has "running now" "Setup:    running now"
+lacks "  without a status file it names no step" "step"
+reset; T_SETUP_ACTIVE=yes; mkdir -p "$WORK/state"; printf 'state=running\nstep=5\nsteps=7\ntitle=Downloading the AI models (the longest step)\ndetail=\ntime=1\n' >"$WORK/state/setup-status"; run
+has "running now, with its step from the status file" "Setup:    running now: step 5 of 7, Downloading the AI models (the longest step)"
+reset; T_SETUP_ACTIVE=yes; mkdir -p "$WORK/state"; printf 'state=running\nstep=0\nsteps=0\ntitle=Getting the computer ready\n' >"$WORK/state/setup-status"; run
+has "before the first step: the title alone" "Setup:    running now: Getting the computer ready"
+lacks "  and no 'step 0'" "step 0"
 reset; mkdir -p "$WORK/state"; : >"$WORK/state/.first-boot-setup-done"; run
 has "an empty marker still reads as finished" "Setup:    finished"
 
