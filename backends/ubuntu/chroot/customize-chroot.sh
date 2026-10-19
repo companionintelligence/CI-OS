@@ -42,6 +42,8 @@ source "$REPO_ROOT/backends/ubuntu/lib/shell-theme.sh"
 source "$REPO_ROOT/backends/ubuntu/lib/dock-favorites.sh"
 # shellcheck source=../lib/start-links.sh
 source "$REPO_ROOT/backends/ubuntu/lib/start-links.sh"
+# shellcheck source=../lib/deb-members.sh
+source "$REPO_ROOT/backends/ubuntu/lib/deb-members.sh"
 
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
@@ -757,10 +759,34 @@ EOF
 
 chmod +x "$CHROOT_PATH/etc/update-motd.d/00-ci-os-header"
 
-# Ubuntu's own welcome line and the Ubuntu Pro advert. (50-motd-news and 10-help-text are handled in Step 2.)
-for _motd in 00-header 91-contract-ua-esm-status; do
-    [[ -e "$CHROOT_PATH/etc/update-motd.d/$_motd" ]] && chmod -x "$CHROOT_PATH/etc/update-motd.d/$_motd"
+# Ubuntu's own welcome line, its help text, its news and the Ubuntu Pro advert. chmod -x alone does not last: the installer runs
+# unattended-upgrades on the new system, and a package upgrade puts the executable bit back (the first install of this image
+# showed the "Expanded Security Maintenance" advert at the login prompt). dpkg-statoverride makes dpkg keep the mode.
+for _motd in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
+    if [[ -e "$CHROOT_PATH/etc/update-motd.d/$_motd" ]]; then
+        chmod -x "$CHROOT_PATH/etc/update-motd.d/$_motd"
+        chroot_exec "dpkg-statoverride --list /etc/update-motd.d/$_motd >/dev/null 2>&1 || dpkg-statoverride --update --add root root 0644 /etc/update-motd.d/$_motd"
+    fi
 done
+
+# The notice a login prints after the MOTD (/etc/legal, base-files) names Ubuntu three times. Same legal content, Companion OS's
+# name: diverted so a base-files upgrade writes the stock text to the side instead of over ours.
+chroot_exec "dpkg-divert --list /etc/legal | grep -q . || dpkg-divert --local --rename --divert /etc/legal.ubuntu-stock --add /etc/legal"
+cat > "$CHROOT_PATH/etc/legal" << 'LEGAL'
+
+Companion OS is built on Ubuntu. The programs included with it are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Companion OS comes with ABSOLUTELY NO WARRANTY, to the extent permitted by
+applicable law.
+LEGAL
+chmod 0644 "$CHROOT_PATH/etc/legal"
+
+# The Ubuntu Pro notification that autostarts in every session (ubuntu-pro-client).
+if [[ -e "$CHROOT_PATH/etc/xdg/autostart/ubuntu-advantage-notification.desktop" ]]; then
+    chroot_exec "dpkg-divert --list /etc/xdg/autostart/ubuntu-advantage-notification.desktop | grep -q . || dpkg-divert --local --rename --divert /etc/xdg/autostart/ubuntu-advantage-notification.desktop.disabled --add /etc/xdg/autostart/ubuntu-advantage-notification.desktop"
+fi
 
 echo "[+] MOTD created"
 
@@ -1092,6 +1118,16 @@ while IFS='|' read -r _id _name _url _comment _icon _desktop; do
 done <<<"$START_LINKS_ROWS"
 install -m 0755 "$START_PAYLOAD/usr/libexec/ci-os/welcome-once"              "$CHROOT_PATH/usr/libexec/ci-os/welcome-once"
 install -m 0644 "$START_PAYLOAD/etc/xdg/autostart/ci-os-welcome.desktop"     "$CHROOT_PATH/etc/xdg/autostart/ci-os-welcome.desktop"
+install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexec/ci-os/wait-quiet" "$CHROOT_PATH/usr/libexec/ci-os/wait-quiet"
+
+# Canonical's first-run screen ("Welcome to Companion OS 1.0!" with Ubuntu's raccoon, then Ubuntu Pro and "Help improve Ubuntu") is
+# gnome-initial-setup, started by gnome-initial-setup-first-login.service unless ~/.config/gnome-initial-setup-done exists. A user
+# the installer creates gets /etc/skel, so the stamp in it ends that screen for everyone. The installer has already asked for the
+# language, keyboard, time zone and account; the first-run's other pages are Ubuntu's offers (Pro, Livepatch, usage reporting),
+# which Companion OS does not make. The Companion welcome page (welcome-once) takes its place.
+install -d -m 0755 "$CHROOT_PATH/etc/skel/.config"
+: > "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup-done"
+chmod 0644 "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup-done"
 echo "[+] Companion links installed ($(grep -c . <<<"$START_LINKS_ROWS") links, $(grep -c '|yes$' <<<"$START_LINKS_ROWS") on the desktop of a new user)"
 
 
@@ -1103,7 +1139,7 @@ echo "[+] Companion links installed ($(grep -c . <<<"$START_LINKS_ROWS") links, 
 #   CI_OS_BAKE_THIRD_PARTY  tailscale + cloudflared + gh from the vendors' apt repositories
 #   CI_OS_BAKE_OLLAMA       Ollama from the vendor's release tarball (never install.sh)
 #   CI_OS_BAKE_LAUNCHER     Companion Launcher (.deb from dl.ci.computer)
-#   CI_OS_BAKE_CAPTURE      Companion Capture (.deb from a private GitHub release: the build cache, else `gh release download`)
+#   CI_OS_BAKE_CAPTURE      Companion Capture (.deb from dl.ci.computer/applet, pinned sha256; amd64 only)
 #   CI_OS_OLLAMA_CUDA       all (default) | none   - "none" drops cuda_v12 + cuda_v13 (about 2.0 GiB installed)
 #   CI_OS_LAUNCHER_AUTOSTART  0 (default) | 1      - XDG autostart of the Launcher on the installed system
 #   CI_OS_TIERB_PINS        path of the pins file (default core/manifest/tier-b-pins.env)
@@ -1233,24 +1269,19 @@ else
     if [[ "$CI_OS_BAKE_CAPTURE" == 1 ]]; then
         TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_amd64.deb"
         if [[ ! -f "$TB_CAPTURE_DEB" ]] || [[ "$(tb_sha256_of "$TB_CAPTURE_DEB")" != "$CAPTURE_SHA256" ]]; then
-            # The release lives in a private repository, so only the builder's own GitHub credentials can fetch it.
-            command -v gh >/dev/null 2>&1 || tb_die "Companion Capture .deb is not in the cache and gh is not installed on this build host. Put $CAPTURE_ASSET (sha256 $CAPTURE_SHA256) at $TB_CAPTURE_DEB, or install gh and sign in (gh auth login, or GH_TOKEN with read access to $CAPTURE_REPO), or build with CI_OS_BAKE_CAPTURE=0"
-            install -d -m 700 "$TB_WORK/capture-dl"
-            GH_PROMPT_DISABLED=1 gh release download "$CAPTURE_TAG" --repo "$CAPTURE_REPO" --pattern "$CAPTURE_ASSET" --dir "$TB_WORK/capture-dl" \
-                || tb_die "gh release download of $CAPTURE_ASSET ($CAPTURE_REPO $CAPTURE_TAG) failed: sign in (gh auth login, or GH_TOKEN with read access to the repository), or put the file at $TB_CAPTURE_DEB"
-            [[ -f "$TB_WORK/capture-dl/$CAPTURE_ASSET" ]] || tb_die "gh did not produce $CAPTURE_ASSET"
-            mv "$TB_WORK/capture-dl/$CAPTURE_ASSET" "$TB_CAPTURE_DEB.part"; mv "$TB_CAPTURE_DEB.part" "$TB_CAPTURE_DEB"
+            tb_fetch "$CAPTURE_URL" "$TB_CAPTURE_DEB.part"; mv "$TB_CAPTURE_DEB.part" "$TB_CAPTURE_DEB"
         fi
         tb_expect_sha256 "$TB_CAPTURE_DEB" "$CAPTURE_SHA256" "Companion Capture .deb"
         [[ "$(tb_size_of "$TB_CAPTURE_DEB")" == "$CAPTURE_SIZE" ]] || tb_die "Companion Capture .deb size differs from the pin"
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Package)" == "$CAPTURE_PACKAGE" ]] || tb_die "unexpected package name in the Capture .deb"
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Version)" == "$CAPTURE_VERSION" ]] || tb_die "unexpected version in the Capture .deb"
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Architecture)" == "amd64" ]] || tb_die "Capture .deb is not amd64"
-        dpkg-deb -c "$TB_CAPTURE_DEB" | sed -E -e 's/^[^ ]+ +[^ ]+ +[0-9]+ +[0-9-]+ +[0-9:]+ +//' -e 's/ -> .*$//' > "$TB_WORK/capture.members"
-        grep -qx "./usr/bin/$CAPTURE_BINARY" "$TB_WORK/capture.members" || tb_die "Capture .deb has no /usr/bin/$CAPTURE_BINARY"
-        grep -qx './usr/share/applications/companion-capture.desktop' "$TB_WORK/capture.members" || tb_die "Capture .deb has no companion-capture.desktop (the dock entry needs it)"
+        # Names without a leading "./": this .deb stores "usr/bin/x" where the Launcher's stores "./usr/bin/x" (backends/ubuntu/lib/deb-members.sh).
+        deb_members "$TB_CAPTURE_DEB" > "$TB_WORK/capture.members" || tb_die "cannot list the members of the Capture .deb"
+        grep -qx "usr/bin/$CAPTURE_BINARY" "$TB_WORK/capture.members" || tb_die "Capture .deb has no /usr/bin/$CAPTURE_BINARY"
+        grep -qx 'usr/share/applications/companion-capture.desktop' "$TB_WORK/capture.members" || tb_die "Capture .deb has no companion-capture.desktop (the dock entry needs it)"
         # Capture records the screen: it must not start by itself, bring services, cron jobs or sudo rules, or autostart.
-        if grep -E '^\./(etc/|lib/systemd|usr/lib/systemd)' "$TB_WORK/capture.members" | grep -q .; then
+        if grep -E '^(etc/|lib/systemd|usr/lib/systemd)' "$TB_WORK/capture.members" | grep -q .; then
             tb_die "Capture .deb ships files under /etc or systemd (an autostart or a service?); review before baking"
         fi
     fi
@@ -1656,6 +1687,16 @@ if [[ "$NETWORK_OK" != "true" ]]; then
     exit 0
 fi
 
+# ── Stay out of the desktop's way ─────────────────────────────────────────
+# A person may log in for the first time while this runs. Wait until the machine is quiet (best effort, never for good), and keep
+# the model downloads at a low priority: ollama.service does them, so it is that service that is throttled, for this run only.
+/usr/libexec/ci-os/wait-quiet 1200 || true
+if command -v systemctl >/dev/null 2>&1 && systemctl cat ollama.service >/dev/null 2>&1; then
+    systemctl set-property --runtime ollama.service CPUWeight=20 IOWeight=20 >/dev/null 2>&1 || true
+    ci_os_unthrottle() { systemctl set-property --runtime ollama.service CPUWeight= IOWeight= >/dev/null 2>&1 || true; }
+    trap ci_os_unthrottle EXIT
+fi
+
 # ── Remove unwanted snaps (deferred from ISO build) ───────────────────────
 # These cannot be removed during ISO build because the snap seed is
 # cryptographically signed. Now that snapd is running on the installed
@@ -1759,11 +1800,11 @@ StandardOutput=journal
 StandardError=journal
 Environment=DEBIAN_FRONTEND=noninteractive
 
-[Install]
-WantedBy=multi-user.target
+# No [Install] section: nothing starts this at boot. ci-os-first-boot-setup.timer does, three minutes after boot, so the first login
+# is not racing it, and again every 15 minutes until the setup has succeeded.
 SVCEOF
 
-# Retry timer: re-runs the service every 15 minutes while setup is pending
+# Retry timer: runs the service 3 minutes after boot, then every 15 minutes while setup is pending
 # (e.g. first boot was offline). Once the marker exists the service's own
 # condition makes each tick a no-op, and from the next boot the timer itself
 # no longer starts.
@@ -1774,7 +1815,7 @@ ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
 ConditionPathExists=!/cdrom/casper/vmlinuz
 
 [Timer]
-OnBootSec=15min
+OnBootSec=3min
 OnUnitInactiveSec=15min
 
 [Install]
@@ -1784,8 +1825,6 @@ TIMEREOF
 # Enable the first-boot setup service and its retry timer
 mkdir -p "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants" \
          "$CHROOT_PATH/etc/systemd/system/timers.target.wants"
-ln -sf /usr/lib/systemd/system/ci-os-first-boot-setup.service \
-    "$CHROOT_PATH/etc/systemd/system/multi-user.target.wants/ci-os-first-boot-setup.service"
 ln -sf /usr/lib/systemd/system/ci-os-first-boot-setup.timer \
     "$CHROOT_PATH/etc/systemd/system/timers.target.wants/ci-os-first-boot-setup.timer"
 

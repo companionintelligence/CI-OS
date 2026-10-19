@@ -1,0 +1,36 @@
+#!/bin/sh
+# wait-quiet [SECONDS]: wait until the machine is quiet enough for background work, then exit 0.
+#
+# Used by the first-boot setup before it downloads and installs. A person may log in for the first time while it runs, and on a
+# slow machine the desktop and the setup then fight for the CPU: in a test VM the first graphical login failed twice (gnome-shell
+# timed out after 96 s) while snap seeding and the model download ran, and worked once they eased.
+#
+# Quiet means: the 1-minute load average is below 60 percent of the CPUs for 3 samples in a row (15 s apart). It never blocks for
+# good: after SECONDS (default 1200) it says so and exits 0 anyway, so provisioning still happens on a machine that is always busy.
+#
+# The CI_OS_* variables exist so a test can run this against a fake load average; nothing in the image sets them.
+max="${1:-1200}"
+loadavg="${CI_OS_LOADAVG:-/proc/loadavg}"
+ncpu="${CI_OS_NCPU:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)}"
+pause="${CI_OS_QUIET_SLEEP:-15}"
+need="${CI_OS_QUIET_SAMPLES:-3}"
+
+case "$max$pause$need$ncpu" in *[!0-9]*) echo "wait-quiet: SECONDS, CPUs and the samples must be whole numbers" >&2; exit 2 ;; esac
+
+waited=0
+quiet=0
+while :; do
+    l1=0
+    read -r l1 _ < "$loadavg" 2>/dev/null || l1=0
+    if awk -v l="$l1" -v n="$ncpu" 'BEGIN { exit !(l < n * 0.6) }'; then quiet=$((quiet + 1)); else quiet=0; fi
+    if [ "$quiet" -ge "$need" ]; then
+        echo "wait-quiet: quiet after ${waited}s (load $l1, $ncpu CPUs)"
+        exit 0
+    fi
+    if [ "$waited" -ge "$max" ]; then
+        echo "wait-quiet: still busy after ${waited}s (load $l1, $ncpu CPUs); going on anyway"
+        exit 0
+    fi
+    sleep "$pause"
+    waited=$((waited + pause))
+done

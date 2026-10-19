@@ -212,29 +212,27 @@ expect "  and the rebrand script reads it first" bash -c 'printf "%s\n" "$1" | g
 
 echo
 echo "== 7. Companion Capture (Tier B) and the dock list"
-# Capture's release is on a PRIVATE repository: the .deb comes from the build cache or from `gh`, and what makes either one safe is the pin.
+# Capture's .deb comes from the build cache or from dl.ci.computer/applet, and what makes either one safe is the pin.
 PINS_FILE="$HERE/../../../../core/manifest/tier-b-pins.env"
 DOCK_LIST="$HERE/../dock-favorites.txt"
 [[ -f "$PINS_FILE" && -f "$DOCK_LIST" ]] || { echo "missing $PINS_FILE or $DOCK_LIST" >&2; exit 2; }
 pin() { ( set +u; . "$PINS_FILE"; eval "printf '%s' \"\${$1}\"" ); }
-for k in CAPTURE_VERSION CAPTURE_REPO CAPTURE_TAG CAPTURE_ASSET CAPTURE_SHA256 CAPTURE_SIZE CAPTURE_PACKAGE CAPTURE_BINARY; do
+for k in CAPTURE_VERSION CAPTURE_URL CAPTURE_SHA256 CAPTURE_SIZE CAPTURE_PACKAGE CAPTURE_BINARY; do
     expect "pin $k is set" test -n "$(pin "$k")"
 done
 expect "  the sha256 pin is 64 lower-case hex digits" bash -c '[[ "$1" =~ ^[0-9a-f]{64}$ ]]' _ "$(pin CAPTURE_SHA256)"
 expect "  the size pin is a number of bytes" bash -c '[[ "$1" =~ ^[0-9]+$ ]]' _ "$(pin CAPTURE_SIZE)"
-expect "  the tag is v<version>" test "$(pin CAPTURE_TAG)" = "v$(pin CAPTURE_VERSION)"
-expect "  the asset is <package>_<version>_amd64.deb" test "$(pin CAPTURE_ASSET)" = "$(pin CAPTURE_PACKAGE)_$(pin CAPTURE_VERSION)_amd64.deb"
-expect "  the repository is owner/name" bash -c '[[ "$1" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]' _ "$(pin CAPTURE_REPO)"
+expect "  the URL is https on dl.ci.computer/applet, for this version, and names <package>_<version>_amd64.deb" \
+    test "$(pin CAPTURE_URL)" = "https://dl.ci.computer/applet/v$(pin CAPTURE_VERSION)/linux/deb/x64/$(pin CAPTURE_PACKAGE)_$(pin CAPTURE_VERSION)_amd64.deb"
 
 expect "the Capture knob is validated as 0 or 1 with the others" grep -q -E '^for _k in .*CI_OS_BAKE_CAPTURE' "$SCRIPT"
 expect "the cache file is named <package>_<version>_amd64.deb (what a person places there)" \
     grep -q -F 'TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_amd64.deb"' "$SCRIPT"
-before "gh is asked for only after the cache file failed its check" \
-    'if \[\[ ! -f "\$TB_CAPTURE_DEB" \]\]' 'gh release download "\$CAPTURE_TAG"'
+before "the download happens only after the cache file failed its check" \
+    'if \[\[ ! -f "\$TB_CAPTURE_DEB" \]\]' 'tb_fetch "\$CAPTURE_URL"'
+expect "  and needs no GitHub credentials (no gh)" bash -c '! sed -n "/TB_CAPTURE_DEB=/,/tb_expect_sha256 \"\$TB_CAPTURE_DEB\"/p" "$1" | grep -q "gh "' _ "$SCRIPT"
 before "the Capture .deb is checked against the sha256 pin before the chroot is touched" \
     'tb_expect_sha256 "\$TB_CAPTURE_DEB"' 'chroot "\$CHROOT_PATH" /tmp/preinstall-tier-b\.sh'
-expect "a missing gh stops the build and says where the file goes" \
-    bash -c 'sed -n "/command -v gh/,/^            install -d/p" "$1" | grep -q -F "Put \$CAPTURE_ASSET"' _ "$SCRIPT"
 expect "a Capture .deb with files under /etc or systemd is refused (no autostart, no service)" \
     bash -c 'sed -n "/capture.members/,/^    fi/p" "$1" | grep -q -F "tb_die \"Capture .deb ships files under /etc or systemd"' _ "$SCRIPT"
 expect "the finished image is asserted to have no Capture autostart" grep -q -F '[[ ! -e "$CHROOT_PATH/etc/xdg/autostart/companion-capture.desktop" ]]' "$SCRIPT"
@@ -243,7 +241,7 @@ expect "what was baked records bake-capture and the package version" \
     bash -c 'grep -q -F "echo \"bake-capture=\$CI_OS_BAKE_CAPTURE\"" "$1" && grep -q -F "\"\$CAPTURE_PACKAGE\"" "$1"' _ "$SCRIPT"
 
 # The dock pins the desktop file that the .deb check requires, so the two cannot drift apart.
-expect "the dock list holds the desktop file the Capture .deb must ship" bash -c 'grep -q -x "companion-capture.desktop" "$1" && grep -q -F "./usr/share/applications/companion-capture.desktop" "$2"' _ "$DOCK_LIST" "$SCRIPT"
+expect "the dock list holds the desktop file the Capture .deb must ship" bash -c 'grep -q -x "companion-capture.desktop" "$1" && grep -q -F "usr/share/applications/companion-capture.desktop" "$2"' _ "$DOCK_LIST" "$SCRIPT"
 expect "the dock default is written from the list, and a bad list stops the build" \
     bash -c 'grep -q -F "dock_favorites_value \"\$REPO_ROOT/backends/ubuntu/chroot/dock-favorites.txt\"" "$1" && grep -q -F "02-ci-os-dock" "$1" && grep -q -F "is not a valid dock list" "$1"' _ "$SCRIPT"
 before "the dock default is written before dconf is compiled" '02-ci-os-dock" << EOF' 'chroot_exec "dconf update"'
@@ -263,6 +261,19 @@ expect "  it starts after the snap seeding" bash -c 'printf "%s\n" "$1" | grep -
 expect "  it still never runs in a live session" bash -c 'printf "%s\n" "$1" | grep -q -x "ConditionPathExists=!/cdrom/casper/vmlinuz"' _ "$fb_unit"
 expect "  and still stops once it has succeeded (the marker condition)" bash -c 'printf "%s\n" "$1" | grep -q -x "ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done"' _ "$fb_unit"
 
+# Started by the timer only, three minutes after boot, and quiet before it works (found on the same install, KI-27)
+expect "  it has no [Install] section: nothing starts it at boot" bash -c '! printf "%s\n" "$1" | grep -q "^\[Install\]"' _ "$fb_unit"
+fb_timer="$(sed -n '\%usr/lib/systemd/system/ci-os-first-boot-setup.timer" << .TIMEREOF.%,/^TIMEREOF$/p' "$SCRIPT")"
+expect "the first-boot timer was found in the script" bash -c 'printf "%s\n" "$1" | grep -q "^\[Timer\]"' _ "$fb_timer"
+expect "  it fires 3 minutes after boot (not 15: the first login is not racing the setup)" bash -c 'printf "%s\n" "$1" | grep -q -x "OnBootSec=3min"' _ "$fb_timer"
+expect "  and retries every 15 minutes while the setup is pending" bash -c 'printf "%s\n" "$1" | grep -q -x "OnUnitInactiveSec=15min"' _ "$fb_timer"
+expect "the service is not linked into multi-user.target any more" bash -c '! grep -q "multi-user.target.wants/ci-os-first-boot-setup.service" "$1"' _ "$SCRIPT"
+expect "the timer is still linked into timers.target" grep -q -F 'timers.target.wants/ci-os-first-boot-setup.timer' "$SCRIPT"
+fb_script="$(sed -n '\%usr/lib/ci-os/first-boot-setup.sh" << .BOOTSTRAP_SCRIPT.%,/^BOOTSTRAP_SCRIPT$/p' "$SCRIPT")"
+expect "the setup script waits for a quiet machine before it installs anything" bash -c 'a=$(printf "%s\n" "$1" | grep -n "wait-quiet" | head -n 1 | cut -d: -f1); b=$(printf "%s\n" "$1" | grep -n "snap remove" | head -n 1 | cut -d: -f1); [[ -n "$a" && -n "$b" && "$a" -lt "$b" ]]' _ "$fb_script"
+expect "  it throttles ollama.service (which does the downloads) for this run only" bash -c 'printf "%s\n" "$1" | grep -q -F "set-property --runtime ollama.service CPUWeight=20 IOWeight=20" && printf "%s\n" "$1" | grep -q -F "trap ci_os_unthrottle EXIT"' _ "$fb_script"
+expect "wait-quiet is installed executable from its payload" grep -q -F 'install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexec/ci-os/wait-quiet" "$CHROOT_PATH/usr/libexec/ci-os/wait-quiet"' "$SCRIPT"
+
 echo
 echo "== 9. the Companion links (Step 10g)"
 before "the links list is checked before anything of Step 10g is written" 'START_LINKS_ROWS="\$\(start_links_rows' 'install -d -m 0755 "\$CHROOT_PATH/usr/share/applications" "\$CHROOT_PATH/etc/skel/Desktop"'
@@ -273,6 +284,20 @@ expect "a desktop shortcut is the same file, executable, in /etc/skel/Desktop" \
 expect "the welcome script is installed executable and its autostart entry is installed" \
     bash -c 'grep -q -F "install -m 0755 \"\$START_PAYLOAD/usr/libexec/ci-os/welcome-once\"" "$1" && grep -q -F "ci-os-welcome.desktop" "$1"' _ "$SCRIPT"
 before "Step 10g comes after the one-click installer (which it shares curl with)" 'echo "\[\+\] One-click automatic installer installed"' 'echo "\[\*\] Step 10g'
+
+echo
+echo "== 10. the first run and the login text are Companion OS's, not Ubuntu's"
+# gnome-initial-setup (Canonical's first-run: raccoon artwork, Ubuntu Pro, "Help improve Ubuntu") runs unless this stamp is in the home
+expect "the skel carries gnome-initial-setup-done, so no new user gets Canonical's first-run" grep -q -F ': > "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup-done"' "$SCRIPT"
+# an upgrade restores the executable bit of a motd script; dpkg-statoverride is what keeps it off
+for m in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
+    expect "motd script $m is kept off by dpkg-statoverride, not only by chmod" bash -c 'grep -q -E "for _motd in .*$1" "$2"' _ "$m" "$SCRIPT"
+done
+expect "  the override is 0644 root root and is applied now (--update)" grep -q -F 'dpkg-statoverride --update --add root root 0644 /etc/update-motd.d/$_motd' "$SCRIPT"
+expect "/etc/legal is diverted, then rewritten for Companion OS" bash -c 'grep -q -F "dpkg-divert --local --rename --divert /etc/legal.ubuntu-stock --add /etc/legal" "$1" && grep -q -F "Companion OS comes with ABSOLUTELY NO WARRANTY" "$1"' _ "$SCRIPT"
+expect "  the new text keeps the distribution-terms sentence and the no-warranty sentence" bash -c 'sed -n "/cat > \"\$CHROOT_PATH\/etc\/legal\"/,/^LEGAL$/p" "$1" | grep -c -E "exact distribution terms|ABSOLUTELY NO WARRANTY" | grep -q "^2$"' _ "$SCRIPT"
+expect "  and says nothing about Ubuntu except that it is the base" bash -c 'sed -n "/cat > \"\$CHROOT_PATH\/etc\/legal\"/,/^LEGAL$/p" "$1" | grep -i -c "ubuntu" | grep -q "^1$"' _ "$SCRIPT"
+expect "the Ubuntu Pro autostart notification is diverted aside (not just deleted)" grep -q -F 'dpkg-divert --local --rename --divert /etc/xdg/autostart/ubuntu-advantage-notification.desktop.disabled --add' "$SCRIPT"
 
 echo
 echo "$PASS passed, $FAIL failed"
