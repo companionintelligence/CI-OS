@@ -208,6 +208,7 @@ $T/boot-arm64-vm.sh start - ./target.qcow2                                   # a
 
 Facts the runs taught:
 
+* `type` sends PHYSICAL keys (QMP names them by their US position). A guest installed with another keyboard layout needs `QMP_LAYOUT=de` (German is the one table there is: y and z swapped, `-` on the slash key, `:` on shift+dot, `|` on AltGr+less); without it the one-time password and every command come out wrong. `qmp-drive.py - keys de "text"` prints the keys without a VM. The table is tested against an independent copy of the layout (`test_qmp_layouts.py`).
 * The screen is 1280 by 800; the dock's first launcher is at (33, 64) and a window's close button at the top right. Look at a frame before you click.
 * Under load a key can be dropped or a modifier can stick: `QMP_HOLD=0.1`, `QMP_TYPE_DELAY=0.08`, and tap `shift shift_r ctrl alt` once to release everything. The guest is slow
   while the first-boot job runs (3 min after boot): wait 20 s after a sign-in step and look before you type the next.

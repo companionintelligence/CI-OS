@@ -3,7 +3,10 @@
 
   qmp-drive.py SOCK shot FILE.png            screendump as PNG
   qmp-drive.py SOCK key ret [tab ...]        press and release keys by QEMU qcode (ctrl-alt-t as 'ctrl+alt+t')
-  qmp-drive.py SOCK type "some text"         type ASCII text (QMP_TYPE_DELAY seconds per key, default 0.06; QMP_HOLD key hold time)
+  qmp-drive.py SOCK type "some text"         type ASCII text (QMP_TYPE_DELAY seconds per key, default 0.06; QMP_HOLD key hold time).
+                                             QMP_LAYOUT=de types for a guest whose keyboard is German (QWERTZ): QMP sends physical keys, so
+                                             the text needs y and z swapped, "-" on the slash key, ":" on shift+dot and so on
+  qmp-drive.py - keys LAYOUT "some text"     print the key sequence `type` would send (no VM needed): what the layout tests read
   qmp-drive.py SOCK click X Y [WxH]          move the (absolute) pointer to pixel X,Y of a WxH screen (default 1024x768) and click
   qmp-drive.py SOCK dclick X Y [WxH]         double click
   qmp-drive.py SOCK rclick X Y [WxH]         right click
@@ -27,6 +30,41 @@ SHIFTED = {'!': '1', '@': '2', '#': '3', '$': '4', '%': '5', '^': '6', '&': '7',
 PLAIN = {' ': 'spc', '-': 'minus', '=': 'equal', '[': 'bracket_left', ']': 'bracket_right', '\\': 'backslash',
          ';': 'semicolon', "'": 'apostrophe', ',': 'comma', '.': 'dot', '/': 'slash', '`': 'grave_accent',
          '\n': 'ret', '\t': 'tab'}
+
+# A German (QWERTZ) keyboard in the guest. send-key names PHYSICAL keys by their US position, so each character is the key that
+# produces it on a German layout: letters as on US except y and z, digits as on US, and the punctuation below. AltGr is alt_r.
+DE_PLAIN = {' ': 'spc', '\n': 'ret', '\t': 'tab', '-': 'slash', '.': 'dot', ',': 'comma', '+': 'bracket_right', '#': 'backslash',
+            '<': 'less'}
+DE_SHIFTED = {'!': '1', '"': '2', '$': '4', '%': '5', '&': '6', '/': '7', '(': '8', ')': '9', '=': '0', '?': 'minus',
+              '_': 'slash', ':': 'dot', ';': 'comma', '*': 'bracket_right', "'": 'backslash', '>': 'less'}
+DE_ALTGR = {'@': 'q', '|': 'less', '~': 'bracket_right', '\\': 'minus', '[': '8', ']': '9', '{': '7', '}': '0'}
+
+
+def key_spec(ch, layout='us'):
+    """The send-key spec (keys joined by +) that types one character on the guest's keyboard layout."""
+    if layout == 'de':
+        if ch in DE_PLAIN:
+            return DE_PLAIN[ch]
+        if ch in DE_SHIFTED:
+            return 'shift+' + DE_SHIFTED[ch]
+        if ch in DE_ALTGR:
+            return 'alt_r+' + DE_ALTGR[ch]
+        if ch.isalpha() and ch.isascii():
+            swap = {'y': 'z', 'z': 'y'}
+            low = ch.lower()
+            return ('shift+' if ch.isupper() else '') + swap.get(low, low)
+        if ch.isdigit():
+            return ch
+        raise SystemExit('qmp-drive: no key for %r on layout de' % ch)
+    if layout != 'us':
+        raise SystemExit('qmp-drive: unknown layout %r (us, de)' % layout)
+    if ch.isupper():
+        return 'shift+' + ch.lower()
+    if ch in SHIFTED:
+        return 'shift+' + SHIFTED[ch]
+    if ch in PLAIN:
+        return PLAIN[ch]
+    return ch
 
 
 class Qmp:
@@ -74,6 +112,10 @@ def main():
     if len(sys.argv) < 3:
         raise SystemExit(__doc__)
     sock, cmd, rest = sys.argv[1], sys.argv[2], sys.argv[3:]
+    if cmd == 'keys':
+        for ch in ' '.join(rest[1:]):
+            print(key_spec(ch, rest[0]))
+        return
     q = Qmp(sock)
     if cmd == 'shot':
         q.call('screendump', filename=rest[0], format='png')
@@ -83,15 +125,9 @@ def main():
             q.key(k)
             time.sleep(0.15)
     elif cmd == 'type':
+        layout = __import__('os').environ.get('QMP_LAYOUT', 'us')
         for ch in ' '.join(rest):
-            if ch.isupper():
-                q.key('shift+' + ch.lower())
-            elif ch in SHIFTED:
-                q.key('shift+' + SHIFTED[ch])
-            elif ch in PLAIN:
-                q.key(PLAIN[ch])
-            else:
-                q.key(ch)
+            q.key(key_spec(ch, layout))
             time.sleep(float(__import__('os').environ.get('QMP_TYPE_DELAY', '0.06')))
     elif cmd in ('click', 'move'):
         x, y = int(rest[0]), int(rest[1])

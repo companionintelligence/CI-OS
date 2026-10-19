@@ -28,9 +28,29 @@ The dialog:
   RAID/LUKS signature on the whole disk, and any non-partition children,
 * lists the other disks that will be left alone,
 * shows a one-time password for the user `companion` (random, 16 characters from an alphabet without look-alikes),
+* says which language, keyboard layout and time zone it will install with, and has a **Language, keyboard, time zone...** button to change them (below),
 * has **Erase the disk and install**, **Cancel** and **Use the normal installer**. **Enter never confirms: the default is Cancel**, also for a disk with nothing on it.
 
 With more than one internal disk the user first picks one from a list (the NVMe/SSD is preselected). Nothing is guessed.
+
+### Language, keyboard and time zone
+
+Without a click the answers are what the one-click install always used: English (United States), the US keyboard, and the time zone detected from the network. The
+**Language, keyboard, time zone...** button opens a small menu with the three answers; each row opens a list with type-to-search, and **Done** returns to the same
+confirmation, which now names the new choice. The one-time password does not change while the dialog is open, and the default button is still Cancel.
+
+| List | Where it comes from | What it offers |
+|---|---|---|
+| Language | the UTF-8 locales generated in the live session (`locale -a`), named with iso-codes (`German (Germany)`) | the languages whose packs are on the image: German, English, Spanish, French, Italian, Portuguese, Russian and Chinese, in all their regional forms (59 on the arm64 image) |
+| Keyboard | the `! layout` section of xkb's `base.lst` | 98 layouts, `custom` left out |
+| Time zone | tzdata's `zone.tab`, named `Berlin, Germany` | 418 zones, **Detect automatically** first, then `UTC` |
+
+Choosing a language suggests the keyboard (`de_DE` gives `de`, `en_GB` gives `gb`, `es_MX` gives `latam`, `pt_BR` gives `br`, `de_IT` gives `de` and not the Italian keyboard; US when nothing fits) and
+the time zone, but only when the country has exactly one (`fr_FR` gives `Europe/Paris`); otherwise the time zone stays on automatic detection. An answer the user chose by hand is never changed by a later language choice.
+
+The three values are validated (`ll_CC.UTF-8`, a layout code, `Area/City` or `geoip`) before they are written into the autoinstall file, and the lists are read once and never
+empty: without iso-codes the entries carry their codes, without `base.lst` or `zone.tab` the menu offers US and automatic detection only. `ci-os-auto-install --plan --locale de_DE.UTF-8
+--keyboard de --timezone Europe/Berlin` prints the file for those answers.
 
 <!-- figure: docs/ui/companion-os/ubuntu/NN-live-dock-launcher.png (the live session with the launcher first in the dock) -->
 <!-- figure: docs/ui/companion-os/ubuntu/NN-install-one-click-confirmation.png (the confirmation naming the disk and what is on it) -->
@@ -43,8 +63,8 @@ What is answered automatically (`build_autoinstall` in the helper; `ci-os-auto-i
 
 | Key | Value |
 |---|---|
-| `locale`, `keyboard` | `en_US.UTF-8`, layout `us` |
-| `timezone` | `geoip` (UTC when offline) |
+| `locale`, `keyboard` | `en_US.UTF-8`, layout `us`, unless the user changed them in the dialog |
+| `timezone` | `geoip` (UTC when offline), unless the user chose a zone |
 | `identity` | realname `Companion`, hostname `companion-os`, username `companion`, the SHA-512 hash of the one-time password, and `groups: {append: [docker]}` when the image has the `docker` group |
 | `storage` | `layout: {name: direct, match: {path: <the chosen device>}}`: erase the disk, match by device path |
 | `refresh-installer`, `drivers`, `codecs` | all `false`: no installer self-update, no proprietary drivers or codecs |
@@ -270,7 +290,9 @@ The installer-side facts also depend on one run of the normal installer ([ubuntu
 ## Known limits
 
 * It installs to **one** disk, wiping it. There is no dual-boot, encryption or manual partitioning in this path; the normal installer has them.
-* Time zone needs a network for geoip; offline it is UTC.
+* Time zone needs a network for geoip; offline it is UTC. Choosing the zone in the dialog (or a language with one zone) avoids that.
+* Only the languages whose packs are on the image are offered. The normal installer lists more, but it installs their packs from the network; the one-click path does not promise that.
+* No keyboard variants (dead keys, Dvorak, `intl`): the layout code only. `fr_CH` and `it_CH` suggest `ch`, which xkb names "German (Switzerland)". Change either in **Settings, Keyboard** afterwards.
 * The Companion Stick's own boot menu has no automatic entry yet.
 * The dry run and the unit tests cannot say how long the real server takes in `WAITING` on slow hardware or a slow mirror (about 40 s in `WAITING` in the QEMU run); the helper waits 10 minutes and then says so.
 * A kernel command line with the word `autoinstall` would make the installer skip the confirmation altogether; nothing sets it, `verify-iso.sh` asserts that no menu entry does, and the helper follows an install that is already running instead of confirming it.

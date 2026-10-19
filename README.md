@@ -46,7 +46,7 @@ The support policy and the full capability matrix are in [`docs/architecture/sup
 | Build host | Ubuntu 26.04 as root; a privileged container on a Mac | Any host with Docker |
 | Package source | Ubuntu archive at build time, vendor apt repositories with pinned keys | CachyOS and Arch repositories, rolling, on build day and again on install day |
 | Installer | Canonical's installer, plus "Install Companion OS (automatic)" | Calamares, online only |
-| One-click install | Yes: **[V]** on the arm64 image in a virtual machine (dialog, install in 12 min 10 s, power-off, installed boot); **[I]** on amd64 (121 unit tests, not driven on a booted ISO) | No **[N]** |
+| One-click install | Yes: **[V]** on the arm64 image in a virtual machine (dialog, install in 12 min 10 s, power-off, installed boot); **[I]** on amd64 (204 unit tests, not driven on a booted ISO) | No **[N]** |
 | Companion Stick boot | Yes. The stock 26.04.1 ISO boots from a stick under Secure Boot to early systemd **[V]**; a Companion image on a stick **[I]** | No **[N]**: the stick's boot menu is built for casper |
 | Secure Boot | Inherited from the base ISO **[I]** | No **[N]**: unsigned GRUB and kernels |
 | Hotspot setup | `setup-device` package, installed system **[I]** | Payload staged by the installer **[I]** |
@@ -271,7 +271,7 @@ The hash form above was run against a file standing in for a stick, once matchin
 3. On the live desktop the left dock starts with **Install Companion OS (automatic)**. The five Companion shortcuts (Support, Getting
    Started, Docs, Community, App Store) are on the desktop. Canonical's installer window opens first; closing it is safe.
 4. **One dialog** names the disk it will erase (model, size, device node, and everything found on it), shows a one-time password for the
-   user `companion` and defaults to **Cancel**. After "Erase the disk and install" a progress window follows the installer; the computer turns itself off when it is done.
+   user `companion`, says which language, keyboard and time zone it will use (a button changes them) and defaults to **Cancel**. After "Erase the disk and install" a progress window follows the installer; the computer turns itself off when it is done.
    Remove the stick, then turn the machine on. Safety rules: [`docs/architecture/one-click-install.md`](docs/architecture/one-click-install.md).
 5. First sign-in: the one-time password, then a forced new one. A Companion welcome page opens once in the browser. About three minutes after
    boot a first-boot job waits for a quiet machine and then pulls the models and starts Companion Hub (`http://localhost:5002`, which leads to
