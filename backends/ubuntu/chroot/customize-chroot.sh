@@ -1150,6 +1150,25 @@ install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexe
 install -d -m 0755 "$CHROOT_PATH/etc/skel/.config"
 : > "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup-done"
 chmod 0644 "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup-done"
+# The same screen comes back as the "welcome to the new release" page. gnome-initial-setup-upgrade-login.service runs
+# `gnome-initial-setup --upgrade-user` when the stamp above exists but ~/.config/gnome-initial-setup/upgrade-<release>-done does not;
+# the first sign-in on a freshly installed arm64 image showed "Welcome to Companion OS 1.0!" with the raccoon for exactly that reason
+# (2026-10-19, KI-27). The unit names the stamp it looks for, so read the name from the unit instead of writing "26.04" here: a
+# newer base then keeps working, and a base whose unit has no such condition stops the build instead of shipping the screen.
+# gis-upgrade-stamp begin
+GIS_UPGRADE_UNIT="$CHROOT_PATH/usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service"
+if [[ -f "$GIS_UPGRADE_UNIT" ]]; then
+    GIS_UPGRADE_STAMP="$(sed -n 's|^ConditionPathExists=!%E/\(gnome-initial-setup/upgrade-[0-9.]*-done\)$|\1|p' "$GIS_UPGRADE_UNIT" | head -n 1)"
+    if [[ -z "$GIS_UPGRADE_STAMP" ]]; then
+        echo "[ERROR] Step 10g: $GIS_UPGRADE_UNIT names no ~/.config/gnome-initial-setup/upgrade-<release>-done stamp; Canonical's upgrade welcome page would show at the first sign-in" >&2
+        exit 1
+    fi
+    install -d -m 0755 "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup"
+    : > "$CHROOT_PATH/etc/skel/.config/$GIS_UPGRADE_STAMP"
+    chmod 0644 "$CHROOT_PATH/etc/skel/.config/$GIS_UPGRADE_STAMP"
+    echo "[+] first-run: the upgrade welcome page is skipped too (skel stamp $GIS_UPGRADE_STAMP)"
+fi
+# gis-upgrade-stamp end
 echo "[+] Companion links installed ($(grep -c . <<<"$START_LINKS_ROWS") links, $(grep -c '|yes$' <<<"$START_LINKS_ROWS") on the desktop of a new user)"
 
 

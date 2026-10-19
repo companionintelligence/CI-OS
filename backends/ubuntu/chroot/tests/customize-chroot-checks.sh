@@ -289,6 +289,31 @@ echo
 echo "== 10. the first run and the login text are Companion OS's, not Ubuntu's"
 # gnome-initial-setup (Canonical's first-run: raccoon artwork, Ubuntu Pro, "Help improve Ubuntu") runs unless this stamp is in the home
 expect "the skel carries gnome-initial-setup-done, so no new user gets Canonical's first-run" grep -q -F ': > "$CHROOT_PATH/etc/skel/.config/gnome-initial-setup-done"' "$SCRIPT"
+# The same screen returns as the "welcome to the new release" page: gnome-initial-setup-upgrade-login.service runs when the stamp above
+# exists and ~/.config/gnome-initial-setup/upgrade-<release>-done does not (found on the first installed arm64 image, 2026-10-19).
+# The block is RUN against a fake chroot holding the real unit (fixtures/gnome-initial-setup-upgrade-login.service, captured from the image).
+GIS_FIX="$HERE/fixtures/gnome-initial-setup-upgrade-login.service"
+GIS_BLOCK="$WORK/gis-block.sh"
+body_of 'gis-upgrade-stamp begin' 'gis-upgrade-stamp end' > "$GIS_BLOCK"
+expect "the skel stamp block of Step 10g is found (and is not empty)" test "$(wc -l < "$GIS_BLOCK" | tr -d ' ')" -gt 8
+gis_run() { # gis_run <unit file or "-" for none> -> prints "<exit>|<skel stamps found>|<stderr first line>"
+    local root="$WORK/gis-root.$$.$RANDOM" rc err
+    mkdir -p "$root/usr/lib/systemd/user" "$root/etc/skel/.config"
+    [[ "$1" == "-" ]] || cp "$1" "$root/usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service"
+    err="$(CHROOT_PATH="$root" bash -c 'set -euo pipefail; . "$1"' _ "$GIS_BLOCK" 2>&1 >/dev/null)"; rc=$?
+    echo "$rc|$(cd "$root/etc/skel/.config" && find . -type f | sed 's|^\./||' | sort | tr '\n' ',')|$(printf '%s' "$err" | head -n 1 | cut -c1-60)"
+    rm -rf "$root"
+}
+expect "the real 26.04 unit: exit 0 and the skel gets gnome-initial-setup/upgrade-26.04-done" test "$(gis_run "$GIS_FIX")" = "0|gnome-initial-setup/upgrade-26.04-done,|"
+sed 's/upgrade-26\.04-done/upgrade-26.10-done/' "$GIS_FIX" > "$WORK/unit-2610.service"
+expect "  a later release's unit: the stamp is named by the unit (upgrade-26.10-done), not written as 26.04" test "$(gis_run "$WORK/unit-2610.service")" = "0|gnome-initial-setup/upgrade-26.10-done,|"
+grep -v 'upgrade-26' "$GIS_FIX" > "$WORK/unit-nostamp.service"
+gis_nostamp="$(gis_run "$WORK/unit-nostamp.service")"
+case "$gis_nostamp" in
+    "1||[ERROR] Step 10g:"*) pass "  a unit that names no stamp stops the build (exit 1, Step 10g named) and writes nothing" ;;
+    *) fail "  a unit that names no stamp stops the build (got: $gis_nostamp)" ;;
+esac
+expect "  no upgrade unit in the image: exit 0 and no stamp (nothing to skip)" test "$(gis_run -)" = "0||"
 # an upgrade restores the executable bit of a motd script; dpkg-statoverride is what keeps it off
 for m in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
     expect "motd script $m is kept off by dpkg-statoverride, not only by chmod" bash -c 'grep -q -E "for _motd in .*$1" "$2"' _ "$m" "$SCRIPT"

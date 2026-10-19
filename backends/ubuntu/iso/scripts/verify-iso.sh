@@ -188,7 +188,7 @@ R="$WORK/root"; mkdir -p "$R"
 unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/os-release usr/lib/os-release etc/os-release.ubuntu-base etc/lsb-release etc/issue etc/issue.net etc/hostname \
     etc/casper.conf etc/default/grub var/lib/dpkg/status var/lib/snapd/seed/seed.yaml var/lib/snapd/state.json etc/cloud/cloud.cfg \
-    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications \
+    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service \
     usr/share/glib-2.0/schemas \
     usr/share/gnome-background-properties \
     etc/update-motd.d etc/systemd/system etc/sudoers.d etc/netplan \
@@ -1698,6 +1698,16 @@ fi
 # /etc/skel; the motd scripts that advertise Ubuntu Pro are held off by dpkg-statoverride (an upgrade restores a plain chmod -x);
 # /etc/legal says Companion OS; the first-boot setup is started by its timer, not at boot, and waits for a quiet machine.
 check "first-run: /etc/skel/.config/gnome-initial-setup-done exists (no Canonical first-run for a new user)" test -e "$R/etc/skel/.config/gnome-initial-setup-done"
+# gnome-initial-setup-upgrade-login.service shows "Welcome to <release>!" (the raccoon) when the stamp above exists and the stamp it
+# names itself does not: found on the first installed arm64 image, 2026-10-19. The stamp's name is read from the unit in the image.
+_gis_unit="$R/usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service"
+if [[ -f "$_gis_unit" ]]; then
+    _gis_stamp="$(sed -n 's|^ConditionPathExists=!%E/\(gnome-initial-setup/upgrade-[0-9.]*-done\)$|\1|p' "$_gis_unit" | head -n 1)"
+    check "first-run: the upgrade-login unit names a stamp (${_gis_stamp:-none})" test -n "$_gis_stamp"
+    check "first-run: /etc/skel/.config/${_gis_stamp:-<none>} exists (no 'Welcome to Companion OS' page after the first sign-in)" test -n "$_gis_stamp" -a -e "$R/etc/skel/.config/$_gis_stamp"
+else
+    note "gnome-initial-setup-upgrade-login.service is not in this image: no upgrade-welcome stamp is needed"
+fi
 for _m in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
     check "login text: motd script $_m is held off by dpkg-statoverride" grep -q -E "^root root 644 /etc/update-motd\\.d/$_m\$" "$R/var/lib/dpkg/statoverride"
 done

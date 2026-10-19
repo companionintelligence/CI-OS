@@ -1,0 +1,20 @@
+# /usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service
+# Captured from an installed Companion OS 1.0 (Ubuntu 26.04.1 arm64 base, gnome-initial-setup 50.0-0ubuntu7.1) on 2026-10-19 with
+# `systemctl --user cat gnome-initial-setup-upgrade-login.service`; the fixture of the skel-stamp tests.
+[Unit]
+Description=GNOME Initial Setup
+
+BindsTo=gnome-session.target
+After=gnome-session.target
+
+ConditionPathExists=%E/gnome-initial-setup-done
+ConditionPathExists=!%E/gnome-initial-setup/upgrade-26.04-done
+
+# Never run in GDM
+ConditionUser=!@system
+ConditionEnvironment=XDG_SESSION_CLASS=user
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gnome-initial-setup --upgrade-user
+Restart=no
