@@ -52,7 +52,7 @@ printf 'pulling manifest \n' | sh "$FILTER" > "$TMP/a.txt"; eq "a lone 'pulling 
 printf 'Error: pull model manifest: file does not exist\n' | sh "$FILTER" > "$TMP/b.txt"; eq "an error line passes untouched" "$(cat "$TMP/b.txt")" "Error: pull model manifest: file does not exist"
 printf 'writing manifest \nsuccess \n' | sh "$FILTER" > "$TMP/c.txt"; eq "the closing lines pass, trailing blanks trimmed" "$(tr '\n' '|' < "$TMP/c.txt")" "writing manifest|success|"
 : | sh "$FILTER" > "$TMP/d.txt"; eq "empty input gives empty output" "$(wc -c < "$TMP/d.txt" | tr -d ' ')" "0"
-{ for p in 1 2 3 9 10 11 19 20 55 99 100; do printf 'pulling 0123456789ab: %3d%% ▕██        ▏ %d MB/100 MB\n' "$p" "$p"; done; } | sh "$FILTER" > "$TMP/e.txt"
+{ for p in 1 2 3 9 10 11 19 20 55 99 100; do printf 'pulling 0123456789ab: %3d%% \342\226\225\342\226\210\342\226\210        \342\226\217 %d MB/100 MB\n' "$p" "$p"; done; } | sh "$FILTER" > "$TMP/e.txt"
 eq "11 redraws of one layer keep the first of each 10-percent bucket (1 2 3 9 | 10 11 19 | 20 | 55 | 99 | 100 -> 1 10 20 55 99 100)" "$(grep -o -E ': +[0-9]+%' "$TMP/e.txt" | tr -d ': %' | tr '\n' ' ')" "1 10 20 55 99 100 "
 printf 'pulling aaaaaaaaaaaa:  50%% x\npulling bbbbbbbbbbbb:  50%% x\npulling aaaaaaaaaaaa:  51%% x\n' | sh "$FILTER" > "$TMP/f.txt"
 eq "layers are counted separately" "$(grep -c . "$TMP/f.txt" | tr -d ' ')" "2"

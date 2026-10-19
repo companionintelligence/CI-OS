@@ -111,7 +111,9 @@ fi
 echo "── no block-letter banner art in backends/, core/ and .github/"
 # A grep for the retired names reads text, not pictures: the MOTD banner drew the letters C, I, O, S in full-block
 # characters, which spelled "CI OS" and passed every check above. Draw no names; write them.
-block_art="$(git grep -InF '█' -- backends core .github ':(exclude)core/lib/check-repo.sh' 2>/dev/null || true)"
+# One file is exempt: a captured log of "ollama pull" progress bars (U+2588 is the bar's fill), the fixture of the progress-filter test.
+# It is 40 KB of "pulling <layer>: N% ▕█   ▏ x MB/y MB" lines, not a picture; a test reads it byte for byte, so it cannot be rewritten.
+block_art="$(git grep -InF '█' -- backends core .github ':(exclude)core/lib/check-repo.sh' ':(exclude)backends/ubuntu/chroot/tests/fixtures/ollama-pull-raw.txt' 2>/dev/null || true)"
 if [ -n "$block_art" ]; then
   echo "✖ block-letter art (U+2588) is back; it can spell a retired name that no text check can see:"; echo "$block_art"; rc=1
 fi
