@@ -1,0 +1,99 @@
+2026-10-19T05:58:38Z
+up 7 minutes
+load: 0.43 0.42 0.18
+== first-boot timer/unit
+NEXT                         LEFT LAST                              PASSED UNIT                         ACTIVATES
+Mon 2026-10-19 06:10:59 UTC 12min Mon 2026-10-19 05:54:01 UTC 4min 37s ago ci-os-first-boot-setup.timer ci-os-first-boot-setup.service
+
+1 timers listed.
+ActiveState=inactive
+SubState=dead
+ActiveEnterTimestamp=Mon 2026-10-19 05:54:01 UTC
+ActiveExitTimestamp=Mon 2026-10-19 05:55:59 UTC
+Type=exec
+Result=success
+ExecMainStatus=0
+Nice=19
+IOSchedulingClass=3
+CPUSchedulingPolicy=5
+== ollama throttle (runtime)
+CPUWeight=[not set]
+IOWeight=[not set]
+== first-boot journal (last 40, ansi stripped)
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: [*] Added metrics.ubuntu.com to /etc/hosts
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: [*] Added www.popcon.ubuntu.com to /etc/hosts
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: [*] Added popcon.ubuntu.com to /etc/hosts
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: [*] Removing telemetry services
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: ubuntu-report was already set on hold.
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: popularity-contest was already set on hold.
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: apport was already set on hold.
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: whoopsie was already set on hold.
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: apport-symptoms was already set on hold.
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: [+] Telemetry services successfully removed and blacklisted.
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: [SUCCESS] Telemetry removal complete
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: [INFO] Tailscale is already installed, skipping...
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: [INFO] Deploying CI Hub Service...
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: CI-Hub not deployed: REGISTRY_USERNAME/REGISTRY_PASSWORD not set.
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: Set them in the environment, or run the WiFi/pairing portal, to enable this step.
+Oct 19 05:55:13 companion-os first-boot-setup.sh[4022]: [INFO] Starting Companion Hub as companion (companion-hub --detached)...
+Oct 19 05:55:13 companion-os sudo[7664]: pam_unix(sudo:session): session opened for user companion(uid=1000) by (uid=0)
+Oct 19 05:55:13 companion-os sudo[7664]: root :  PWD=/ ; USER=companion ; COMMAND=/usr/bin/timeout 1500 companion-hub --detached
+Oct 19 05:55:32 companion-os im-config[9283]: @ IM_CONFIG_ENTRY='profile' XDG_SESSION_TYPE ='' UID=1000 PID=9224 PPID=7667
+Oct 19 05:55:32 companion-os im-config[9284]:   GTK_IM_MODULE='' QT_IM_MODULE='' CLUTTER_IM_MODULE='' SDL_IM_MODULE='' XMODIFIERS=''
+Oct 19 05:55:32 companion-os im-config[9286]:   Set IM_CONFIG_CURRENT_DESKTOP <- 'UNDEFINED'
+Oct 19 05:55:32 companion-os im-config[9350]: @ IM_CONFIG_ENTRY='profile' XDG_SESSION_TYPE ='' UID=1000 PID=9291 PPID=7667
+Oct 19 05:55:32 companion-os im-config[9352]:   GTK_IM_MODULE='' QT_IM_MODULE='' CLUTTER_IM_MODULE='' SDL_IM_MODULE='' XMODIFIERS=''
+Oct 19 05:55:32 companion-os im-config[9354]:   Set IM_CONFIG_CURRENT_DESKTOP <- 'UNDEFINED'
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]: Hub started successfully (detached headless mode)
+Oct 19 05:55:59 companion-os sudo[7664]: pam_unix(sudo:session): session closed for user companion
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]: [SUCCESS] Companion Hub started. Pair it with your CI Account from the Companion Hub window (docs.ci.computer/docs
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]: [SUCCESS] Setup completed successfully!
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]: [INFO] Next steps:
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]:   • User root: Log out and log back in (or start a new shell) to use new tools; for Docker without re-login run:
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]:   • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]:   • Start Ollama service: systemctl start ollama
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]:   • Verify installations: docker --version, node --version, pnpm --version, ollama --version, gh --version
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]:   • Note: 'Create deploy read key' step was not specified - please add this manually if needed
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]: [WARNING] gsettings not available or no valid user detected. Skipping GNOME Power Mode setting.
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]: [CI-OS] First-boot setup completed at Mon Oct 19 05:55:59 AM UTC 2026
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]: [CI-OS] Log saved to /var/log/ci-os-first-boot-setup.log
+Oct 19 05:55:59 companion-os first-boot-setup.sh[4022]: [CI-OS] NOTE: Log out and back in for Docker group and PATH changes.
+Oct 19 05:55:59 companion-os systemd[1]: ci-os-first-boot-setup.service: Deactivated successfully.
+Oct 19 05:55:59 companion-os systemd[1]: ci-os-first-boot-setup.service: Consumed 9.040s CPU time over 1min 58.060s wall clock time, 830.2M memory peak.
+== markers
+total 16
+drwxr-xr-x  2 root root 4096 Oct 19 05:55 .
+drwxr-xr-x 80 root root 4096 Oct 19 05:51 ..
+-rw-r--r--  1 root root   32 Oct 19 05:55 .companion-hub-started
+-rw-r--r--  1 root root    0 Oct 19 05:51 .first-boot-rebrand-done
+-rw-r--r--  1 root root   32 Oct 19 05:55 .first-boot-setup-done
+== models
+NAME                       ID              SIZE      MODIFIED      
+gemma3:1b                  97558784bdc9    806 MB    3 minutes ago    
+nomic-embed-text:latest    0a109f422b47    274 MB    3 minutes ago    
+== docker
+sudo: interactive authentication is required
+traefik Up 2 minutes
+ci-hub Up 2 minutes (healthy)
+ci-hub-db Up 2 minutes (healthy)
+ci-hub-queue Up 2 minutes (healthy)
+== hub http
+200 
+200 http://localhost:5002/
+== failed units
+● pd-mapper.service loaded failed failed Qualcomm PD mapper service
+degraded
+== snaps left
+Name                       Version                         Rev    Tracking         Publisher    Notes
+bare                       1.0                             5      latest/stable    canonical**  base
+core24                     20260410                        1644   latest/stable    canonical**  base
+desktop-security-center    0+git.25daa58                   152    1/stable/…       canonical**  -
+firefox                    154.0-1                         8762   latest/stable/…  mozilla**    -
+gnome-46-2404              0+git.f1cd5fa-sdk0+git.ca9c59c  154    latest/stable/…  canonical**  -
+gtk-common-themes          0.1-81-g442e511                 1535   latest/stable/…  canonical**  -
+mesa-2404                  25.2.8-snap288                  1836   latest/stable/…  canonical**  -
+prompting-client           0+git.33cd821                   221    1/stable/…       canonical**  -
+snapd                      2.76.2                          27709  latest/stable    canonical**  snapd
+snapd-desktop-integration  0.9                             396    latest/stable/…  canonical**  -
+== disk
+/dev/nvme0n1p2   62G   19G   40G  32% /

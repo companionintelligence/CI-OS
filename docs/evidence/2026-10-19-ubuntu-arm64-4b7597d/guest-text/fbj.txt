@@ -1,0 +1,56 @@
+journal lines: 279; bytes: 16664
+lines with ESC: 59; lines with the bar glyph: 24
+== wait-quiet / throttle / pull lines
+wait-quiet: quiet after 30s (load 0.06, 6 CPUs)
+[0;34m[INFO][0m Setting hardware-aware Ollama default context length (8192)
+[0;34m[INFO][0m Checking Ollama models...
+[0;34m[INFO][0m Skipping qwen3.6:27b: not a Strix Halo-class APU (need Ryzen AI Max / gfx1151 / Radeon 8060S)
+Pulling nomic-embed-text...
+pulling manifest ⠋
+pulling manifest ⠹
+pulling manifest ⠸
+pulling manifest ⠴
+pulling manifest ⠦
+pulling manifest ⠧
+pulling manifest ⠇
+pulling manifest ⠏
+pulling manifest ⠙
+pulling manifest
+pulling 970aa74c0a90:   0% ▕                  ▏ 210 KB/274 MB
+pulling 970aa74c0a90:  14% ▕██                ▏  39 MB/274 MB
+pulling 970aa74c0a90:  20% ▕███               ▏  54 MB/274 MB
+pulling 970aa74c0a90:  36% ▕██████            ▏  97 MB/274 MB
+pulling 970aa74c0a90:  47% ▕████████          ▏ 128 MB/274 MB  118 MB/s      1spulling manifest
+pulling 970aa74c0a90:  54% ▕█████████         ▏ 147 MB/274 MB  118 MB/s      1spulling manifest
+pulling 970aa74c0a90:  62% ▕███████████       ▏ 171 MB/274 MB  118 MB/s      0spulling manifest
+pulling 970aa74c0a90:  71% ▕████████████      ▏ 195 MB/274 MB  118 MB/s      0spulling manifest
+pulling 970aa74c0a90:  83% ▕██████████████    ▏ 226 MB/274 MB  118 MB/s      0spulling manifest
+pulling 970aa74c0a90:  91% ▕████████████████  ▏ 250 MB/274 MB  118 MB/s      0spulling manifest
+pulling 970aa74c0a90: 100% ▕█████████████████ ▏ 273 MB/274 MB  128 MB/s      0spulling manifest
+pulling 31df23ea7daa: 100% ▕██████████████████▏  420 B
+Pulling gemma3:1b...
+pulling manifest ⠋
+pulling manifest ⠙
+pulling manifest ⠸
+pulling manifest ⠴
+pulling manifest ⠧
+pulling manifest ⠇
+pulling manifest ⠏
+pulling manifest ⠦
+pulling manifest
+pulling 2f8c3d137f24:   0% ▕                  ▏ 348 KB/806 MB
+pulling 2f8c3d137f24:  13% ▕██                ▏ 105 MB/806 MB
+pulling 2f8c3d137f24:  20% ▕███               ▏ 164 MB/806 MB  128 MB/s      4spulling manifest
+pulling 2f8c3d137f24:  32% ▕█████             ▏ 254 MB/806 MB  128 MB/s      4spulling manifest
+pulling 2f8c3d137f24:  42% ▕███████           ▏ 336 MB/806 MB  149 MB/s      3spulling manifest
+pulling 2f8c3d137f24:  50% ▕████████          ▏ 400 MB/806 MB  149 MB/s      2spulling manifest
+pulling 2f8c3d137f24:  60% ▕██████████        ▏ 482 MB/806 MB  157 MB/s      2spulling manifest
+pulling 2f8c3d137f24:  72% ▕████████████      ▏ 577 MB/806 MB  157 MB/s      1spulling manifest
+pulling 2f8c3d137f24:  81% ▕██████████████    ▏ 648 MB/806 MB  157 MB/s      0spulling manifest
+pulling 2f8c3d137f24:  90% ▕████████████████  ▏ 728 MB/806 MB  157 MB/s      0spulling manifest
+pulling 2f8c3d137f24: 100% ▕█████████████████ ▏ 804 MB/806 MB  154 MB/s      0spulling manifest
+pulling 76a6b777faea: 100% ▕██████████████████▏  140 B
+[0;32m[SUCCESS][0m Ollama models checked/pulled
+== file log
+-rw-r--r-- 1 root root 13140 Oct 19 05:55 /var/log/ci-os-first-boot-setup.log
+245 /var/log/ci-os-first-boot-setup.log

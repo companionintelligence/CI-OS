@@ -1,0 +1,73 @@
+== upgrade-login unit
+# /usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service
+[Unit]
+Description=GNOME Initial Setup
+
+BindsTo=gnome-session.target
+After=gnome-session.target
+
+ConditionPathExists=%E/gnome-initial-setup-done
+ConditionPathExists=!%E/gnome-initial-setup/upgrade-26.04-done
+
+# Never run in GDM
+ConditionUser=!@system
+ConditionEnvironment=XDG_SESSION_CLASS=user
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gnome-initial-setup --upgrade-user
+Restart=no
+== first-login unit
+# /usr/lib/systemd/user/gnome-initial-setup-first-login.service
+[Unit]
+Description=GNOME Initial Setup
+
+BindsTo=gnome-session.target
+After=gnome-session.target
+
+ConditionPathExists=!%E/gnome-initial-setup-done
+
+# Never run in GDM
+ConditionUser=!@system
+ConditionEnvironment=XDG_SESSION_CLASS=user
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/gnome-initial-setup --existing-user
+Restart=no
+== strings in the binary about done/version
+gnome-initial-setup/pages/account/um-realm-generated.c
+gnome-initial-setup/pages/timezone/timedated.c
+../gnome-initial-setup/gis-page.c
+InitialSetup
+../gnome-initial-setup/gis-focusable-bin.c
+../gnome-initial-setup/cc-common-language.c
+../gnome-initial-setup/gis-driver.c
+/etc/gnome-initial-setup/vendor.conf
+/usr/share/gnome-initial-setup/vendor.conf
+upgrade-26.04-done
+gnome-initial-setup
+../gnome-initial-setup/gnome-initial-setup.c
+/org/gnome/initial-setup/gis-assistant.ui
+../gnome-initial-setup/gis-assistant.c
+../gnome-initial-setup/gis-page-header.c
+/org/gnome/initial-setup/gis-page-header.ui
+/org/gnome/initial-setup/gis-account-page.ui
+/org/gnome/initial-setup/gis-account-page.css
+../gnome-initial-setup/pages/account/gis-account-page.c
+/org/gnome/initial-setup/gis-account-page-local.ui
+== os-release
+NAME="Companion OS"
+VERSION="26.04 LTS (Companion OS 1.0)"
+PRETTY_NAME="Companion OS 1.0"
+VERSION_ID="26.04"
+== system/user dconf for g-i-s
+org.gnome.shell welcome-dialog-last-shown-version '50.1'
+'50.1'
+== other dirs
+total 20
+drwxr-xr-x   2 root root  4096 Aug 26 09:26 .
+drwxr-xr-x 284 root root 12288 Oct 19 05:03 ..
+-rw-r--r--   1 root root   795 Jul  1 12:37 initial-setup-dconf-defaults
+-rw-r--r--   1 root root     0 Jul  1 12:37 vendor.conf
+ls: cannot access '/etc/gnome-initial-setup': No such file or directory

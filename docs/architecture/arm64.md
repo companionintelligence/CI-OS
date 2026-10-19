@@ -17,10 +17,32 @@ One image, built from the commit `ee25b63` of the branch `liam/companion-os-arm6
 | Live boot to the desktop | the Companion wallpaper, the installer window, the dock with the new list (installer, Hub, Docs, Files, Terminal; no Capture) | **about 2 min** (x86 under emulation: 6 to 15 min) |
 | One-click install | the confirmation dialog, then the install; the machine powered itself off | **12 min** (x86 under emulation: about 6 hours) |
 | Installed boot | branded GDM greeter; `graphical.target` after **18.5 s** of userspace | 45 s from power-on |
-| First sign-in | the one-time password was accepted and GDM asked for a new one (the designed `chage -d 0` flow); **no Canonical first-run screen**; Firefox opened the Companion getting-started page by itself | 1 min to the desktop |
+| First sign-in | the one-time password was accepted and GDM asked for a new one (the designed `chage -d 0` flow); **no Canonical first-run screen was seen**; Firefox opened the Companion getting-started page by itself. **Correction, same day:** the next image showed that screen (the upgrade-login service, see below), with the same configuration, so "none was seen" on this first image is not proof that it could not appear | 1 min to the desktop |
 | First-boot setup | started by its timer 3 min after boot, waited for a quiet machine (`wait-quiet: quiet after 30s`), removed the snap-store and Thunderbird snaps, pulled `nomic-embed-text` and `gemma3:1b`, **started Companion Hub** (`ci-hub`, `ci-hub-db`, `ci-hub-queue` healthy), wrote its marker. The unit showed `Type=exec`, `Nice=19`, idle CPU scheduling; `ollama.service` showed `CPUWeight=20 IOWeight=20` while it ran | 2 min 48 s |
 | Hub | `http://localhost:5002` answered 200 and redirected to its device-registration page: the pairing step the docs describe. Nothing needed a credential | |
 | Login text | `/etc/legal` says Companion OS; the four Pro motd scripts are held off by `dpkg-statoverride` | |
+
+## The second run: the image of the current branch [V]
+
+The first image (`ee25b63`) predated the trust fix for the desktop shortcuts and the download-progress filter, so the branch was built and run again, twice. **The first rebuild
+(`c0059d6`) found a defect the first image had not shown**: the first sign-in opened Canonical's "Welcome to Companion OS 1.0!" page with the raccoon, from
+`gnome-initial-setup-upgrade-login.service`, which the stamp in `/etc/skel` did not cover (KI-27). Commit `6aa27f6` fixes it. The image built from that commit
+(`4b7597d`) is the one in the screenshots of [`docs/ui/companion-os/ubuntu/CAPTURE.md`](../ui/companion-os/ubuntu/CAPTURE.md).
+
+| Step | `c0059d6` | `4b7597d` (the fix) |
+|---|---|---|
+| Build | 811 s | 917 s |
+| `verify-iso.sh` | 436 passed, 0 failed | **438 passed, 0 failed** (two new checks: the upgrade-login unit names a stamp, and `/etc/skel` holds it) |
+| Live desktop | the five shortcuts show their icons and names (the trust fix works) | the same |
+| One-click install | 9 min 35 s | 12 min 10 s |
+| First sign-in | **Canonical's welcome page (the defect)** | no first-run page; the Companion getting-started page opens |
+| First-boot job | 1 min 58 s, exit 0 | 1 min 58 s, exit 0 |
+| Hub | `ci-hub`, `ci-hub-db`, `ci-hub-queue`, `traefik` up; the Hub window shows the pairing screen | the same |
+| Failed units | `pd-mapper.service` | the same |
+
+The same fix was also proved live on the `c0059d6` machine before the rebuild: with the stamp placed in the home, the second sign-in went straight to a clean desktop
+(`docs/evidence/2026-10-19-ubuntu-arm64-c0059d6-first-run/frames/02-...png`). The amd64 image of `4b7597d` was built (1113 s) and verified (**446 passed, 0 failed**,
+`docs/evidence/2026-10-19-ubuntu-amd64-4b7597d/`); it was not booted [I].
 
 ## How it differs from amd64
 
@@ -63,7 +85,7 @@ The five points of [supported-targets.md, section 2](supported-targets.md#2-what
 
 | Point | State |
 |---|---|
-| 1. It builds | **[V]** a documented command (above); built twice natively, 19 min each. |
+| 1. It builds | **[V]** a documented command (above); built three times natively (1161 s, 811 s, 917 s). |
 | 2. Verified without booting | **[V]** `verify-iso.sh` reads the architecture from the volume id and passed 436 checks on the arm64 image. **Gap [N]:** the arm64 branches of the verifier (EFI names, the no-GRUB case, the `$cmdline` menu line, Capture expected absent) have no good-and-broken fixture self-test; they were exercised only by the real image. |
 | 3. Fast tests in the gate | **[V]** the architecture handling of `customize-chroot.sh` is pinned by `customize-chroot-checks.sh` (section 11, mutation-tested), and the new first-boot and welcome scripts have their own suites. **Gap [N]:** no job builds an arm64 image; the build is run by hand. |
 | 4. Limits written | **[V]** this page and KI-28. |

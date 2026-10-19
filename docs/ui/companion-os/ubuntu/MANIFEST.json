@@ -1,0 +1,86 @@
+{
+  "run": "2026-10-19 arm64, commit 4b7597d",
+  "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware",
+  "frames": [
+    {
+      "file": "arm64-01-live-grub-menu.png",
+      "sha256": "463999d98140e0bddfa8a12891c9d6685749d807a8c22addf8cc8992b186f6bc",
+      "bytes": 15245,
+      "size": "1280x800",
+      "shows": "The boot menu of the arm64 live medium: Companion mark, four entries, 15 s countdown",
+      "taken_approx_utc": "05:35:32Z + 12 s"
+    },
+    {
+      "file": "arm64-02-live-installer-welcome.png",
+      "sha256": "dd4550c96c566cd40cc25ca7c5bc6e9b2e664c5304d14bb80666dc61201a5478",
+      "bytes": 480842,
+      "size": "1280x800",
+      "shows": "Canonical's installer window, which opens first in the live session (its text stays Ubuntu's)",
+      "taken_approx_utc": "about 2 min after power-on"
+    },
+    {
+      "file": "arm64-03-live-desktop.png",
+      "sha256": "745ebf7808414fa441f88591712588e23cc37afe28309c7aa182174baf64f2ff",
+      "bytes": 1334029,
+      "size": "1280x800",
+      "shows": "The live desktop after the installer window is closed: dock, five trusted Companion shortcuts, two installer launchers",
+      "taken_approx_utc": "05:38:02Z"
+    },
+    {
+      "file": "arm64-04-one-click-confirmation.png",
+      "sha256": "170f2ab679bba88b41bde6776eec4e37a41e49b9eebfa2d9710b8510dcd9f899",
+      "bytes": 1016121,
+      "size": "1280x800",
+      "shows": "The one-click installer's only dialog; the one-time password is hidden (redacted bar over the line)",
+      "taken_approx_utc": "05:38:20Z"
+    },
+    {
+      "file": "arm64-05-one-click-progress.png",
+      "sha256": "7cb770be36017b113eec3da7d3b8a2ec04ca41d289147f607439414f336bc532",
+      "bytes": 1240007,
+      "size": "1280x800",
+      "shows": "The progress window during the install; the sentence that carries the one-time password is replaced by a redacted copy",
+      "taken_approx_utc": "05:38:50Z"
+    },
+    {
+      "file": "arm64-06-installed-greeter.png",
+      "sha256": "bac1eba94ce3525f08d967a6c7b968b30865c410e6698dcfe07af7616b6f137e",
+      "bytes": 26350,
+      "size": "1280x800",
+      "shows": "The installed system's GDM greeter, 50 s after power-on",
+      "taken_approx_utc": "05:51:39Z"
+    },
+    {
+      "file": "arm64-07-forced-password-change.png",
+      "sha256": "0a27380e70dc10f6887b948b859c85eb7f78c369d711fd9f3df29b528641c13e",
+      "bytes": 34167,
+      "size": "1280x800",
+      "shows": "The first sign-in asks for a new password (chage -d 0)",
+      "taken_approx_utc": "05:55:20Z"
+    },
+    {
+      "file": "arm64-08-first-sign-in-welcome-page.png",
+      "sha256": "77ac1f221097e64a637be02787d38ed849a3f1391c795f7c54dfe639a203a8ee",
+      "bytes": 159936,
+      "size": "1280x800",
+      "shows": "After the new password: no Canonical first-run screen; the Companion getting-started page is open in Firefox",
+      "taken_approx_utc": "05:57:00Z"
+    },
+    {
+      "file": "arm64-09-installed-desktop.png",
+      "sha256": "d6a09115d4285e5599e80fae3f7a9e7de9d5658c7097f15f7ce57b6954dd52e2",
+      "bytes": 1312595,
+      "size": "1280x800",
+      "shows": "The installed desktop: dock (Hub, Docs, Files, Terminal) and the five trusted Companion shortcuts",
+      "taken_approx_utc": "05:57:20Z"
+    },
+    {
+      "file": "arm64-10-hub-pairing.png",
+      "sha256": "be2c97a253ab555b3664b0a52800840af99ed31c931854c6f1a8df1c3748e86f",
+      "bytes": 79941,
+      "size": "1280x800",
+      "shows": "Companion Hub's first screen on arm64: pairing code and device registration (pairing is a person's step)",
+      "taken_approx_utc": "05:57:50Z"
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+== whoami/uptime
+companion
+up 3 minutes
+== ~/.config
+total 56
+drwxr-xr-x 12 companion companion 4096 Oct 19 05:09 .
+drwxr-x--- 15 companion companion 4096 Oct 19 05:09 ..
+-rw-rw-r--  1 companion companion    0 Oct 19 05:09 .gsd-keyboard.settings-ported
+drwxrwxr-x  2 companion companion 4096 Oct 19 05:09 ci-os
+drwx------  2 companion companion 4096 Oct 19 05:09 dconf
+drwx------  3 companion companion 4096 Oct 19 05:09 evolution
+-rw-r--r--  1 companion companion    0 Oct 19 04:41 gnome-initial-setup-done
+drwxr-xr-x  2 companion companion 4096 Oct 19 05:09 goa-1.0
+drwx------  2 companion companion 4096 Oct 19 05:09 gtk-3.0
+drwx------  3 companion companion 4096 Oct 19 05:09 ibus
+-rw-rw-r--  1 companion companion    0 Oct 19 05:09 ibus-mozc-gnome-initial-setup-done
+drwx------  2 companion companion 4096 Oct 19 05:09 mozc
+drwxr-xr-x  2 companion companion 4096 Oct 19 05:09 nautilus
+drwx------  2 companion companion 4096 Oct 19 05:09 pulse
+drwx------  2 companion companion 4096 Oct 19 05:09 update-notifier
+-rw-------  1 companion companion  633 Oct 19 05:09 user-dirs.dirs
+-rw-rw-r--  1 companion companion    5 Oct 19 05:09 user-dirs.locale
+== /etc/skel/.config
+total 8
+drwxr-xr-x 2 root root 4096 Oct 19 04:41 .
+drwxr-xr-x 4 root root 4096 Oct 19 04:41 ..
+-rw-r--r-- 1 root root    0 Oct 19 04:41 gnome-initial-setup-done
+== autostart (user, system) matching
+ls: cannot access '/home/companion/.config/autostart': No such file or directory
+ci-os-live-setup.desktop
+ci-os-welcome.desktop
+ibus-mozc-gnome-initial-setup.desktop
+ubuntu-advantage-notification.desktop.disabled
+== processes (not firefox)
+   7177       00:06 /usr/lib/systemd/systemd-timedated
+   7178       00:06 /usr/bin/snap userd --agent
+   7421       00:02 (udev-worker)
+   7422       00:02 (udev-worker)
+   7423       00:02 (udev-worker)
+   7424       00:02 (udev-worker)
+   7425       00:02 (udev-worker)
+   7426       00:02 (udev-worker)
+   7427       00:02 (udev-worker)
+   7428       00:02 (udev-worker)
+   7429       00:02 (udev-worker)
+   7430       00:02 (udev-worker)
+   7431       00:02 (udev-worker)
+   7432       00:02 (udev-worker)
+   7433       00:02 (udev-worker)
+   7434       00:02 (udev-worker)
+   7435       00:02 (udev-worker)
+   7436       00:02 (udev-worker)
+   7437       00:02 (udev-worker)
+   7438       00:02 (udev-worker)
+   7439       00:02 (udev-worker)
+   7440       00:02 (udev-worker)
+   7441       00:02 (udev-worker)
+   7442       00:02 (udev-worker)
+   7443       00:02 (udev-worker)
+   7444       00:02 (udev-worker)
+   7445       00:02 (udev-worker)
+   7446       00:02 (udev-worker)
+   7447       00:02 (udev-worker)
+   7448       00:02 (udev-worker)
+   7517       00:02 sleep 3
+   7759       00:01 snap remove --purge thunderbird
+   7836       00:00 /usr/sbin/apparmor_parser --policy-features /etc/apparmor.d/abi/3.0 --replace --write-cache --cache-loc=/var/cache/apparmor -j4 --
+   7837       00:00 /usr/sbin/apparmor_parser --policy-features /etc/apparmor.d/abi/3.0 --replace --write-cache --cache-loc=/var/cache/apparmor -j4 --
+   7838       00:00 /usr/sbin/apparmor_parser --policy-features /etc/apparmor.d/abi/3.0 --replace --write-cache --cache-loc=/var/cache/apparmor -j4 --
+   7841       00:00 sh
+   7842       00:00 sh
+   7843       00:00 curl -s -X POST --data-binary @- http://10.0.2.2:8099/out/diag1.txt
+   7855       00:00 tail -40
+   7856       00:00 cut -c1-150
+== gnome-initial-setup pkg
+ii  gnome-initial-setup                        50.0-0ubuntu7.1                            arm64        Initial GNOME sys
+== user journal
+Oct 19 05:09:02 companion-os systemd[3883]: gnome-initial-setup-copy-worker.service - GNOME Initial Setup Copy Worker skipped, unmet condition check ConditionPathExists=!/home/companion/.config/gnome-
+Oct 19 05:09:03 companion-os systemd[3883]: Started app-gnome-ci\x2dos\x2dwelcome-4615.scope - Application launched by gnome-session-service.
+Oct 19 05:09:03 companion-os systemd[3883]: gnome-initial-setup-first-login.service - GNOME Initial Setup skipped, unmet condition check ConditionPathExists=!/home/companion/.config/gnome-initial-setu
+Oct 19 05:09:03 companion-os systemd[3883]: Starting gnome-initial-setup-upgrade-login.service - GNOME Initial Setup...
+Oct 19 05:09:03 companion-os gnome-initial-setup[5018]: Starting gnome-initial-setup
+Oct 19 05:09:03 companion-os gnome-initial-setup[5018]: Production mode: changes will be saved to disk
+Oct 19 05:09:05 companion-os gnome-initial-setup[5018]: libEGL warning: failed to get driver name for fd -1
+Oct 19 05:09:05 companion-os gnome-initial-setup[5018]: libEGL warning: MESA-LOADER: failed to retrieve device information
+Oct 19 05:09:05 companion-os gnome-initial-setup[5018]: libEGL warning: failed to get driver name for fd -1
+Oct 19 05:09:05 companion-os gnome-initial-setup[5018]: MESA: error: ZINK: failed to choose pdev
+Oct 19 05:09:05 companion-os gnome-initial-setup[5018]: libEGL warning: egl: failed to create dri2 screen
+== marker files
+-rw-r--r-- 1 companion companion 0 Oct 19 04:41 /home/companion/.config/gnome-initial-setup-done
+
+/home/companion/.config/ci-os:
+total 8
+drwxrwxr-x  2 companion companion 4096 Oct 19 05:09 .
+drwxr-xr-x 12 companion companion 4096 Oct 19 05:09 ..
+-rw-rw-r--  1 companion companion    0 Oct 19 05:09 desktop-trusted
+-rw-rw-r--  1 companion companion    0 Oct 19 05:09 welcome-done
+== dock
+['ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop', 'Companion Hub.desktop', 'companion-capture.desktop', 'companion-docs.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Ptyxis.desktop']
+== session
+wayland ubuntu:GNOME
