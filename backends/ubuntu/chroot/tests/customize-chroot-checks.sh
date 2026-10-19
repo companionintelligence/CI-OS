@@ -211,5 +211,43 @@ expect "the build records its version in /usr/lib/ci-os/version (/etc/os-release
 expect "  and the rebrand script reads it first" bash -c 'printf "%s\n" "$1" | grep -q -F -- "$2"' _ "$rb_script" "$ver_read"
 
 echo
+echo "== 7. Companion Capture (Tier B) and the dock list"
+# Capture's release is on a PRIVATE repository: the .deb comes from the build cache or from `gh`, and what makes either one safe is the pin.
+PINS_FILE="$HERE/../../../../core/manifest/tier-b-pins.env"
+DOCK_LIST="$HERE/../dock-favorites.txt"
+[[ -f "$PINS_FILE" && -f "$DOCK_LIST" ]] || { echo "missing $PINS_FILE or $DOCK_LIST" >&2; exit 2; }
+pin() { ( set +u; . "$PINS_FILE"; eval "printf '%s' \"\${$1}\"" ); }
+for k in CAPTURE_VERSION CAPTURE_REPO CAPTURE_TAG CAPTURE_ASSET CAPTURE_SHA256 CAPTURE_SIZE CAPTURE_PACKAGE CAPTURE_BINARY; do
+    expect "pin $k is set" test -n "$(pin "$k")"
+done
+expect "  the sha256 pin is 64 lower-case hex digits" bash -c '[[ "$1" =~ ^[0-9a-f]{64}$ ]]' _ "$(pin CAPTURE_SHA256)"
+expect "  the size pin is a number of bytes" bash -c '[[ "$1" =~ ^[0-9]+$ ]]' _ "$(pin CAPTURE_SIZE)"
+expect "  the tag is v<version>" test "$(pin CAPTURE_TAG)" = "v$(pin CAPTURE_VERSION)"
+expect "  the asset is <package>_<version>_amd64.deb" test "$(pin CAPTURE_ASSET)" = "$(pin CAPTURE_PACKAGE)_$(pin CAPTURE_VERSION)_amd64.deb"
+expect "  the repository is owner/name" bash -c '[[ "$1" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ ]]' _ "$(pin CAPTURE_REPO)"
+
+expect "the Capture knob is validated as 0 or 1 with the others" grep -q -E '^for _k in .*CI_OS_BAKE_CAPTURE' "$SCRIPT"
+expect "the cache file is named <package>_<version>_amd64.deb (what a person places there)" \
+    grep -q -F 'TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_amd64.deb"' "$SCRIPT"
+before "gh is asked for only after the cache file failed its check" \
+    'if \[\[ ! -f "\$TB_CAPTURE_DEB" \]\]' 'gh release download "\$CAPTURE_TAG"'
+before "the Capture .deb is checked against the sha256 pin before the chroot is touched" \
+    'tb_expect_sha256 "\$TB_CAPTURE_DEB"' 'chroot "\$CHROOT_PATH" /tmp/preinstall-tier-b\.sh'
+expect "a missing gh stops the build and says where the file goes" \
+    bash -c 'sed -n "/command -v gh/,/^            install -d/p" "$1" | grep -q -F "Put \$CAPTURE_ASSET"' _ "$SCRIPT"
+expect "a Capture .deb with files under /etc or systemd is refused (no autostart, no service)" \
+    bash -c 'sed -n "/capture.members/,/^    fi/p" "$1" | grep -q -F "tb_die \"Capture .deb ships files under /etc or systemd"' _ "$SCRIPT"
+expect "the finished image is asserted to have no Capture autostart" grep -q -F '[[ ! -e "$CHROOT_PATH/etc/xdg/autostart/companion-capture.desktop" ]]' "$SCRIPT"
+expect "the finished image is asserted to have no Capture service" grep -q -F 'a companion-capture unit appeared' "$SCRIPT"
+expect "what was baked records bake-capture and the package version" \
+    bash -c 'grep -q -F "echo \"bake-capture=\$CI_OS_BAKE_CAPTURE\"" "$1" && grep -q -F "\"\$CAPTURE_PACKAGE\"" "$1"' _ "$SCRIPT"
+
+# The dock pins the desktop file that the .deb check requires, so the two cannot drift apart.
+expect "the dock list holds the desktop file the Capture .deb must ship" bash -c 'grep -q -x "companion-capture.desktop" "$1" && grep -q -F "./usr/share/applications/companion-capture.desktop" "$2"' _ "$DOCK_LIST" "$SCRIPT"
+expect "the dock default is written from the list, and a bad list stops the build" \
+    bash -c 'grep -q -F "dock_favorites_value \"\$REPO_ROOT/backends/ubuntu/chroot/dock-favorites.txt\"" "$1" && grep -q -F "02-ci-os-dock" "$1" && grep -q -F "is not a valid dock list" "$1"' _ "$SCRIPT"
+before "the dock default is written before dconf is compiled" '02-ci-os-dock" << EOF' 'chroot_exec "dconf update"'
+
+echo
 echo "$PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

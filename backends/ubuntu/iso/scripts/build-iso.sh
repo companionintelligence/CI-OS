@@ -31,6 +31,8 @@
 #   CI_OS_BAKE_THIRD_PARTY=0|1   tailscale + cloudflared + gh from the vendors' apt repositories
 #   CI_OS_BAKE_OLLAMA=0|1        Ollama from the vendor's pinned release tarball (never install.sh)
 #   CI_OS_BAKE_LAUNCHER=0|1      Companion Launcher .deb from dl.ci.computer (pinned sha256)
+#   CI_OS_BAKE_CAPTURE=0|1       Companion Capture .deb (pinned sha256) from a PRIVATE GitHub release: the .deb in CI_OS_CACHE_DIR
+#                                when it matches the pin, else `gh release download` (gh signed in, or GH_TOKEN); the build stops if neither works
 #   CI_OS_OLLAMA_CUDA=all|none   'none' drops Ollama's bundled CUDA libraries (saves about 1.5 GB)
 #   CI_OS_LAUNCHER_AUTOSTART=0|1 start the Launcher at graphical login on the installed system (default 0)
 #   CI_OS_CACHE_DIR=PATH         download cache for the Ollama tarball (default ~/.cache/ci-os, about 1.5 GB)

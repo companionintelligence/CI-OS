@@ -1075,6 +1075,7 @@ echo "[+] One-click automatic installer installed"
 #   CI_OS_BAKE_THIRD_PARTY  tailscale + cloudflared + gh from the vendors' apt repositories
 #   CI_OS_BAKE_OLLAMA       Ollama from the vendor's release tarball (never install.sh)
 #   CI_OS_BAKE_LAUNCHER     Companion Launcher (.deb from dl.ci.computer)
+#   CI_OS_BAKE_CAPTURE      Companion Capture (.deb from a private GitHub release: the build cache, else `gh release download`)
 #   CI_OS_OLLAMA_CUDA       all (default) | none   - "none" drops cuda_v12 + cuda_v13 (about 2.0 GiB installed)
 #   CI_OS_LAUNCHER_AUTOSTART  0 (default) | 1      - XDG autostart of the Launcher on the installed system
 #   CI_OS_TIERB_PINS        path of the pins file (default core/manifest/tier-b-pins.env)
@@ -1088,17 +1089,18 @@ echo "[*] Step 10e: Pre-installing optional tools (Tier B)..."
 CI_OS_BAKE_THIRD_PARTY="${CI_OS_BAKE_THIRD_PARTY:-1}"
 CI_OS_BAKE_OLLAMA="${CI_OS_BAKE_OLLAMA:-1}"
 CI_OS_BAKE_LAUNCHER="${CI_OS_BAKE_LAUNCHER:-1}"
+CI_OS_BAKE_CAPTURE="${CI_OS_BAKE_CAPTURE:-1}"
 CI_OS_OLLAMA_CUDA="${CI_OS_OLLAMA_CUDA:-all}"
 CI_OS_LAUNCHER_AUTOSTART="${CI_OS_LAUNCHER_AUTOSTART:-0}"
 TIERB_PINS="${CI_OS_TIERB_PINS:-$REPO_ROOT/core/manifest/tier-b-pins.env}"
 
 tb_die() { echo "[ERROR] Step 10e: $*" >&2; exit 1; }
-for _k in CI_OS_BAKE_THIRD_PARTY CI_OS_BAKE_OLLAMA CI_OS_BAKE_LAUNCHER CI_OS_LAUNCHER_AUTOSTART; do
+for _k in CI_OS_BAKE_THIRD_PARTY CI_OS_BAKE_OLLAMA CI_OS_BAKE_LAUNCHER CI_OS_BAKE_CAPTURE CI_OS_LAUNCHER_AUTOSTART; do
     case "${!_k}" in 0|1) ;; *) tb_die "$_k must be 0 or 1 (got '${!_k}')" ;; esac
 done
 case "$CI_OS_OLLAMA_CUDA" in all|none) ;; *) tb_die "CI_OS_OLLAMA_CUDA must be all or none (got '$CI_OS_OLLAMA_CUDA')" ;; esac
 
-if [[ "$CI_OS_BAKE_THIRD_PARTY$CI_OS_BAKE_OLLAMA$CI_OS_BAKE_LAUNCHER" == "000" ]]; then
+if [[ "$CI_OS_BAKE_THIRD_PARTY$CI_OS_BAKE_OLLAMA$CI_OS_BAKE_LAUNCHER$CI_OS_BAKE_CAPTURE" == "0000" ]]; then
     echo "[+] Step 10e: all Tier B knobs are 0, nothing to do"
 else
     [[ -f "$TIERB_PINS" ]] || tb_die "pins file not found: $TIERB_PINS"
@@ -1196,6 +1198,32 @@ else
         # A launcher must not bring its own system services, cron jobs or sudo rules.
         if grep -E '^\./(etc/|lib/systemd|usr/lib/systemd)' "$TB_WORK/launcher.members" | grep -q .; then
             tb_die "Launcher .deb ships files under /etc or systemd; review before baking"
+        fi
+    fi
+
+    TB_CAPTURE_DEB=""
+    if [[ "$CI_OS_BAKE_CAPTURE" == 1 ]]; then
+        TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_amd64.deb"
+        if [[ ! -f "$TB_CAPTURE_DEB" ]] || [[ "$(tb_sha256_of "$TB_CAPTURE_DEB")" != "$CAPTURE_SHA256" ]]; then
+            # The release lives in a private repository, so only the builder's own GitHub credentials can fetch it.
+            command -v gh >/dev/null 2>&1 || tb_die "Companion Capture .deb is not in the cache and gh is not installed on this build host. Put $CAPTURE_ASSET (sha256 $CAPTURE_SHA256) at $TB_CAPTURE_DEB, or install gh and sign in (gh auth login, or GH_TOKEN with read access to $CAPTURE_REPO), or build with CI_OS_BAKE_CAPTURE=0"
+            install -d -m 700 "$TB_WORK/capture-dl"
+            GH_PROMPT_DISABLED=1 gh release download "$CAPTURE_TAG" --repo "$CAPTURE_REPO" --pattern "$CAPTURE_ASSET" --dir "$TB_WORK/capture-dl" \
+                || tb_die "gh release download of $CAPTURE_ASSET ($CAPTURE_REPO $CAPTURE_TAG) failed: sign in (gh auth login, or GH_TOKEN with read access to the repository), or put the file at $TB_CAPTURE_DEB"
+            [[ -f "$TB_WORK/capture-dl/$CAPTURE_ASSET" ]] || tb_die "gh did not produce $CAPTURE_ASSET"
+            mv "$TB_WORK/capture-dl/$CAPTURE_ASSET" "$TB_CAPTURE_DEB.part"; mv "$TB_CAPTURE_DEB.part" "$TB_CAPTURE_DEB"
+        fi
+        tb_expect_sha256 "$TB_CAPTURE_DEB" "$CAPTURE_SHA256" "Companion Capture .deb"
+        [[ "$(tb_size_of "$TB_CAPTURE_DEB")" == "$CAPTURE_SIZE" ]] || tb_die "Companion Capture .deb size differs from the pin"
+        [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Package)" == "$CAPTURE_PACKAGE" ]] || tb_die "unexpected package name in the Capture .deb"
+        [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Version)" == "$CAPTURE_VERSION" ]] || tb_die "unexpected version in the Capture .deb"
+        [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Architecture)" == "amd64" ]] || tb_die "Capture .deb is not amd64"
+        dpkg-deb -c "$TB_CAPTURE_DEB" | sed -E -e 's/^[^ ]+ +[^ ]+ +[0-9]+ +[0-9-]+ +[0-9:]+ +//' -e 's/ -> .*$//' > "$TB_WORK/capture.members"
+        grep -qx "./usr/bin/$CAPTURE_BINARY" "$TB_WORK/capture.members" || tb_die "Capture .deb has no /usr/bin/$CAPTURE_BINARY"
+        grep -qx './usr/share/applications/companion-capture.desktop' "$TB_WORK/capture.members" || tb_die "Capture .deb has no companion-capture.desktop (the dock entry needs it)"
+        # Capture records the screen: it must not start by itself, bring services, cron jobs or sudo rules, or autostart.
+        if grep -E '^\./(etc/|lib/systemd|usr/lib/systemd)' "$TB_WORK/capture.members" | grep -q .; then
+            tb_die "Capture .deb ships files under /etc or systemd (an autostart or a service?); review before baking"
         fi
     fi
 
@@ -1317,14 +1345,15 @@ EOF
 
     #---- 3. Install inside the chroot. The chroot is NOT booted: nothing may start, stop or signal anything. ----------------
     if [[ -n "$TB_LAUNCHER_DEB" ]]; then install -m 0644 "$TB_LAUNCHER_DEB" "$CHROOT_PATH/tmp/companion-hub.deb"; fi
+    if [[ -n "$TB_CAPTURE_DEB" ]]; then install -m 0644 "$TB_CAPTURE_DEB" "$CHROOT_PATH/tmp/companion-capture.deb"; fi
     cat > "$CHROOT_PATH/tmp/preinstall-tier-b.sh" << 'EOSCRIPT'
 #!/bin/bash
-# usage: preinstall-tier-b.sh "<apt packages or empty>" <launcher 0|1> <ollama 0|1>
+# usage: preinstall-tier-b.sh "<apt packages or empty>" <launcher 0|1> <ollama 0|1> <capture 0|1>
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive LC_ALL=C
 export SYSTEMD_OFFLINE=1        # systemctl enable/disable act on symlinks only; start/stop/daemon-reload are no-ops
 export CI_OS_IMAGE_BUILD=1
-apt_pkgs="$1"; launcher="$2"; ollama="$3"
+apt_pkgs="$1"; launcher="$2"; ollama="$3"; capture="$4"
 
 if [ -n "$apt_pkgs" ]; then
     apt-get update --error-on=any
@@ -1342,6 +1371,11 @@ if [ "$launcher" = 1 ]; then
     apt-get install -y --no-install-recommends /tmp/companion-hub.deb
 fi
 
+if [ "$capture" = 1 ]; then
+    # Its dependencies (libgtk-3-0, libayatana-appindicator3-1, libxdo3, libxcb1) come from the Ubuntu archive.
+    apt-get install -y --no-install-recommends /tmp/companion-capture.deb
+fi
+
 if [ "$ollama" = 1 ]; then
     # What the vendor's install.sh configure_systemd() does, without running install.sh (it needs a booted system and
     # would install NVIDIA/ROCm drivers from the network).
@@ -1354,11 +1388,11 @@ if [ "$ollama" = 1 ]; then
 fi
 
 apt-get clean
-rm -rf /var/lib/apt/lists/* /tmp/companion-hub.deb
+rm -rf /var/lib/apt/lists/* /tmp/companion-hub.deb /tmp/companion-capture.deb
 EOSCRIPT
     chmod +x "$CHROOT_PATH/tmp/preinstall-tier-b.sh"
     tb_policy_on
-    chroot "$CHROOT_PATH" /tmp/preinstall-tier-b.sh "$TB_APT_PKGS" "$CI_OS_BAKE_LAUNCHER" "$CI_OS_BAKE_OLLAMA"
+    chroot "$CHROOT_PATH" /tmp/preinstall-tier-b.sh "$TB_APT_PKGS" "$CI_OS_BAKE_LAUNCHER" "$CI_OS_BAKE_OLLAMA" "$CI_OS_BAKE_CAPTURE"
     tb_policy_off
     rm -f "$CHROOT_PATH/tmp/preinstall-tier-b.sh"
 
@@ -1384,6 +1418,17 @@ EOSCRIPT
         [[ -x "$CHROOT_PATH/usr/bin/$LAUNCHER_BINARY" ]] || tb_die "missing /usr/bin/$LAUNCHER_BINARY"
         chroot "$CHROOT_PATH" test -x /usr/bin/cihub || tb_die "/usr/bin/cihub symlink missing or dangling"
     fi
+    if [[ "$CI_OS_BAKE_CAPTURE" == 1 ]]; then
+        tb_pkg_ok "$CAPTURE_PACKAGE"
+        [[ -x "$CHROOT_PATH/usr/bin/$CAPTURE_BINARY" ]] || tb_die "missing /usr/bin/$CAPTURE_BINARY"
+        grep -q "^Exec=/usr/bin/$CAPTURE_BINARY\b\|^Exec=$CAPTURE_BINARY\b" "$CHROOT_PATH/usr/share/applications/companion-capture.desktop" \
+            || tb_die "companion-capture.desktop does not start /usr/bin/$CAPTURE_BINARY"
+        # Capture records the screen: nothing may start it for the user, in a live session or on an installed system.
+        [[ ! -e "$CHROOT_PATH/etc/xdg/autostart/companion-capture.desktop" ]] || tb_die "Capture has an XDG autostart entry; it must not start by itself"
+        if compgen -G "$CHROOT_PATH/usr/lib/systemd/system/companion-capture*.service" >/dev/null || compgen -G "$CHROOT_PATH/etc/systemd/system/companion-capture*.service" >/dev/null; then
+            tb_die "a companion-capture unit appeared; Capture must not run as a service"
+        fi
+    fi
     if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
         chroot "$CHROOT_PATH" getent passwd ollama >/dev/null || tb_die "ollama user missing"
         [[ "$(chroot "$CHROOT_PATH" id -u ollama)" -lt 1000 ]] || tb_die "ollama must be a system user (uid < 1000)"
@@ -1399,8 +1444,10 @@ EOSCRIPT
         echo "bake-third-party=$CI_OS_BAKE_THIRD_PARTY"
         echo "bake-ollama=$CI_OS_BAKE_OLLAMA"
         echo "bake-launcher=$CI_OS_BAKE_LAUNCHER"
+        echo "bake-capture=$CI_OS_BAKE_CAPTURE"
         [[ "$CI_OS_BAKE_THIRD_PARTY" == 1 ]] && chroot "$CHROOT_PATH" dpkg-query -W -f='${Package}=${Version}\n' tailscale cloudflared gh
         [[ "$CI_OS_BAKE_LAUNCHER" == 1 ]]    && chroot "$CHROOT_PATH" dpkg-query -W -f='${Package}=${Version}\n' "$LAUNCHER_PACKAGE"
+        [[ "$CI_OS_BAKE_CAPTURE" == 1 ]]     && chroot "$CHROOT_PATH" dpkg-query -W -f='${Package}=${Version}\n' "$CAPTURE_PACKAGE"
         if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
             echo "ollama=$OLLAMA_VERSION"
             echo "ollama-tarball-sha256=$OLLAMA_SHA256"
@@ -1410,7 +1457,7 @@ EOSCRIPT
     } >> "$CHROOT_PATH/usr/lib/ci-os/baked-hub-tools.txt"
 
     tb_cleanup; trap ci_brand_cleanup EXIT
-    echo "[+] Step 10e: optional tools pre-installed (third-party=$CI_OS_BAKE_THIRD_PARTY ollama=$CI_OS_BAKE_OLLAMA launcher=$CI_OS_BAKE_LAUNCHER)"
+    echo "[+] Step 10e: optional tools pre-installed (third-party=$CI_OS_BAKE_THIRD_PARTY ollama=$CI_OS_BAKE_OLLAMA launcher=$CI_OS_BAKE_LAUNCHER capture=$CI_OS_BAKE_CAPTURE)"
 fi
 
 #=============================================================================

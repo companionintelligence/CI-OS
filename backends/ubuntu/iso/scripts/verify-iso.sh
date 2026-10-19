@@ -77,7 +77,7 @@
 #   VERIFY_KEEP=1 ...      keep the extracted files (printed at the end)
 #   VERIFY_WORK=DIR ...    use DIR for scratch space (needs ~8 GB free)
 #   VERIFY_TIERB=0 ...     skip section 3c (an ISO built with CI_OS_BAKE_THIRD_PARTY=0
-#                          CI_OS_BAKE_OLLAMA=0 CI_OS_BAKE_LAUNCHER=0)
+#                          CI_OS_BAKE_OLLAMA=0 CI_OS_BAKE_LAUNCHER=0 CI_OS_BAKE_CAPTURE=0)
 #   VERIFY_MAX_ISO_BYTES=N the image must be at most N bytes (default 8589934592, the 8 GiB boot slot of a 64 GB Companion
 #                          Stick, which ci-stick flash enforces); 0 skips the check
 #   VERIFY_REQUIRE_CANON=1 fail if the canon content checks (they need the repo checkout, see below) had to be
@@ -366,7 +366,7 @@ check "GRUB menu has exactly one 'Install Companion OS (automatic)' entry" bash 
 check "only that entry's kernel line carries ci.autoinstall=1" bash -c "[[ \$(grep -c 'ci\\.autoinstall=1' '$ISOX/grub.cfg') == 1 ]] && awk '/^menuentry \"Install Companion OS \(automatic\)\"/{f=1} f&&/ci\\.autoinstall=1/{ok=1} /^}/{f=0} END{exit !ok}' '$ISOX/grub.cfg'"
 check "no entry boots the installer unattended (no 'autoinstall' word without the ci. prefix)" bash -c "! grep -E '^[[:space:]]*linux' '$ISOX/grub.cfg' | grep -qE '(^|[[:space:]])autoinstall([[:space:]]|=|\$)'"
 
-section "3c. Optional tools (Tier B): tailscale, cloudflared, gh, Ollama, Companion Launcher"
+section "3c. Optional tools (Tier B): tailscale, cloudflared, gh, Ollama, Companion Launcher, Companion Capture"
 if [[ "${VERIFY_TIERB:-1}" == 0 ]]; then
     note "skipped (VERIFY_TIERB=0)"
 else
@@ -378,7 +378,7 @@ else
     guarded() { file_has "$R/etc/systemd/system/$1.d/10-not-live.conf" '^ConditionPathExists=!/cdrom/casper/vmlinuz'; }
 
     # 8.1 what was baked is recorded, and the knobs were all on
-    for k in bake-third-party bake-ollama bake-launcher; do
+    for k in bake-third-party bake-ollama bake-launcher bake-capture; do
         if baked_has "^${k}=1\$"; then pass "baked-hub-tools.txt: ${k}=1"; else fail "baked-hub-tools.txt does not say ${k}=1 (rebuild, or run with VERIFY_TIERB=0)"; fi
     done
 
@@ -465,6 +465,16 @@ EOF_LISTS
     else
         note "Launcher autostart not baked (CI_OS_LAUNCHER_AUTOSTART=0, the default)"
     fi
+
+    # 8.5b Companion Capture: the pinned .deb, its binary and dock entry; and nothing that starts it. It records the screen,
+    # so the image must not run it for the user (no autostart, no service).
+    if pkg_ok "${CAPTURE_PACKAGE:-companion-capture}"; then pass "package installed: ${CAPTURE_PACKAGE:-companion-capture}"; else fail "package NOT installed: ${CAPTURE_PACKAGE:-companion-capture}"; fi
+    for f in "/usr/bin/${CAPTURE_BINARY:-companion-capture}" /usr/share/applications/companion-capture.desktop; do
+        if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
+    done
+    if baked_has "^${CAPTURE_PACKAGE:-companion-capture}=${CAPTURE_VERSION:-x}\$"; then pass "baked Capture is the pinned release (${CAPTURE_VERSION:-?})"; else fail "baked Capture version differs from the pin"; fi
+    if in_listing ' /etc/xdg/autostart/companion-capture\.desktop$'; then fail "Capture has an XDG autostart entry: it must not start by itself"; else pass "no Capture autostart entry"; fi
+    if in_listing ' /(usr/lib|etc)/systemd/system/companion-capture[^ ]*\.service( ->|$)'; then fail "a companion-capture systemd unit is present: Capture must not run as a service"; else pass "no Capture systemd unit"; fi
 
     # 8.6 size report (informational)
     note "root squashfs: $(du -h "$SQ" | cut -f1)"

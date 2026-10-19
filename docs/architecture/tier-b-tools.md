@@ -67,6 +67,14 @@ Retired baseline (24.04.5.1): in the stock desktop manifest (`https://releases.u
 * Default bind is `127.0.0.1:11434` (`docs/faq.mdx:185`). Do **not** set `OLLAMA_HOST` in the image. Note `provision.sh:940-946` later writes `OLLAMA_HOST=0.0.0.0` in `override.conf` (risk R4).
 * Boot policy: **enable at boot on the installed system, guard against live sessions.** Socket activation is not supported by Ollama; an idle daemon is cheap and models unload after idle, and `provision.sh:924-932` and `ci-os-post-validation.sh:80` already assume an enabled unit. The "on demand" part is handled by the models-dir selector below, not by a path unit.
 
+### 3.5b Companion Capture (added 2026-10-18)
+* What it is: the Capture layer's tray app (screen, activity and file capture that streams to the user's CI-Server). It is in the dock of the Ubuntu image (`backends/ubuntu/chroot/dock-favorites.txt`), so the `.deb` is baked in.
+* Source: GitHub release `v0.2.0-alpha.7` of `companionintelligence/CI-Capture` (a **pre-release**, 2026-08-06, the newest), asset `companion-capture_0.2.0-alpha.7_amd64.deb`, 12,714,476 B, sha256 `5d19aa06cd7f11065a8e0be945d038875c719f7b8e042c2dc7160c7682428733` (computed on a download with `gh release download`).
+* **The repository is private**, so the asset is not publicly downloadable: `github.com/.../releases/download/...` and `dl.ci.computer` (which serves the Launcher) both answer 404 without credentials (2026-10-18). Step 10e therefore takes the file from the build cache (`$CI_OS_CACHE_DIR/companion-capture_<version>_amd64.deb`) when its sha256 matches the pin, otherwise runs `gh release download` with the builder's own credentials, and stops with a message naming both options when neither works. Whichever way the file arrives, the pinned sha256, size and `.deb` control fields (package, version, amd64) are checked before the chroot is touched. A GitHub-hosted workflow has no such credentials: it needs `CI_OS_BAKE_CAPTURE=0`, or a token with read access to the repository.
+* The release carries a detached signature (`.asc`, key id `FD94866DC7B05082`). The public half of that key is not published in the repository or the release, so the signature is **not verified**; the sha256 pin is the only integrity check, the same position as the Launcher.
+* `.deb` contents: `/usr/bin/companion-capture` (35.8 MB), `/usr/share/applications/companion-capture.desktop` (`Exec=companion-capture`) and icons. Depends: `libgtk-3-0, libayatana-appindicator3-1, libxdo3, libxcb1`, resolved from the Ubuntu archive in the chroot. No service, no autostart, nothing under `/etc`: Step 10e refuses a `.deb` that ships any of those, and checks the finished image for them again (`verify-iso.sh` 8.5b). **Capture records the screen, so the image never starts it for the user.**
+* Not tested yet: a build with it, an install of the built image, and running Capture on the live or installed desktop (it needs a display, Screen Recording-style permissions and a CI-Server to talk to).
+
 ### 3.5 Companion Launcher
 * Source: `https://dl.ci.computer/latest.json` -> `{"version":"v0.3.5","date":"2026-10-13T15:30:59Z"}`; `https://dl.ci.computer/v0.3.5/manifest.json` has per-platform `url`, `size`, `sha256` (documented in `CI-Hub/docs/DESKTOP-AUTO-UPDATE.md:15-17`). **No credentials needed** (plain GET, HTTP 200). Old versions are retained (`v0.3.4`, `v0.3.3`, `v0.2.61`, `v0.1.4` manifests all return 200).
 * Linux amd64: `https://dl.ci.computer/v0.3.5/linux/deb/x64/Companion%20Hub_0.3.5_amd64.deb`, 39,402,584 B, sha256 `f0403c6d5881a6b54be1d11b6b034b0adfaf31f328d35b8f57b7bcac500bdaa8`. I downloaded it and my `shasum -a 256` and byte count equal the manifest. The `.deb` has **no detached signature**; the manifest sha256 comes from the same origin, so the repo pin is the real control.
@@ -125,11 +133,11 @@ Retired baseline (24.04.5.1): stock `ubuntu-24.04.5.1-desktop-amd64.iso` is 6,25
 
 | What | File |
 |---|---|
-| Every pin (key fingerprints, Ollama and Launcher URL/sha256/size), one reviewed place | `core/manifest/tier-b-pins.env` |
+| Every pin (key fingerprints, Ollama and Launcher URL/sha256/size, Capture release tag/sha256/size), one reviewed place | `core/manifest/tier-b-pins.env` |
 | The build step: downloads and verifies everything on the build host first, then installs in the chroot | `backends/ubuntu/chroot/customize-chroot.sh`, Step 10e |
 | Models-directory selector for the Stick's `CI-CACHE` volume | `backends/ubuntu/chroot/payload/ci-os-ollama-models-env.sh` (installed as `/usr/libexec/ci-os/ollama-models-env`) |
 | Assertions on a built ISO | `backends/ubuntu/iso/scripts/verify-iso.sh`, section 3c (`VERIFY_TIERB=0` skips it) |
-| Knobs | `CI_OS_BAKE_THIRD_PARTY`, `CI_OS_BAKE_OLLAMA`, `CI_OS_BAKE_LAUNCHER` (default 1), `CI_OS_OLLAMA_CUDA=all\|none`, `CI_OS_LAUNCHER_AUTOSTART` (default 0), `CI_OS_CACHE_DIR`, `CI_OS_TIERB_PINS` |
+| Knobs | `CI_OS_BAKE_THIRD_PARTY`, `CI_OS_BAKE_OLLAMA`, `CI_OS_BAKE_LAUNCHER` (default 1), `CI_OS_BAKE_CAPTURE` (default 1), `CI_OS_OLLAMA_CUDA=all\|none`, `CI_OS_LAUNCHER_AUTOSTART` (default 0), `CI_OS_CACHE_DIR`, `CI_OS_TIERB_PINS` |
 
 To bump a pin: redo the check in section 2 (or 3.4 for Ollama, 3.5 for the Launcher), change the value in `tier-b-pins.env` in the same commit, run `verify-iso.sh` on a build.
 

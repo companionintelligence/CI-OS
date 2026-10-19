@@ -126,6 +126,16 @@ ecosystem:
       The Ubuntu ISO bakes the release pinned in core/manifest/tier-b-pins.env.
     installer: {method: external_deb, source: "https://dl.ci.computer", package: companion-hub, binary: companion-hub}
     baked_in_iso: true
+  companion_capture:
+    tier: extended
+    display_name: "Companion Capture"
+    note: >-
+      The Capture layer's tray app (screen, activity and file capture, streamed to the user's CI-Server). Baked into the
+      Ubuntu ISO as a pinned .deb (core/manifest/tier-b-pins.env, CAPTURE_*) and pinned in the dock. Its release is on a
+      private GitHub repository, so the ISO build takes the file from its cache or from `gh release download`. It records the
+      screen, so nothing starts it for the user: no autostart, no service. Pre-release (0.2.0-alpha.7).
+    installer: {method: external_deb, source: "https://github.com/companionintelligence/CI-Capture/releases", package: companion-capture, binary: companion-capture}
+    baked_in_iso: true
   ci_server:
     tier: reserved
     implemented_here: false
