@@ -1,0 +1,36 @@
+Fresh install of the arm64 image built from commit 82e9335 (the code of c8de040: the ready message without a button), recorded from power-on for the
+first-run video. Evidence label: tested in a virtual machine (QEMU 11, HVF, Apple-silicon Mac); not real hardware. 2026-10-19, times UTC.
+
+Image     companion-os-1.0-arm64.iso, 5,593,038,848 bytes, sha256 e43e2066713306494abe541faff6ab20f3ec56c8676ac61b1a85bc05252e86ac
+Build     clean checkout of 82e9335, native arm64 container, 869 s (build-status.txt); verify-iso.sh 446 passed, 0 failed (verify.log)
+Target    a new file-backed 64 GiB virtual NVMe disk and variable store; the ISO as a USB drive
+Recording record-frames.sh at 1.5 s (about 3 s apart in practice) from before power-on to the end: 942 frames, not kept in the repository
+          (they show the one-time password); QMP_CLICK_LOG for the click rings; QMP_LAYOUT=de for the German keyboard; events.txt is the log of
+          what was done and when, and chapters.txt and redact.txt in video-inputs/ are the inputs the video was made from
+
+23:12:25  recorder and VM started; 23:12:49 GRUB: "Install Companion OS (automatic)"
+23:14:30  live desktop (about 2 min after power-on); the one-click dialog behind Canonical's installer window; the dialog opened with
+          "English (United States), keyboard: English (US), time zone: detected automatically"
+23:14:59  "Language, keyboard, time zone...": Language, typed "Germany", German (Germany); Time zone, typed "Berlin"; Done; the confirmation named
+          "German (Germany), keyboard: German, time zone: Berlin, Germany"
+23:15:56  "Erase the disk and install"
+23:27:34  VM powered off by the installer: at most 11 min 38 s (the poll is 10 s)
+23:27:46  installed disk started alone; the German greeter at 23:28:36; signed in with the one-time password (typed with QMP_LAYOUT=de),
+          current password, new password twice (a random 20-character one, not recorded); the desktop at 23:29:56
+23:30:57  ci-os-first-boot-setup.service started; 23:33:08 completed: 2 min 11 s wall clock
+          the banners, from the recorded frames (23:30:58 to 23:34:42): "Companion OS is waiting for the internet" (the network was not up yet);
+          "Setting up Companion OS" (getting the computer ready); "step 1 of 7"; "step 5 of 7"; "step 7 of 7"; "Companion OS is ready" with the new
+          wording, "Open Companion Hub, the first icon in the dock, to pair this computer with your account"; frames arm64-20 to arm64-23
+23:34:43  the screen blanked after 5 minutes without input and the session locked ("Durch Mausklick oder Tastendruck entsperren"); unlocked
+          with the new password at 23:37
+23:37     installed-facts.txt: LANG=de_DE.UTF-8, X11 layout de, /etc/timezone Europe/Berlin, language-pack-de installed, setup-status done 7/7,
+          the ready stamp present; the sha256 of setup-progress, setup-status.sh and the autostart entry in the guest equal those of the
+          repository files at 82e9335 (4ef5663a..., 6d3aa729..., c7e5439d...), so the installed scripts are the fixed ones
+
+What this adds to the run of b124745: the fix image itself was installed (not only the revised script run in the old guest); the "waiting for the
+internet" banner and the new ready wording were photographed on a first boot; the whole thing was recorded from power-on (the video, 52 s, made with
+backends/ubuntu/iso/tests/lib/make-video.py, sha256 b56dcbfb...0706, kept outside the repository).
+What it does not show: the banner "needs attention", step 3 (the setup went from step 1 to 5 between two looks), a first boot on a slow network,
+amd64, real hardware, any language but German. Not seen before this run: the idle screen blank and lock five minutes after the last input, which
+a person who leaves a new machine to set itself up will meet; the notifications are in the list after the unlock.
+Credentials: the one-time password and the new password are throwaway values of this virtual machine; neither is in any record here.

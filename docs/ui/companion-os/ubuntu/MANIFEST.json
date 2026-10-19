@@ -1,5 +1,5 @@
 {
-  "run": "2026-10-19 arm64, frames 01-10 commit 4b7597d, frame 11 ee4a3b4, frames 12-19b b124745 (second run, below)",
+  "run": "2026-10-19 arm64, frames 01-10 commit 4b7597d, frame 11 ee4a3b4, frames 12-19b b124745, frames 20-23 82e9335",
   "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware",
   "frames": [
     {
@@ -170,6 +170,42 @@
       "shows": "The ready message of the revised script (c8de040): 'Open Companion Hub, the first icon in the dock...'. The script of that commit run in the same guest against a fake status file, not a first boot of an image of c8de040",
       "taken_approx_utc": "22:48:00Z",
       "image": "commit b124745 (19b: the script of c8de040 in the b124745 guest)"
+    },
+    {
+      "file": "arm64-20-setup-notification-waiting.png",
+      "sha256": "171e8a1b16b555a118d5d074526a91809f587831e01b5c9c34e532941155f188",
+      "bytes": 177499,
+      "size": "1280x800",
+      "shows": "The first-boot notification when the network is not up yet: 'Companion OS is waiting for the internet', with what to do",
+      "taken_approx_utc": "23:31:00Z",
+      "image": "commit 82e9335 (fifth run)"
+    },
+    {
+      "file": "arm64-21-setup-notification-step-1.png",
+      "sha256": "97d7c6299740514bc69e26352643d3119d315cc61c7f6ed5f9c9df0840f6fbfb",
+      "bytes": 177294,
+      "size": "1280x800",
+      "shows": "'Setting up Companion OS: step 1 of 7', 'Preparing the system'",
+      "taken_approx_utc": "23:31:50Z",
+      "image": "commit 82e9335 (fifth run)"
+    },
+    {
+      "file": "arm64-22-setup-notification-ready-fix-image.png",
+      "sha256": "8c7643ee6eb003c9aa99489ab1f91491c71860f949874db028294cb9809c0cea",
+      "bytes": 177482,
+      "size": "1280x800",
+      "shows": "'Companion OS is ready' on the first boot of the image of 82e9335: 'Open Companion Hub, the first icon in the dock, to pair this computer...'",
+      "taken_approx_utc": "23:33:30Z",
+      "image": "commit 82e9335 (fifth run)"
+    },
+    {
+      "file": "arm64-23-ready-in-notification-list.png",
+      "sha256": "d5b1b5a2704b5f2289d7cb873fb1ec8110a122f7f08305a847d5a9c92204b0bc",
+      "bytes": 127927,
+      "size": "1280x800",
+      "shows": "The same message in the notification list, expanded: the whole sentence, no button",
+      "taken_approx_utc": "23:37:30Z",
+      "image": "commit 82e9335 (fifth run)"
     }
   ]
 }

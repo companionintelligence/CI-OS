@@ -1,0 +1,27 @@
+2026-10-19T23:12:25Z recorder started (1.5 s)
+2026-10-19T23:12:25Z VM start (power on)
+2026-10-19T23:12:49Z GRUB: Install Companion OS (automatic) chosen
+2026-10-19T23:14:30Z live desktop: Canonical's installer window in front
+2026-10-19T23:14:31Z installer window closed: the one-click dialog is behind it
+2026-10-19T23:14:54Z the confirmation dialog is read (English, US, automatic)
+2026-10-19T23:14:59Z click: Language, keyboard, time zone...
+2026-10-19T23:15:04Z menu: Language row, Change
+2026-10-19T23:15:08Z typing Germany
+2026-10-19T23:15:14Z pick German (Germany), Choose
+2026-10-19T23:15:23Z menu: Time zone row, Change
+2026-10-19T23:15:31Z typing Berlin
+2026-10-19T23:15:37Z pick Berlin, Choose
+2026-10-19T23:15:46Z menu shows German, German, Berlin; Done
+2026-10-19T23:15:52Z confirmation names the new choice
+2026-10-19T23:15:56Z click: Erase the disk and install
+2026-10-19T23:27:34Z install finished, VM off
+2026-10-19T23:27:46Z VM start: installed disk alone
+2026-10-19T23:28:36Z greeter (German) is up
+2026-10-19T23:28:50Z click: Companion (the user)
+2026-10-19T23:28:56Z typing the one-time password
+2026-10-19T23:29:09Z forced password change: current password
+2026-10-19T23:29:22Z forced password change: new password
+2026-10-19T23:29:35Z forced password change: repeat
+2026-10-19T23:29:56Z desktop
+2026-10-19T23:36:54Z the screen blanked and locked after 5 min idle (23:34:43); unlocking to collect facts
+2026-10-19T23:37:19Z click: the clock, to open the notification list
