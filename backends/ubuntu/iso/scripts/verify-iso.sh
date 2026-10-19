@@ -174,7 +174,7 @@ R="$WORK/root"; mkdir -p "$R"
 unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/os-release usr/lib/os-release etc/os-release.ubuntu-base etc/lsb-release etc/issue etc/issue.net etc/hostname \
     etc/casper.conf etc/default/grub var/lib/dpkg/status var/lib/snapd/seed/seed.yaml var/lib/snapd/state.json etc/cloud/cloud.cfg \
-    etc/dconf/profile/user etc/dconf/db/local.d \
+    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications \
     usr/share/glib-2.0/schemas \
     usr/share/gnome-background-properties \
     etc/update-motd.d etc/systemd/system etc/sudoers.d etc/netplan \
@@ -183,6 +183,7 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     usr/lib/systemd/system/docker.service usr/lib/systemd/system/docker.socket \
     usr/lib/systemd/system/containerd.service usr/lib/systemd/system/ci-os-docker-group.service \
     usr/lib/systemd/system/ci-os-live-container-storage.service \
+    usr/lib/systemd/system/ci-os-first-boot-setup.service usr/lib/systemd/system/ci-os-first-boot-setup.timer \
     etc/apt/sources.list.d etc/apt/preferences.d usr/share/keyrings etc/xdg/autostart usr/libexec/ci-os usr/share/ci-os \
     usr/bin/ollama usr/lib/systemd/system/tailscaled.service var/lib/tailscale usr/share/ollama \
     usr/share/applications/ci-os-hub.desktop \
@@ -1650,6 +1651,20 @@ if [[ -f "$LINKS_DIR/start-links.txt" && -f "$LINKS_LIB" ]]; then
 else
     skip "Companion links (backends/ubuntu/chroot/start-links.txt or backends/ubuntu/lib/start-links.sh not found next to this script)"
 fi
+
+# The first run and the login text are Companion OS's. Canonical's first-run (gnome-initial-setup) is skipped by a stamp in
+# /etc/skel; the motd scripts that advertise Ubuntu Pro are held off by dpkg-statoverride (an upgrade restores a plain chmod -x);
+# /etc/legal says Companion OS; the first-boot setup is started by its timer, not at boot, and waits for a quiet machine.
+check "first-run: /etc/skel/.config/gnome-initial-setup-done exists (no Canonical first-run for a new user)" test -e "$R/etc/skel/.config/gnome-initial-setup-done"
+for _m in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
+    check "login text: motd script $_m is held off by dpkg-statoverride" grep -q -E "^root root 644 /etc/update-motd\\.d/$_m\$" "$R/var/lib/dpkg/statoverride"
+done
+check "login text: /etc/legal names Companion OS" grep -q -F 'Companion OS comes with ABSOLUTELY NO WARRANTY' "$R/etc/legal"
+check "login text: /etc/legal no longer says 'Ubuntu comes with'" bash -c "! grep -q 'Ubuntu comes with' '$R/etc/legal'"
+check "login text: the stock /etc/legal is diverted aside (a base-files upgrade cannot bring it back)" grep -q -F '/etc/legal' "$R/var/lib/dpkg/diversions"
+check "login text: the Ubuntu Pro autostart notification is diverted aside" bash -c "grep -q 'ubuntu-advantage-notification.desktop' '$R/var/lib/dpkg/diversions' && test ! -e '$R/etc/xdg/autostart/ubuntu-advantage-notification.desktop'"
+check "first boot: the setup is started by its timer at 3 minutes, not linked into multi-user.target" bash -c "grep -q -x 'OnBootSec=3min' '$R/usr/lib/systemd/system/ci-os-first-boot-setup.timer' && test ! -e '$R/etc/systemd/system/multi-user.target.wants/ci-os-first-boot-setup.service'"
+check "first boot: wait-quiet is installed and executable" test -x "$R/usr/libexec/ci-os/wait-quiet"
 
 section "7. Branding: live boot splash and live identity (initrd)"
 # build-iso.sh appends a small zstd-compressed cpio overlay to casper/initrd (the kernel unpacks concatenated

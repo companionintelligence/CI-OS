@@ -251,6 +251,8 @@ for suite in \
   "dock favourites list|bash backends/ubuntu/lib/tests/dock-favorites.sh" \
   "Companion links and welcome|bash backends/ubuntu/lib/tests/start-links.sh" \
   ".deb member names (needs dpkg-deb)|bash backends/ubuntu/lib/tests/deb-members.sh" \
+  "first-boot wait-quiet|bash backends/ubuntu/chroot/tests/wait-quiet.sh" \
+  "Companion Hub first-boot start|bash backends/ubuntu/chroot/tests/start-companion-hub.sh" \
   "gresource provenance|bash core/render/tests/gresource-provenance.sh" \
   "live GRUB menu modules|bash backends/ubuntu/iso/tests/grub-live-menu-modules.sh" \
   "untracked-file guard|bash core/lib/tests/untracked-deps.sh"; do

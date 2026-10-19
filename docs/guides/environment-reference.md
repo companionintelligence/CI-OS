@@ -21,7 +21,7 @@ its header and in [`backends/ubuntu/iso/README.md`](../../backends/ubuntu/iso/RE
 | `CI_OS_BAKE_THIRD_PARTY` | `0` or `1`, default `1` | tailscale, cloudflared and `gh` from the vendors' apt repositories, pinned keys |
 | `CI_OS_BAKE_OLLAMA` | `0` or `1`, default `1` | Ollama from the vendor's pinned release tarball (never `install.sh`) |
 | `CI_OS_BAKE_LAUNCHER` | `0` or `1`, default `1` | the Companion Launcher `.deb` from `dl.ci.computer`, pinned sha256 |
-| `CI_OS_BAKE_CAPTURE` | `0` or `1`, default `1` | the Companion Capture `.deb`, pinned sha256. Its release is on a **private** GitHub repository: the build uses the file in `CI_OS_CACHE_DIR` when it matches the pin, otherwise `gh release download` (`gh` signed in, or `GH_TOKEN` with read access to `companionintelligence/CI-Capture`), and stops if neither works |
+| `CI_OS_BAKE_CAPTURE` | `0` or `1`, default `1` | the Companion Capture `.deb` from `dl.ci.computer/applet`, pinned sha256 (x86-64 only: Capture publishes no Linux arm64 build) |
 | `CI_OS_OLLAMA_CUDA` | `all` (default) or `none` | `none` drops Ollama's bundled CUDA libraries: about 2.0 GiB installed, about 1.5 GB less in the ISO |
 | `CI_OS_LAUNCHER_AUTOSTART` | `0` (default) or `1` | start the Launcher at graphical login on the installed system |
 | `CI_OS_CACHE_DIR` | a path, default `~/.cache/ci-os` | download cache for the Ollama tarball (about 1.5 GB) and the Launcher and Capture `.deb`s; on a Mac recipe put it on the volume (`/vol/cache`) |

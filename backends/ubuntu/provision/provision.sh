@@ -1589,6 +1589,56 @@ deploy_ci_hub() {
     bash "$ci_hub_sh" || log_warning "CI-Hub deploy had issues; run core/lib/ci-hub.sh manually with registry credentials set"
 }
 
+# The human user of this machine: the lowest uid from 1000 up that has a login shell and is not the "ci" service user (create_ci_user).
+# First boot runs as root with no SUDO_USER, so detect_user cannot tell: ACTUAL_USER is root there.
+companion_hub_user() {
+    getent passwd | sort -t: -k3 -n | awk -F: '$3 >= 1000 && $3 < 60000 && $1 != "ci" && $7 !~ /(nologin|false)$/ { print $1; exit }'
+}
+
+# Start the Companion Hub the way Hub itself does for a headless machine: `companion-hub --detached` is the desktop app without a
+# window. It checks Docker and Compose (2.33 or newer), seeds ~/.local/share/companion-hub with generated secrets, pulls the stack's
+# images (public ghcr.io images, postgres, rabbitmq, traefik; about 0.4 GB) and starts it, then exits; the containers come back with
+# Docker. Run as the human user, because Hub's data and its Docker access are per user. Nothing here needs a credential: pairing
+# the device with a CI Account is the person's, in the Hub window (docs.ci.computer, getting-started/installation: Companion Core
+# hardware ships the same way, with Hub preinstalled and running). The packaged Hub is not the legacy deploy_ci_hub path above.
+# Permanent reasons to skip (no Hub, no Docker, Compose too old, no user yet) return 0; a failed start returns 1, so the first-boot
+# retry (the timer, three attempts) runs it again.
+start_companion_hub() {
+    local stamp="${CI_OS_HUB_STAMP:-/var/lib/ci-os/.companion-hub-started}" hub_user min_compose="2.33" have_compose   # CI_OS_HUB_STAMP: for the test
+    if [[ -f "$stamp" ]]; then
+        log_info "Companion Hub was started on $(cat "$stamp"); skipping"
+        return 0
+    fi
+    if ! command_exists companion-hub; then
+        log_info "Companion Hub is not installed; skipping the Hub start"
+        return 0
+    fi
+    if ! command_exists docker; then
+        log_warning "Docker is not installed; skipping the Hub start"
+        return 0
+    fi
+    hub_user="$(companion_hub_user)"
+    if [[ -z "$hub_user" ]]; then
+        log_warning "No human user on this machine yet; skipping the Hub start (run: companion-hub --detached, as that user)"
+        return 0
+    fi
+    have_compose="$(docker compose version --short 2>/dev/null | head -n 1 | tr -d 'v' || true)"
+    if [[ -z "$have_compose" ]] || [[ "$(printf '%s\n%s\n' "$min_compose" "$have_compose" | sort -V | head -n 1)" != "$min_compose" ]]; then
+        log_warning "Docker Compose ${have_compose:-missing}: the Hub needs $min_compose or newer; skipping the Hub start"
+        return 0
+    fi
+    id -nG "$hub_user" | tr ' ' '\n' | grep -qx docker || usermod -aG docker "$hub_user"
+    log_info "Starting Companion Hub as $hub_user (companion-hub --detached)..."
+    if sudo -u "$hub_user" -H timeout 1500 companion-hub --detached; then
+        mkdir -p "$(dirname "$stamp")"
+        date -u > "$stamp"
+        log_success "Companion Hub started. Pair it with your CI Account from the Companion Hub window (docs.ci.computer/docs/getting-started)."
+        return 0
+    fi
+    log_warning "Companion Hub did not start (see above); the first-boot retry will try again"
+    return 1
+}
+
 # Main function
 main() {
     log_info "CI-OS provisioning (tiers: ${TIER_LIST})"
@@ -1648,6 +1698,7 @@ main() {
         remove_telemetry
         install_tailscale
         deploy_ci_hub
+        start_companion_hub
     fi
     if tier_requested extended; then
         # Homebrew is optional; don't fail the run if it has issues (Node/Bun use apt)
