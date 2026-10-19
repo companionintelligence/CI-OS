@@ -1140,6 +1140,7 @@ done <<<"$START_LINKS_ROWS"
 install -m 0755 "$START_PAYLOAD/usr/libexec/ci-os/welcome-once"              "$CHROOT_PATH/usr/libexec/ci-os/welcome-once"
 install -m 0644 "$START_PAYLOAD/etc/xdg/autostart/ci-os-welcome.desktop"     "$CHROOT_PATH/etc/xdg/autostart/ci-os-welcome.desktop"
 install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexec/ci-os/wait-quiet" "$CHROOT_PATH/usr/libexec/ci-os/wait-quiet"
+install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/first-boot/usr/libexec/ci-os/pull-progress-filter" "$CHROOT_PATH/usr/libexec/ci-os/pull-progress-filter"
 
 # Canonical's first-run screen ("Welcome to Companion OS 1.0!" with Ubuntu's raccoon, then Ubuntu Pro and "Help improve Ubuntu") is
 # gnome-initial-setup, started by gnome-initial-setup-first-login.service unless ~/.config/gnome-initial-setup-done exists. A user

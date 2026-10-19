@@ -253,6 +253,7 @@ for suite in \
   ".deb member names (needs dpkg-deb)|bash backends/ubuntu/lib/tests/deb-members.sh" \
   "first-boot wait-quiet|bash backends/ubuntu/chroot/tests/wait-quiet.sh" \
   "Companion Hub first-boot start|bash backends/ubuntu/chroot/tests/start-companion-hub.sh" \
+  "ollama pull progress filter|bash backends/ubuntu/chroot/tests/pull-progress-filter.sh" \
   "gresource provenance|bash core/render/tests/gresource-provenance.sh" \
   "live GRUB menu modules|bash backends/ubuntu/iso/tests/grub-live-menu-modules.sh" \
   "untracked-file guard|bash core/lib/tests/untracked-deps.sh"; do

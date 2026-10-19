@@ -999,21 +999,29 @@ pull_ollama_models() {
         log_warning "Hardware support check missing; skipping qwen3.6:27b"
     fi
 
+    # `ollama pull` redraws a progress bar several times a second; written to the first-boot log and the journal that is hundreds of lines
+    # per model. The image has a filter that keeps one line per 10 percent per layer (a checkout has not: then the output is left alone).
+    PULL_FILTER=cat
+    [[ -x /usr/libexec/ci-os/pull-progress-filter ]] && PULL_FILTER=/usr/libexec/ci-os/pull-progress-filter
+
     # Check and pull models as the actual user (ollama stores models in user's home)
     sudo -u "$ACTUAL_USER" bash <<EOF || log_warning "Failed to pull some Ollama models"
+# the filter must not hide a failed pull: with pipefail the pipeline's status is the pull's, and a failure is remembered for the exit status
+set -o pipefail
+rc=0
 # Check if models are already pulled
 if ollama list 2>/dev/null | grep -q "nomic-embed-text"; then
     echo "nomic-embed-text already installed"
 else
     echo "Pulling nomic-embed-text..."
-    ollama pull nomic-embed-text
+    ollama pull nomic-embed-text 2>&1 | $PULL_FILTER || rc=1
 fi
 
 if ollama list 2>/dev/null | grep -q "gemma3:1b"; then
     echo "gemma3:1b already installed"
 else
     echo "Pulling gemma3:1b..."
-    ollama pull gemma3:1b
+    ollama pull gemma3:1b 2>&1 | $PULL_FILTER || rc=1
 fi
 
 # Add qwen3.6:27b only on supported hardware (see PULL_QWEN above).
@@ -1022,9 +1030,10 @@ if ollama list 2>/dev/null | grep -q "qwen3.6:27b"; then
      echo "qwen3.6:27b already installed"
 else
      echo "Pulling qwen3.6:27b..."
-     ollama pull qwen3.6:27b
+     ollama pull qwen3.6:27b 2>&1 | $PULL_FILTER || rc=1
 fi
 fi
+exit \$rc
 EOF
     
     log_success "Ollama models checked/pulled"
