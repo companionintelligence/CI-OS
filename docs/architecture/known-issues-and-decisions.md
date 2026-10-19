@@ -22,7 +22,7 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 | KI-08 | Splash wording and CachyOS names in raw pacman output on the Plasma edition (the GRUB firmware entries and the driver-job label are fixed and seen on ISO #6) | defect | Low | owner to assign |
 | KI-09 | Calamares theme polish is only partly fixed (the zone popup and the radio buttons are fixed and seen on ISO #6; three highlight gaps and some copy remain) | gap | Low | owner to assign |
 | KI-10 | Ollama in Companion Stick live sessions | decision | Medium | owner to assign |
-| KI-11 | The Ubuntu 26.04.1 image is built and statically verified; no installer has run on it and the clean-checkout image has never been booted | gap | High | owner to assign |
+| KI-11 | The Ubuntu 26.04.1 image is built and statically verified; the stock installer has now installed it and the installed disk booted and logged in, in a virtual machine only (2026-10-18/19: see KI-27); the one-click path and real hardware are still unproven | gap | High | owner to assign |
 | KI-12 | Public ISO hosting, the release signing key holder and the release workflow | decision, defect | High | owner to assign |
 | KI-13 | Whether the CachyOS name may be used in public text | decision | High | owner to assign |
 | KI-14 | Whether the first batch needs Secure Boot | decision | Medium | owner to assign |
@@ -38,6 +38,7 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 | KI-24 | Model redistribution licences for physical sticks are not reviewed, and `fetch` does not gate Gemma or Llama | gap, decision | High | owner to assign |
 | KI-25 | The `docker` group is root-equivalent for every `sudo` member of the installed system | decision | Medium | owner to assign |
 | KI-26 | Plasma edition leftovers found by the ISO #6 run: log noise, a greeter without the Companion mark, installer copy that does not match the installed system | defect, cosmetic | Low | owner to assign |
+| KI-27 | First install of the clean-checkout Ubuntu image (2026-10-18): the first graphical login failed twice while the first boot was still working, boot stayed "not finished" for 30+ minutes, the desktop-icons process was relaunched every 4 s, and the first-run screens and login text still carry Ubuntu branding | defect, gap | High (login) to Low (branding) | owner to assign |
 
 ## KI-01 Model pulls have no disk-space guard
 
@@ -156,7 +157,9 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 
 **Decision needed.** Allow Ollama in a live session with the store on `CI-CACHE`, or keep it off and say so in the product text.
 
-## KI-11 The Ubuntu 26.04.1 image is built and statically verified; no installer has run on it and the clean-checkout image has never been booted
+## KI-11 The Ubuntu 26.04.1 image is built and statically verified; the stock installer has installed it in a virtual machine (updated 2026-10-19), nothing else is proven
+
+> **Update 2026-10-19.** The clean-checkout image (`709b8485...`, commit `02c575e`) was installed with the stock interactive installer in QEMU/OVMF under Secure Boot firmware (the installer reached `DONE` after about 5 h 54 min under emulation, 4 h 15 min of it in the installer's own update step), the installed disk booted through shim to the branded GDM greeter, and a graphical login reached the desktop once the model download had finished and the machine was quiet. What that run found is KI-27. The one-click path was re-run on a newer image (`39d3ae49...`, commit `457b4e6`): the confirmation is now accepted by the real installer (the HTTP 500 is gone); that install had not finished when this was written. Nothing has run on real hardware (KI-17). The text below is the state of 2026-10-18 and is kept for the record.
 
 **Severity:** High. **Owner:** owner to assign.
 
@@ -311,6 +314,25 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 | Installed boot: a user unit "Failed to start Portal service" 51 s into the session under heavy load, a libinput "event processing lagging behind" warning, `virt/tdx: TDX not supported` (kernel, harmless in a virtual machine); the first journal lines carry the host name `cachyos` before the hostname is applied | [V] `journalctl -b -p err` of the ISO #6 run | the portal failure was not investigated [N]; the desktop and About page worked |
 
 **Decision needed.** None before a release; fix with the next pass over the installer overlay and the provisioner, or leave as disclosed noise.
+
+## KI-27 What the first install of the clean-checkout Ubuntu image found (2026-10-18/19)
+
+**Severity:** High for the first login, Low for the branding items. **Owner:** owner to assign.
+
+**What.** All [V] in one virtual machine (QEMU/OVMF, Secure Boot firmware, TCG, 4 vCPUs, the host at a load average of 20 to 35 throughout), image `709b8485...`, stock interactive installer, then the installed disk on a throwaway overlay. Frames and logs are in the session scratch directory and are not yet in `docs/evidence/`.
+
+| Finding | Evidence | Note |
+|---|---|---|
+| **The first graphical login failed twice and returned to the greeter** while `snapd.seeded.service` and the model download were still running. The journal says `org.gnome.Shell@ubuntu.service` failed after 1 min 36 s having used 50 s of CPU, then `gnome-session@ubuntu.target ... failed with result 'dependency'`. The same login worked about 14 minutes later, after the model download had finished and the load was low (snap seeding was still running then) | journal of the installed system; the third attempt reached the desktop in about a minute | On real hardware the work is minutes, not an hour, so this may never show; a slow machine or a slow USB disk is the case. Mitigation committed (not proven on an image): the first-boot unit runs after `snapd.seeded`, as `Type=exec`, at idle CPU and IO priority, journal only. It does not throttle `ollama.service`, which does the actual download, so the real fix may be to start the pull only once the desktop is up |
+| **Boot stayed "not finished" for 30+ minutes**: `systemctl list-jobs` showed `snapd.seeded.service` running with `cloud-final`, `cloud-init.target`, `multi-user.target` and `graphical.target` waiting behind it. The browser (Firefox) was not in the dock until seeding ended | `systemctl list-jobs` and `systemd-analyze` in the guest | Stock Ubuntu behaviour that the emulation makes slow. A first-login page that needs a browser must wait for it: `welcome-once` now does |
+| **The old first-boot unit printed the model-download progress bar on the text console** (`StandardOutput=journal+console`), so at the first login the screen showed `first-boot-setup.sh[...]: pulling ...: 100% |####|` instead of the desktop | frame taken during the login | Fixed in the unit (journal only) |
+| **The first-boot setup itself worked**: it ran 16 min 30 s, pulled the models and wrote its done marker (`First-boot setup completed`) | `/var/log/ci-os-first-boot-setup.log` | It pulls `qwen3.6:27b` (about 17.8 GB) on every install whatever the machine: see the hardware-fit gate in [models-tooling.md](models-tooling.md) |
+| **The desktop-icons extension (DING) was relaunched 102 times in about 12 minutes** (`Launching DING process` every 4 s in the shell journal), and no desktop icon ever showed, not even a test shortcut. Run by hand it started and printed `Detected async api for thumbnails` | shell journal, `gnome-extensions info` says ACTIVE | Not shown to be a defect of the image: Nautilus and ArchiveManager were being D-Bus-activated by each instance, which is slow here. **Desktop shortcuts for the Companion links are in the image but have never been seen to render or launch.** The dock and the application grid carry the same links |
+| The **first-run screen** is Canonical's: "Welcome to Companion OS 1.0!" with the Ubuntu raccoon artwork. The **login text** is Ubuntu's: the ESM/Pro advert (`sudo pro status`), "The programs included with the Ubuntu system ...", "Ubuntu comes with ABSOLUTELY NO WARRANTY". The text login banner itself (`Companion OS / Companion Intelligence - https://ci.computer`) is ours | frames | Branding gaps; the legal sentences may need to stay |
+| `Hub` deploy defaults point at `portal.companionintelligence.com`, which has no DNS record on 2026-10-19; Hub's own `.env.example` uses `https://hub.ci.computer` (production) | `dig`, `core/lib/ci-hub.sh`, `core/manifest/ecosystem.yaml` | Not changed; decide which host is current before the next image |
+| The installer's update step (`unattended-upgrades`, 227 packages) took 4 h 15 min under emulation; the one-click path sets `updates: security` | installer log | Stock behaviour; real hardware is a small fraction of this |
+
+**Decision needed.** (1) Whether the first-boot work should wait until the desktop is up. (2) Which host the Hub deploy should use. (3) Whether to replace the Canonical first-run screen and the Ubuntu login text. (4) Run the same install on real hardware (KI-17).
 
 ## Also open, kept in their source pages
 

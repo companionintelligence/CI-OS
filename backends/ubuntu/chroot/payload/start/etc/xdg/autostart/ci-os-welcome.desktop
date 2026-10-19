@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Companion welcome
+Comment=Opens the Companion getting-started page once, on the first login
+Exec=/usr/libexec/ci-os/welcome-once
+OnlyShowIn=GNOME;
+X-GNOME-Autostart-Delay=10
+NoDisplay=true
+Terminal=false

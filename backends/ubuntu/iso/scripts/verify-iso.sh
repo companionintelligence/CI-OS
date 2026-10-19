@@ -1626,6 +1626,31 @@ else
     skip "dock default (backends/ubuntu/chroot/dock-favorites.txt or backends/ubuntu/lib/dock-favorites.sh not found next to this script)"
 fi
 
+# The Companion links (backends/ubuntu/chroot/start-links.txt): an application-menu entry for each, a desktop shortcut in
+# /etc/skel/Desktop for each "yes" row (executable, as the desktop only launches executable shortcuts), and the one-time welcome.
+LINKS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../chroot"
+LINKS_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../lib/start-links.sh"
+if [[ -f "$LINKS_DIR/start-links.txt" && -f "$LINKS_LIB" ]]; then
+    # shellcheck source=../../lib/start-links.sh
+    source "$LINKS_LIB"
+    LINKS_ROWS="$(start_links_rows "$LINKS_DIR/start-links.txt" 2>/dev/null || true)"
+    check "the links list is valid" test -n "$LINKS_ROWS"
+    while IFS='|' read -r _id _name _url _comment _icon _desktop; do
+        [[ -n "$_id" ]] || continue
+        check "link entry /usr/share/applications/$_id.desktop opens $_url" grep -qxF "Exec=xdg-open $_url" "$R/usr/share/applications/$_id.desktop"
+        if [[ "$_desktop" == yes ]]; then
+            check "desktop shortcut /etc/skel/Desktop/$_id.desktop exists and is executable" test -x "$R/etc/skel/Desktop/$_id.desktop"
+        else
+            check "no desktop shortcut for $_id (menu only)" test ! -e "$R/etc/skel/Desktop/$_id.desktop"
+        fi
+    done <<<"$LINKS_ROWS"
+    check "first-login welcome script is installed and executable" test -x "$R/usr/libexec/ci-os/welcome-once"
+    check "first-login welcome script skips a live session" grep -qF 'CI_OS_WELCOME_LIVE:-/cdrom/casper/vmlinuz' "$R/usr/libexec/ci-os/welcome-once"
+    check "first-login welcome autostart entry runs it, hidden, for GNOME" bash -c "grep -qx 'Exec=/usr/libexec/ci-os/welcome-once' '$R/etc/xdg/autostart/ci-os-welcome.desktop' && grep -qx 'NoDisplay=true' '$R/etc/xdg/autostart/ci-os-welcome.desktop'"
+else
+    skip "Companion links (backends/ubuntu/chroot/start-links.txt or backends/ubuntu/lib/start-links.sh not found next to this script)"
+fi
+
 section "7. Branding: live boot splash and live identity (initrd)"
 # build-iso.sh appends a small zstd-compressed cpio overlay to casper/initrd (the kernel unpacks concatenated
 # archives in order and later files win). unmkinitramfs stops after the first compressed segment, so it cannot

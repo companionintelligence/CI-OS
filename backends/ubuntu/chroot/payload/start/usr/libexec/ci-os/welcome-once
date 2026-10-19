@@ -1,0 +1,58 @@
+#!/bin/sh
+# Open the Companion getting-started page once, on the first graphical login of an installed system.
+#
+# Never in a live session (a stick boots here first; the installer is the first thing to do there). Only when there is a
+# browser to open it with AND the page can be reached: on a first login the browser snaps may still be being set up
+# (snapd.seeded, minutes on a slow machine) and the network may not be up yet, so this waits, up to about half an hour,
+# instead of opening nothing and never trying again. If the wait runs out, no stamp is written and the next login tries
+# again. The stamp is written before the browser is started, so a browser that crashes cannot make the page open on
+# every login.
+#
+# The CI_OS_WELCOME_* variables exist so a test can run this without a session; nothing in the image sets them.
+# (Besides opening the page, this marks the desktop shortcuts trusted on that first login: see below.)
+url="${CI_OS_WELCOME_URL:-https://docs.ci.computer/docs/getting-started}"
+stamp="${CI_OS_WELCOME_STAMP:-${XDG_CONFIG_HOME:-$HOME/.config}/ci-os/welcome-done}"
+live="${CI_OS_WELCOME_LIVE:-/cdrom/casper/vmlinuz}"
+tries="${CI_OS_WELCOME_TRIES:-90}"
+pause="${CI_OS_WELCOME_SLEEP:-20}"
+appdirs="${CI_OS_WELCOME_APPDIRS:-/usr/share/applications /var/lib/snapd/desktop/applications $HOME/.local/share/applications}"
+
+[ -e "$live" ] && exit 0
+
+# The Companion shortcuts that /etc/skel put on the desktop: mark them trusted once, which is what "Allow Launching" does,
+# so the desktop launches them on a click instead of asking first. Only files identical to the system copy of the same
+# name are marked: a shortcut the user edited, or any other file, is left alone.
+trust_stamp="$(dirname "$stamp")/desktop-trusted"
+if [ ! -e "$trust_stamp" ] && command -v gio >/dev/null 2>&1; then
+    for f in "${CI_OS_WELCOME_DESKTOP:-$HOME/Desktop}"/companion-*.desktop; do
+        [ -f "$f" ] || continue
+        cmp -s "$f" "${CI_OS_WELCOME_SYSAPPS:-/usr/share/applications}/${f##*/}" && gio set "$f" metadata::trusted true 2>/dev/null
+    done
+    mkdir -p "$(dirname "$trust_stamp")" 2>/dev/null && : > "$trust_stamp" 2>/dev/null
+fi
+
+[ -e "$stamp" ] && exit 0
+
+# The default handler of https links must name a desktop file that is really installed.
+browser_ready() {
+    h="$(xdg-mime query default x-scheme-handler/https 2>/dev/null)"
+    [ -n "$h" ] || return 1
+    for d in $appdirs; do
+        [ -e "$d/$h" ] && return 0
+    done
+    return 1
+}
+
+n=0
+while :; do
+    if browser_ready && curl -fsSI --max-time 8 --proto '=https' -o /dev/null "$url" 2>/dev/null; then
+        break
+    fi
+    n=$((n + 1))
+    [ "$n" -ge "$tries" ] && exit 0
+    sleep "$pause"
+done
+
+mkdir -p "$(dirname "$stamp")" 2>/dev/null || exit 0
+: > "$stamp" 2>/dev/null || exit 0
+exec xdg-open "$url"

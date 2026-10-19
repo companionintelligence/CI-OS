@@ -40,6 +40,8 @@ source "$REPO_ROOT/backends/ubuntu/lib/os-release.sh"
 source "$REPO_ROOT/backends/ubuntu/lib/shell-theme.sh"
 # shellcheck source=../lib/dock-favorites.sh
 source "$REPO_ROOT/backends/ubuntu/lib/dock-favorites.sh"
+# shellcheck source=../lib/start-links.sh
+source "$REPO_ROOT/backends/ubuntu/lib/start-links.sh"
 
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
@@ -1066,6 +1068,32 @@ chroot_exec "python3 -c 'import yaml'" || { echo "[ERROR] Step 10f: python3-yaml
 chroot_exec "python3 -m py_compile /usr/libexec/ci-os/ci-os-auto-install && rm -rf /usr/libexec/ci-os/__pycache__"
 echo "[+] One-click automatic installer installed"
 
+#=============================================================================
+# 10g. Companion links: application-menu entries, desktop shortcuts for new users, a one-time welcome page
+#
+# The list is backends/ubuntu/chroot/start-links.txt (checked by backends/ubuntu/lib/start-links.sh before anything is
+# written). Every row becomes /usr/share/applications/<id>.desktop, which opens the page in the default browser; every row
+# marked "yes" is also copied to /etc/skel/Desktop, so each user created on the installed system finds it on the desktop.
+# A live session has no desktop icons (the live layer turns the extension off), so there the same links are in the
+# application grid and, for the ones the dock list pins, in the dock. welcome-once opens the getting-started page once on
+# the first login of an installed system (never in a live session, never without a network).
+#=============================================================================
+echo "[*] Step 10g: Installing the Companion links, desktop shortcuts and first-login welcome..."
+START_LINKS_ROWS="$(start_links_rows "$REPO_ROOT/backends/ubuntu/chroot/start-links.txt")" \
+    || { echo "[ERROR] Step 10g: backends/ubuntu/chroot/start-links.txt is not a valid links list" >&2; exit 1; }
+START_PAYLOAD="$REPO_ROOT/backends/ubuntu/chroot/payload/start"
+install -d -m 0755 "$CHROOT_PATH/usr/share/applications" "$CHROOT_PATH/etc/skel/Desktop" "$CHROOT_PATH/usr/libexec/ci-os" "$CHROOT_PATH/etc/xdg/autostart"
+while IFS='|' read -r _id _name _url _comment _icon _desktop; do
+    start_links_entry "$_name" "$_url" "$_comment" "$_icon" > "$CHROOT_PATH/usr/share/applications/$_id.desktop"
+    chmod 0644 "$CHROOT_PATH/usr/share/applications/$_id.desktop"
+    if [[ "$_desktop" == yes ]]; then
+        install -m 0755 "$CHROOT_PATH/usr/share/applications/$_id.desktop" "$CHROOT_PATH/etc/skel/Desktop/$_id.desktop"
+    fi
+done <<<"$START_LINKS_ROWS"
+install -m 0755 "$START_PAYLOAD/usr/libexec/ci-os/welcome-once"              "$CHROOT_PATH/usr/libexec/ci-os/welcome-once"
+install -m 0644 "$START_PAYLOAD/etc/xdg/autostart/ci-os-welcome.desktop"     "$CHROOT_PATH/etc/xdg/autostart/ci-os-welcome.desktop"
+echo "[+] Companion links installed ($(grep -c . <<<"$START_LINKS_ROWS") links, $(grep -c '|yes$' <<<"$START_LINKS_ROWS") on the desktop of a new user)"
+
 
 #=============================================================================
 # 10e. Pre-install the optional ("Tier B") tools: tailscale, cloudflared, gh, Ollama, Companion Launcher
@@ -1700,7 +1728,10 @@ cat > "$CHROOT_PATH/usr/lib/systemd/system/ci-os-first-boot-setup.service" << 'S
 [Unit]
 Description=Companion OS first-boot development environment setup
 Documentation=https://ci.computer
-After=network-online.target
+# After the snap seeding. A first boot also sets up the preinstalled snaps (Firefox, the software store), and this unit
+# pulls gigabytes of models; done together on a slow machine the first graphical login can fail (in a test VM gnome-shell
+# timed out after 96 s while both ran, and the same login worked once they had finished).
+After=network-online.target snapd.seeded.service
 Wants=network-online.target
 # Runs until provisioning has succeeded once: the script writes this marker
 # only on success, and ci-os-first-boot-setup.timer retries while it's absent.
@@ -1711,13 +1742,21 @@ ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done
 ConditionPathExists=!/cdrom/casper/vmlinuz
 
 [Service]
-Type=oneshot
+# exec, not oneshot: a oneshot holds multi-user.target (and so "boot finished") until the whole pull is done.
+Type=exec
 ExecStart=/usr/lib/ci-os/first-boot-setup.sh
 # No RemainAfterExit: an "active (exited)" unit would ignore the retry timer.
 RemainAfterExit=no
-TimeoutStartSec=1800
-StandardOutput=journal+console
-StandardError=journal+console
+# The old TimeoutStartSec=1800 (a start timeout does not apply to Type=exec), kept as a run-time limit.
+RuntimeMaxSec=1800
+# A background job: it must not compete with the desktop for the CPU or the disk (the model downloads themselves run in
+# ollama.service, which this does not throttle).
+Nice=19
+CPUSchedulingPolicy=idle
+IOSchedulingClass=idle
+# Journal only. "+console" printed the model-download progress on the text console at the first login, over the screen.
+StandardOutput=journal
+StandardError=journal
 Environment=DEBIAN_FRONTEND=noninteractive
 
 [Install]

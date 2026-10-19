@@ -1,0 +1,18 @@
+# Companion links of the Ubuntu image: one line per link, fields separated by "|":
+#   id | name | url | comment | icon | on the desktop of a new user (yes or no)
+#
+# customize-chroot.sh turns every line into an application-menu entry (/usr/share/applications/<id>.desktop, searchable and
+# pinnable) and every "yes" line into a shortcut on the desktop of each new user (/etc/skel/Desktop). The dock list
+# (dock-favorites.txt) can pin any of them by id. backends/ubuntu/lib/start-links.sh checks this file before anything is written.
+#
+# Every URL below answered HTTP 200 when it was fetched on 2026-10-19. They are the links the ci.computer site itself
+# shows (docs.ci.computer, hub.ci.computer, the support page and the community invite); none is guessed.
+# The icons are names from the Yaru icon theme that the image ships.
+companion-getting-started|Getting Started with Companion|https://docs.ci.computer/docs/getting-started|First steps with Companion OS, Hub and Capture|help-browser|yes
+companion-docs|Companion Docs|https://docs.ci.computer|Guides and reference for the whole Companion ecosystem|accessories-dictionary|yes
+companion-app-store|Companion App Store|https://hub.ci.computer/store|Apps and agents for your Companion|system-software-install|yes
+companion-support|Companion Support|https://ci.computer/support|Get help from the Companion team|system-help|yes
+companion-community|Companion Community|https://discord.com/invite/yQp9hwpzAa|Talk to other Companion users on Discord|internet-chat|yes
+companion-capture-guide|Companion Capture Guide|https://docs.ci.computer/docs/apps-available/first-party-apps/companion-capture|What Capture records and how to use it|help-contents|no
+companion-downloads|Companion Downloads|https://ci.computer/download|Apps for your other devices|folder-remote|no
+companion-website|Companion Intelligence|https://ci.computer|The Companion Intelligence website|applications-internet|no

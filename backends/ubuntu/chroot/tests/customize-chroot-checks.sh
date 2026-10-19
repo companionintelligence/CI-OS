@@ -249,5 +249,31 @@ expect "the dock default is written from the list, and a bad list stops the buil
 before "the dock default is written before dconf is compiled" '02-ci-os-dock" << EOF' 'chroot_exec "dconf update"'
 
 echo
+echo "== 8. the first-boot setup unit must not fight the desktop"
+# Found on a real install (the 26.04.1 image, QEMU): the first login failed twice while snapd.seeded and the model download were
+# running, the console showed first-boot-setup's progress bar over the screen, and boot stayed "not finished" for 30 minutes.
+fb_unit="$(sed -n '\%usr/lib/systemd/system/ci-os-first-boot-setup.service" << .SVCEOF.%,/^SVCEOF$/p' "$SCRIPT")"
+expect "the first-boot setup unit was found in the script" bash -c 'printf "%s\n" "$1" | grep -q "^\[Service\]"' _ "$fb_unit"
+for want in 'Type=exec' 'Nice=19' 'CPUSchedulingPolicy=idle' 'IOSchedulingClass=idle' 'StandardOutput=journal' 'StandardError=journal' 'RuntimeMaxSec=1800'; do
+    expect "  it has $want" bash -c 'printf "%s\n" "$1" | grep -q -x -F -- "$2"' _ "$fb_unit" "$want"
+done
+expect "  it does not hold the boot targets (not a oneshot)" bash -c '! printf "%s\n" "$1" | grep -q "^Type=oneshot"' _ "$fb_unit"
+expect "  it does not print on the console (no console in StandardOutput or StandardError)" bash -c '! printf "%s\n" "$1" | grep -q -E "^Standard(Output|Error)=.*(console|tty)"' _ "$fb_unit"
+expect "  it starts after the snap seeding" bash -c 'printf "%s\n" "$1" | grep -q "^After=.*snapd.seeded.service"' _ "$fb_unit"
+expect "  it still never runs in a live session" bash -c 'printf "%s\n" "$1" | grep -q -x "ConditionPathExists=!/cdrom/casper/vmlinuz"' _ "$fb_unit"
+expect "  and still stops once it has succeeded (the marker condition)" bash -c 'printf "%s\n" "$1" | grep -q -x "ConditionPathExists=!/var/lib/ci-os/.first-boot-setup-done"' _ "$fb_unit"
+
+echo
+echo "== 9. the Companion links (Step 10g)"
+before "the links list is checked before anything of Step 10g is written" 'START_LINKS_ROWS="\$\(start_links_rows' 'install -d -m 0755 "\$CHROOT_PATH/usr/share/applications" "\$CHROOT_PATH/etc/skel/Desktop"'
+expect "a bad links list stops the build" grep -q -F 'is not a valid links list' "$SCRIPT"
+expect "each link is written to /usr/share/applications from the list" grep -q -F 'start_links_entry "$_name" "$_url" "$_comment" "$_icon" > "$CHROOT_PATH/usr/share/applications/$_id.desktop"' "$SCRIPT"
+expect "a desktop shortcut is the same file, executable, in /etc/skel/Desktop" \
+    grep -q -F 'install -m 0755 "$CHROOT_PATH/usr/share/applications/$_id.desktop" "$CHROOT_PATH/etc/skel/Desktop/$_id.desktop"' "$SCRIPT"
+expect "the welcome script is installed executable and its autostart entry is installed" \
+    bash -c 'grep -q -F "install -m 0755 \"\$START_PAYLOAD/usr/libexec/ci-os/welcome-once\"" "$1" && grep -q -F "ci-os-welcome.desktop" "$1"' _ "$SCRIPT"
+before "Step 10g comes after the one-click installer (which it shares curl with)" 'echo "\[\+\] One-click automatic installer installed"' 'echo "\[\*\] Step 10g'
+
+echo
 echo "$PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

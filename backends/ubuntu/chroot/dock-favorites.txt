@@ -11,8 +11,10 @@
 ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop
 
 # Companion apps. Companion Hub comes from the companion-hub .deb (its desktop file really has a space in its name).
+# Companion Docs is a link (start-links.txt): the live session has no desktop icons, so this is where its user finds the docs.
 Companion Hub.desktop
 companion-capture.desktop
+companion-docs.desktop
 
 org.gnome.Nautilus.desktop
 org.gnome.Rhythmbox3.desktop
