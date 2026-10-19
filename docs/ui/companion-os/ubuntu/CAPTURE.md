@@ -51,6 +51,19 @@ Run of 2026-10-19. The guest clock is UTC and the "Taken" times in `MANIFEST.jso
 2. In this run, five sign-in attempts failed silently because the one-time password had been read from the screenshot by OCR and one character was wrong
    (`c` read as `e`). The password is a random string the dialog shows once; compare an OCR result with the picture before using it.
 
+## Second run: language, keyboard and time zone in the one-click dialog, and the first-boot notifications (frames 12 to 19b)
+
+Image of commit `b124745` (sha256 `87cb21d6...cfcba`, 5,593,038,848 bytes; `verify-iso.sh` 446 passed, 0 failed), a fresh install on a new disk, German (Germany) with the German keyboard and Berlin
+chosen in the dialog. Records: [`docs/evidence/2026-10-19-ubuntu-arm64-b124745/`](../../../evidence/2026-10-19-ubuntu-arm64-b124745/) (`run.txt` has the times).
+
+* Frame 14 carries a one-time password in the original; it is redacted in the saved copy (a dark bar). Frames 12 and 13 are of the live session; 15 to 19 of the installed system.
+* Frames 16 to 19 are the recording loop's frames (one screendump every 2 to 3 seconds), picked by the banner text; GNOME keeps a banner on screen for about half a minute here, so a step's
+  banner is on several frames. A terminal is open in 17 to 19: it ran the in-guest monitor of the run and shows a command to the host's text channel, not a credential.
+* Frame 19 is the ready message of the image. It had no "Open" button although the script asked for one (`notify-send -A` is refused by this image's notification server); commit `c8de040` removed
+  the button and changed the wording, and frame 19b shows that wording on the same guest. 19b is not a first boot of a new image.
+* The banners for "waiting for the internet" and "needs attention" were sent (`notifications-sent.txt`) but not photographed: a script started from a terminal had its banners held back by GNOME.
+* The keyboard of the guest was German for the whole sign-in; the harness typed for it with `QMP_LAYOUT=de` (`test_qmp_layouts.py`).
+
 ## Safety
 
 File-backed images only; no host block device; the throwaway passwords stayed in a 0600 file in the session's scratch directory and are not in any frame or log

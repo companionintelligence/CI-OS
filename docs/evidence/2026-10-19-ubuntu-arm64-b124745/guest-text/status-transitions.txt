@@ -1,0 +1,6 @@
+# Status file transitions seen by a 10-second poll of /var/lib/ci-os/setup-status (guest time CEST = UTC+2)
+00:35:36 state=running step=0 steps=0 title=Getting the computer ready
+00:36:16 state=running step=3 steps=7 title=Installing developer tools
+00:36:36 state=running step=5 steps=7 title=Downloading the AI models (the longest step)
+00:37:06 state=running step=7 steps=7 title=Starting Companion Hub
+00:38:07 state=done step=7 steps=7 title=Companion OS is set up

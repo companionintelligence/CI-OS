@@ -1,0 +1,76 @@
+# notify-send -A on the installed image (libnotify 0.8.8): no action reaches the server. Guest text, 2026-10-19.
+
+## GetCapabilities and three notify-send forms (ntest.sh)
+notify-send 0.8.8
+== capabilities
+(['actions', 'body', 'body-markup', 'icon-static', 'persistence', 'sound'],)
+== A: plain -A
+== B: -A with -t 0 and --hint resident
+== C: -A default
+== log
+   string "tttA"
+   string "bbb"
+   array [
+   ]
+   array [
+--
+   string "tttA"
+   string "bbb"
+   string "tttB"
+   string "bbb"
+   array [
+   ]
+   array [
+--
+   string "tttB"
+   string "bbb"
+   string "tttC"
+   string "bbb"
+   array [
+   ]
+   array [
+--
+   string "tttC"
+   string "bbb"
+
+## foreground notify-send -A, and a direct D-Bus Notify with an action list (ntest3.sh)
+== G: foreground notify-send -A with timeout
+Actions are not supported by this notifications server. Displaying non-interactively.
+rc=1
+== H: gdbus Notify with actions
+(uint32 7,)
+== I: python notify-send script?
+/usr/bin/notify-send: ELF 64-bit LSB pie executable, ARM aarch64, version 1 (SYSV), dynamically linked, interpreter /lib
+== log
+   string ""
+   string "tttG"
+   string "bbb"
+   array [
+   ]
+   array [
+      dict entry(
+         string "urgency"
+         variant             byte 1
+      )
+      dict entry(
+--
+   string ""
+   string "tttG"
+   string "bbb"
+   array [
+   string ""
+   string "tttH"
+   string "bbb"
+   array [
+      string "open"
+      string "Open Companion Hub"
+   ]
+   array [
+   ]
+   int32 -1
+method call time=1792449674.425791 sender=:1.35 -> destination=:1.26 serial=137 path=/org/freedesktop/Notifications; interface=org.freedesktop.Notifications; member=Notify
+--
+   string ""
+   string "tttH"
+   string "bbb"
+   array [

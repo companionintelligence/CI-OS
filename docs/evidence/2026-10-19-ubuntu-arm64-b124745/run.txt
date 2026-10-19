@@ -1,0 +1,37 @@
+Fresh install of the arm64 image built from commit b124745 (language, keyboard and time zone in the one-click dialog; first-boot progress).
+Evidence label: tested in a virtual machine (QEMU 11, HVF, Apple-silicon Mac); not real hardware. 2026-10-19, times UTC.
+
+Image     companion-os-1.0-arm64.iso, 5,593,038,848 bytes, sha256 87cb21d6292492fd0613ca80e10199502f183e3ada137ef53748434ab68cfcba
+Build     clean checkout of b124745, native arm64 container, 879 s (build-status.txt); verify-iso.sh 446 passed, 0 failed (verify.log), including the
+          four first-boot-progress checks and the 204 unit tests of ci-os-auto-install run against the image's own copy of the helper
+Target    a new file-backed 64 GiB virtual NVMe disk (qcow2), a new variable store; the ISO as a USB drive
+
+22:15:16  VM started with the ISO; GRUB: "Install Companion OS (automatic)" chosen (down, Enter)
+22:15:50  live boot started
+22:18      the live desktop; Canonical's installer window in front, the one-click dialog behind it (it opens with the desktop)
+22:19-20  in the dialog: "Language, keyboard, time zone..." -> Language: typed "Germany", German (Germany); the keyboard row followed to German;
+          Time zone: typed "Berlin", Berlin, Germany; Done. The confirmation named the new choice and kept the one-time password
+          (frames arm64-12, -13, -14). The live clock jumped to Berlin time when the installer applied the zone.
+22:20:37  "Erase the disk and install" clicked
+22:32:00  VM powered off by the installer (the poll is every 15 s): at most 11 min 23 s
+22:32:19  installed disk started alone; the greeter is German ("Nicht aufgeführt?", "20. Okt 00:33"), frame arm64-15
+22:33:20  signed in with the one-time password typed on a German keyboard (QMP_LAYOUT=de); the greeter asked for the new password (German text)
+22:34:00  new password set (a random 20-character one, not recorded); the desktop came up with Firefox's German interface
+22:34:07  the first notification: "Companion OS is getting ready" (frame arm64-16)
+22:35:31  ci-os-first-boot-setup.service started (the timer, 3 min after boot); status file written at once
+22:36-37  notifications "Setting up Companion OS", "step 3 of 7", "step 5 of 7", "step 7 of 7" (frames arm64-17, -18; notifications-sent.txt)
+22:37:59  first-boot setup completed: 2 min 28 s wall clock, exit 0 (journal line in installed-facts.txt)
+22:38     "Companion OS is ready" (frame arm64-19). The notification list showed it with no action button: notify-send -A is refused on this
+          image (notify-send-actions.txt). Fixed in c8de040 (no button; says where Hub is), shown in frame arm64-19b by running the revised script
+          in the same guest against a fake status file
+22:42     installed-facts.txt: LANG=de_DE.UTF-8, X11 layout de, /etc/timezone Europe/Berlin, language-pack-de installed, setup-status "done 7/7",
+          the ready stamp present; a second run of setup-progress sent no notification (ready-shown-once.txt)
+
+What this proves: the three answers reach the installed system (language, keyboard, time zone), the progress notifications reach a real GNOME session
+on the first boot, and the ready message is shown once. What it does not: the Open button (it never worked; removed), the banners for "waiting" and
+"needs attention" (sent, per notifications-sent.txt, but not photographed), an amd64 install, anything on real hardware, a second language, a
+keyboard variant, and a time zone chosen while offline. The guest is a virtual machine with a fast network; a slow first boot was not seen.
+After the run: the image of 82e9335 (the code of the fix c8de040) was built (869 s, build-status-82e9335.txt) and verified (446 passed, 0 failed,
+verify-82e9335.log). It was not installed: only the revised script was run, in the guest above.
+Credentials: the one-time password and the new password are throwaway values of this virtual machine; they were never written into a document, and
+frames arm64-14 (and the progress frame, not kept) were redacted.

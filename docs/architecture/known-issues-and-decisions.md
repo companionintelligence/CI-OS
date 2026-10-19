@@ -40,6 +40,7 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 | KI-26 | Plasma edition leftovers found by the ISO #6 run: log noise, a greeter without the Companion mark, installer copy that does not match the installed system | defect, cosmetic | Low | owner to assign |
 | KI-27 | First install of the clean-checkout Ubuntu image (2026-10-18): the first graphical login failed twice while the first boot was still working, boot stayed "not finished" for 30+ minutes, the desktop-icons process was relaunched every 4 s, and the first-run screens and login text still carry Ubuntu branding | defect, gap | High (login) to Low (branding) | owner to assign |
 | KI-28 | The arm64 build of the Ubuntu edition (a supported architecture since 2026-10-19): built, verified (436/0), installed in 12 min and booted natively on an Apple-silicon Mac; the system reads `degraded` on non-Snapdragon hardware, Capture is absent, Secure Boot, real hardware, Stick support and a CI job are missing | gap, decision | Medium | owner to assign |
+| KI-29 | Language, keyboard and time zone in the one-click install, and first-boot progress on the desktop (2026-10-19): [V] on a fresh arm64 install in a virtual machine; no action button, English-only text, no keyboard variants, amd64 and real hardware untried | gap | Low | owner to assign |
 
 ## KI-01 Model pulls have no disk-space guard
 
@@ -365,6 +366,28 @@ Two small things the image of `4b7597d` showed (both fixed in `ee4a3b4`, above):
 | Hub on arm64 needs Docker Compose 2.33+ (Hub's own requirement); the image bakes Docker's current Compose | the Hub containers ran | |
 
 **Decided 2026-10-19 (owner, in chat):** arm64 is a supported architecture of the Ubuntu target ([supported-targets.md](supported-targets.md)); the gaps are listed in [arm64.md](arm64.md#gaps-against-the-five-points). **Still open:** which arm64 hardware to test first, a fixture self-test of the verifier's arm64 branches, a CI job that builds arm64, and a safe condition for `pd-mapper.service` (a wrong one would break audio on a Snapdragon X).
+
+## KI-29 Language, keyboard and time zone in the one-click install, and first-boot progress on the desktop
+
+**Severity:** Low. **Owner:** owner to assign.
+
+**What.** Items 1 and 2 of the home-lab polish proposal ([CI-Engineering](https://github.com/companionintelligence/CI-Engineering)). The one-click confirmation has a **Language, keyboard, time zone...** button
+([one-click-install.md](one-click-install.md#language-keyboard-and-time-zone)), and the first-boot setup writes `/var/lib/ci-os/setup-status` for a per-user script that shows it as one desktop notification
+([installation guide](../guides/installation-guide.md#ubuntu-edition)). Fresh install of the arm64 image of `b124745`, records in [`../evidence/2026-10-19-ubuntu-arm64-b124745/`](../evidence/2026-10-19-ubuntu-arm64-b124745/) and frames 12 to 19b of [`../ui/companion-os/ubuntu/`](../ui/companion-os/ubuntu/CAPTURE.md):
+German (Germany), the German keyboard and Berlin were chosen in the dialog and the installed system had `LANG=de_DE.UTF-8`, X11 layout `de`, `/etc/timezone` `Europe/Berlin`, a German greeter and Firefox; the notifications
+"getting ready", "step 3 of 7", "step 5 of 7", "step 7 of 7" and "ready" reached GNOME during the first boot (2 min 28 s); the ready message was not repeated at the next run. All **[V]** in a virtual machine, not real hardware.
+
+| Item | Evidence | Note |
+|---|---|---|
+| The first version of the ready message asked for an "Open Companion Hub" button; none appeared | `notify-send -A` printed "Actions are not supported by this notifications server" and sent an empty action list, although `GetCapabilities` lists `actions` (`guest-text/notify-send-actions.txt`); a direct D-Bus call with an action list is accepted | **fixed in `c8de040`**: no button, the message says Hub is the first icon in the dock. The unit test could not have found it (its `notify-send` is a stub); it now refuses any `-A`. A real button would need a D-Bus listener (`gdbus monitor` for `ActionInvoked`): not built |
+| The banners for "waiting for the internet" and "needs attention" were not photographed | sent per `notifications-sent.txt`; the script was started from a terminal and GNOME held its banners back | their wording is in the unit tests and in the D-Bus record only |
+| The notification text is English whatever language was chosen | the strings are in the script | not translated; a later step if the audience needs it |
+| Only the languages whose packs are on the image (de, en, es, fr, it, pt, ru, zh) are offered, and the keyboard has no variants | `locale -a` and `base.lst` in the live session | the normal installer offers more and installs their packs from the network; `fr_CH` and `it_CH` suggest the `ch` layout, which xkb calls "German (Switzerland)" |
+| A step shorter than the 15-second look is not shown, so the numbers skip (3, 5, 7 were seen; 1, 2, 4 and 6 went by) | `status-transitions.txt` | by design: one notification per observed change |
+| The progress text says "up to a few minutes, longer on a slow connection"; the first boot took 2 min 28 s on a fast link | `installed-facts.txt` | a slow link and a larger model set (Strix Halo class) were not tried |
+| amd64 is untried, as is anything on real hardware | | KI-17 applies |
+
+**Not decided.** Whether the notification text is worth translating, and whether a "Open Hub" button is worth a D-Bus listener.
 
 ## Also open, kept in their source pages
 

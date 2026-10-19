@@ -48,6 +48,8 @@ confirmation, which now names the new choice. The one-time password does not cha
 Choosing a language suggests the keyboard (`de_DE` gives `de`, `en_GB` gives `gb`, `es_MX` gives `latam`, `pt_BR` gives `br`, `de_IT` gives `de` and not the Italian keyboard; US when nothing fits) and
 the time zone, but only when the country has exactly one (`fr_FR` gives `Europe/Paris`); otherwise the time zone stays on automatic detection. An answer the user chose by hand is never changed by a later language choice.
 
+**Status.** [V] on the arm64 image of `b124745` in a virtual machine: German (Germany), the German keyboard and Berlin chosen in the dialog reached the installed system (`LANG=de_DE.UTF-8`, X11 layout `de`, `/etc/timezone` `Europe/Berlin`, a German greeter); frames 12 to 14 of [`docs/ui/companion-os/ubuntu/`](../ui/companion-os/ubuntu/CAPTURE.md), records in [`docs/evidence/2026-10-19-ubuntu-arm64-b124745/`](../evidence/2026-10-19-ubuntu-arm64-b124745/), KI-29. Not tried: amd64, a keyboard that is not German or US, a time zone chosen offline, real hardware.
+
 The three values are validated (`ll_CC.UTF-8`, a layout code, `Area/City` or `geoip`) before they are written into the autoinstall file, and the lists are read once and never
 empty: without iso-codes the entries carry their codes, without `base.lst` or `zone.tab` the menu offers US and automatic detection only. `ci-os-auto-install --plan --locale de_DE.UTF-8
 --keyboard de --timezone Europe/Berlin` prints the file for those answers.
