@@ -39,6 +39,7 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 | KI-25 | The `docker` group is root-equivalent for every `sudo` member of the installed system | decision | Medium | owner to assign |
 | KI-26 | Plasma edition leftovers found by the ISO #6 run: log noise, a greeter without the Companion mark, installer copy that does not match the installed system | defect, cosmetic | Low | owner to assign |
 | KI-27 | First install of the clean-checkout Ubuntu image (2026-10-18): the first graphical login failed twice while the first boot was still working, boot stayed "not finished" for 30+ minutes, the desktop-icons process was relaunched every 4 s, and the first-run screens and login text still carry Ubuntu branding | defect, gap | High (login) to Low (branding) | owner to assign |
+| KI-28 | The arm64 build of the Ubuntu edition (experimental): built, verified (436/0), installed in 12 min and booted natively on an Apple-silicon Mac; the system reads `degraded` on non-Snapdragon hardware, Capture is absent, Secure Boot and real hardware are unproven, and whether it becomes a supported target is undecided | gap, decision | Medium | owner to assign |
 
 ## KI-01 Model pulls have no disk-space guard
 
@@ -335,6 +336,25 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 **Done since (2026-10-19, in the same pull request, not yet proven on a booted image):** the first-boot setup is started by its timer three minutes after boot (no longer linked into `multi-user.target`), waits for a quiet machine (`wait-quiet`: load below 60 percent of the CPUs three times in a row, never for more than 20 minutes) and throttles `ollama.service` for its run; Canonical's first-run is skipped by `~/.config/gnome-initial-setup-done` in `/etc/skel`; the motd scripts that advertise Ubuntu Pro are held off by `dpkg-statoverride` (the first install showed the advert because an upgrade had restored the executable bit); `/etc/legal` says Companion OS; the Ubuntu Pro autostart notification is diverted aside.
 
 **Decision needed.** (1) Which host the Hub deploy should use. (2) Whether `ubuntu-insights` (it ran at session start; with the first-run skipped there is no consent page, so by its design nothing is uploaded) should be removed. (3) Run the same install on real hardware (KI-17).
+
+## KI-28 The arm64 build of the Ubuntu edition
+
+**Severity:** Medium. **Owner:** owner to assign.
+
+**What.** `build-iso.sh --arch arm64` builds Companion OS from Canonical's Ubuntu 26.04.1 desktop arm64 ISO ([arm64.md](arm64.md), records in [`../evidence/2026-10-19-ubuntu-arm64/`](../evidence/README.md)). All [V] in QEMU with HVF on an Apple-silicon Mac, natively: build 19 min, `verify-iso.sh` 436 passed 0 failed, live desktop in 2 min, the one-click install in 12 min, installed boot in 19.8 s of userspace, a first sign-in with no Canonical first-run screen and the Companion welcome page, first-boot setup in 2 min 48 s with Companion Hub started headless and healthy.
+
+| Item | Evidence | Note |
+|---|---|---|
+| The installed system reads `degraded`: `pd-mapper.service` ("Qualcomm PD mapper service") fails on every arm64 machine that is not a Snapdragon | `systemctl --failed` in the installed VM | Canonical ships `protection-domain-mapper` in the arm64 image. Not changed here; a drop-in that requires the Qualcomm device-tree node would stop it, but that is a guess about hardware not at hand |
+| Companion Capture is not in the arm64 image | `https://dl.ci.computer/applet/v0.2.0-alpha.7/manifest.json` has no Linux arm64 build; the arm64 pins are empty | the dock entry is hidden by GNOME |
+| The boot shows kernel messages, not the splash | Canonical's arm64 menu line carries `console=tty0` | stock; the verifier accepts exactly that shape |
+| The installed GRUB's background is stock | the arm64 base image has no GRUB to configure; its name follows `os-release` | |
+| **Secure Boot on arm64, and every real arm64 machine** (Snapdragon X, Ampere, Raspberry Pi 5), are not tried | Homebrew ships no aarch64 Secure Boot firmware | KI-17 applies |
+| `ci-stick` cannot flash or boot an arm64 image | `stick/crates/ci-stick/src/host.rs`: "arm64 boot images are not built yet" | |
+| No CI builds arm64 | the workflow is x86-64 and manual | GitHub-hosted arm64 runners for a private repository: unverified |
+| Hub on arm64 needs Docker Compose 2.33+ (Hub's own requirement); the image bakes Docker's current Compose | the Hub containers ran | |
+
+**Decision needed.** Whether arm64 becomes a supported target ([supported-targets.md](supported-targets.md#8-how-a-target-is-added-or-brought-back) lists what that needs), and which arm64 hardware to test first.
 
 ## Also open, kept in their source pages
 

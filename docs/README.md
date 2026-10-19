@@ -33,6 +33,7 @@ Evidence tags used throughout: **[V]** verified, **[I]** implemented and not pro
 
 | Document | What it is |
 |---|---|
+| [Companion OS on arm64](architecture/arm64.md) | An experimental arm64 build of the Ubuntu edition: what was built and run on 2026-10-19 (build 19 min, verify 436/0, install 12 min, Hub up), what differs from amd64, how to build it, what is not proven |
 | [Supported targets](architecture/supported-targets.md) | The support policy: the two targets, what "supported" means, the capability matrix with evidence tags, per-target caveats, pending evidence, the retirement notice and the restore recipe, and how a target is added. |
 | [Core and backends design](architecture/multi-distro-design.md) | How `core/` and `backends/<name>/` fit together, the Ubuntu gresource mechanic, the CachyOS backend, the frozen Arch engine and the findings frozen code cites, the ecosystem manifest, the per-backend contract and the rollout history. The file name is historical. |
 | [Known issues and decisions](architecture/known-issues-and-decisions.md) | The open defects and open decisions, each with severity, evidence, an owner column and the decision needed. |
