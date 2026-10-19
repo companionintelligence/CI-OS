@@ -60,6 +60,7 @@ AWK_COMMON='
 function excluded(p) {
     if (p == "/md5sum.txt") return 1                       # cannot hold its own hash
     if (p == "/boot.catalog") return 1                     # the El Torito boot catalog (made by the ISO writer; xorriso reports it as no regular file)
+    if (p == "/boot/boot.cat") return 1                    # the same file under the name the arm64 image uses (inert on amd64: no such file)
     if (p == "/boot/grub/i386-pc/eltorito.img") return 1   # the BIOS boot image: its boot-info-table is patched on every remaster
     return 0
 }

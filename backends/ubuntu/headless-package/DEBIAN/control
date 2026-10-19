@@ -1,6 +1,6 @@
 Package: setup-device
 Version: 1.0.0
-Architecture: amd64
+Architecture: all
 Maintainer: CI-OS Team
 Description: Headless device first-time WiFi setup system
  Headless device setup system providing captive portal for WiFi configuration.

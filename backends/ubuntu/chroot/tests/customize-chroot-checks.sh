@@ -227,9 +227,9 @@ expect "  the URL is https on dl.ci.computer/applet, for this version, and names
 
 expect "the Capture knob is validated as 0 or 1 with the others" grep -q -E '^for _k in .*CI_OS_BAKE_CAPTURE' "$SCRIPT"
 expect "the cache file is named <package>_<version>_amd64.deb (what a person places there)" \
-    grep -q -F 'TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_amd64.deb"' "$SCRIPT"
+    grep -q -F 'TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_${TB_ARCH}.deb"' "$SCRIPT"
 before "the download happens only after the cache file failed its check" \
-    'if \[\[ ! -f "\$TB_CAPTURE_DEB" \]\]' 'tb_fetch "\$CAPTURE_URL"'
+    'if \[\[ ! -f "\$TB_CAPTURE_DEB" \]\]' 'tb_fetch "\$\(tb_pin CAPTURE_URL\)"'
 expect "  and needs no GitHub credentials (no gh)" bash -c '! sed -n "/TB_CAPTURE_DEB=/,/tb_expect_sha256 \"\$TB_CAPTURE_DEB\"/p" "$1" | grep -q "gh "' _ "$SCRIPT"
 before "the Capture .deb is checked against the sha256 pin before the chroot is touched" \
     'tb_expect_sha256 "\$TB_CAPTURE_DEB"' 'chroot "\$CHROOT_PATH" /tmp/preinstall-tier-b\.sh'
@@ -298,6 +298,30 @@ expect "/etc/legal is diverted, then rewritten for Companion OS" bash -c 'grep -
 expect "  the new text keeps the distribution-terms sentence and the no-warranty sentence" bash -c 'sed -n "/cat > \"\$CHROOT_PATH\/etc\/legal\"/,/^LEGAL$/p" "$1" | grep -c -E "exact distribution terms|ABSOLUTELY NO WARRANTY" | grep -q "^2$"' _ "$SCRIPT"
 expect "  and says nothing about Ubuntu except that it is the base" bash -c 'sed -n "/cat > \"\$CHROOT_PATH\/etc\/legal\"/,/^LEGAL$/p" "$1" | grep -i -c "ubuntu" | grep -q "^1$"' _ "$SCRIPT"
 expect "the Ubuntu Pro autostart notification is diverted aside (not just deleted)" grep -q -F 'dpkg-divert --local --rename --divert /etc/xdg/autostart/ubuntu-advantage-notification.desktop.disabled --add' "$SCRIPT"
+
+echo
+echo "== 11. one script for two architectures (amd64 and arm64)"
+BUILD_ISO="$HERE/../../iso/scripts/build-iso.sh"
+CONTROL="$HERE/../../headless-package/DEBIAN/control"
+[[ -f "$BUILD_ISO" && -f "$CONTROL" ]] || { echo "missing $BUILD_ISO or $CONTROL" >&2; exit 2; }
+for k in OLLAMA_URL OLLAMA_SHA256 OLLAMA_SIZE LAUNCHER_URL LAUNCHER_SHA256 LAUNCHER_SIZE; do
+    expect "arm64 pin ${k}_ARM64 is set" test -n "$(pin "${k}_ARM64")"
+done
+for k in OLLAMA LAUNCHER; do
+    expect "  ${k}_SHA256_ARM64 is a sha256, and not the amd64 one" bash -c '[[ "$1" =~ ^[0-9a-f]{64}$ && "$1" != "$2" ]]' _ "$(pin "${k}_SHA256_ARM64")" "$(pin "${k}_SHA256")"
+done
+expect "  the arm64 Ollama and Launcher URLs name an arm64 file" bash -c '[[ "$1" == *arm64* && "$2" == *arm64* ]]' _ "$(pin OLLAMA_URL_ARM64)" "$(pin LAUNCHER_URL_ARM64)"
+expect "  Companion Capture publishes no arm64 build: its arm64 pins are empty, so an arm64 image does not bake it" bash -c '[[ -z "$1$2$3" ]]' _ "$(pin CAPTURE_URL_ARM64)" "$(pin CAPTURE_SHA256_ARM64)" "$(pin CAPTURE_SIZE_ARM64)"
+expect "the chroot script takes its architecture from CI_OS_ARCH and refuses anything but amd64 or arm64" bash -c 'grep -q -F "CI_ARCH=\"\${CI_OS_ARCH:-amd64}\"" "$1" && grep -q -F "CI_OS_ARCH must be amd64 or arm64" "$1"' _ "$SCRIPT"
+expect "Step 10e resolves every pin of the image's architecture through tb_pin" bash -c 'grep -q -F "tb_pin() {" "$1" && [[ $(grep -c "tb_pin " "$1") -ge 12 ]]' _ "$SCRIPT"
+expect "an explicit CI_OS_BAKE_CAPTURE=1 on an image with no Capture build stops the build" grep -q -F 'publishes no $TB_ARCH build' "$SCRIPT"
+expect "the gh apt source is for the image's architecture, not always amd64" bash -c 'grep -q -F "deb [arch=%s signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg]" "$1" && ! grep -q "arch=amd64" "$1"' _ "$SCRIPT"
+expect "amd64-microcode is installed on amd64 only (apt refuses the name on arm64)" bash -c 'sed -n "/dpkg --print-architecture/,/^fi$/p" "$1" | grep -q "amd64-microcode"' _ "$SCRIPT"
+expect "the ROCm helper command is made on amd64 only" bash -c 'sed -n "/ROCm is x86-64 only/,/^fi$/p" "$1" | grep -q "ci-os-install-rocm"' _ "$SCRIPT"
+expect "the setup-device package is Architecture: all (its payload is shell, Python and config: an arm64 chroot must be able to install it)" grep -q -x 'Architecture: all' "$CONTROL"
+expect "build-iso.sh takes --arch, validates it and exports CI_OS_ARCH" bash -c 'grep -q -F -- "--arch)" "$1" && grep -q -F "amd64 | arm64) ;;" "$1" && grep -q -F "export CI_OS_ARCH" "$1"' _ "$BUILD_ISO"
+expect "  the output name carries the architecture" bash -c 'grep -q -F "companion-os-\${CI_OS_VERSION}-\${CI_OS_ARCH}.iso" "$1" && ! grep -q "CI_OS_VERSION}-amd64.iso" "$1"' _ "$BUILD_ISO"
+expect "  the base ISO must be the image's architecture (its volume id ends with it)" grep -q -F 'needs the $CI_OS_ARCH desktop ISO' "$BUILD_ISO"
 
 echo
 echo "$PASS passed, $FAIL failed"

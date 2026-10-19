@@ -18,7 +18,10 @@
 #   sudo ./backends/ubuntu/iso/scripts/build-iso.sh [options]
 #
 # Options:
-#   --base-iso PATH       Path to the Ubuntu 26.04.1 Desktop ISO (default: ./ubuntu-26.04.1-desktop-amd64.iso)
+#   --base-iso PATH       Path to the Ubuntu 26.04.1 Desktop ISO (default: ./ubuntu-26.04.1-desktop-<arch>.iso)
+#   --arch ARCH           amd64 (default) or arm64: the architecture of the image. The base ISO must be that architecture's (the arm64 one
+#                         is on cdimage.ubuntu.com, not releases.ubuntu.com). Also CI_OS_ARCH. An image of the other architecture than
+#                         the host's is built under emulation (Rosetta or qemu-user), the same way an amd64 image is on an Apple-silicon Mac.
 #   --output-dir PATH     Output directory for built ISO (default: ./output)
 #   --work-dir PATH       Working directory (default: ./work)
 #   --version VERSION     CI-OS version string (default: 1.0)
@@ -78,7 +81,9 @@ NC='\033[0m' # No Color
 # SCRIPT_DIR is backends/ubuntu/iso/scripts/ — four levels below the repo root.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../../.." && pwd)"
-BASE_ISO="${BASE_ISO:-$REPO_ROOT/ubuntu-26.04.1-desktop-amd64.iso}"
+# Architecture of the image (see --arch). Exported: customize-chroot.sh, md5sum-txt.sh and verify-iso.sh read CI_OS_ARCH.
+CI_OS_ARCH="${CI_OS_ARCH:-amd64}"
+BASE_ISO="${BASE_ISO:-}"   # default is set after the arguments are parsed: it depends on --arch
 OUTPUT_DIR="$REPO_ROOT/output"
 WORK_DIR="$REPO_ROOT/work"
 CI_OS_VERSION="${CI_OS_VERSION:-1.0}"
@@ -174,6 +179,10 @@ parse_args() {
                 BASE_ISO="$2"
                 shift 2
                 ;;
+            --arch)
+                CI_OS_ARCH="$2"
+                shift 2
+                ;;
             --output-dir)
                 OUTPUT_DIR="$2"
                 shift 2
@@ -213,17 +222,28 @@ parse_args() {
 
 # Validate configuration
 validate_config() {
-    if [[ -z "$BASE_ISO" ]]; then
-        log_error "Base ISO path is required (use --base-iso)"
-        exit 1
-    fi
+    case "$CI_OS_ARCH" in
+        amd64 | arm64) ;;
+        *) log_error "--arch must be amd64 or arm64 (got '$CI_OS_ARCH')"; exit 1 ;;
+    esac
+    export CI_OS_ARCH
+    [[ -n "$BASE_ISO" ]] || BASE_ISO="$REPO_ROOT/ubuntu-26.04.1-desktop-${CI_OS_ARCH}.iso"
     
     if [[ ! -f "$BASE_ISO" ]]; then
         log_error "Base ISO not found: $BASE_ISO"
         exit 1
     fi
+
+    # The base ISO must be the image's architecture: its volume id ends with it ("Ubuntu 26.04.1 LTS amd64" / "... arm64").
+    local base_volid
+    base_volid="$(xorriso -indev "$BASE_ISO" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -1)"
+    if [[ "$base_volid" != *" $CI_OS_ARCH" ]]; then
+        log_error "The base ISO's volume id is '${base_volid:-unreadable}': an $CI_OS_ARCH image needs the $CI_OS_ARCH desktop ISO (arm64 is on cdimage.ubuntu.com)"
+        exit 1
+    fi
     
     log_info "Configuration validated"
+    log_info "  Architecture: $CI_OS_ARCH"
     log_info "  Base ISO: $BASE_ISO"
     log_info "  Output directory: $OUTPUT_DIR"
     log_info "  Work directory: $WORK_DIR"
@@ -1053,7 +1073,7 @@ write_md5sum_txt() {
 generate_iso() {
     log_info "Generating CI-OS ISO..."
     
-    local iso_name="companion-os-${CI_OS_VERSION}-amd64.iso"
+    local iso_name="companion-os-${CI_OS_VERSION}-${CI_OS_ARCH}.iso"
     local iso_path="$OUTPUT_DIR/$iso_name"
     
     # ─────────────────────────────────────────────────────────────────────────
@@ -1248,7 +1268,7 @@ main() {
     generate_iso
     
     log_info "Build complete!"
-    log_info "ISO location: $OUTPUT_DIR/companion-os-${CI_OS_VERSION}-amd64.iso"
+    log_info "ISO location: $OUTPUT_DIR/companion-os-${CI_OS_VERSION}-${CI_OS_ARCH}.iso"
     log_info "Checksums: $OUTPUT_DIR/SHA256SUMS"
 }
 

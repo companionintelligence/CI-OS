@@ -159,10 +159,22 @@ for f in minimal.size minimal.standard.size minimal.standard.live.size \
          minimal.manifest.full minimal.standard.manifest.full minimal.standard.live.manifest.full; do
     xorriso -osirrox on -indev "$ISO" -extract "/casper/$f" "$ISOX/$f" >/dev/null 2>&1
 done
+# The architecture of the image: VERIFY_ARCH, else read from the volume id ("Ubuntu 26.04.1 LTS amd64" / "... arm64"). It decides the
+# firmware file names (bootx64/grubx64/mmx64 or bootaa64/grubaa64/mmaa64), which Ollama files a build must have and whether
+# Companion Capture (x86-64 only) is expected.
+VARCH="${VERIFY_ARCH:-}"
+if [[ -z "$VARCH" ]]; then
+    case "$(xorriso -indev "$ISO" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -1)" in
+        *arm64) VARCH=arm64 ;;
+        *) VARCH=amd64 ;;
+    esac
+fi
+case "$VARCH" in amd64) EFIS=x64 ;; arm64) EFIS=aa64 ;; *) echo "VERIFY_ARCH must be amd64 or arm64 (got '$VARCH')" >&2; exit 2 ;; esac
+echo "Architecture: $VARCH (EFI files: boot$EFIS.efi, grub$EFIS.efi, mm$EFIS.efi)"
 xorriso -osirrox on -indev "$ISO" \
-    -extract /EFI/boot/bootx64.efi "$ISOX/bootx64.efi" \
-    -extract /EFI/boot/grubx64.efi "$ISOX/grubx64.efi" \
-    -extract /EFI/boot/mmx64.efi "$ISOX/mmx64.efi" >/dev/null 2>&1
+    -extract "/EFI/boot/boot$EFIS.efi" "$ISOX/bootx64.efi" \
+    -extract "/EFI/boot/grub$EFIS.efi" "$ISOX/grubx64.efi" \
+    -extract "/EFI/boot/mm$EFIS.efi" "$ISOX/mmx64.efi" >/dev/null 2>&1
 PVD_VOLID="$(xorriso -indev "$ISO" -pvd_info 2>&1 | sed -n 's/^Volume Id *: *//p' | head -1)"
 
 SQ="$ISOX/minimal.squashfs"
@@ -374,13 +386,20 @@ else
     PINS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../core/manifest/tier-b-pins.env"
     # shellcheck source=../../../../core/manifest/tier-b-pins.env
     if [[ -f "$PINS" ]]; then source "$PINS"; else fail "pins file not found: $PINS"; fi
+    # The pins of an arm64 image carry the suffix _ARM64 (core/manifest/tier-b-pins.env).
+    PIN_SUF=""; [[ "$VARCH" == arm64 ]] && PIN_SUF="_ARM64"
+    pin_of() { local n="${1}${PIN_SUF}"; printf '%s' "${!n:-}"; }
+    PIN_OLLAMA_SHA256="$(pin_of OLLAMA_SHA256)"
+    PIN_CAPTURE_URL="$(pin_of CAPTURE_URL)"
     BAKED="$R/usr/lib/ci-os/baked-hub-tools.txt"
     baked_has() { grep -q -E -- "$1" "$BAKED" 2>/dev/null; }
     guarded() { file_has "$R/etc/systemd/system/$1.d/10-not-live.conf" '^ConditionPathExists=!/cdrom/casper/vmlinuz'; }
 
     # 8.1 what was baked is recorded, and the knobs were all on
     for k in bake-third-party bake-ollama bake-launcher bake-capture; do
-        if baked_has "^${k}=1\$"; then pass "baked-hub-tools.txt: ${k}=1"; else fail "baked-hub-tools.txt does not say ${k}=1 (rebuild, or run with VERIFY_TIERB=0)"; fi
+        want=1
+        [[ "$k" == bake-capture && -z "$PIN_CAPTURE_URL" ]] && want=0   # no Companion Capture build for this architecture
+        if baked_has "^${k}=${want}\$"; then pass "baked-hub-tools.txt: ${k}=${want}"; else fail "baked-hub-tools.txt does not say ${k}=${want} (rebuild, or run with VERIFY_TIERB=0)"; fi
     done
 
     # 8.2 apt-installed third-party tools: package, binary, source list with Signed-By, keyring on disk
@@ -434,8 +453,10 @@ EOF_LISTS
     if in_listing ' /var/lib/tailscale/tailscaled\.state$'; then fail "tailscaled ran during the build (state file in the image)"; else pass "no tailscaled state in the image"; fi
 
     # 8.4 Ollama: binary, libs, user, unit (enabled + guarded), no models, binary checksum equals the recorded one
-    for f in /usr/bin/ollama /usr/lib/ollama/libggml-base.so.0 /usr/lib/ollama/vulkan/libggml-vulkan.so \
-             /etc/systemd/system/ollama.service /usr/libexec/ci-os/ollama-models-env; do
+    # The Vulkan runner is in the x86-64 tarball only (the arm64 one has CPU, CUDA and Jetson runners).
+    OLLAMA_FILES=(/usr/bin/ollama /usr/lib/ollama/libggml-base.so.0 /etc/systemd/system/ollama.service /usr/libexec/ci-os/ollama-models-env)
+    [[ "$VARCH" == amd64 ]] && OLLAMA_FILES+=(/usr/lib/ollama/vulkan/libggml-vulkan.so)
+    for f in "${OLLAMA_FILES[@]}"; do
         if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
     done
     if file_has "$R/etc/passwd" '^ollama:x:[0-9]{2,3}:[0-9]+:[^:]*:/usr/share/ollama:/bin/false$'; then pass "system user 'ollama' (uid < 1000, home /usr/share/ollama, no login)"; else fail "no suitable 'ollama' system user"; fi
@@ -452,7 +473,7 @@ EOF_LISTS
     else
         fail "usr/bin/ollama could not be extracted"
     fi
-    if baked_has "^ollama=${OLLAMA_VERSION:-x}\$" && baked_has "^ollama-tarball-sha256=${OLLAMA_SHA256:-x}\$"; then pass "baked Ollama is the pinned release (${OLLAMA_VERSION:-?})"; else fail "baked Ollama version/tarball hash differs from core/manifest/tier-b-pins.env"; fi
+    if baked_has "^ollama=${OLLAMA_VERSION:-x}\$" && baked_has "^ollama-tarball-sha256=${PIN_OLLAMA_SHA256:-x}\$"; then pass "baked Ollama is the pinned release (${OLLAMA_VERSION:-?})"; else fail "baked Ollama version/tarball hash differs from core/manifest/tier-b-pins.env"; fi
 
     # 8.5 Companion Launcher: right package and binary name (drift: ci-os-hub-desktop is the CRATE name, not the binary)
     if pkg_ok "${LAUNCHER_PACKAGE:-companion-hub}"; then pass "package installed: ${LAUNCHER_PACKAGE:-companion-hub}"; else fail "package NOT installed: ${LAUNCHER_PACKAGE:-companion-hub}"; fi
@@ -469,11 +490,16 @@ EOF_LISTS
 
     # 8.5b Companion Capture: the pinned .deb, its binary and dock entry; and nothing that starts it. It records the screen,
     # so the image must not run it for the user (no autostart, no service).
-    if pkg_ok "${CAPTURE_PACKAGE:-companion-capture}"; then pass "package installed: ${CAPTURE_PACKAGE:-companion-capture}"; else fail "package NOT installed: ${CAPTURE_PACKAGE:-companion-capture}"; fi
-    for f in "/usr/bin/${CAPTURE_BINARY:-companion-capture}" /usr/share/applications/companion-capture.desktop; do
-        if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
-    done
-    if baked_has "^${CAPTURE_PACKAGE:-companion-capture}=${CAPTURE_VERSION:-x}\$"; then pass "baked Capture is the pinned release (${CAPTURE_VERSION:-?})"; else fail "baked Capture version differs from the pin"; fi
+    if [[ -n "$PIN_CAPTURE_URL" ]]; then
+        if pkg_ok "${CAPTURE_PACKAGE:-companion-capture}"; then pass "package installed: ${CAPTURE_PACKAGE:-companion-capture}"; else fail "package NOT installed: ${CAPTURE_PACKAGE:-companion-capture}"; fi
+        for f in "/usr/bin/${CAPTURE_BINARY:-companion-capture}" /usr/share/applications/companion-capture.desktop; do
+            if in_listing " ${f}( ->|\$)"; then pass "present: $f"; else fail "MISSING: $f"; fi
+        done
+        if baked_has "^${CAPTURE_PACKAGE:-companion-capture}=${CAPTURE_VERSION:-x}\$"; then pass "baked Capture is the pinned release (${CAPTURE_VERSION:-?})"; else fail "baked Capture version differs from the pin"; fi
+    else
+        note "Companion Capture has no $VARCH build: not expected in this image (the checks below, that nothing starts it, still run)"
+        if pkg_ok "${CAPTURE_PACKAGE:-companion-capture}"; then fail "package installed although Capture has no $VARCH build: ${CAPTURE_PACKAGE:-companion-capture}"; else pass "Capture is not installed (no $VARCH build exists)"; fi
+    fi
     if in_listing ' /etc/xdg/autostart/companion-capture\.desktop$'; then fail "Capture has an XDG autostart entry: it must not start by itself"; else pass "no Capture autostart entry"; fi
     if in_listing ' /(usr/lib|etc)/systemd/system/companion-capture[^ ]*\.service( ->|$)'; then fail "a companion-capture systemd unit is present: Capture must not run as a service"; else pass "no Capture systemd unit"; fi
 
@@ -1532,7 +1558,7 @@ fi
 # image's list. The producer and this check once agreed on all_video while the real binary has no such module.
 GRUB_MODS_TOOL="$VERIFY_REPO/stick/scripts/grub-builtin-modules.py"
 if [[ ! -s "$ISOX/grubx64.efi" ]]; then
-    fail "grub.cfg's insmod modules could not be compared with the signed GRUB: /EFI/boot/grubx64.efi is missing from the ISO"
+    fail "grub.cfg's insmod modules could not be compared with the signed GRUB: /EFI/boot/grub$EFIS.efi is missing from the ISO"
 elif [[ ! -f "$GRUB_MODS_TOOL" ]] || ! command -v python3 >/dev/null 2>&1; then
     skip "the grub.cfg insmod modules are not compared with the signed GRUB's built-in list: run this script from the repo checkout (stick/scripts/grub-builtin-modules.py) with python3"
 elif [[ -z "$insmods" ]]; then
@@ -1541,11 +1567,11 @@ else
     mods_out="$(python3 -I "$GRUB_MODS_TOOL" "$ISOX/grubx64.efi" --require "$(printf '%s' "${insmods% }" | tr ' ' ',')" 2>&1)"; mods_rc=$?
     if [[ "$mods_rc" -eq 0 ]]; then
         mods_n="$(sed -n 's/.*(\([0-9][0-9]*\) in total).*/\1/p' <<<"$mods_out")"
-        pass "every module grub.cfg insmods (${insmods% }) is built into the signed GRUB on the ISO (/EFI/boot/grubx64.efi has ${mods_n:-?} built-in modules)"
+        pass "every module grub.cfg insmods (${insmods% }) is built into the signed GRUB on the ISO (/EFI/boot/grub$EFIS.efi has ${mods_n:-?} built-in modules)"
     elif [[ "$mods_rc" -eq 1 ]]; then
         fail "grub.cfg insmods a module that is NOT built into the signed GRUB on the ISO (${mods_out##*: }); under Secure Boot shim refuses a module loaded from disk"
     else
-        fail "the built-in modules of /EFI/boot/grubx64.efi could not be read: ${mods_out}"
+        fail "the built-in modules of /EFI/boot/grub$EFIS.efi could not be read: ${mods_out}"
     fi
 fi
 if [[ -f "$VERIFY_REPO/core/lib/grub-merge.sh" && -f "$VERIFY_REPO/vendor/brand/tokens/tokens.sh" ]]; then
@@ -1580,9 +1606,9 @@ fi
 if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
     BASEX="$WORK/base"; mkdir -p "$BASEX"
     xorriso -osirrox on -indev "$VERIFY_BASE_ISO" \
-        -extract /EFI/boot/bootx64.efi "$BASEX/bootx64.efi" \
-        -extract /EFI/boot/grubx64.efi "$BASEX/grubx64.efi" \
-        -extract /EFI/boot/mmx64.efi "$BASEX/mmx64.efi" >/dev/null 2>&1
+        -extract "/EFI/boot/boot$EFIS.efi" "$BASEX/bootx64.efi" \
+        -extract "/EFI/boot/grub$EFIS.efi" "$BASEX/grubx64.efi" \
+        -extract "/EFI/boot/mm$EFIS.efi" "$BASEX/mmx64.efi" >/dev/null 2>&1
     for f in bootx64.efi grubx64.efi mmx64.efi; do
         if [[ -s "$ISOX/$f" && -s "$BASEX/$f" && "$(sha256sum < "$ISOX/$f")" == "$(sha256sum < "$BASEX/$f")" ]]; then
             pass "Secure Boot chain: /EFI/boot/$f is byte-identical to the base ISO's"

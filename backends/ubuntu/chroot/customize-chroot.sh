@@ -45,6 +45,11 @@ source "$REPO_ROOT/backends/ubuntu/lib/start-links.sh"
 # shellcheck source=../lib/deb-members.sh
 source "$REPO_ROOT/backends/ubuntu/lib/deb-members.sh"
 
+# The architecture of the image: amd64 (the default) or arm64. build-iso.sh --arch sets CI_OS_ARCH. The chroot is built for this
+# architecture: natively on a host of the same one, or under emulation (Rosetta or qemu-user) on the other.
+CI_ARCH="${CI_OS_ARCH:-amd64}"
+case "$CI_ARCH" in amd64 | arm64) ;; *) echo "[ERROR] CI_OS_ARCH must be amd64 or arm64 (got '$CI_ARCH')" >&2; exit 1 ;; esac
+
 echo "[*] Customizing chroot: $CHROOT_PATH"
 echo "[*] CI-OS Version: $CI_OS_VERSION"
 
@@ -687,7 +692,12 @@ export DEBIAN_FRONTEND=noninteractive
 # For ROCm, we'll document manual installation post-install due to kernel dependencies
 
 # Ensure amdgpu firmware is installed (both are in the stock image already; a failure here is not fatal)
-apt-get install -y linux-firmware amd64-microcode || true
+# amd64-microcode exists for x86 only: on arm64 apt would refuse the name and `|| true` would hide that.
+if [ "$(dpkg --print-architecture)" = amd64 ]; then
+    apt-get install -y linux-firmware amd64-microcode || true
+else
+    apt-get install -y linux-firmware || true
+fi
 
 # The 64-bit Vulkan stack. One call of its own, and a failure is NOT hidden: this line used to list the :i386 libraries
 # too, and with `|| true` a single unavailable name made apt install none of them and the build went on without
@@ -708,8 +718,9 @@ chmod +x "$CHROOT_PATH/tmp/install-amd.sh"
 chroot_exec "/tmp/install-amd.sh"
 rm "$CHROOT_PATH/tmp/install-amd.sh"
 
-# Create post-install ROCm setup script
+# Create post-install ROCm setup script (ROCm is x86-64 only: an arm64 image has no such command)
 mkdir -p "$CHROOT_PATH/usr/local/bin"
+if [[ "$CI_ARCH" == amd64 ]]; then
 cat > "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm" << 'EOFSCRIPT'
 #!/bin/bash
 # Delegates to the maintained Companion OS ROCm installer (ROCm from the Ubuntu 26.04 archive).
@@ -726,8 +737,9 @@ exit 1
 EOFSCRIPT
 
 chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-install-rocm"
+fi
 
-echo "[+] AMD GPU support configured (ROCm available via ci-os-install-rocm)"
+echo "[+] AMD GPU support configured$([[ "$CI_ARCH" == amd64 ]] && echo " (ROCm available via ci-os-install-rocm)")"
 
 #=============================================================================
 # 7. Installer
@@ -1153,6 +1165,7 @@ echo "[*] Step 10e: Pre-installing optional tools (Tier B)..."
 CI_OS_BAKE_THIRD_PARTY="${CI_OS_BAKE_THIRD_PARTY:-1}"
 CI_OS_BAKE_OLLAMA="${CI_OS_BAKE_OLLAMA:-1}"
 CI_OS_BAKE_LAUNCHER="${CI_OS_BAKE_LAUNCHER:-1}"
+CI_OS_BAKE_CAPTURE_SET="${CI_OS_BAKE_CAPTURE:-}"   # was it set on purpose (an arm64 image has no Capture to bake)
 CI_OS_BAKE_CAPTURE="${CI_OS_BAKE_CAPTURE:-1}"
 CI_OS_OLLAMA_CUDA="${CI_OS_OLLAMA_CUDA:-all}"
 CI_OS_LAUNCHER_AUTOSTART="${CI_OS_LAUNCHER_AUTOSTART:-0}"
@@ -1170,6 +1183,16 @@ else
     [[ -f "$TIERB_PINS" ]] || tb_die "pins file not found: $TIERB_PINS"
     # shellcheck source=../../../core/manifest/tier-b-pins.env
     source "$TIERB_PINS"
+
+    # Pins of an arm64 image carry the suffix _ARM64 (core/manifest/tier-b-pins.env). tb_pin NAME prints the one for this image.
+    TB_ARCH="$CI_ARCH"
+    TB_SUF=""; [[ "$TB_ARCH" == arm64 ]] && TB_SUF="_ARM64"
+    tb_pin() { local n="${1}${TB_SUF}"; printf '%s' "${!n:-}"; }
+    if [[ "$CI_OS_BAKE_CAPTURE" == 1 && -z "$(tb_pin CAPTURE_URL)" ]]; then
+        [[ -z "$CI_OS_BAKE_CAPTURE_SET" ]] || tb_die "CI_OS_BAKE_CAPTURE=1, but Companion Capture publishes no $TB_ARCH build (CAPTURE_URL$TB_SUF is empty)"
+        echo "[i] Step 10e: Companion Capture has no $TB_ARCH build: not baked"
+        CI_OS_BAKE_CAPTURE=0
+    fi
 
     for _t in curl gpg sha256sum tar zstd awk dpkg-deb install mktemp; do
         command -v "$_t" >/dev/null 2>&1 || tb_die "build host is missing '$_t'"
@@ -1247,15 +1270,15 @@ else
 
     TB_LAUNCHER_DEB=""
     if [[ "$CI_OS_BAKE_LAUNCHER" == 1 ]]; then
-        TB_LAUNCHER_DEB="$TB_CACHE/${LAUNCHER_PACKAGE}_${LAUNCHER_VERSION}_amd64.deb"
-        if [[ ! -f "$TB_LAUNCHER_DEB" ]] || [[ "$(tb_sha256_of "$TB_LAUNCHER_DEB")" != "$LAUNCHER_SHA256" ]]; then
-            tb_fetch "$LAUNCHER_URL" "$TB_LAUNCHER_DEB.part"; mv "$TB_LAUNCHER_DEB.part" "$TB_LAUNCHER_DEB"
+        TB_LAUNCHER_DEB="$TB_CACHE/${LAUNCHER_PACKAGE}_${LAUNCHER_VERSION}_${TB_ARCH}.deb"
+        if [[ ! -f "$TB_LAUNCHER_DEB" ]] || [[ "$(tb_sha256_of "$TB_LAUNCHER_DEB")" != "$(tb_pin LAUNCHER_SHA256)" ]]; then
+            tb_fetch "$(tb_pin LAUNCHER_URL)" "$TB_LAUNCHER_DEB.part"; mv "$TB_LAUNCHER_DEB.part" "$TB_LAUNCHER_DEB"
         fi
-        tb_expect_sha256 "$TB_LAUNCHER_DEB" "$LAUNCHER_SHA256" "Companion Launcher .deb"
-        [[ "$(tb_size_of "$TB_LAUNCHER_DEB")" == "$LAUNCHER_SIZE" ]] || tb_die "Companion Launcher .deb size differs from the pin"
+        tb_expect_sha256 "$TB_LAUNCHER_DEB" "$(tb_pin LAUNCHER_SHA256)" "Companion Launcher .deb"
+        [[ "$(tb_size_of "$TB_LAUNCHER_DEB")" == "$(tb_pin LAUNCHER_SIZE)" ]] || tb_die "Companion Launcher .deb size differs from the pin"
         [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Package)" == "$LAUNCHER_PACKAGE" ]] || tb_die "unexpected package name in the Launcher .deb"
         [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Version)" == "$LAUNCHER_VERSION" ]] || tb_die "unexpected version in the Launcher .deb"
-        [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Architecture)" == "amd64" ]] || tb_die "Launcher .deb is not amd64"
+        [[ "$(dpkg-deb -f "$TB_LAUNCHER_DEB" Architecture)" == "$TB_ARCH" ]] || tb_die "Launcher .deb is not $TB_ARCH"
         # Member names only (perms owner size date time NAME [-> target]); written to a file so no pipe is closed early.
         dpkg-deb -c "$TB_LAUNCHER_DEB" | sed -E -e 's/^[^ ]+ +[^ ]+ +[0-9]+ +[0-9-]+ +[0-9:]+ +//' -e 's/ -> .*$//' > "$TB_WORK/launcher.members"
         grep -qx './usr/bin/companion-hub' "$TB_WORK/launcher.members" || tb_die "Launcher .deb has no /usr/bin/companion-hub"
@@ -1267,15 +1290,15 @@ else
 
     TB_CAPTURE_DEB=""
     if [[ "$CI_OS_BAKE_CAPTURE" == 1 ]]; then
-        TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_amd64.deb"
-        if [[ ! -f "$TB_CAPTURE_DEB" ]] || [[ "$(tb_sha256_of "$TB_CAPTURE_DEB")" != "$CAPTURE_SHA256" ]]; then
-            tb_fetch "$CAPTURE_URL" "$TB_CAPTURE_DEB.part"; mv "$TB_CAPTURE_DEB.part" "$TB_CAPTURE_DEB"
+        TB_CAPTURE_DEB="$TB_CACHE/${CAPTURE_PACKAGE}_${CAPTURE_VERSION}_${TB_ARCH}.deb"
+        if [[ ! -f "$TB_CAPTURE_DEB" ]] || [[ "$(tb_sha256_of "$TB_CAPTURE_DEB")" != "$(tb_pin CAPTURE_SHA256)" ]]; then
+            tb_fetch "$(tb_pin CAPTURE_URL)" "$TB_CAPTURE_DEB.part"; mv "$TB_CAPTURE_DEB.part" "$TB_CAPTURE_DEB"
         fi
-        tb_expect_sha256 "$TB_CAPTURE_DEB" "$CAPTURE_SHA256" "Companion Capture .deb"
-        [[ "$(tb_size_of "$TB_CAPTURE_DEB")" == "$CAPTURE_SIZE" ]] || tb_die "Companion Capture .deb size differs from the pin"
+        tb_expect_sha256 "$TB_CAPTURE_DEB" "$(tb_pin CAPTURE_SHA256)" "Companion Capture .deb"
+        [[ "$(tb_size_of "$TB_CAPTURE_DEB")" == "$(tb_pin CAPTURE_SIZE)" ]] || tb_die "Companion Capture .deb size differs from the pin"
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Package)" == "$CAPTURE_PACKAGE" ]] || tb_die "unexpected package name in the Capture .deb"
         [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Version)" == "$CAPTURE_VERSION" ]] || tb_die "unexpected version in the Capture .deb"
-        [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Architecture)" == "amd64" ]] || tb_die "Capture .deb is not amd64"
+        [[ "$(dpkg-deb -f "$TB_CAPTURE_DEB" Architecture)" == "$TB_ARCH" ]] || tb_die "Capture .deb is not $TB_ARCH"
         # Names without a leading "./": this .deb stores "usr/bin/x" where the Launcher's stores "./usr/bin/x" (backends/ubuntu/lib/deb-members.sh).
         deb_members "$TB_CAPTURE_DEB" > "$TB_WORK/capture.members" || tb_die "cannot list the members of the Capture .deb"
         grep -qx "usr/bin/$CAPTURE_BINARY" "$TB_WORK/capture.members" || tb_die "Capture .deb has no /usr/bin/$CAPTURE_BINARY"
@@ -1288,11 +1311,11 @@ else
 
     TB_OLLAMA_TAR=""
     if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
-        TB_OLLAMA_TAR="$TB_CACHE/ollama-linux-amd64-${OLLAMA_VERSION}.tar.zst"
-        if [[ ! -f "$TB_OLLAMA_TAR" ]] || [[ "$(tb_size_of "$TB_OLLAMA_TAR")" != "$OLLAMA_SIZE" ]] || [[ "$(tb_sha256_of "$TB_OLLAMA_TAR")" != "$OLLAMA_SHA256" ]]; then
-            tb_fetch "$OLLAMA_URL" "$TB_OLLAMA_TAR.part"; mv "$TB_OLLAMA_TAR.part" "$TB_OLLAMA_TAR"
+        TB_OLLAMA_TAR="$TB_CACHE/ollama-linux-${TB_ARCH}-${OLLAMA_VERSION}.tar.zst"
+        if [[ ! -f "$TB_OLLAMA_TAR" ]] || [[ "$(tb_size_of "$TB_OLLAMA_TAR")" != "$(tb_pin OLLAMA_SIZE)" ]] || [[ "$(tb_sha256_of "$TB_OLLAMA_TAR")" != "$(tb_pin OLLAMA_SHA256)" ]]; then
+            tb_fetch "$(tb_pin OLLAMA_URL)" "$TB_OLLAMA_TAR.part"; mv "$TB_OLLAMA_TAR.part" "$TB_OLLAMA_TAR"
         fi
-        tb_expect_sha256 "$TB_OLLAMA_TAR" "$OLLAMA_SHA256" "Ollama tarball"
+        tb_expect_sha256 "$TB_OLLAMA_TAR" "$(tb_pin OLLAMA_SHA256)" "Ollama tarball"
         # The tarball is root-owned and extracted as root: refuse anything but bin/ollama and lib/ollama/**.
         zstd -dc "$TB_OLLAMA_TAR" | tar -t > "$TB_WORK/ollama.members"
         grep -q . "$TB_WORK/ollama.members" || tb_die "Ollama tarball is empty"
@@ -1320,7 +1343,7 @@ else
             "$TB_CODENAME" > "$CHROOT_PATH/etc/apt/sources.list.d/tailscale.list"
         printf 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main\n' \
             > "$CHROOT_PATH/etc/apt/sources.list.d/cloudflared.list"
-        printf 'deb [arch=amd64 signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\n' \
+        printf 'deb [arch=%s signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main\n' "$TB_ARCH" \
             > "$CHROOT_PATH/etc/apt/sources.list.d/github-cli.list"
         chmod 0644 "$CHROOT_PATH"/etc/apt/sources.list.d/{tailscale,cloudflared,github-cli}.list
 
@@ -1509,7 +1532,7 @@ EOSCRIPT
         [[ "$CI_OS_BAKE_CAPTURE" == 1 ]]     && chroot "$CHROOT_PATH" dpkg-query -W -f='${Package}=${Version}\n' "$CAPTURE_PACKAGE"
         if [[ "$CI_OS_BAKE_OLLAMA" == 1 ]]; then
             echo "ollama=$OLLAMA_VERSION"
-            echo "ollama-tarball-sha256=$OLLAMA_SHA256"
+            echo "ollama-tarball-sha256=$(tb_pin OLLAMA_SHA256)"
             echo "ollama-bin-sha256=$(tb_sha256_of "$CHROOT_PATH/usr/bin/ollama")"
             echo "ollama-cuda=$CI_OS_OLLAMA_CUDA"
         fi
