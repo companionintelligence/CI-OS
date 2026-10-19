@@ -559,29 +559,38 @@ echo "[*] Step 4: Configuring GRUB..."
 # shellcheck source=../../../core/lib/grub-merge.sh
 source "$REPO_ROOT/core/lib/grub-merge.sh"
 
-# Kernel cmdline stays as its own explicit sed (not a branding key, no reason
-# to route it through the merge helper). Branding keys below use
-# ci_grub_merge_key so they never clobber other keys already in this file.
-sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' "$CHROOT_PATH/etc/default/grub" || true
-
-ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_DISTRIBUTOR "Companion OS"
-ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_GFXMODE "auto"
-ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT_STYLE "menu"
-ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT "5"
-
-# Render and install the GRUB background (colors-only theming, same as
-# Plymouth below — see docs/architecture/multi-distro-design.md). Deliberately
-# does not set GRUB_TERMINAL: a hardcoded GRUB_TERMINAL=console previously
-# found in an old, now-deleted config silently disabled GRUB_BACKGROUND
-# entirely (console mode is text-only). Leaving it unset lets GRUB default to
-# gfxterm when a background is present.
-GRUB_BG_DEST_REL="usr/share/pixmaps/ci-os-grub-bg.png"
-if bash "$REPO_ROOT/core/render/render-grub-background.sh" "$CHROOT_PATH/$GRUB_BG_DEST_REL"; then
-    chmod 644 "$CHROOT_PATH/$GRUB_BG_DEST_REL"
-    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_BACKGROUND "/$GRUB_BG_DEST_REL"
-    echo "[+] GRUB background installed: /$GRUB_BG_DEST_REL"
+# The arm64 base image has no GRUB at all (no grub package in any of its three layers: the installer installs grub-efi-arm64-signed
+# from the ISO's /pool into the target), so there is no /etc/default/grub to edit. The installed GRUB then writes its own defaults,
+# and its GRUB_DISTRIBUTOR reads NAME from /etc/os-release, which this script has already set to Companion OS. The GRUB background of
+# the installed system is therefore left stock on arm64. amd64 keeps the hard failure: there the file must exist.
+if [[ ! -f "$CHROOT_PATH/etc/default/grub" && "$CI_ARCH" == arm64 ]]; then
+    echo "[i] Step 4: no /etc/default/grub in the arm64 base image (GRUB is installed by the installer): installed-system GRUB defaults not edited"
 else
-    echo "[!] Could not render GRUB background — GRUB will use its default background"
+    # Kernel cmdline stays as its own explicit sed (not a branding key, no reason
+    # to route it through the merge helper). Branding keys below use
+    # ci_grub_merge_key so they never clobber other keys already in this file.
+    sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT=.*/GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"/' "$CHROOT_PATH/etc/default/grub" || true
+
+    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_DISTRIBUTOR "Companion OS"
+    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_GFXMODE "auto"
+    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT_STYLE "menu"
+    ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_TIMEOUT "5"
+
+    # Render and install the GRUB background (colors-only theming, same as
+    # Plymouth below — see docs/architecture/multi-distro-design.md). Deliberately
+    # does not set GRUB_TERMINAL: a hardcoded GRUB_TERMINAL=console previously
+    # found in an old, now-deleted config silently disabled GRUB_BACKGROUND
+    # entirely (console mode is text-only). Leaving it unset lets GRUB default to
+    # gfxterm when a background is present.
+    GRUB_BG_DEST_REL="usr/share/pixmaps/ci-os-grub-bg.png"
+    if bash "$REPO_ROOT/core/render/render-grub-background.sh" "$CHROOT_PATH/$GRUB_BG_DEST_REL"; then
+        chmod 644 "$CHROOT_PATH/$GRUB_BG_DEST_REL"
+        ci_grub_merge_key "$CHROOT_PATH/etc/default/grub" GRUB_BACKGROUND "/$GRUB_BG_DEST_REL"
+        echo "[+] GRUB background installed: /$GRUB_BG_DEST_REL"
+    else
+        echo "[!] Could not render GRUB background — GRUB will use its default background"
+    fi
+
 fi
 
 echo "[+] GRUB configured"
