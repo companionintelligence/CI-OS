@@ -97,4 +97,7 @@ class LayoutTests(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main(verbosity=2)
+    res = unittest.main(verbosity=2, exit=False).result
+    bad = len(res.failures) + len(res.errors)
+    print("== Summary: %d passed, %d failed" % (res.testsRun - bad, bad))
+    raise SystemExit(0 if res.wasSuccessful() else 1)
