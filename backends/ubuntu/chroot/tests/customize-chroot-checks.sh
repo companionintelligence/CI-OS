@@ -349,5 +349,26 @@ expect "  the output name carries the architecture" bash -c 'grep -q -F "compani
 expect "  the base ISO must be the image's architecture (its volume id ends with it)" grep -q -F 'needs the $CI_OS_ARCH desktop ISO' "$BUILD_ISO"
 
 echo
+echo "== 12. a quiet first sign-in, and a setup log without leftovers"
+# Found on the first installed arm64 image (2026-10-19): a second Firefox tab ("Firefox Privacy Notice"), an "80 Updates Available" notice,
+# a setup log with lines from an older flow, and a ci-os-info that offered a command arm64 does not have.
+POLICY="$HERE/../payload/firefox/etc/firefox/policies/policies.json"
+PROVISION="$HERE/../../provision/provision.sh"
+CIHUB="$HERE/../../../../core/lib/ci-hub.sh"
+policy_keys() { python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(",".join(sorted("%s=%s" % (k, json.dumps(v)) for k, v in d["policies"].items())))' "$POLICY" 2>&1; }
+expect "the Firefox policy file is JSON with exactly the four policies, as proved on a fresh user" test "$(policy_keys)" = 'DisableTelemetry=true,DontCheckDefaultBrowser=true,OverrideFirstRunPage="",OverridePostUpdatePage=""'
+expect "Step 10g installs it as /etc/firefox/policies/policies.json, mode 0644" grep -q -F 'install -m 0644 "$REPO_ROOT/backends/ubuntu/chroot/payload/firefox/etc/firefox/policies/policies.json" "$CHROOT_PATH/etc/firefox/policies/policies.json"' "$SCRIPT"
+expect "the update notifier's pop-ups are off by dconf default (section and key)" bash -c 'grep -q -F "[com/ubuntu/update-notifier]" "$1" && grep -q -F "no-show-notifications=true" "$1" && grep -q -F "03-ci-os-quiet-first-run" "$1"' _ "$SCRIPT"
+before "  and the default is written before the dconf database is compiled" '03-ci-os-quiet-first-run" << ' 'chroot_exec "dconf update"'
+expect "ci-os-info is installed from its payload (a test can run it), not written inline" bash -c 'grep -q -F "install -m 0755 \"\$REPO_ROOT/backends/ubuntu/chroot/payload/info/usr/local/bin/ci-os-info\"" "$1" && ! grep -q "cat > \"\$CHROOT_PATH/usr/local/bin/ci-os-info\"" "$1"' _ "$SCRIPT"
+expect "the first-boot wrapper no longer ends by telling the user to log out for Docker and PATH" bash -c '! grep -q "NOTE: Log out and back in for Docker group and PATH" "$1"' _ "$SCRIPT"
+for stale in "Create deploy read key" "log in as 'ci' user" "Start Ollama service: systemctl start ollama" "Verify installations: docker --version, node --version, pnpm"; do
+    expect "provision.sh no longer prints: $stale" bash -c '! grep -q -F -- "$1" "$2"' _ "$stale" "$PROVISION"
+done
+expect "provision.sh: the missing-desktop-user case is a note, not a WARNING" bash -c '! grep -q "log_warning \"gsettings not available or no valid user detected. Skipping GNOME Power" "$1" && grep -q "log_info \"No desktop user to configure" "$1"' _ "$PROVISION"
+expect "ci-hub.sh no longer says \"not deployed\" and sends the user to a portal that does not do this" bash -c '! grep -q "CI-Hub not deployed" "$1" && ! grep -q "run the WiFi/pairing portal, to enable this step" "$1"' _ "$CIHUB"
+expect "provision.sh's next steps name Hub, ci-os-info and the Docker group" bash -c 'grep -q "Open Companion Hub (from the dock" "$1" && grep -q "See how the machine is doing at any time: ci-os-info" "$1" && grep -q "no permission for Docker, sign out and back in" "$1"' _ "$PROVISION"
+
+echo
 echo "$PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

@@ -259,7 +259,7 @@ On the ISO #4 build provisioning always ended "degraded" although everything was
 *Designed behaviour; not yet seen on a booted image.* After the installed system boots and you sign in, `ci-os-first-boot-setup.service` waits for a network (30 tries, 2 seconds apart), removes the snaps that could not be removed at build time, runs `provision.sh --tier=core` (Docker group membership, Node.js, Ollama configuration and models, the CI-Hub tools) and writes `/var/lib/ci-os/.first-boot-setup-done` on success. It runs at every boot and every 15 minutes while pending, at most three failed automatic attempts; its log is `/var/log/ci-os-first-boot-setup.log`. After it finishes, **log out and back in** for the Docker group and `PATH`.
 
 ```bash
-ci-os-info                                  # OS version, kernel, GPU and ROCm status, groups
+ci-os-info                                  # the setup, Hub's address, models, disk, failed services, a pending restart, GPU, groups
 sudo ci-os-setup                            # run the setup again, even if it completed
 sudo ci-os-install-rocm                     # AMD Strix Halo-class machines only: ROCm from the Ubuntu archive
 ```

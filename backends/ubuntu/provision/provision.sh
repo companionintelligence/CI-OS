@@ -1724,11 +1724,11 @@ main() {
     log_success "Setup completed successfully!"
     echo
     log_info "Next steps:"
-    echo "  • User $ACTUAL_USER: Log out and log back in (or start a new shell) to use new tools; for Docker without re-login run: newgrp docker"
-    echo "  • For CI user: log in as 'ci' user or use 'newgrp docker' to activate docker group"
-    echo "  • Start Ollama service: systemctl start ollama"
-    echo "  • Verify installations: docker --version, node --version, pnpm --version, ollama --version, gh --version"
-    echo "  • Note: 'Create deploy read key' step was not specified - please add this manually if needed"
+    echo "  • Open Companion Hub (from the dock, or at http://<this machine's address>:5002) and pair it with your CI Account."
+    if command -v ci-os-info >/dev/null 2>&1; then
+        echo "  • See how the machine is doing at any time: ci-os-info"
+    fi
+    echo "  • If a command says it has no permission for Docker, sign out and back in so the new group applies (or run: newgrp docker)."
 }
 
 # Run main function
@@ -1850,10 +1850,10 @@ set_gnome_power_performance() {
                 gsettings set org.gnome.settings-daemon.plugins.power power-profile 'performance' 2>/dev/null || true
             log_success "GNOME Power Mode set to 'performance' for $ACTUAL_USER"
         else
-            log_warning "No D-Bus session for ${ACTUAL_USER}. User may not be logged in. Power mode will apply on next login if set via dconf defaults."
+            log_info "No desktop session for ${ACTUAL_USER} right now; GNOME power mode stays at its default."
         fi
     else
-        log_warning "gsettings not available or no valid user detected. Skipping GNOME Power Mode setting."
+        log_info "No desktop user to configure; GNOME power mode stays at its default."
     fi
 }
 

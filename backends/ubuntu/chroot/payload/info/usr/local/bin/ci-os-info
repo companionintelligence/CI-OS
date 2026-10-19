@@ -1,0 +1,150 @@
+#!/bin/bash
+#=============================================================================
+# ci-os-info: what Companion OS is doing, in plain words
+#
+# The OS version and kernel, the state of the first-time setup, whether Companion Hub answers (and at which address), the models,
+# the disk, failed services, a pending restart, then AMD GPU status. Reads only; needs no root. Finishes in a few seconds even
+# when Hub or Ollama is down (every call has a time limit).
+#
+# The CI_OS_INFO_* variables let a test run this against fake files and stub commands; nothing in the image sets them.
+#=============================================================================
+
+osrelease="${CI_OS_INFO_OSRELEASE:-/etc/os-release}"
+state_dir="${CI_OS_INFO_STATE_DIR:-/var/lib/ci-os}"
+setup_log="${CI_OS_INFO_LOG:-/var/log/ci-os-first-boot-setup.log}"
+reboot_file="${CI_OS_INFO_REBOOT:-/var/run/reboot-required}"
+hub_port="${CI_OS_INFO_HUB_PORT:-5002}"
+
+echo "======================================"
+echo "  Companion OS System Information"
+echo "======================================"
+echo
+
+# OS Version
+if [[ -f "$osrelease" ]]; then
+    # shellcheck disable=SC1090
+    . "$osrelease"
+    echo "OS: $PRETTY_NAME"
+    echo "Version: $VERSION_ID"
+    echo "Codename: $UBUNTU_CODENAME"
+fi
+echo
+
+# Kernel
+echo "Kernel: $(uname -r)"
+echo
+
+#-----------------------------------------------------------------------------
+# Companion: setup, Hub, models, disk, health
+#-----------------------------------------------------------------------------
+echo "Companion"
+
+# The first-time setup (starts about 3 minutes after the machine starts, takes about 2)
+marker="$state_dir/.first-boot-setup-done"
+if [[ -s "$marker" ]]; then
+    echo "  Setup:    finished $(head -n 1 "$marker")"
+elif [[ -e "$marker" ]]; then
+    echo "  Setup:    finished"
+elif systemctl is-active --quiet ci-os-first-boot-setup.service 2>/dev/null; then
+    echo "  Setup:    running now (about 2 minutes)"
+else
+    echo "  Setup:    not finished yet. It starts about 3 minutes after the machine starts."
+    echo "            Log: $setup_log   Run it now: sudo ci-os-setup"
+fi
+
+# The address other devices use: the one on the route to the internet, not a Docker bridge
+addr=""
+if command -v ip >/dev/null 2>&1; then
+    addr="$(ip -4 route get 1.1.1.1 2>/dev/null | sed -n 's/.* src \([0-9.][0-9.]*\).*/\1/p' | head -n 1)"
+fi
+if [[ -z "$addr" ]] && command -v hostname >/dev/null 2>&1; then
+    addr="$(hostname -I 2>/dev/null | awk '{print $1}')"
+fi
+[[ -n "$addr" ]] || addr="<this machine's address>"
+name=""
+if systemctl is-active --quiet avahi-daemon 2>/dev/null; then
+    name="$(hostname 2>/dev/null)"
+fi
+
+hub_url="${CI_OS_INFO_HUB_URL:-http://localhost:$hub_port/}"
+code=""
+if command -v curl >/dev/null 2>&1; then
+    code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' "$hub_url" 2>/dev/null)"
+fi
+case "$code" in
+    2??|3??)
+        echo "  Hub:      answering at http://$addr:$hub_port"
+        [[ -z "$name" ]] || echo "            or http://$name.local:$hub_port"
+        ;;
+    *)
+        echo "  Hub:      not answering yet. A minute after a start is normal."
+        echo "            If it stays down: docker ps, then sudo ci-os-setup"
+        ;;
+esac
+
+# Models
+if command -v ollama >/dev/null 2>&1; then
+    models="$(timeout 5 ollama list 2>/dev/null | awk 'NR>1 && $1 != "" {print $1}' | paste -sd, - | sed 's/,/, /g')"
+    if [[ -n "$models" ]]; then
+        echo "  Models:   $models"
+    else
+        echo "  Models:   none yet (the setup downloads two small ones; see: ollama list)"
+    fi
+else
+    echo "  Models:   Ollama is not installed"
+fi
+
+# Disk
+disk="$(df -h / 2>/dev/null | awk 'NR==2 {print $3 " used of " $2 " (" $5 ")"}')"
+[[ -z "$disk" ]] || echo "  Disk:     $disk"
+
+# Services that failed
+failed="$(systemctl --failed --no-legend --plain 2>/dev/null | grep -c .)"
+if [[ "${failed:-0}" -eq 0 ]]; then
+    echo "  Health:   no failed services"
+else
+    echo "  Health:   $failed failed service(s); list them with: systemctl --failed"
+fi
+
+# Security updates install themselves; some need a restart, and the desktop does not nag about it
+if [[ -e "$reboot_file" ]]; then
+    echo "  Restart:  needed to finish updates (sudo reboot)"
+fi
+echo
+
+# AMD GPU Detection
+echo "AMD GPU Information:"
+if lspci | grep -i "VGA.*AMD" > /dev/null; then
+    lspci | grep -i "VGA.*AMD"
+    echo
+
+    # Check for amdgpu driver
+    if lsmod | grep amdgpu > /dev/null; then
+        echo "✓ amdgpu driver loaded"
+    else
+        echo "✗ amdgpu driver not loaded"
+    fi
+
+    # Check for ROCm
+    if command -v rocminfo > /dev/null 2>&1; then
+        echo "✓ ROCm installed"
+    elif command -v ci-os-install-rocm > /dev/null 2>&1; then
+        echo "✗ ROCm not installed (run: sudo ci-os-install-rocm)"
+    else
+        echo "✗ ROCm not installed (ROCm is not available for this architecture)"
+    fi
+else
+    echo "No AMD GPU detected"
+fi
+echo
+
+# User groups (for GPU access)
+echo "User groups: $(groups)"
+echo
+
+echo "======================================"
+if command -v ci-os-install-rocm > /dev/null 2>&1; then
+    echo "For ROCm installation: sudo ci-os-install-rocm"
+fi
+echo "For support: https://ci.computer/support"
+echo "======================================"

@@ -443,6 +443,16 @@ cat > "$CHROOT_PATH/etc/dconf/db/local.d/02-ci-os-dock" << EOF
 favorite-apps=$DOCK_FAVORITES_VALUE
 EOF
 
+# The first sign-in is quiet. Ubuntu's Software Updater announces the build day's pending packages ("80 Updates Available") the moment
+# a new user signs in, which reads as "something is wrong" on a machine the user has had for two minutes. Security updates install by
+# themselves (unattended-upgrades), so the notifier's pop-ups are turned off for every user; `ci-os-info` says when a restart is
+# waiting, and `sudo apt update && sudo apt upgrade` still works. (A user can turn the pop-ups back on in their own settings.)
+# Found on the first installed arm64 image, 2026-10-19.
+cat > "$CHROOT_PATH/etc/dconf/db/local.d/03-ci-os-quiet-first-run" << 'EOF'
+[com/ubuntu/update-notifier]
+no-show-notifications=true
+EOF
+
 # ── Configure GDM (login screen) branding ──────────────────────────────────
 # GDM reads from its OWN dconf database, not the user's local.d.
 # The profile at /usr/share/dconf/profile/gdm tells GDM to read:
@@ -816,66 +826,10 @@ echo "[+] MOTD created"
 #=============================================================================
 echo "[*] Step 9: Creating CI-OS info command..."
 
-cat > "$CHROOT_PATH/usr/local/bin/ci-os-info" << 'EOF'
-#!/bin/bash
-#=============================================================================
-# CI-OS System Information
-# Displays CI-OS version, AMD GPU info, and system status
-#=============================================================================
-
-echo "======================================"
-echo "  Companion OS System Information"
-echo "======================================"
-echo
-
-# OS Version
-if [[ -f /etc/os-release ]]; then
-    . /etc/os-release
-    echo "OS: $PRETTY_NAME"
-    echo "Version: $VERSION_ID"
-    echo "Codename: $UBUNTU_CODENAME"
-fi
-echo
-
-# Kernel
-echo "Kernel: $(uname -r)"
-echo
-
-# AMD GPU Detection
-echo "AMD GPU Information:"
-if lspci | grep -i "VGA.*AMD" > /dev/null; then
-    lspci | grep -i "VGA.*AMD"
-    echo
-    
-    # Check for amdgpu driver
-    if lsmod | grep amdgpu > /dev/null; then
-        echo "✓ amdgpu driver loaded"
-    else
-        echo "✗ amdgpu driver not loaded"
-    fi
-    
-    # Check for ROCm
-    if command -v rocminfo > /dev/null 2>&1; then
-        echo "✓ ROCm installed"
-    else
-        echo "✗ ROCm not installed (run: sudo ci-os-install-rocm)"
-    fi
-else
-    echo "No AMD GPU detected"
-fi
-echo
-
-# User groups (for GPU access)
-echo "User groups: $(groups)"
-echo
-
-echo "======================================"
-echo "For ROCm installation: sudo ci-os-install-rocm"
-echo "For support: https://ci.computer/support"
-echo "======================================"
-EOF
-
-chmod +x "$CHROOT_PATH/usr/local/bin/ci-os-info"
+# The command lives in its own file so a test can run it (backends/ubuntu/chroot/tests/ci-os-info.sh): setup state, Hub address,
+# models, disk, failed services, pending restart, AMD GPU. It offers the ROCm command only where that command exists (amd64).
+mkdir -p "$CHROOT_PATH/usr/local/bin"
+install -m 0755 "$REPO_ROOT/backends/ubuntu/chroot/payload/info/usr/local/bin/ci-os-info" "$CHROOT_PATH/usr/local/bin/ci-os-info"
 
 echo "[+] CI-OS info command created"
 
@@ -1169,6 +1123,15 @@ if [[ -f "$GIS_UPGRADE_UNIT" ]]; then
     echo "[+] first-run: the upgrade welcome page is skipped too (skel stamp $GIS_UPGRADE_STAMP)"
 fi
 # gis-upgrade-stamp end
+
+# Firefox's own first-run opens a second tab, "Firefox Privacy Notice", next to the Companion welcome page (found on the first installed
+# arm64 image, 2026-10-19: the welcome page is what starts Firefox for the first time). An enterprise policy file ends that: no
+# first-run and post-update pages, no telemetry (which is what the notice is about; Companion OS removes Ubuntu's telemetry too), no
+# default-browser question. The Firefox snap reads /etc/firefox/policies through its etc-firefox system-files interface (shown by
+# `snap connections firefox`), so a file here applies to the snap and to a deb alike. Proved on a fresh user in the installed image.
+install -d -m 0755 "$CHROOT_PATH/etc/firefox/policies"
+install -m 0644 "$REPO_ROOT/backends/ubuntu/chroot/payload/firefox/etc/firefox/policies/policies.json" "$CHROOT_PATH/etc/firefox/policies/policies.json"
+echo "[+] first-run: Firefox starts without its privacy-notice tab (policy /etc/firefox/policies/policies.json)"
 echo "[+] Companion links installed ($(grep -c . <<<"$START_LINKS_ROWS") links, $(grep -c '|yes$' <<<"$START_LINKS_ROWS") on the desktop of a new user)"
 
 
@@ -1797,7 +1760,6 @@ rm -f "$ATTEMPTS_FILE"
 
 echo "[CI-OS] First-boot setup completed at $(date -u)"
 echo "[CI-OS] Log saved to $LOG_FILE"
-echo "[CI-OS] NOTE: Log out and back in for Docker group and PATH changes."
 BOOTSTRAP_SCRIPT
 
 chmod +x "$CHROOT_PATH/usr/lib/ci-os/first-boot-setup.sh"

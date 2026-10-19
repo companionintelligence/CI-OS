@@ -254,6 +254,7 @@ for suite in \
   "Companion links and welcome|bash backends/ubuntu/lib/tests/start-links.sh" \
   ".deb member names (needs dpkg-deb)|bash backends/ubuntu/lib/tests/deb-members.sh" \
   "first-boot wait-quiet|bash backends/ubuntu/chroot/tests/wait-quiet.sh" \
+  "ci-os-info command|bash backends/ubuntu/chroot/tests/ci-os-info.sh" \
   "Companion Hub first-boot start|bash backends/ubuntu/chroot/tests/start-companion-hub.sh" \
   "ollama pull progress filter|bash backends/ubuntu/chroot/tests/pull-progress-filter.sh" \
   "gresource provenance|bash core/render/tests/gresource-provenance.sh" \

@@ -188,7 +188,7 @@ R="$WORK/root"; mkdir -p "$R"
 unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/os-release usr/lib/os-release etc/os-release.ubuntu-base etc/lsb-release etc/issue etc/issue.net etc/hostname \
     etc/casper.conf etc/default/grub var/lib/dpkg/status var/lib/snapd/seed/seed.yaml var/lib/snapd/state.json etc/cloud/cloud.cfg \
-    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service \
+    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service etc/firefox \
     usr/share/glib-2.0/schemas \
     usr/share/gnome-background-properties \
     etc/update-motd.d etc/systemd/system etc/sudoers.d etc/netplan \
@@ -1708,6 +1708,18 @@ if [[ -f "$_gis_unit" ]]; then
 else
     note "gnome-initial-setup-upgrade-login.service is not in this image: no upgrade-welcome stamp is needed"
 fi
+
+# The rest of a quiet first sign-in (found on the first installed arm64 image, 2026-10-19): Firefox opens no "Firefox Privacy Notice" tab
+# (an enterprise policy, which the snap reads through its etc-firefox interface), the update notifier does not announce the build day's
+# pending packages, and ci-os-info offers the ROCm command only where that command exists.
+check "quiet first sign-in: /etc/firefox/policies/policies.json is JSON with the four policies" python3 -c '
+import json, sys
+p = json.load(open(sys.argv[1]))["policies"]
+assert p == {"DisableTelemetry": True, "OverrideFirstRunPage": "", "OverridePostUpdatePage": "", "DontCheckDefaultBrowser": True}, p
+' "$R/etc/firefox/policies/policies.json"
+check "quiet first sign-in: the update notifier's pop-ups are off by default (dconf local.d)" grep -q -F 'no-show-notifications=true' "$R/etc/dconf/db/local.d/03-ci-os-quiet-first-run"
+check "ci-os-info: reports the setup, Hub, models and health, not only the GPU" grep -q -F 'Hub:      answering at' "$R/usr/local/bin/ci-os-info"
+check "ci-os-info: the ROCm command is offered only behind a check for it (arm64 has none)" bash -c 'grep -q "command -v ci-os-install-rocm" "$1" && ! grep -q "^echo \"For ROCm installation" "$1"' _ "$R/usr/local/bin/ci-os-info"
 for _m in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
     check "login text: motd script $_m is held off by dpkg-statoverride" grep -q -E "^root root 644 /etc/update-motd\\.d/$_m\$" "$R/var/lib/dpkg/statoverride"
 done
