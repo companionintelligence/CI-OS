@@ -81,6 +81,14 @@
       "size": "1280x800",
       "shows": "Companion Hub's first screen on arm64: pairing code and device registration (pairing is a person's step)",
       "taken_approx_utc": "05:57:50Z"
+    },
+    {
+      "file": "arm64-11-ci-os-info.png",
+      "sha256": "b692e4984047084d51dae2a22910131c1c02bbcb5f4fc13bdb3cd188544ea4b3",
+      "bytes": 69856,
+      "size": "1280x800",
+      "shows": "ci-os-info on the installed system after the first-boot job: setup finished, Hub answering at the address on the route out, the models, disk, one failed service (pd-mapper.service, KI-28). From the image of ee4a3b4, not 4b7597d",
+      "taken_approx_utc": "21:10:00Z"
     }
   ]
 }

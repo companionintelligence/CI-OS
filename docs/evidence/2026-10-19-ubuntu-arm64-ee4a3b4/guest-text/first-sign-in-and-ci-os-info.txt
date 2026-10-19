@@ -1,0 +1,46 @@
+== notifier setting (effective)
+true
+== packages waiting
+78
+== firefox policy
+{"policies":{"DisableTelemetry":true,"OverrideFirstRunPage":"","OverridePostUpdatePage":"","DontCheckDefaultBrowser":true}}
+== first-boot unit
+ActiveState=inactive Result=success ExecMainStatus=0 
+== stale setup-log lines (expect none)
+0
+== the new summary
+CI-Hub registry deploy skipped: no REGISTRY_USERNAME/REGISTRY_PASSWORD set (not needed when Companion Hub is installed from its package).
+[SUCCESS] Setup completed successfully!
+[INFO] Next steps:
+  • Open Companion Hub (from the dock, or at http://<this machine's address>:5002) and pair it with your CI Account.
+  • See how the machine is doing at any time: ci-os-info
+  • If a command says it has no permission for Docker, sign out and back in so the new group applies (or run: newgrp docker).
+[INFO] No desktop user to configure; GNOME power mode stays at its default.
+[CI-OS] First-boot setup completed at Mon Oct 19 09:09:41 PM UTC 2026
+== ci-os-info
+======================================
+  Companion OS System Information
+======================================
+
+OS: Companion OS 1.0
+Version: 26.04
+Codename: resolute
+
+Kernel: 7.0.0-38-generic
+
+Companion
+  Setup:    finished Mon Oct 19 09:09:41 PM UTC 2026
+  Hub:      answering at http://10.0.2.15:5002
+            or http://companion-os.local:5002
+  Models:   gemma3:1b, nomic-embed-text:latest
+  Disk:     19G used of 62G (32%)
+  Health:   1 failed service(s); list them with: systemctl --failed
+
+AMD GPU Information:
+No AMD GPU detected
+
+User groups: companion adm cdrom sudo dip plugdev users lpadmin lxd docker
+
+======================================
+For support: https://ci.computer/support
+======================================

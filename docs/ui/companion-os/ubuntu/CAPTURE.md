@@ -4,7 +4,7 @@
 
 **Evidence label for every frame: tested in a virtual machine.** Each frame is a screen capture (QMP `screendump`, 1280 by 800) of a QEMU machine on an
 Apple-silicon Mac with the host's own accelerator (HVF), Homebrew's edk2 aarch64 firmware (no Secure Boot) and a file-backed 64 GiB virtual NVMe
-disk. Nothing here ran on real hardware. The ten frames and their fields are in `MANIFEST.json`; the text records of the run are in
+disk. Nothing here ran on real hardware. The eleven frames and their fields are in `MANIFEST.json` (frames 01 to 10 are of the image of `4b7597d`; frame 11, `ci-os-info`, is of the image of `ee4a3b4`, see [`docs/evidence/2026-10-19-ubuntu-arm64-ee4a3b4/`](../../../evidence/2026-10-19-ubuntu-arm64-ee4a3b4/)); the text records of the run are in
 [`docs/evidence/2026-10-19-ubuntu-arm64-4b7597d/`](../../../evidence/2026-10-19-ubuntu-arm64-4b7597d/).
 
 Run of 2026-10-19. The guest clock is UTC and the "Taken" times in `MANIFEST.json` are approximate UTC from the run log.

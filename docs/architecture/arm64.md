@@ -44,6 +44,10 @@ The same fix was also proved live on the `c0059d6` machine before the rebuild: w
 (`docs/evidence/2026-10-19-ubuntu-arm64-c0059d6-first-run/frames/02-...png`). The amd64 image of `4b7597d` was built (1113 s) and verified (**446 passed, 0 failed**,
 `docs/evidence/2026-10-19-ubuntu-amd64-4b7597d/`); its live session was booted under emulation (no desktop icons, see KI-27), it was not installed [I].
 
+## The third run: the quiet first sign-in [V]
+
+Commit `ee4a3b4` (items 3 and 4 of the home-lab polish proposal in CI-Engineering) was built and installed fresh, the same steps as above: **build 747 s, `verify-iso.sh` 442 passed and 0 failed** (the four new checks are the Firefox policy, the notifier default and two on `ci-os-info`), **install 9 min 22 s**, then a first sign-in with **one browser tab and no notification** over 70 s of frames while 78 packages were waiting, a first-boot job that finished with a clean setup log, and `ci-os-info` showing the setup, Hub's address, the models and the disk. The first boot of the ISO that day froze once on a text boot log with the guest idle (the host load average was 14); a restart booted normally, and the cause was not found. Records: `docs/evidence/2026-10-19-ubuntu-arm64-ee4a3b4/`. One failed service (`pd-mapper.service`) now shows in `ci-os-info` as "1 failed service(s)"; it is the open item 7 of the proposal.
+
 ## How it differs from amd64
 
 | Difference | Why | What the build does |
