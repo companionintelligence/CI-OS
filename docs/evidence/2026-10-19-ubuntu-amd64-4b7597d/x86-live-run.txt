@@ -1,0 +1,13 @@
+# The amd64 image of 4b7597d, live session only, under software emulation (2026-10-19)
+# Host: Apple-silicon Mac. QEMU 11.1.2 qemu-system-x86_64, -machine q35 -accel tcg,thread=multi -cpu Haswell -smp 6 -m 6144,
+# Homebrew edk2-x86_64-code.fd (no Secure Boot), the ISO as a usb-storage drive. Nothing was installed.
+2026-10-19T06:03:31Z power on
+about 06:12       Plymouth splash with the Companion mark (frame 01, taken at 8 min 30 s)
+06:14             GDM greeter "Companion OS live session" (frame 02): the live user was not logged in automatically, a click was needed
+06:15:28          after the click: Canonical's installer window opens first (frame 03), as on arm64
+06:16 to 06:21    live desktop (frame 04): the dock holds the installer launchers, Companion Hub, Companion Capture, Docs, Files and Terminal.
+                  NO desktop icons, six minutes after the session began. ~/Desktop holds the five Companion shortcuts, the installer launchers, all 0755,
+                  with the desktop-trusted stamp; the desktop-icons extension (ding@rastersoft.com) is ENABLED and ACTIVE, and its process is relaunched every
+                  3 s ("Launching DING process" ... "Detected async api for thumbnails"; guest-text/live-desktop-icons-diag.txt). The same image on arm64
+                  with hardware acceleration showed all icons at once. The cause on amd64 is not known; slowness of emulation is the suspect (KI-27 saw
+                  the same 102 relaunches in 12 minutes on an earlier image); real hardware has not been tried.

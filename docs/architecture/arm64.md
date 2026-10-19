@@ -42,7 +42,7 @@ The first image (`ee25b63`) predated the trust fix for the desktop shortcuts and
 
 The same fix was also proved live on the `c0059d6` machine before the rebuild: with the stamp placed in the home, the second sign-in went straight to a clean desktop
 (`docs/evidence/2026-10-19-ubuntu-arm64-c0059d6-first-run/frames/02-...png`). The amd64 image of `4b7597d` was built (1113 s) and verified (**446 passed, 0 failed**,
-`docs/evidence/2026-10-19-ubuntu-amd64-4b7597d/`); it was not booted [I].
+`docs/evidence/2026-10-19-ubuntu-amd64-4b7597d/`); its live session was booted under emulation (no desktop icons, see KI-27), it was not installed [I].
 
 ## How it differs from amd64
 
@@ -77,7 +77,7 @@ To boot it on an Apple-silicon Mac at near-native speed: `qemu-system-aarch64 -m
 * **Real hardware** [N]: Snapdragon X, Ampere, Raspberry Pi 5 or a Mac under another hypervisor. Nothing here ran on any of them (KI-17 applies to arm64 too).
 * **Companion Stick** [N]: `ci-stick` and its boot chain are x86-64 (`stick/crates/ci-stick/src/host.rs` says arm64 boot images are not built). An arm64 ISO can be written to a USB stick by other means; `ci-stick flash` will not take it.
 * **GitHub Actions** [N]: no workflow builds arm64; the existing one is x86-64 and gated to manual dispatch.
-* **The amd64 image from the same branch**: rebuilt from `331df4d` and verified, **444 passed, 0 failed** (`../evidence/2026-10-19-ubuntu-amd64-331df4d/`) [V]. It was not booted; the amd64 desktop shortcuts have still not been seen to render [I].
+* **The amd64 image from the same branch**: rebuilt from `331df4d` and verified, **444 passed, 0 failed** (`../evidence/2026-10-19-ubuntu-amd64-331df4d/`) [V]. Its live session was booted under emulation on 2026-10-19: greeter in about 11 minutes, dock correct with Companion Capture, **but no desktop icons** (the desktop-icons process was relaunched every 3 s; see KI-27), so amd64 shortcut rendering is still [I]. It was not installed.
 
 ## Gaps against the five points
 

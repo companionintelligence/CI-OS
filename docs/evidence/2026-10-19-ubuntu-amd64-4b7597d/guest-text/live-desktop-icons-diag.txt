@@ -1,0 +1,60 @@
+2026-10-19T06:21:51Z
+ 06:21:51 up 17 min,  1 user,  load average: 2.47, 3.10, 2.75
+load: 2.47 3.10 2.75
+== ~/Desktop
+total 28
+drwxr-xr-x  2 companion companion 180 Oct 19 06:12 .
+drwxr-x--- 15 companion companion 360 Oct 19 06:11 ..
+-rwxr-xr-x  1 companion companion 302 Oct 19 06:12 ci-os-auto-install.desktop
+-rwxr-xr-x  1 companion companion 247 Oct 19 06:04 companion-app-store.desktop
+-rwxr-xr-x  1 companion companion 251 Oct 19 06:04 companion-community.desktop
+-rwxr-xr-x  1 companion companion 256 Oct 19 06:04 companion-docs.desktop
+-rwxr-xr-x  1 companion companion 275 Oct 19 06:04 companion-getting-started.desktop
+-rwxr-xr-x  1 companion companion 229 Oct 19 06:04 companion-support.desktop
+-rwxr-xr-x  1 companion companion 333 Oct 19 06:04 ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop
+== extensions
+ding@rastersoft.com
+snapd-prompting@canonical.com
+snapd-search-provider@canonical.com
+tiling-assistant@ubuntu.com
+ubuntu-appindicators@ubuntu.com
+ubuntu-dock@ubuntu.com
+web-search-provider@ubuntu.com
+ding@rastersoft.com
+  Name: Desktop Icons NG (DING)
+  Description: Adds icons to the desktop. Fork of the original Desktop Icons extension, with several enhancements .
+  Path: /usr/share/gnome-shell/extensions/ding@rastersoft.com
+  URL: https://gitlab.com/rastersoft/desktop-icons-ng
+  Enabled: Yes
+  State: ACTIVE
+== ding process
+  10719       00:02 gjs /usr/share/gnome-shell/extensions/ding@rastersoft.com/app/ding.js -E -P /usr/share/gnome-shell/extensions/ding@rastersoft.com/
+== journal (ding/desktop icons, last 20)
+Oct 19 06:21:35 companion-os gnome-shell[3721]: DING: Detected async api for thumbnails
+Oct 19 06:21:36 companion-os gnome-shell[3721]: Launching DING process
+Oct 19 06:21:36 companion-os gnome-shell[3721]: DING: ** Message: 06:21:36.632: Connecting to org.freedesktop.Tracker3.Miner.Files
+Oct 19 06:21:38 companion-os gnome-shell[3721]: DING: Detected async api for thumbnails
+Oct 19 06:21:39 companion-os gnome-shell[3721]: Launching DING process
+Oct 19 06:21:40 companion-os gnome-shell[3721]: DING: ** Message: 06:21:40.166: Connecting to org.freedesktop.Tracker3.Miner.Files
+Oct 19 06:21:41 companion-os dbus-daemon[3128]: [session uid=1000 pid=3128 pidfd=5] Activating service name='org.gnome.Nautilus' requested by ':1.514' (uid=1000 pid=10592 comm="gjs /usr/share/gnome-sh
+Oct 19 06:21:42 companion-os gnome-shell[3721]: DING: Detected async api for thumbnails
+Oct 19 06:21:42 companion-os gnome-shell[3721]: Launching DING process
+Oct 19 06:21:44 companion-os gnome-shell[3721]: DING: Detected async api for thumbnails
+Oct 19 06:21:45 companion-os gnome-shell[3721]: Launching DING process
+Oct 19 06:21:46 companion-os gnome-shell[3721]: DING: ** Message: 06:21:46.088: Connecting to org.freedesktop.Tracker3.Miner.Files
+Oct 19 06:21:47 companion-os dbus-daemon[3128]: [session uid=1000 pid=3128 pidfd=5] Activating service name='org.gnome.ArchiveManager1' requested by ':1.520' (uid=1000 pid=10648 comm="gjs /usr/share/g
+Oct 19 06:21:48 companion-os gnome-shell[3721]: DING: Detected async api for thumbnails
+Oct 19 06:21:48 companion-os gnome-shell[3721]: Launching DING process
+Oct 19 06:21:49 companion-os gnome-shell[3721]: DING: ** Message: 06:21:49.320: Connecting to org.freedesktop.Tracker3.Miner.Files
+Oct 19 06:21:51 companion-os gnome-shell[3721]: DING: Detected async api for thumbnails
+Oct 19 06:21:52 companion-os gnome-shell[3721]: Launching DING process
+Oct 19 06:21:54 companion-os dbus-daemon[3128]: [session uid=1000 pid=3128 pidfd=5] Activating service name='org.gnome.Nautilus' requested by ':1.530' (uid=1000 pid=10719 comm="gjs /usr/share/gnome-sh
+Oct 19 06:21:54 companion-os gnome-shell[3721]: DING: Detected async api for thumbnails
+== gnome-shell errors (last 8)
+-- No entries --
+== welcome-once stamps
+total 0
+drwxrwxr-x  2 companion companion  60 Oct 19 06:12 .
+drwxr-xr-x 14 companion companion 380 Oct 19 06:14 ..
+-rw-rw-r--  1 companion companion   0 Oct 19 06:12 desktop-trusted
+== live-setup

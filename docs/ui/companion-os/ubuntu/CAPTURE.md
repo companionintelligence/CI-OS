@@ -14,7 +14,7 @@ Run of 2026-10-19. The guest clock is UTC and the "Taken" times in `MANIFEST.jso
 | Item | Value |
 |---|---|
 | ISO | `companion-os-1.0-arm64.iso`, 5,593,038,848 bytes, sha256 `c110e346c02ea5a58db318add1aa6df9063d9b72da831d090c490bf19f585ea6` (equal to the `SHA256SUMS` the build wrote) |
-| Built from | commit `4b7597d` of `liam/companion-os-arm64`, a clean checkout, in a native arm64 container: 917 s |
+| Built from | commit `4b7597d` of the arm64 branch, a clean checkout, in a native arm64 container: 917 s |
 | Verifier | `verify-iso.sh`: **438 passed, 0 failed** (`verify.log` in the evidence directory), including the two checks for the upgrade-welcome stamp |
 | Harness | `backends/ubuntu/iso/tests/boot-arm64-vm.sh` and `backends/ubuntu/iso/tests/lib/qmp-drive.py`, both in this repository |
 | Base ISO | `ubuntu-26.04.1-desktop-arm64.iso`, sha256 `c54d1964...2517`, equal to Canonical's signed `SHA256SUMS` |
