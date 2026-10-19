@@ -4,8 +4,8 @@
 #
 # Runs the real script against fake status files, a stub notify-send and a stub sleep that moves the status file to its next snapshot,
 # one scenario at a time: a live session, no notify-send, an old install, the first sign-in before the setup has started, a full run from
-# "waiting" through every step to "ready", a failure and its retry, a sign-in after the setup finished, the ready message once only, and
-# the Open button. Also the wiring around it: the library's total equals provision.sh's steps, the first-boot wrapper writes every state,
+# "waiting" through every step to "ready", a failure and its retry, a sign-in after the setup finished, and the ready message once only.
+# Also the wiring around it: the library's total equals provision.sh's steps, the first-boot wrapper writes every state,
 # and the image installs the script and its autostart entry.
 #
 # Pure bash 3.2, no root, no session, writes only to a temporary directory.
@@ -35,15 +35,15 @@ count() { grep -c . "$LOG" | tr -d ' '; }
 
 # --- the stubs -----------------------------------------------------------------------------------------------------------------------
 BIN="$WORK/bin"; mkdir -p "$BIN"
-# notify-send: one line per call in $LOG; -p prints an id (a new one, or the one of -r); -A prints $STUB_ANSWER
+# notify-send: one line per call in $LOG; -p prints an id (a new one, or the one of -r)
 cat >"$BIN/notify-send" <<'STUB'
 #!/bin/sh
-line="notify-send"; want_id=0; replace=""; action=0
+line="notify-send"; want_id=0; replace=""
 while [ $# -gt 0 ]; do
     case "$1" in
         -p) want_id=1 ;;
         -r) replace="$2"; line="$line [replace=$2]"; shift ;;
-        -A) action=1; line="$line [action=$2]"; shift ;;
+        -A|--action) line="$line [ACTION=$2]"; shift ;;
         -a|-i) shift ;;
         *) line="$line | $1" ;;
     esac
@@ -53,12 +53,7 @@ echo "$line" >> "$STUB_LOG"
 if [ "$want_id" = 1 ]; then
     if [ -n "$replace" ]; then echo "$replace"; else n=$(cat "$STUB_IDS" 2>/dev/null || echo 40); n=$((n + 1)); echo "$n" > "$STUB_IDS"; echo "$n"; fi
 fi
-[ "$action" = 1 ] && printf '%s\n' "${STUB_ANSWER:-}"
 exit 0
-STUB
-cat >"$BIN/xdg-open" <<'STUB'
-#!/bin/sh
-echo "xdg-open $*" >> "$STUB_OPENED"
 STUB
 # sleep: every call moves the status file to the next snapshot (snap.1, snap.2, ...); out of snapshots, the file stays as it is
 cat >"$BIN/sleep" <<'STUB'
@@ -77,11 +72,11 @@ snap() { # N STATE STEP STEPS TITLE [DETAIL]   snapshot N of the status file (N=
 }
 reset() {
     rm -rf "$WORK/snaps" "$WORK/state" "$WORK/config"; mkdir -p "$WORK/snaps" "$WORK/state" "$WORK/config"
-    : >"$LOG"; : >"$WORK/opened.log"; rm -f "$WORK/ids" "$WORK/snap_n"
+    : >"$LOG"; rm -f "$WORK/ids" "$WORK/snap_n"
     export CI_OS_PROGRESS_FILE="$WORK/state/setup-status" CI_OS_PROGRESS_MARKER="$WORK/state/.first-boot-setup-done"
     export CI_OS_PROGRESS_STAMP="$WORK/config/ci-os/setup-ready-shown" CI_OS_PROGRESS_LIVE="$WORK/no-live-here"
-    export CI_OS_PROGRESS_POLLS=40 CI_OS_PROGRESS_SLEEP=0 CI_OS_PROGRESS_HUB_URL="http://hub.test:5002"
-    export STUB_LOG="$LOG" STUB_IDS="$WORK/ids" STUB_OPENED="$WORK/opened.log" STUB_SNAPS="$WORK/snaps" STUB_SNAP_N="$WORK/snap_n" STUB_ANSWER=""
+    export CI_OS_PROGRESS_POLLS=40 CI_OS_PROGRESS_SLEEP=0
+    export STUB_LOG="$LOG" STUB_IDS="$WORK/ids" STUB_SNAPS="$WORK/snaps" STUB_SNAP_N="$WORK/snap_n"
 }
 run() { OUT="$(env PATH="$BIN:/usr/bin:/bin" sh "$TOOL" 2>&1)"; RC=$?; }
 
@@ -114,32 +109,28 @@ snap 4 running 2 7 "Installing Docker"
 snap 5 running 5 7 "Downloading the AI models (the longest step)"
 snap 6 running 7 7 "Starting Companion Hub"
 snap 7 done 7 7 "Companion OS is set up"
-STUB_ANSWER=""; run
+run
 has "waiting for the internet is said" "Companion OS is waiting for the internet"
-has "  with what to do" "Connect to a network"
+has "  with what to do" "Connect to the internet"
 has "a step says its number" "Setting up Companion OS: step 2 of 7"
 has "  and its title" "Installing Docker"
 has "the long step is named" "Downloading the AI models (the longest step)"
 has "the last step" "step 7 of 7"
 has "the first state before the numbered steps has no number" "| Setting up Companion OS | Getting the computer ready."
 has "the ready message" "Companion OS is ready"
-has "  with an Open button" "[action=open=Open Companion Hub]"
+has "  and says where Hub is" "Open Companion Hub, the first icon in the dock"
+lacks "  with no action button (GNOME's server refuses them on the 26.04 image)" "[ACTION="
 eq "eight snapshots, a repeated one is not repeated: 7 messages (waiting, getting ready, steps 1, 2, 5 and 7, ready)" "$(count)" "7"
 eq "every message after the first replaces it (one notification on screen)" "$(grep -c 'replace=41' "$LOG" | tr -d ' ')" "6"
 eq "the ready stamp is written" "$([[ -e "$CI_OS_PROGRESS_STAMP" ]] && echo yes || echo no)" "yes"
-eq "no Hub window without a click" "$(grep -c . "$WORK/opened.log" | tr -d ' ')" "0"
 
 echo
-echo "== the Open button"
-reset; snap 0 done 7 7 "Companion OS is set up"; STUB_ANSWER=open run
-eq "a click on Open starts Hub's address" "$(cat "$WORK/opened.log")" "xdg-open http://hub.test:5002"
-eq "  with only the ready message shown" "$(count)" "1"
-reset; snap 0 done 7 7 "Companion OS is set up"; STUB_ANSWER="" run
-eq "dismissed without a click: nothing is opened" "$(grep -c . "$WORK/opened.log" | tr -d ' ')" "0"
-run
-eq "the second sign-in after ready says nothing more" "$(count)" "1"
+echo "== the ready message is shown once"
+reset; snap 0 done 7 7 "Companion OS is set up"; run
+eq "a sign-in after the setup finished: one ready message" "$(count)" "1"
+eq "  and the stamp is written" "$([[ -e "$CI_OS_PROGRESS_STAMP" ]] && echo yes || echo no)" "yes"
+run; eq "the next sign-in says nothing more" "$(count)" "1"
 
-echo
 echo "== a failure and its retry"
 reset
 snap 0 running 4 7 "Installing the AI runtime (Ollama)"
@@ -183,6 +174,7 @@ echo "== the script itself"
 if sh -n "$TOOL"; then pass "it parses (sh -n)"; else fail "it does not parse"; fi
 if [[ -x "$TOOL" ]]; then pass "it is executable"; else fail "it is not executable"; fi
 if grep -q -E '(^|[^[:alnum:]_])\[\[|\$\(\(.*\*\*|local |function ' "$TOOL"; then fail "it uses a bashism (it runs under /bin/sh)"; else pass "no bashism"; fi
+if grep -v '^[[:space:]]*#' "$TOOL" | grep -q -E '(^|[[:space:]])(-A|--action)[[:space:]=]'; then fail "it uses notify-send actions (the 26.04 image's server refuses them: 'Actions are not supported by this notifications server')"; else pass "no notify-send actions"; fi
 if grep -q -E '^[[:space:]]*(sudo|systemctl|docker|rm|mv|chmod|chown|snap|apt)[[:space:]]' "$TOOL"; then fail "it touches the system (it must only read a file and notify)"; else pass "it only reads the status file and notifies"; fi
 
 echo

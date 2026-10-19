@@ -5,14 +5,16 @@
 # and, until now, said nothing on screen: the first sign-in looked finished while the computer was busy and Hub did not answer yet. The
 # setup (first-boot-setup.sh and provision.sh, through core/lib/setup-status.sh) writes its state to /var/lib/ci-os/setup-status; this reads
 # it at every sign-in and shows one desktop notification: "Setting up Companion OS: step 3 of 7", then, when it is over, "Companion OS is
-# ready" with a button that opens Hub. Nothing is shown when nothing changes, and nothing at all once the ready message has been shown.
+# ready". Nothing is shown when nothing changes, and nothing at all once the ready message has been shown. There is no button on the
+# message: on the 26.04 image notify-send -A prints "Actions are not supported by this notifications server" and sends none (found on the
+# first installed run, 2026-10-19; the server's capability list does name "actions"), so the message says where Hub is instead.
 #
 #   no status file, no marker   an installed system from before this existed (or the setup has not started): the marker decides. With
 #                               no marker either, one "getting ready" notice, then it waits for the file for up to about three hours
 #   state=waiting               "waiting for the internet"
 #   state=running               "step n of m" and the step's title; one notification per step
 #   state=failed                "needs attention": it retries by itself (timer) or `sudo ci-os-setup`
-#   state=done                  "ready", once ever (a stamp in the user's config)
+#   state=done                  "ready" and where Hub is, once ever (a stamp in the user's config)
 #
 # Never in a live session. Quiet when there is no notify-send. It polls a file; it never touches the setup. The CI_OS_PROGRESS_*
 # variables exist so a test can run this without a session; nothing in the image sets them.
@@ -23,8 +25,6 @@ live="${CI_OS_PROGRESS_LIVE:-/cdrom/casper/vmlinuz}"
 pause="${CI_OS_PROGRESS_SLEEP:-15}"
 polls="${CI_OS_PROGRESS_POLLS:-720}"
 notify="${CI_OS_PROGRESS_NOTIFY:-notify-send}"
-open="${CI_OS_PROGRESS_OPEN:-xdg-open}"
-hub="${CI_OS_PROGRESS_HUB_URL:-http://localhost:5002}"
 
 [ -e "$live" ] && exit 0
 command -v "$notify" >/dev/null 2>&1 || exit 0
@@ -46,15 +46,10 @@ say() {
     esac
 }
 
-# The last message, with a button that opens Hub; the notification stays in the list until it is dismissed or used.
+# The last message. The notification stays in the list until it is dismissed.
 ready() {
     mkdir -p "$(dirname "$stamp")" 2>/dev/null && : > "$stamp" 2>/dev/null
-    if [ -n "$id" ]; then
-        ans="$("$notify" -a "Companion OS" -i dialog-information -r "$id" -A "open=Open Companion Hub" "Companion OS is ready" "Everything is installed. Open Companion Hub to pair this computer with your account." 2>/dev/null)"
-    else
-        ans="$("$notify" -a "Companion OS" -i dialog-information -A "open=Open Companion Hub" "Companion OS is ready" "Everything is installed. Open Companion Hub to pair this computer with your account." 2>/dev/null)"
-    fi
-    [ "$ans" = "open" ] && "$open" "$hub" >/dev/null 2>&1
+    say "Companion OS is ready" "Everything is installed. Open Companion Hub, the first icon in the dock, to pair this computer with your account."
     exit 0
 }
 
@@ -67,12 +62,12 @@ while :; do
             [ -e "$marker" ] && exit 0
             key="pending"
             title="Companion OS is getting ready"
-            body="Setup starts a few minutes after the computer starts and runs in the background. You can keep using the computer."
+            body="Setup starts in a few minutes and runs in the background. You can keep using the computer."
             ;;
         waiting)
             key="waiting|$(field title)"
             title="Companion OS is waiting for the internet"
-            body="Connect to a network (the menu at the top right). Setup carries on by itself."
+            body="Connect to the internet (menu at the top right). Setup carries on by itself."
             ;;
         running)
             step="$(field step)"; steps="$(field steps)"; what="$(field title)"
