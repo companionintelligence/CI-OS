@@ -27,8 +27,11 @@
 #   backends/cachyos/iso/tests/installer-config.sh
 #
 # Optional environment: CI_OS_REAL_CALAMARES_ROOT=<unpacked cachyos-calamares-next or ISO root> also runs the guards on the REAL
-# installer files. Needs bash 3.2+, python3 (PyYAML for the YAML part, which is skipped without it), git, awk, sed, find, cmp.
-# Exit: non-zero when any part fails; 2 when a tool is missing. No network, no root, no Docker.
+# installer files. Needs bash 3.2+, python3 (PyYAML for the YAML part, which is skipped without it), git, awk, sed, find, cmp, and bsdtar
+# for compat-libs.sh (macOS has it; Debian and Ubuntu: the package libarchive-tools).
+# Exit: 1 when any part fails; 2 when python3 is missing, or when no part failed but a part could not run here because a tool it needs
+# is missing (that part exits 2 and is named on the last line: it neither passed nor failed); 0 when every part passed.
+# No network, no root, no Docker.
 #
 # © Companion Intelligence — Lifescope Inc
 #=============================================================================
@@ -39,10 +42,22 @@ export PYTHONDONTWRITEBYTECODE=1
 
 command -v python3 >/dev/null 2>&1 || { echo "missing tool: python3" >&2; exit 2; }
 rc=0
+parts=0
+passed=0
+cannot=""   # the parts that exited 2, each with the first line it printed (the tool it misses)
 run() {  # NAME COMMAND...
-  local name="$1"; shift
+  local name="$1" prc=0 log; shift
+  parts=$((parts + 1))
   echo "######## $name"
-  if "$@"; then :; else rc=1; echo "######## $name: FAILED"; fi
+  log="$(mktemp "${TMPDIR:-/tmp}/installer-config.XXXXXX")"
+  "$@" > "$log" 2>&1 || prc=$?
+  cat "$log"
+  case "$prc" in
+    0) passed=$((passed + 1)) ;;
+    2) cannot="${cannot:+$cannot; }$name ($(head -n 1 "$log"))"; echo "######## $name: COULD NOT RUN HERE (exit 2): a tool it needs is missing, so it neither passed nor failed" ;;
+    *) rc=1; echo "######## $name: FAILED" ;;
+  esac
+  rm -f "$log"
   echo
 }
 
@@ -53,5 +68,12 @@ run progress-filter.sh bash "$HERE/progress-filter.sh"
 run compat-libs.sh bash "$HERE/compat-libs.sh"
 run gate-calamares.sh bash "$HERE/gate-calamares.sh"
 
-if [ "$rc" -eq 0 ]; then echo "installer-config.sh: all parts passed"; else echo "installer-config.sh: at least one part FAILED"; fi
+if [ "$rc" -ne 0 ]; then
+  echo "installer-config.sh: at least one part FAILED"
+elif [ -n "$cannot" ]; then
+  echo "$passed of $parts parts passed, the rest could not run here: $cannot"
+  rc=2
+else
+  echo "installer-config.sh: all parts passed"
+fi
 exit "$rc"
