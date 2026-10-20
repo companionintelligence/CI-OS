@@ -2,7 +2,7 @@
 
 Private & Confidential. Property of Lifescope Inc. Do not distribute.
 
-Use this list before an ISO leaves the build machine. There are two supported editions and the gates differ in places, so each gate says what it means for both. **Nothing has been published yet and the hosting, signing and naming decisions are open** (see [Open decisions](#open-decisions-that-block-a-release)); this list says what must be true when they are settled.
+Use this list before an ISO leaves the build machine. There are two supported editions and the gates differ in places, so each gate says what it means for both. **Nothing has been published yet.** Images go to Cloudflare R2 (decided 2026-10-20, [Publishing to R2](#publishing-to-r2)); the signing and naming decisions are still open (see [Open decisions](#open-decisions-that-block-a-release)); this list says what must be true when they are settled.
 
 Supported targets: Companion OS on Ubuntu 26.04.1 LTS (resolute) and Companion OS on CachyOS (the "Plasma" edition). Retired 2026-10-17: Ubuntu 24.04, Linux Mint, Fedora, Bazzite, NixOS (restore from the tag `pre-retire-multidistro-2026-10-17`).
 
@@ -27,7 +27,7 @@ Run them in order. A failed gate ends the release attempt; fix, rebuild, and sta
 | 11 | Brand and content scan | no Ubuntu marks where they are not intended; no credentials or host keys in the image | no CachyOS mark in file names, titles or frames; no credentials in the image |
 | 12 | Retired baselines and stale builds excluded | `.disk/info` says 26.04.1, not 24.04 | built on the publication day; gates 4, 6 and 7 rerun the same day |
 | 13 | Checksums and signature | `SHA256SUMS` signed by the release key | the same, over both ISOs |
-| 14 | Hosted and re-verified | download from the public URL, verify, boot the downloaded file | the same |
+| 14 | Hosted and re-verified | `verify-published.sh --full` against the public URL, then boot the downloaded file | the same |
 
 ## Gate details
 
@@ -164,13 +164,66 @@ gpg --verify SHA256SUMS.asc SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 ```
 
-`build-iso.sh --sign` signs `SHA256SUMS` and `MD5SUMS` of the Ubuntu edition with the invoking user's default GPG key; the workflow signs with the `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` secrets when the `sign` input is true. The Plasma build writes a `.sha256` and does not sign. **Who holds the release key and where the public key is published are open decisions** (KI-12). Never commit a private key and never place one in a shell history.
+`build-iso.sh --sign` signs `SHA256SUMS` and `MD5SUMS` of the Ubuntu edition with the invoking user's default GPG key; the workflow signs with the `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` secrets of the `production` environment when the `sign` input is true. The Plasma build writes a `.sha256` and does not sign. For two architectures the file must list **both** images: build each on its own machine, gather the images, `cat SHA256SUMS.amd64 SHA256SUMS.arm64 > SHA256SUMS`, and sign that; `publish-r2.sh` refuses a `SHA256SUMS` that leaves a published image out, and refuses a production release with no good signature. **Who holds the release key and where the public key is published are open decisions** (KI-12). Never commit a private key and never place one in a shell history.
 
 ### 14. Hosted and re-verified
 
-Publish to a private location first. From a clean machine: download over the public URL, verify the signature and the checksum, flash with a raw writer or `ci-stick`, boot it in QEMU and look at the first frames. Only then announce.
+Publish to the `dev` channel first ([Publishing to R2](#publishing-to-r2)). Then, from a machine that is not the builder (ideally the one a user will use), run gate 14 as a command: it reads `latest.json` and the version's `manifest.json` from the public URL, compares the served size of every image with the manifest (a `HEAD`), checks that `SHA256SUMS` lists exactly the manifest's hashes and, with `--pubkey`, that `SHA256SUMS.asc` verifies against the **published** public key in a throw-away keyring; with `--full` it downloads every image and checks the sha256 of the bytes (5.6 GB each: this is the check that matters).
 
-The existing workflow's "Create GitHub Release" step is **not** a safe publisher: it runs on every manual dispatch, creates a release that is not a draft, and uploads files of several gigabytes, while GitHub allows 2 GiB per release asset (the step is expected to fail for an ISO; known issue KI-12). Do not rely on it, and fix it (draft, no ISO upload) before dispatching the workflow for anything but an artifact.
+```bash
+backends/ubuntu/iso/scripts/verify-published.sh --base-url https://dl-dev.ci.computer --version 1.0 --full --pubkey release-public-key.asc
+```
+
+Then flash the downloaded file with a raw writer or `ci-stick`, boot it in QEMU and look at the first frames. Only then publish to `production` and announce. The workflow's release step is now a **draft** GitHub release that carries the checksums, the signature, the SBOM and the generated release notes, and no image (a release asset is limited to 2 GiB and an image is 5.6 GB), and only for `publish=production`; a human publishes the draft.
+
+## Publishing to R2
+
+**Evidence.** **[I]** implemented and tested with a stub `aws`, `gpg` and `curl` and a real local HTTP server (`backends/ubuntu/iso/tests/{publish-r2.sh,verify-published.sh,build-in-docker.sh,test_release_manifest.py}`, part of `check-repo.sh`; the workflow passes `actionlint`). **[N]** never run against the real buckets: no R2 credential is configured where this was written, no bucket was written to, and a 5.6 GB multipart upload to R2 has not been seen to finish. The first real run is the `dev` rehearsal at the end of this section.
+
+### Where each thing lives
+
+| What | Where | Why |
+|---|---|---|
+| The images | R2, the shared buckets `dl-dev` (served at `https://dl-dev.ci.computer`) and `dl-prod` (`https://dl.ci.computer`), under the prefix `os/` | a GitHub release asset is limited to 2 GiB; Companion Capture already publishes its installers to the same buckets under `applet/` |
+| `SHA256SUMS`, `SHA256SUMS.asc`, `SBOM.txt`, `manifest.json`, `latest.json` | R2, beside the images | the manifest is what an installer or a download page reads; `latest.json` is written last |
+| The checksums, the signature, the SBOM and the release notes | a draft GitHub release (production only), without images | the audit trail and the control plane stay on GitHub |
+| The R2 key pair, the release signing key | GitHub **environments** `dev` and `production` | an environment's secrets are visible only to the job that names it, and `production` can require reviewers |
+| The workflow | `.github/workflows/build-companion-os-iso.yml`: manual only (`ci-local:gated`), inputs `version`, `arch`, `publish` (`none`, `dev`, `production`), `sign`, `runner_amd64`, `runner_arm64` | the org gates automatic runs because hosted minutes are billed; [`docs/CI.md`](../CI.md) has the `gh workflow run` line |
+
+Keys: `os/<version>/<arch>/companion-os-<version>-<arch>.iso`, `os/<version>/{SHA256SUMS,SHA256SUMS.asc,SBOM.txt,manifest.json}` and `os/latest.json`.
+
+### The two routes, one publisher
+
+**On hardware we own (preferred: no billed minutes).** Build each architecture natively (an arm64 image on an Apple-silicon Mac, an amd64 image on an x86-64 Linux host; [Building on a Mac](building-on-a-mac.md)), gather the images, sign, publish, verify:
+
+```bash
+backends/ubuntu/iso/scripts/build-in-docker.sh --base-iso ~/Downloads/ubuntu-26.04.1-desktop-arm64.iso --version 1.0 --output-dir ./release
+# on the amd64 host the same with the amd64 ISO; copy both images into one directory, then:
+cd release && cat SHA256SUMS.amd64 SHA256SUMS.arm64 > SHA256SUMS
+gpg --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS            # the release key; production requires this
+cd ..
+backends/ubuntu/iso/scripts/publish-r2.sh --dir release --version 1.0 --channel dev        # a dry run: no credentials, no network
+read -rs R2_SECRET_ACCESS_KEY && export R2_SECRET_ACCESS_KEY                                # and R2_ACCOUNT_ID, R2_ACCESS_KEY_ID: never typed into a command line
+backends/ubuntu/iso/scripts/publish-r2.sh --dir release --version 1.0 --channel dev --apply --check-public
+backends/ubuntu/iso/scripts/verify-published.sh --base-url https://dl-dev.ci.computer --version 1.0 --full
+```
+
+**On a GitHub runner.** `gh workflow run build-companion-os-iso.yml --repo companionintelligence/CI-OS --ref <branch> -f version=1.0 -f arch=both -f publish=dev`. The `plan` job checks the inputs (a production release must be signed), `build` runs one job per architecture (the same container build, `verify-iso.sh` included, the image kept as an artifact for 7 days), and `publish` runs only when asked: it takes the environment of the same name, checks that the secrets exist, builds one `SHA256SUMS` and an SBOM, signs when asked, runs `publish-r2.sh` as a dry run and then for real, and runs `verify-published.sh` (with `--full` for production). `runner_amd64` and `runner_arm64` send a build to a self-hosted runner instead (hosted arm64 runners for a private repository are unverified).
+
+### What the publisher does and refuses
+
+`publish-r2.sh` is a **dry run until `--apply`**. It uses the AWS CLI against R2's S3 endpoint with 64 MB parts, because `wrangler r2 object put` is limited to 315 MB and one object at a time. It uploads the images, then the small files, then `manifest.json`, checks every object's size against the file on disk, and only then writes `latest.json`: a failed upload never leaves "latest" naming files that are not there. It refuses (exit 2, nothing uploaded): bytes that changed after the checksums were made, a `SHA256SUMS` that leaves a published image out, a version that is not in the file names, a version, prefix or bucket that could point elsewhere, a version that already exists (without `--overwrite`), and a production release with no good signature. The credentials are read from `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`, exported to the AWS CLI only inside the script, never printed and never on a command line.
+
+### What is left for the owner
+
+Names only; nothing here was done, and no secret value belongs in a document, a log or a chat.
+
+1. Create the GitHub environments `dev` and `production` for `companionintelligence/CI-OS`; give `production` required reviewers.
+2. Create one R2 S3 API token per environment (R2, Manage API tokens), scoped to that environment's bucket, and store `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY` in the environment of the same name.
+3. Confirm that `dl-dev.ci.computer` and `dl.ci.computer` are attached as public domains of `dl-dev` and `dl-prod` (Companion Capture's release already assumes it).
+4. Decide who holds the release key (KI-12), create it, put `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` into the `production` environment and publish the public key.
+5. Confirm the prefix `os/` on the shared buckets, or change it with `--prefix`.
+6. Rehearse on `dev` with a throw-away version (for example `0.0-test1`): run the workflow or the commands above, then `verify-published.sh --full` from another machine, and delete the test objects in the Cloudflare dashboard. Record the run in `docs/evidence/`.
 
 ## Stick bundle release
 
@@ -196,7 +249,7 @@ The Plasma edition cannot be carried by a Stick (KI-04).
 
 | Decision | Why it blocks | Tracked as |
 |---|---|---|
-| Where ISOs are hosted publicly | the guides point at releases that do not exist; GitHub Releases cannot carry a multi-GB asset | KI-12 |
+| Whether the shared R2 buckets and the prefix `os/` are the final home, and the owner steps of [Publishing to R2](#publishing-to-r2) | R2 is chosen (2026-10-20); the environments, tokens and domains are not set up and nothing was ever uploaded | KI-12 |
 | Who holds the release signing key | gate 13 cannot be passed without a named holder and a published public key | KI-12 |
 | Whether CachyOS may be named in public text | release notes, About page, website | KI-13 |
 | Whether the first batch needs Secure Boot | the Plasma edition cannot offer it | KI-14 |

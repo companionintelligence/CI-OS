@@ -27,10 +27,24 @@ _No local checks detected._
 **Build Companion OS ISO** — `build-companion-os-iso.yml`
 
 ```bash
-gh workflow run build-companion-os-iso.yml --repo companionintelligence/CI-OS --ref main -f version=1.0 -f sign=false
+gh workflow run build-companion-os-iso.yml --repo companionintelligence/CI-OS --ref main -f version=1.0 -f arch=both -f publish=none -f sign=false -f runner_amd64=ubuntu-24.04 -f runner_arm64=ubuntu-24.04-arm
 ```
 
-Required inputs: `version` (CI-OS version (e.g., 1.0, 1.1))
+Required inputs: `version` (Companion OS version, as in the image names (1.0, 1.1, 1.0-rc1))
+
+**PR checks** — `pr-checks.yml`
+
+```bash
+gh workflow run pr-checks.yml --repo companionintelligence/CI-OS --ref main
+```
+
+**Companion Stick real-ISO smoke test** — `stick-real-iso.yml`
+
+```bash
+gh workflow run stick-real-iso.yml --repo companionintelligence/CI-OS --ref main -f ubuntu_release_dir=26.04 -f ci_os_run_id=<value> -f ci_os_artifact=ci-os-iso
+```
+
+Required inputs: `ubuntu_release_dir` (releases.ubuntu.com directory holding the desktop ISO + SHA256SUMS)
 
 **Style canon lint** — `style-canon-lint.yml`
 

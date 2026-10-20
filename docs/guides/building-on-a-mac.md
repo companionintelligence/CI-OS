@@ -105,7 +105,7 @@ mkdir -p output && docker cp ci-os-ubuild:/vol/out/. ./output/
 docker rm -f ci-os-ubuild && docker volume rm ci-os-ubuild-vol
 ```
 
-The root `README.md` and `CLAUDE.md` carry this same block without the comments. The three copies are changed together; if they disagree, this guide is the one that was run.
+The root `README.md` and `CLAUDE.md` carry this same block without the comments. The three copies are changed together; if they disagree, this guide is the one that was run. [The script](#the-script) below does the same in one command.
 
 Notes on the recipe:
 
@@ -113,6 +113,17 @@ Notes on the recipe:
 - `build-iso.sh` needs network access: apt inside the image, Docker's, Tailscale's, Cloudflare's and GitHub's apt repositories, the Ollama release tarball and the Companion Launcher `.deb`. Every key fingerprint and hash is pinned in `core/manifest/tier-b-pins.env` and a mismatch fails the build.
 - To skip the optional 1.5 GB of Ollama CUDA libraries, add `-e CI_OS_OLLAMA_CUDA=none` to the build `docker exec`. The size matters because a 64 GB Stick has an 8 GiB boot slot (see [Size](iso-build-guide.md#size-and-the-stick-boot-slot)).
 - To resume after an interruption, run step 8 again without `--clean`: the chroot of the previous run is reused and every customization step is written to be repeat-safe.
+
+### The script
+
+`backends/ubuntu/iso/scripts/build-in-docker.sh` is this recipe as one command (**[I]**: its command sequence is tested against a stub `docker`; the recipe above is the part that was run):
+
+```bash
+backends/ubuntu/iso/scripts/build-in-docker.sh --base-iso "$ISO" --version 1.0 --output-dir ./output      # an arm64 image on an Apple-silicon Mac; --arch amd64 on an x86-64 Linux host
+backends/ubuntu/iso/scripts/build-in-docker.sh --base-iso "$ISO" --dry-run                                # print every docker command, run nothing
+```
+
+It differs from the steps above in a few ways. It **refuses** a dirty working tree (a build comes from a commit; `--allow-dirty` builds the commit without your changes), a base ISO whose sha256 is not the pin of the architecture, an architecture the host would emulate (`--allow-emulated`, not for a release image), and a missing or stopped Docker. It names the container and the volume with the process id, so two builds never collide (the fixed names of the recipe would remove a build that is running). It keeps the downloaded tier B tools in a volume between builds (`--cache-volume`). It writes `build-in-docker-<arch>.log`, `verify-iso-<arch>.log` and `SHA256SUMS.<arch>` into the output directory, next to the image (the names the workflow's artifacts use), and removes the container and the volume afterwards (`--keep` leaves them for debugging). The output directory is what `publish-r2.sh` takes: [Publishing to R2](release-checklist.md#publishing-to-r2). Exit codes: 0 built and verified, 1 the build or the verify failed, 2 usage or a missing tool, 3 refused, 4 the container could not be set up. A test keeps its pins and package list equal to the workflow's. Keep more than 40 GiB free where Docker keeps its data.
 
 ### Timings
 

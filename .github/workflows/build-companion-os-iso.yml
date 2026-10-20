@@ -1,5 +1,14 @@
 name: Build Companion OS ISO
 
+# Builds the amd64 and arm64 images, verifies them, and (when asked) publishes them to Cloudflare R2: the shared dl-dev and dl-prod buckets, served
+# from dl-dev.ci.computer and dl.ci.computer. GitHub carries the control plane (this workflow, its environments and secrets, a DRAFT release with the
+# small files); the images themselves cannot go to a GitHub release (a release asset is limited to 2 GiB, an image is 5.6 GB). See
+# docs/guides/release-checklist.md ("Publishing to R2") and backends/ubuntu/iso/scripts/publish-r2.sh.
+#
+# COST: GitHub-hosted runners are billed and this tool's org gates workflows to manual runs (ci-local; docs/CI.md). The same build runs on a Mac or
+# any Docker host with backends/ubuntu/iso/scripts/build-in-docker.sh, and the same publisher runs from there (publish-r2.sh): use this workflow
+# when a hosted run is what you want, and the `runner_*` inputs to send it to a self-hosted runner instead.
+#
 # >>> ci-local:gated original triggers below, restore with `ci-local restore`
 # on:
 #   workflow_dispatch:
@@ -24,22 +33,44 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'CI-OS version (e.g., 1.0, 1.1)'
+        description: 'Companion OS version, as in the image names (1.0, 1.1, 1.0-rc1)'
         required: true
         default: '1.0'
+      arch:
+        description: 'Which images to build'
+        required: false
+        type: choice
+        default: both
+        options: [both, amd64, arm64]
+      publish:
+        description: 'Publish to R2 after the build: none builds and verifies only; dev and production are GitHub environments with their own secrets'
+        required: false
+        type: choice
+        default: none
+        options: [none, dev, production]
       sign:
-        description: 'Sign checksums with GPG'
+        description: 'Sign SHA256SUMS with the GPG release key (production requires it)'
         required: false
         type: boolean
         default: false
+      runner_amd64:
+        description: 'runs-on for the amd64 build, as JSON: "ubuntu-24.04" or ["self-hosted","linux","x64"]'
+        required: false
+        default: '"ubuntu-24.04"'
+      runner_arm64:
+        description: 'runs-on for the arm64 build, as JSON: "ubuntu-24.04-arm" or ["self-hosted","linux","arm64"] (hosted arm64 runners for a private repository are unverified)'
+        required: false
+        default: '"ubuntu-24.04-arm"'
 
 env:
   # Companion OS is built on Ubuntu 26.04.1 LTS (Resolute Raccoon) only; 24.04 is retired.
   UBUNTU_VERSION: "26.04"
   UBUNTU_CODENAME: "resolute"
-  BASE_ISO_URL: "https://releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso"
-  # sha256 of that ISO. Every run also checks it against Ubuntu's signed SHA256SUMS, so a changed
-  # ISO is a failed build; bump this value deliberately when the base ISO is bumped.
+  # The stock desktop ISO of each architecture. arm64 is on cdimage.ubuntu.com, not releases.ubuntu.com (docs/architecture/arm64.md).
+  BASE_ISO_URL_AMD64: "https://releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso"
+  BASE_ISO_URL_ARM64: "https://cdimage.ubuntu.com/ubuntu/releases/26.04/release/ubuntu-26.04.1-desktop-arm64.iso"
+  # sha256 of those ISOs. Every run also checks each against Ubuntu's signed SHA256SUMS, so a changed
+  # ISO is a failed build; bump these values deliberately when the base ISO is bumped.
   # A bump (a point release, 26.04.2) is not a one-line change: the split table and verify-iso.sh name stock paths
   # literally, and nothing fails by itself when a new stock live layer gains a live-only file (that is how the polkit
   # rule, the sysctl file and the encryption seed went unnoticed on 26.04.1). Before changing the pin, on the new ISO,
@@ -52,7 +83,8 @@ env:
   #   - CI_TEST_STOCK_INITRD=<its casper/initrd> backends/ubuntu/iso/tests/boot-media-plymouth.sh: the initrd shape,
   #     the .disk/info line and casper's launcher-label lines;
   #   - then one real build, verify-iso.sh with VERIFY_BASE_ISO (it also checks that the image fits an 8 GiB Stick slot).
-  BASE_ISO_SHA256: "601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f"
+  BASE_ISO_SHA256_AMD64: "601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f"
+  BASE_ISO_SHA256_ARM64: "c54d196489d3c867975fb3bbb72ca52ec2e137456e305481f81096304e4d2517"
   # Ubuntu CD Image Automatic Signing Key (2012) <cdimage@ubuntu.com>, signer of SHA256SUMS.gpg.
   UBUNTU_CD_KEY_FPR: "843938DF228D22F7B3742BC0D94AA3F0EFE21092"
   # Where the image is built. The runner is only the host (Docker, disk, artifacts); the build runs in
@@ -62,42 +94,116 @@ env:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # a release run is not cancelled by the next click: an upload that is cut off half way is the failure this avoids
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
-  build-iso:
-    # Host only: nothing of the image is built or read on the runner itself (see BUILD_IMAGE).
+  plan:
+    name: Plan
     runs-on: ubuntu-24.04
+    outputs:
+      arches: ${{ steps.plan.outputs.arches }}
+      version: ${{ steps.plan.outputs.version }}
+      runner_amd64: ${{ steps.plan.outputs.runner_amd64 }}
+      runner_arm64: ${{ steps.plan.outputs.runner_arm64 }}
+    steps:
+      - name: Check the inputs and choose the architectures
+        id: plan
+        env:
+          # the restored triggers (a pushed tag) have no inputs: the tag names the version, and the default is to build and verify only
+          IN_VERSION: ${{ inputs.version || github.ref_name }}
+          IN_ARCH: ${{ inputs.arch || 'both' }}
+          IN_PUBLISH: ${{ inputs.publish || 'none' }}
+          IN_SIGN: ${{ inputs.sign || 'false' }}
+          IN_RUNNER_AMD64: ${{ inputs.runner_amd64 }}
+          IN_RUNNER_ARM64: ${{ inputs.runner_arm64 }}
+        run: |
+          set -euo pipefail
+          IN_VERSION="${IN_VERSION#v}"
+          # A runner is JSON for runs-on ("ubuntu-24.04" or ["self-hosted","linux","arm64"]); a bare label (what `gh workflow run -f runner_arm64=ubuntu-24.04-arm`
+          # passes, and what docs/CI.md prints) is accepted and quoted, an empty one takes the default.
+          runner_json() {
+            case "$1" in
+              "") printf '%s' "$2" ;;
+              \[*|\"*) printf '%s' "$1" ;;
+              *) printf '"%s"' "$1" ;;
+            esac
+          }
+          RUNNER_AMD64="$(runner_json "$IN_RUNNER_AMD64" '"ubuntu-24.04"')"
+          RUNNER_ARM64="$(runner_json "$IN_RUNNER_ARM64" '"ubuntu-24.04-arm"')"
+          for r in "$RUNNER_AMD64" "$RUNNER_ARM64"; do
+            python3 -c 'import json, sys; json.loads(sys.argv[1])' "$r" || { echo "::error::runner '$r' is not a JSON string or array"; exit 1; }
+          done
+          echo "$IN_VERSION" | grep -q -E '^[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z]+)*$' || { echo "::error::version '$IN_VERSION' is not like 1.0 or 1.0-rc1"; exit 1; }
+          case "$IN_ARCH" in
+            both) arches='["amd64","arm64"]' ;;
+            amd64) arches='["amd64"]' ;;
+            arm64) arches='["arm64"]' ;;
+            *) echo "::error::unknown arch '$IN_ARCH'"; exit 1 ;;
+          esac
+          if [ "$IN_PUBLISH" = production ] && [ "$IN_SIGN" != true ]; then
+            echo "::error::a production release must be signed: run again with sign set (publish-r2.sh refuses production without SHA256SUMS.asc)"; exit 1
+          fi
+          {
+            echo "arches=$arches"
+            echo "version=$IN_VERSION"
+            echo "runner_amd64=$RUNNER_AMD64"
+            echo "runner_arm64=$RUNNER_ARM64"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building $IN_VERSION for $arches, publish: $IN_PUBLISH" | tee -a "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON(needs.plan.outputs.arches) }}
+    # Host only: nothing of the image is built or read on the runner itself (see BUILD_IMAGE). The label comes from the inputs, so a self-hosted
+    # runner (a Mac mini with Docker, an arm64 server) can take the build.
+    runs-on: ${{ fromJSON(matrix.arch == 'arm64' && needs.plan.outputs.runner_arm64 || needs.plan.outputs.runner_amd64) }}
+    timeout-minutes: 150
     permissions:
-      contents: write
-      id-token: write
+      contents: read
     env:
-      # The `secrets` context is not available in a step-level `if:` (GitHub rejects the
-      # whole workflow file), so the signing step tests this job-level flag instead.
-      GPG_KEY_PRESENT: ${{ secrets.GPG_PRIVATE_KEY != '' }}
+      CI_ARCH: ${{ matrix.arch }}
+      CI_OS_VERSION: ${{ needs.plan.outputs.version }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Choose the base ISO of this architecture
+        run: |
+          set -euo pipefail
+          case "$CI_ARCH" in
+            amd64) url="$BASE_ISO_URL_AMD64"; sha="$BASE_ISO_SHA256_AMD64" ;;
+            arm64) url="$BASE_ISO_URL_ARM64"; sha="$BASE_ISO_SHA256_ARM64" ;;
+            *) echo "::error::unknown architecture $CI_ARCH"; exit 1 ;;
+          esac
+          echo "BASE_ISO_URL=$url" >> "$GITHUB_ENV"
+          echo "BASE_ISO_SHA256=$sha" >> "$GITHUB_ENV"
+          [ "$(dpkg --print-architecture)" = "$CI_ARCH" ] \
+            && echo "native $CI_ARCH build" \
+            || echo "::warning::the runner is $(dpkg --print-architecture), the image is $CI_ARCH: the chroot runs under emulation (slow); docs/architecture/arm64.md"
+
       - name: Free disk space
         run: |
           echo "Disk space before cleanup:"
-          df -h
-
-          # Remove unnecessary packages and files
+          df -h /
+          # The hosted images carry toolchains this build never uses; a self-hosted runner has none of them and the commands are no-ops.
           sudo apt-get remove -y \
             '^dotnet-.*' '^llvm-.*' 'php.*' '^mongodb-.*' '^mysql-.*' \
             azure-cli google-chrome-stable firefox powershell mono-devel || true
-          sudo apt-get autoremove -y
-          sudo apt-get clean
-
-          # Remove large directories
+          sudo apt-get autoremove -y || true
+          sudo apt-get clean || true
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android \
             /opt/ghc /opt/hostedtoolcache/CodeQL || true
-
           echo "Disk space after cleanup:"
-          df -h
+          df -h /
 
       - name: Start the Ubuntu 26.04 build container
         run: |
@@ -117,7 +223,7 @@ jobs:
           docker exec ci-os-build bash -euc '
             for i in $(seq 0 127); do [ -e /dev/loop$i ] || mknod -m 0660 /dev/loop$i b 7 $i; done
             [ -e /dev/loop-control ] || mknod -m 0660 /dev/loop-control c 10 237
-            . /etc/os-release && echo "build container: $PRETTY_NAME ($VERSION_CODENAME)"'
+            . /etc/os-release && echo "build container: $PRETTY_NAME ($VERSION_CODENAME) $(dpkg --print-architecture)"'
 
       - name: Install dependencies (in the container)
         run: |
@@ -128,7 +234,6 @@ jobs:
             apt-get update
             apt-get install -y \
               ca-certificates \
-              debootstrap \
               squashfs-tools \
               xorriso \
               rsync \
@@ -146,30 +251,16 @@ jobs:
               python3-yaml \
               diffutils \
               mount \
-              util-linux'
-
-      - name: Determine version
-        id: version
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            VERSION="${{ github.event.inputs.version }}"
-          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
-            VERSION="${{ github.ref_name }}"
-            VERSION="${VERSION#v}"  # Remove 'v' prefix
-          else
-            VERSION="1.0-$(date +%Y%m%d)"
-          fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Building CI-OS version: $VERSION"
+              util-linux \
+              file'
 
       - name: Download and verify the base Ubuntu ISO
         run: |
           set -euo pipefail
-          echo "Downloading Ubuntu ${UBUNTU_VERSION} (${UBUNTU_CODENAME}) Desktop ISO..."
+          echo "Downloading Ubuntu ${UBUNTU_VERSION} (${UBUNTU_CODENAME}) $CI_ARCH Desktop ISO..."
           iso_name="${BASE_ISO_URL##*/}"
           dir_url="${BASE_ISO_URL%/*}"
           cd "$RUNNER_TEMP/base"
-
           # 1. Ubuntu's SHA256SUMS, accepted only with a good signature made by the pinned CD image key.
           curl -fsSL --retry 3 -O "$dir_url/SHA256SUMS" -O "$dir_url/SHA256SUMS.gpg"
           export GNUPGHOME="$RUNNER_TEMP/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
@@ -178,41 +269,37 @@ jobs:
           # VALIDSIG <signing key fpr> ... <primary key fpr>: the pinned key may be either.
           awk -v want="$UBUNTU_CD_KEY_FPR" '$2 == "VALIDSIG" && ($3 == want || $NF == want) { ok = 1 } END { exit !ok }' gpg.status \
             || { echo "SHA256SUMS is not signed by $UBUNTU_CD_KEY_FPR:"; cat gpg.status; exit 1; }
-
           # 2. The line for exactly this ISO must carry the pinned sha256.
           grep -F -- " *$iso_name" SHA256SUMS > iso.sha256 || { echo "$iso_name is not in Ubuntu's SHA256SUMS"; exit 1; }
           [ "$(wc -l < iso.sha256)" -eq 1 ] || { echo "more than one SHA256SUMS line for $iso_name"; exit 1; }
           signed="$(cut -d' ' -f1 iso.sha256)"
           [ "$signed" = "$BASE_ISO_SHA256" ] \
             || { echo "Ubuntu's signed SHA256SUMS says $signed for $iso_name; the workflow pins $BASE_ISO_SHA256"; exit 1; }
-
           # 3. Download, then check the bytes against the signed line.
           curl -fSL --retry 3 -o "$iso_name" "$BASE_ISO_URL"
           sha256sum -c iso.sha256
           mv "$iso_name" ubuntu-base.iso
           ls -lh ubuntu-base.iso
 
-      - name: Build CI-OS ISO (in the container)
-        env:
-          CI_OS_VERSION: ${{ steps.version.outputs.version }}
+      - name: Build Companion OS ISO (in the container)
         run: |
-          echo "Building CI-OS $CI_OS_VERSION..."
-
+          echo "Building Companion OS $CI_OS_VERSION ($CI_ARCH)..."
           docker exec -e CI_OS_VERSION ci-os-build \
             ./backends/ubuntu/iso/scripts/build-iso.sh \
+            --arch "$CI_ARCH" \
             --base-iso /base/ubuntu-base.iso \
             --output-dir ./output \
             --work-dir ./work \
             --version "$CI_OS_VERSION" \
             --clean
 
-      - name: Verify the image (pre-installed tools and branding, in the container)
+      - name: Verify the image (pre-installed tools, branding, layers, the unit tests of the installer helper)
         run: |
           # The stock ISO the image was built from: with it verify-iso.sh also checks that the Secure Boot binaries and the
-          # initrd's stock bytes are untouched and that the md5sum.txt exclusions are the stock ISO's own.
-          # Fails the build if any CI-Hub / wireless setup tool is missing or the branding regressed.
-          docker exec -e VERIFY_BASE_ISO=/base/ubuntu-base.iso ci-os-build sh -c \
-            './backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-*.iso'
+          # initrd's stock bytes are untouched and that the md5sum.txt exclusions are the stock ISO's own. It reads the architecture
+          # from the image's volume id. Fails the build if anything is missing or the branding regressed.
+          docker exec -e VERIFY_BASE_ISO=/base/ubuntu-base.iso -e VERIFY_REQUIRE_CANON=1 ci-os-build sh -c \
+            './backends/ubuntu/iso/scripts/verify-iso.sh output/companion-os-*.iso 2>&1 | tee output/verify-iso-'"$CI_ARCH"'.log'
 
       - name: Stop the build container and hand the output to the runner user
         if: always()
@@ -227,177 +314,154 @@ jobs:
           docker exec ci-os-build chown -R "$(id -u):$(id -g)" /work/output || true
           docker rm -f ci-os-build || true
 
-      - name: Generate checksums
-        id: checksums
+      - name: Record the image's checksum
         run: |
           cd output
+          sha256sum companion-os-*.iso | tee "SHA256SUMS.$CI_ARCH"
+          {
+            echo "### Companion OS $CI_OS_VERSION, $CI_ARCH"
+            echo
+            echo '```'
+            cat "SHA256SUMS.$CI_ARCH"
+            echo '```'
+            echo
+            grep -E '^== Summary' "verify-iso-$CI_ARCH.log" | tail -n 1 || true
+          } >> "$GITHUB_STEP_SUMMARY"
 
-          ISO_NAME=$(ls companion-os-*.iso)
-          echo "iso_name=$ISO_NAME" >> $GITHUB_OUTPUT
+      - name: Upload the image as an artifact (short retention, because storage is billed)
+        uses: actions/upload-artifact@v4
+        with:
+          name: companion-os-${{ matrix.arch }}
+          path: |
+            output/companion-os-*.iso
+            output/verify-iso-*.log
+          retention-days: 7
+          compression-level: 0  # an ISO is already compressed
+          if-no-files-found: error
 
-          # Generate SHA256 and MD5 checksums
-          sha256sum "$ISO_NAME" > SHA256SUMS
-          md5sum "$ISO_NAME" > MD5SUMS
+  publish:
+    name: Publish to R2 (${{ inputs.publish }})
+    needs: [plan, build]
+    if: ${{ (inputs.publish || 'none') != 'none' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    # The GitHub environment of the same name (dev, production) holds the R2 key pair and, for production, the release signing key and the
+    # required reviewers. Nothing outside this job can read them.
+    environment: ${{ inputs.publish }}
+    permissions:
+      contents: write   # the draft release (production only)
+    env:
+      CI_OS_VERSION: ${{ needs.plan.outputs.version }}
+      CHANNEL: ${{ inputs.publish }}
+      GPG_KEY_PRESENT: ${{ secrets.GPG_PRIVATE_KEY != '' }}
 
-          echo "Checksums generated:"
-          cat SHA256SUMS
-          cat MD5SUMS
+    steps:
+      - name: Checkout repository (for the publishing scripts)
+        uses: actions/checkout@v4
 
-      - name: Sign checksums (if enabled)
-        if: github.event.inputs.sign == 'true' && env.GPG_KEY_PRESENT == 'true'
+      - name: Free disk space (both images, and one downloaded again to verify, are on this disk at once)
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - name: Check the tools and the environment's configuration
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: |
+          set -euo pipefail
+          for t in aws gpg python3 curl; do command -v "$t" >/dev/null || { echo "::error::$t is not installed on this runner"; exit 1; }; done
+          aws --version
+          missing=""
+          for v in R2_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY; do [ -n "${!v}" ] || missing="$missing $v"; done
+          [ -z "$missing" ] || { echo "::error::the '$CHANNEL' environment has no secret:$missing (an R2 S3 API token's account id and key pair)"; exit 1; }
+          if [ "$CHANNEL" = production ] && [ "$GPG_KEY_PRESENT" != true ]; then echo "::error::the production environment has no GPG_PRIVATE_KEY secret"; exit 1; fi
+
+      - name: Download both images
+        uses: actions/download-artifact@v4
+        with:
+          pattern: companion-os-*
+          path: release
+          merge-multiple: true
+
+      - name: Checksums and SBOM
+        run: |
+          set -euo pipefail
+          cd release
+          ls -lh
+          sha256sum companion-os-*.iso | tee SHA256SUMS
+          cat > SBOM.txt <<EOF
+          Companion OS software bill of materials
+          =======================================
+          Version: $CI_OS_VERSION
+          Base: Ubuntu 26.04.1 LTS (Resolute Raccoon)
+          Built: $(date -u +"%Y-%m-%d %H:%M:%S UTC") from commit $GITHUB_SHA
+          Images: $(printf '%s ' companion-os-*.iso)
+          The full package lists are the *.manifest files in each image's casper/ directory.
+          EOF
+
+      - name: Sign SHA256SUMS
+        if: ${{ inputs.sign && env.GPG_KEY_PRESENT == 'true' }}
         env:
           GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
           GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
         run: |
-          cd output
+          set -euo pipefail
+          export GNUPGHOME="$RUNNER_TEMP/release-gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
+          printf '%s' "$GPG_PRIVATE_KEY" | gpg --batch --import
+          cd release
+          printf '%s' "$GPG_PASSPHRASE" | gpg --batch --yes --pinentry-mode loopback --passphrase-fd 0 \
+            --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS
+          gpg --batch --verify SHA256SUMS.asc SHA256SUMS
+          # the public half, for whoever verifies this release (it is not a secret)
+          gpg --batch --armor --export > "$RUNNER_TEMP/release-public-key.asc"
 
-          # Import GPG key
-          echo "$GPG_PRIVATE_KEY" | gpg --batch --import
-
-          # Sign checksums
-          echo "$GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
-            --armor --detach-sign --output SHA256SUMS.gpg SHA256SUMS
-
-          echo "$GPG_PASSPHRASE" | gpg --batch --yes --passphrase-fd 0 \
-            --armor --detach-sign --output MD5SUMS.gpg MD5SUMS
-
-          echo "Checksums signed successfully"
-
-      - name: Generate SBOM
-        run: |
-          echo "Generating Software Bill of Materials..."
-
-          # Create a simple SBOM listing packages in the ISO
-          cat > output/SBOM.txt << EOF
-          Companion OS Software Bill of Materials
-          =======================================
-
-          Base: Ubuntu 26.04.1 LTS (Resolute Raccoon)
-          Companion OS Version: ${{ steps.version.outputs.version }}
-          Build Date: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-
-          Custom Packages:
-          - ci-os-branding
-
-          For the complete package list, see the *.manifest files in the ISO's casper/ directory.
-          EOF
-
-          echo "SBOM generated"
-
-      - name: Create release notes
-        id: release_notes
-        run: |
-          cat > release-notes.md << EOF
-          # Companion OS ${{ steps.version.outputs.version }} - Ubuntu 26.04 Based
-
-          ## What's New
-
-          - 🚀 **Based on Ubuntu 26.04.1 LTS (Resolute Raccoon)** - Long-term support release
-          - 🎨 **Custom Branding** - Companion OS identity and the Companion Intelligence brand look
-          - 🔒 **Privacy First** - No ads, no surveillance, telemetry disabled
-          - 💻 **AMD GPU Ready** - ROCm from the Ubuntu 26.04 archive on Strix Halo, with the kernel's inbox amdgpu driver
-          - 🛠️ **Developer Friendly** - Compatible with Docker, VS Code, Node.js
-          - 🌐 **Sovereign Computing** - Your data, your control
-
-          ## Installation
-
-          1. Download the ISO file below
-          2. Create a bootable USB drive using:
-             - **Linux**: \`sudo dd if=companion-os-*.iso of=/dev/sdX bs=4M\`
-             - **Windows**: Use Rufus or Etcher
-             - **macOS**: Use Etcher or \`dd\` command
-          3. Boot from the USB drive
-          4. Follow the installer
-          5. Run \`ci-os-info\` after installation to see system information
-
-          ## AMD GPU Support
-
-          On a Strix Halo-class machine (Ryzen AI Max, gfx1151) the helper installs the ROCm
-          packages from the Ubuntu 26.04 archive and uses the kernel's inbox amdgpu driver; on
-          other hardware it installs nothing:
-          \`\`\`bash
-          sudo ci-os-install-rocm
-          \`\`\`
-
-          ## Verification
-
-          Verify the ISO checksum:
-          \`\`\`bash
-          sha256sum -c SHA256SUMS
-          \`\`\`
-
-          ## System Requirements
-
-          - **CPU**: 64-bit x86 processor (AMD Ryzen recommended)
-          - **RAM**: 4GB minimum, 8GB+ recommended
-          - **Storage**: 25GB minimum, 50GB+ recommended
-          - **GPU**: AMD Radeon RX 5000 series or newer for AI features
-
-          ## What's Removed
-
-          - Ubuntu telemetry services (ubuntu-report, popularity-contest, apport)
-          - Snap Store (use GNOME Software for native packages)
-          - Default games and bloatware
-          - Metric collection endpoints blocked in /etc/hosts
-
-          ## Built-in Commands
-
-          - \`ci-os-info\` - Display system and GPU information
-          - \`ci-os-install-rocm\` - Install AMD ROCm stack for AI
-
-          ---
-
-          **Built**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")
-          **Base**: Ubuntu 26.04.1 LTS (Resolute Raccoon)
-          **Source**: https://github.com/companionintelligence/CI-OS
-
-          © Companion Intelligence — Lifescope Inc
-          EOF
-
-      - name: Upload ISO as artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-os-iso-${{ steps.version.outputs.version }}
-          path: |
-            output/companion-os-*.iso
-            output/SHA256SUMS
-            output/MD5SUMS
-            output/SHA256SUMS.gpg
-            output/MD5SUMS.gpg
-            output/SBOM.txt
-          retention-days: 7
-          compression-level: 0  # ISO is already compressed
-
-      - name: Create GitHub Release
-        if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('v{0}', steps.version.outputs.version) }}
-          name: Companion OS ${{ steps.version.outputs.version }}
-          body_path: release-notes.md
-          files: |
-            output/companion-os-*.iso
-            output/SHA256SUMS
-            output/MD5SUMS
-            output/SHA256SUMS.gpg
-            output/MD5SUMS.gpg
-            output/SBOM.txt
-          draft: false
-          prerelease: false
+      - name: Publish to R2 (dry run first, then for real)
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Summary
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
-          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ CI-OS ISO built successfully!" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
-          echo "**ISO Name**: ${{ steps.checksums.outputs.iso_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "**Base**: Ubuntu 26.04.1 LTS (Resolute Raccoon)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Checksums" >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
-          cat output/SHA256SUMS >> $GITHUB_STEP_SUMMARY
-          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          set -euo pipefail
+          args=(--dir release --version "$CI_OS_VERSION" --channel "$CHANNEL"
+                --repository "$GITHUB_REPOSITORY" --commit "$GITHUB_SHA"
+                --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID")
+          ./backends/ubuntu/iso/scripts/publish-r2.sh "${args[@]}"                       # the plan, no credentials used
+          ./backends/ubuntu/iso/scripts/publish-r2.sh "${args[@]}" --apply --check-public
+
+      - name: Verify what is served
+        run: |
+          set -euo pipefail
+          base="https://dl-dev.ci.computer"; extra=()
+          if [ "$CHANNEL" = production ]; then
+            base="https://dl.ci.computer"
+            extra+=(--full)      # production: download both images from the public URL and check their bytes (gate 14 of the release checklist)
+          fi
+          if [ -f "$RUNNER_TEMP/release-public-key.asc" ]; then extra+=(--pubkey "$RUNNER_TEMP/release-public-key.asc"); fi
+          ./backends/ubuntu/iso/scripts/verify-published.sh --base-url "$base" --version "$CI_OS_VERSION" "${extra[@]}" | tee verify-published.log
+          { echo '### Published'; echo; echo '```'; cat verify-published.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release notes (generated from the manifest)
+        run: |
+          set -euo pipefail
+          base="https://dl-dev.ci.computer"; [ "$CHANNEL" = production ] && base="https://dl.ci.computer"
+          python3 backends/ubuntu/iso/scripts/release-manifest.py --dir release --out-dir "$RUNNER_TEMP/rel" --version "$CI_OS_VERSION" \
+            --channel "$CHANNEL" --base-url "$base" --prefix os --commit "$GITHUB_SHA" \
+            --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" --notes-out release-notes.md >/dev/null
+
+      - name: Draft GitHub release with the small files (production only; the images stay on R2)
+        if: ${{ inputs.publish == 'production' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.plan.outputs.version }}
+          name: Companion OS ${{ needs.plan.outputs.version }}
+          body_path: release-notes.md
+          draft: true
+          prerelease: false
+          fail_on_unmatched_files: true
+          files: |
+            release/SHA256SUMS
+            release/SHA256SUMS.asc
+            release/SBOM.txt
