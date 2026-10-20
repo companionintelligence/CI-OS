@@ -1,0 +1,36 @@
+2026-10-20T02:51:10Z run start: companion-os-1.0-arm64.iso built from main 5d50582 (sha256 0cc31d9c...5110), install target on the SSD (qcow2), not a RAM disk
+2026-10-20T02:51:10Z recorder started (1.5 s)
+2026-10-20T02:51:14Z VM start (power on): companion-os-1.0-arm64.iso
+2026-10-20T02:51:35Z GRUB menu: Try or Install Companion OS (default), Install Companion OS (automatic), Boot from next volume, UEFI Firmware Settings; a 30 s countdown (25 s left when first looked at); choosing the automatic entry with Down, Enter as the earlier runs did
+2026-10-20T02:51:35Z key down 
+2026-10-20T02:51:36Z key ret Install Companion OS (automatic)
+2026-10-20T02:53:29Z live desktop: Canonical's Welcome to Ubuntu installer window (Choose your language) in front; closing it to see the one-click dialog behind
+2026-10-20T02:53:29Z click 1098 99 close Canonical's installer window
+2026-10-20T02:53:51Z the one-click dialog (behind Canonical's window) is the only page: the disk, English US, detected time zone, a one-time password (read from the picture and the zoomed crop, not OCR); clicking Erase the disk and install
+2026-10-20T02:53:51Z click 640 629 Erase the disk and install
+2026-10-20T03:05:41Z the installer powered the VM off (QEMU exited); the click was at 02:53:51
+2026-10-20T03:05:46Z VM start (power on): -
+2026-10-20T03:06:35Z installed system: GDM greeter on screen by 03:06:26 (power-on 03:05:46); signing in as companion with the one-time password
+2026-10-20T03:06:35Z click 640 350 user: Companion
+2026-10-20T03:06:41Z typed the throwaway password from a file (not shown)
+2026-10-20T03:06:42Z key ret sign in with the one-time password
+2026-10-20T03:06:58Z forced password change: Changing password for companion (current password asked first)
+2026-10-20T03:07:01Z typed the throwaway password from a file (not shown)
+2026-10-20T03:07:02Z key ret current password
+2026-10-20T03:07:20Z typed the throwaway password from a file (not shown)
+2026-10-20T03:07:21Z key ret new password
+2026-10-20T03:07:30Z typed the throwaway password from a file (not shown)
+2026-10-20T03:07:31Z key ret retype the new password
+2026-10-20T03:07:55Z first session (new password confirmed 03:07:31): Firefox with one tab (docs.ci.computer getting started), no notification yet; observing without input while the first-boot job starts (a timer, about 3 min after boot)
+2026-10-20T03:13:03Z first-boot notifications seen in the frames 03:09:05 to 03:12:00 (steps of 7, then ready); screen blanked 03:12:35 (5 min 04 s after the last input 03:07:31); waking, unlocking with the new password
+2026-10-20T03:13:08Z key shift 
+2026-10-20T03:13:14Z typed the throwaway password from a file (not shown)
+2026-10-20T03:13:15Z key ret unlock
+2026-10-20T03:13:27Z key ctrl+alt+t open a terminal
+2026-10-20T03:13:41Z type: (curl -s 10.0.2.2:8800/f.sh || wget -qO- 10.0.2.2:8800/f.sh) | sh -s cb-installed
+2026-10-20T03:13:41Z key ret facts script
+2026-10-20T03:14:01Z type: (curl -s 10.0.2.2:8800/proof.sh || wget -qO- 10.0.2.2:8800/proof.sh) | sh -s cb-proof
+2026-10-20T03:14:01Z key ret proof script
+2026-10-20T03:14:33Z facts and proof read at 03:13:49 (7 min after boot): degraded (pd-mapper), time zone Etc/UTC although the dialog said detected automatically, color-scheme default, accent orange, ua-timer and motd-news timers enabled, ubuntu-insights installed
+2026-10-20T03:14:33Z VM stopped
+2026-10-20T03:14:34Z recorder stop requested

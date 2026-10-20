@@ -2,37 +2,37 @@
   "comparisons": [
     {
       "file": "compare-first-screen.png",
-      "bytes": 504627,
-      "sha256": "471069effebb8197effed5615df4a32fa483e3d9d311a2dd09cab53a828455ed",
+      "bytes": 504659,
+      "sha256": "85a67aaa786ecf9020920babd7c792b8ac8c6f0eab212a44d08d5ebfda0031ee",
       "made_from": [
         "ubuntu-stock/03-installer-language.png",
         "fedora/02-live-desktop-welcome.png",
         "debian/02-installer-language.png",
-        "../companion-os/ubuntu/arm64-02-live-installer-welcome.png"
+        "companion-os-before/02-live-canonical-window.png"
       ],
       "note": "a composite of four frames reduced to 632 pixels wide, with captions; not a capture"
     },
     {
       "file": "compare-install-progress.png",
-      "bytes": 505193,
-      "sha256": "31b6b351f99b4202ce1f50f8d3232e4d089d92ea06cd1f2cee1ae90fe34edcde",
+      "bytes": 506499,
+      "sha256": "ca38a4b7250e047c697a4c30b9ce06978e6ed7fa81054b80d9be97500256db81",
       "made_from": [
         "ubuntu-stock/07-installer-progress.png",
         "fedora/05-installer-progress.png",
         "debian/08-installer-progress.png",
-        "../companion-os/ubuntu/arm64-05-one-click-progress.png"
+        "companion-os-before/04-install-progress.png"
       ],
       "note": "a composite of four frames reduced to 632 pixels wide, with captions; not a capture"
     },
     {
       "file": "compare-first-sign-in.png",
-      "bytes": 583532,
-      "sha256": "a884237273ac74a4badfcb15a372bf8f56ed4cdad77c31d185dae5dff031dab8",
+      "bytes": 580778,
+      "sha256": "d980c4f8e5177205c57587b6539c57e9cf4dd26ce3d0c3947b5c145d78f672ef",
       "made_from": [
         "ubuntu-stock/10-first-sign-in-welcome-updater-banner.png",
         "fedora/10-first-desktop-tour-prompt.png",
         "debian/11-first-desktop-tour-prompt.png",
-        "../companion-os/ubuntu/arm64-22-setup-notification-ready-fix-image.png"
+        "companion-os-before/07-first-boot-notification-step-5.png"
       ],
       "note": "a composite of four frames reduced to 632 pixels wide, with captions; not a capture"
     }

@@ -1,0 +1,87 @@
+{
+  "run": "2026-10-19 (local), arm64, QEMU 11.1.2 with HVF; the times are UTC of 2026-10-20",
+  "image": "companion-os-1.0-arm64.iso built from main 5d50582 (sha256 0cc31d9c...5110), the same evening and harness as the other sets",
+  "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware; one run",
+  "frames": [
+    {
+      "file": "01-grub-menu.png",
+      "sha256": "463999d98140e0bddfa8a12891c9d6685749d807a8c22addf8cc8992b186f6bc",
+      "bytes": 15245,
+      "size": "1280x800",
+      "alt": "The boot menu of Companion OS: Try or Install Companion OS (the default), Install Companion OS (automatic), a 30 second countdown",
+      "shows": "GNU GRUB with the Companion mark; the automatic entry is the second line and was chosen with Down, Enter (t0 + 14 s)",
+      "stage": "boot menu",
+      "taken_approx_utc": "2026-10-20T02:51:22Z"
+    },
+    {
+      "file": "02-live-canonical-window.png",
+      "sha256": "0a608df3b355afc4ff019d1d2877a24b172fc886128258f3be74d6336cb150f5",
+      "bytes": 480590,
+      "size": "1280x800",
+      "alt": "The live desktop with Canonical's Welcome to Ubuntu installer window in front: Choose your language",
+      "shows": "Opened by itself at t0 + 1:37, with the Ubuntu logo and name on the first of its pages; the one-click dialog is behind it",
+      "stage": "live desktop",
+      "taken_approx_utc": "2026-10-20T02:53:00Z"
+    },
+    {
+      "file": "03-one-click-dialog.png",
+      "sha256": "6530cdc1c6856ec8e308d7a545fc609f55aa4e1f1ff4579b7c4be98008e3c970",
+      "bytes": 775346,
+      "size": "1280x800",
+      "alt": "Companion's one-click dialog, the only question: Erase the disk and install, with the disk, the language and time zone line, and the buttons",
+      "shows": "Shown after Canonical's window was closed by hand. The one-time password line is covered by a dark bar added after the capture (the original shows the password); nothing else was changed",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T02:53:33Z"
+    },
+    {
+      "file": "04-install-progress.png",
+      "sha256": "53d5983a969a582e4894d524adc2d47d4358c25fc626e33b1eaf178d377f4e72",
+      "bytes": 1179607,
+      "size": "1280x800",
+      "alt": "The install in progress: one text block and a progress bar with no percentage",
+      "shows": "The same window for 11 min 27 s at most. The one-time password in the sentence is covered by a dark bar added after the capture; nothing else was changed",
+      "stage": "install",
+      "taken_approx_utc": "2026-10-20T02:54:03Z"
+    },
+    {
+      "file": "05-installed-greeter.png",
+      "sha256": "81db9981d52132878e79159ead8889b692b8a3eda10b289f3d9b2036946aaee2",
+      "bytes": 26515,
+      "size": "1280x800",
+      "alt": "The installed system's greeter, 28 s after power-on: the Companion mark and one user",
+      "shows": "The account is named Companion; the sign-in takes the one-time password, then asks for a new one",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T03:06:14Z"
+    },
+    {
+      "file": "06-first-session.png",
+      "sha256": "e3d55ebbcbfaba665b90ee4e11ee27a926b007fcd7935a7ce5b2a4e754ac7476",
+      "bytes": 157644,
+      "size": "1280x800",
+      "alt": "The first session: Firefox with one tab, the Companion getting-started page, no notification",
+      "shows": "10 s after the new password was confirmed; the only thing opened by itself",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T03:07:55Z"
+    },
+    {
+      "file": "07-first-boot-notification-step-5.png",
+      "sha256": "2eda0293d972d30fd12f905817d9a25c941d00e19e9921f1ce836a4419afdf6e",
+      "bytes": 169937,
+      "size": "1280x800",
+      "alt": "The first-boot notification: Setting up Companion OS, step 5 of 7, downloading the AI models",
+      "shows": "About 3 minutes after boot the first-boot job starts and says what it is doing",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T03:10:06Z"
+    },
+    {
+      "file": "08-first-boot-notification-ready.png",
+      "sha256": "f84bc834ecccabae6267714b982ab071d3a54a051aeafea6f52e6ed6a524bbde",
+      "bytes": 169106,
+      "size": "1280x800",
+      "alt": "The first-boot notification: Companion OS is ready",
+      "shows": "About 2 min 40 s after the job started",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T03:12:00Z"
+    }
+  ]
+}

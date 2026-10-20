@@ -1,0 +1,40 @@
+Companion OS (Ubuntu edition) on arm64 from commit 5d50582 (origin/main at the time), installed with the one-click install and photographed from power-on in the
+same harness and on the same evening as the teardown of the other distros: the same-evening Companion OS column. Evidence label: tested in a virtual machine (QEMU
+11.1.2, HVF, Apple-silicon Mac); not real hardware; one run. 2026-10-19 local time, times below are UTC (2026-10-20), frames about 3 s apart, event times are logged when
+the action returns.
+
+Image     companion-os-1.0-arm64.iso, 5,593,038,848 bytes, sha256 0cc31d9ce18040dac743d664cc15f04af7d8b18b2b2fad5f48ee506ac7e25110 (SHA256SUMS), built from a clean tree of 5d50582
+          in a native arm64 ubuntu:26.04 container (871 s, build-status.txt of the run), verify-iso.sh 446 passed, 0 failed
+Harness   as for the other distros: boot-arm64-vm.sh, qmp-drive.py, record-frames.sh at 1.5 s; -smp 6 -m 8192, virtio-gpu 1280x800, the ISO as a USB drive, a new 64 GiB virtual NVMe
+          disk. The target disk was a qcow2 file on the SSD, not on the RAM disk the other three runs used (the first-boot job adds about 8 GB and the RAM disk was 16 GiB)
+Host load 6.6 at the start (one-minute average), 5.8 at the end; nothing else of ours was running; other sessions of the owner were using the Mac lightly
+Frames    518 frames after the removal of byte-identical repeats, not kept (the install dialog and the progress window show the one-time password)
+
+02:51:13  power-on
+02:51:22  first boot-menu frame (t0): GNU GRUB 2.14 with the Companion mark: "Try or Install Companion OS" (default), "Install Companion OS (automatic)", "Boot from next volume",
+          "UEFI Firmware Settings"; a 30 s countdown (25 s left at the first look)
+02:51:36  Down, Enter: the automatic entry (t0 + 14 s), as in the earlier Companion runs
+02:51:41  a text boot log (no splash)
+02:52:52  the first live desktop frame (t0 + 1:30): the Companion wallpaper, the top bar, nothing else
+02:52:59  Canonical's "Welcome to Ubuntu" installer window (Choose your language) in front, opened by itself (t0 + 1:37); the one-click dialog is behind it
+02:53:33  Canonical's window closed by hand: the dialog, one page: the disk and what is on it, "English (United States), keyboard: English (US), time zone: detected automatically",
+          a one-time password, and the buttons Use the normal installer / Language, keyboard, time zone... / Erase the disk and install / Cancel. The dock and two "Install
+          Companion OS" launchers on the desktop
+02:53:51  Erase the disk and install clicked. The progress window: one text block (the password and "this takes a while") and a bar with no percentage
+03:05:18  the VM exited, powered off by the installer: at most 11 min 27 s (the wait loop polls every 5 s). The disk file was 14.3 GB
+03:05:46  the installed disk started alone (no ISO)
+03:06:14  the greeter, first recorded frame (power-on + 28 s): "Companion", the Companion mark
+03:06:42  the one-time password typed, Enter: the screen asked "Current password" (Changing password for companion), then "New password", then a retype; the new password confirmed at 03:07:31
+03:07:41  the first session frame (10 s after the last Enter): Firefox with one tab (docs.ci.computer getting started); no notification, no other window
+03:08:57  ci-os-first-boot-setup.timer started the first-boot job (3 min after boot, as designed)
+03:09:05  the notifications, from the recorded frames: "Setting up Companion OS: getting the computer ready"; 03:09:50 "step 3 of 7: installing developer tools"; 03:10:06 "step 5 of 7:
+          downloading the AI models (the longest step)"; 03:10:50 "step 7 of 7: starting Companion Hub"; "Companion OS is ready" by 03:11:36 (about 2 min 40 s after the job started)
+03:12:35  the screen blanked, 5 min 04 s after the last input (03:07:31); the lock screen after a pointer move
+03:13:49  installed-facts.txt and proof-facts.txt (7 min after boot): the system reads degraded because of pd-mapper.service (KI-28); the time zone is Etc/UTC although the dialog said
+          detected automatically; color-scheme default and accent orange; 1876 packages, 19 GB used; the Pro client's apt hook, the ua-timer and motd-news timers and ubuntu-insights
+          are all present; SSH, Hub (5002), Traefik (8080, 8443, 8880) and Ollama (11434) listen on all interfaces
+
+What it shows: the Companion OS install and first start on the evening of the teardown, with the same stopwatch and counts. What it does not: a second run, amd64, real hardware, a
+language other than English, Secure Boot.
+Credentials: the one-time password was read from the picture and a magnified crop (not OCR) and typed from a 0600 file; the new password is a throwaway value of this virtual machine;
+neither is in any record or frame kept here.
