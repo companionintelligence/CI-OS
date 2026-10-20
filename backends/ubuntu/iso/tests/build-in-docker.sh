@@ -3,9 +3,10 @@
 # Test: build-in-docker.sh builds and verifies the ISO in a container, and refuses what must not be built
 #
 # Runs the real script against a throw-away git repository and a STUB docker (it logs every call and answers like the real one would), so no
-# container starts. It checks the command sequence of the happy path (privileged, the architecture's own platform, the checkout and the base ISO
+# container starts. It checks the command sequence of the happy path (privileged, the host's own platform, the checkout and the base ISO
 # mounted read-only, the build and the verify with the arguments CI uses, the copy out, the cleanup), the refusals (a dirty tree, an unpinned base
-# ISO, an architecture the host would emulate, a missing Docker), the failures (a build that fails, a verify that fails, a setup step that fails),
+# ISO, an arm64 image on an x86-64 host, a missing Docker), that an amd64 image on an Apple-silicon Mac is built in the arm64 container (the documented
+# Rosetta route), the failures (a build that fails, a verify that fails, a setup step that fails),
 # --keep, --no-verify and --dry-run, and that the pins and the package list are the workflow's own.
 #
 # Pure bash 3.2, no root, no Docker, no network; writes only to a temporary directory.
@@ -75,10 +76,13 @@ chmod 755 "$BIN/docker" "$BIN/uname"
 
 # run ARGS...: run the tool against the throw-away repository, an output directory of its own, the stubs first on PATH
 OUTDIR=""
+# the tool makes its temporary checkout under TMPDIR: give it a private one, so that "no checkout is left behind" counts only this test's own runs
+# (a real build, or another agent's, running at the same time on the machine has its own and must not make this test fail)
+MYTMP="$WORK/tmp"; mkdir -p "$MYTMP"
 run() {
   : > "$STUB_LOG"
   OUTDIR="$WORK/out.$((RANDOM))"
-  OUT="$(env PATH="$BIN:/usr/bin:/bin" STUB_LOG="$STUB_LOG" CI_OS_BASE_ISO_SHA256="$BASE_SHA" "$@" 2>&1)"; RC=$?
+  OUT="$(env PATH="$BIN:/usr/bin:/bin" TMPDIR="$MYTMP" STUB_LOG="$STUB_LOG" CI_OS_BASE_ISO_SHA256="$BASE_SHA" "$@" 2>&1)"; RC=$?
 }
 tool() { run bash "$TOOL" --repo "$REPO" --base-iso "$WORK/base.iso" --output-dir "$OUTDIR_NEXT" "$@"; }
 next_out() { OUTDIR_NEXT="$WORK/out.$((RANDOM))"; }
@@ -115,8 +119,8 @@ grep -q "446 passed" "$OUTDIR_NEXT/verify-iso-arm64.log" 2>/dev/null && pass "  
 has "the summary of the verify is shown" "== Summary: 446 passed, 0 failed"
 has "the next step is the publisher's dry run" "publish-r2.sh --dir"
 has "  for the dev channel" "--channel dev"
-LEFT="$(ls -d "${TMPDIR:-/tmp}"/ci-os-build-tree.* 2>/dev/null | wc -l | tr -d ' ')"
-[ "$LEFT" = 0 ] && pass "no temporary checkout is left behind" || fail "$LEFT temporary checkout(s) left in ${TMPDIR:-/tmp}"
+LEFT="$(ls -d "$MYTMP"/ci-os-build-tree.* 2>/dev/null | wc -l | tr -d ' ')"
+[ "$LEFT" = 0 ] && pass "no temporary checkout is left behind" || fail "$LEFT temporary checkout(s) left in $MYTMP"
 
 echo
 echo "== the version and the architecture end up in the names"
@@ -129,18 +133,32 @@ logs "  and the verify" "verify-iso.sh /vol/out/companion-os-1.0-rc1-amd64.iso"
 [ -f "$OUTDIR_NEXT/SHA256SUMS.amd64" ] && pass "SHA256SUMS.amd64 is written" || fail "SHA256SUMS.amd64 is missing"
 
 echo
-echo "== what it refuses (exit 3, nothing started)"
+echo "== a foreign-architecture image: the container is always the host's own platform"
 next_out; export STUB_UNAME=arm64 STUB_ISO=companion-os-1.0-amd64.iso
 tool --arch amd64
-rc_is "an amd64 image on an arm64 host is refused" 3
-has "  and the reason is emulation" "emulation"
+rc_is "an amd64 image on an arm64 host (an Apple-silicon Mac) goes ahead with no flag" 0
+logs "  in a container of the HOST's platform, which runs natively" "--platform linux/arm64"
+nolog "  and never in an amd64 container (the less predictable route)" "--platform linux/amd64"
+logs "  the build asks for the amd64 image" "build-iso.sh --arch amd64"
+logs "  and the verify reads that file" "verify-iso.sh /vol/out/companion-os-1.0-amd64.iso"
+has "  it says this is the Rosetta route" "Rosetta"
+has "  and that a release image comes from an x86-64 host" "A release image comes from an x86-64 host"
+[ -f "$OUTDIR_NEXT/SHA256SUMS.amd64" ] && pass "  SHA256SUMS.amd64 is written" || fail "  SHA256SUMS.amd64 is missing"
+
+next_out; export STUB_UNAME=x86_64 STUB_ISO=companion-os-1.0-arm64.iso
+tool --arch arm64
+rc_is "an arm64 image on an x86-64 host is refused (qemu-user binfmt, never tried)" 3
+has "  and the reason is qemu-user" "qemu-user"
 nolog "  and no container was started" "docker run"
 next_out
-tool --arch amd64 --allow-emulated
+tool --arch arm64 --allow-emulated
 rc_is "  --allow-emulated goes ahead" 0
-logs "  on the amd64 platform" "--platform linux/amd64"
-has "  and says it is not the release image" "not for the release image"
+logs "  in a container of the host's platform" "--platform linux/amd64"
+logs "  building the arm64 image" "build-iso.sh --arch arm64"
+has "  and says it is not for the release image" "not for the release image"
 
+echo
+echo "== what else it refuses (exit 3, nothing started)"
 next_out; export STUB_UNAME=arm64 STUB_ISO=companion-os-1.0-arm64.iso
 echo dirty > "$REPO/untracked-file"
 tool
@@ -162,7 +180,7 @@ nolog "  and no container was started" "docker run"
 next_out
 run bash "$TOOL" --repo "$REPO" --base-iso "$WORK/base.iso" --output-dir "$OUTDIR_NEXT"
 # run() sets CI_OS_BASE_ISO_SHA256 for every call; this one needs it unset to read the real pin
-OUT="$(env -u CI_OS_BASE_ISO_SHA256 PATH="$BIN:/usr/bin:/bin" STUB_LOG="$STUB_LOG" bash "$TOOL" --repo "$REPO" --base-iso "$WORK/base.iso" --output-dir "$OUTDIR_NEXT" 2>&1)"; RC=$?
+OUT="$(env -u CI_OS_BASE_ISO_SHA256 PATH="$BIN:/usr/bin:/bin" TMPDIR="$MYTMP" STUB_LOG="$STUB_LOG" bash "$TOOL" --repo "$REPO" --base-iso "$WORK/base.iso" --output-dir "$OUTDIR_NEXT" 2>&1)"; RC=$?
 rc_is "  with no override the real pin is used, and a fake ISO fails it" 3
 has "  and the real arm64 pin is the one named" "c54d196489d3c867975fb3bbb72ca52ec2e137456e305481f81096304e4d2517"
 next_out
@@ -174,7 +192,7 @@ run bash "$TOOL" --repo "$REPO" --base-iso "$WORK/none.iso" --output-dir "$OUTDI
 rc_is "a base ISO that does not exist is a usage error" 2
 
 next_out
-OUT="$(env PATH="/usr/bin:/bin" bash "$TOOL" --repo "$REPO" --base-iso "$WORK/base.iso" --output-dir "$OUTDIR_NEXT" 2>&1)"; RC=$?
+OUT="$(env PATH="/usr/bin:/bin" TMPDIR="$MYTMP" bash "$TOOL" --repo "$REPO" --base-iso "$WORK/base.iso" --output-dir "$OUTDIR_NEXT" 2>&1)"; RC=$?
 if command -v docker >/dev/null 2>&1 && PATH="/usr/bin:/bin" command -v docker >/dev/null 2>&1; then
   pass "(skipped: a real docker is in /usr/bin here)"
 else
@@ -203,6 +221,12 @@ has "  and its exit code and the log path are named" "the build failed (exit 7)"
 logs "  the container is still removed" "docker rm -f ci-os-ubuild-arm64-"
 nolog "  the verify did not run" "verify-iso.sh"
 nolog "  nothing was copied out" "docker cp"
+
+next_out; export STUB_FAIL=build STUB_UNAME=arm64 STUB_ISO=companion-os-1.0-amd64.iso
+tool --arch amd64
+rc_is "a failing cross-architecture build is exit 1" 1
+has "  and the hint names the binfmt handler and its error" "Exec format error"
+export STUB_UNAME=arm64 STUB_ISO=companion-os-1.0-arm64.iso
 
 next_out; export STUB_FAIL=verify
 tool

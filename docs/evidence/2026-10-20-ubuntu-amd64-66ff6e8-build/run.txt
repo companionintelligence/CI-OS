@@ -1,0 +1,22 @@
+A real build of the amd64 Ubuntu edition on an Apple-silicon Mac with `backends/ubuntu/iso/scripts/build-in-docker.sh --arch amd64`, to prove the route the script takes after the
+fix of 2026-10-20: the container is the HOST's own platform (arm64, native) and the image's x86-64 programs run in a chroot through the Docker VM's Rosetta binfmt. Evidence
+label: built and verified on this Mac; the image has not been booted anywhere. 2026-10-20, times local (Pacific) unless marked.
+
+Image     companion-os-1.0-amd64.iso, 7,086,276,608 bytes, sha256 73325b9660078c02403b43068f6a08dfdb1de37b646340616f767aedc43e490c (SHA256SUMS)
+Base      ubuntu-26.04.1-desktop-amd64.iso, sha256 601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f, the script's pin (it refuses any other)
+Source    commit 66ff6e8 of the local branch liam/real-hardware-shoot, taken with `git archive` from a clean tree. It is the tree of bd6d2a0 (the fix, branch
+          liam/stick-film-r2-release, PR #84) plus one commit that only changes documents: README.md, docs/README.md, docs/architecture/known-issues-and-decisions.md,
+          docs/guides/real-hardware-shoot.md, video/README.md. The commit is not pushed when this is written; the pushed commit with the same script is 0cc2a25
+Host      macOS 27.0.1 on Apple silicon; Docker Desktop 29.8.2 (aarch64, 12 CPUs), Rosetta in the Docker VM; the machine was loaded (the one-minute load average
+          was 10.5 to 20: the full gate of this repository and another session's gate and image build ran at the same time)
+Command   backends/ubuntu/iso/scripts/build-in-docker.sh --arch amd64 --base-iso <the stock amd64 ISO> --version 1.0 --output-dir <scratch>
+Result    "an amd64 image on an arm64 host: the container is arm64 ... Rosetta" (the script's note); the container ran with --platform linux/arm64;
+          built in 1,142 s; verify-iso.sh with VERIFY_BASE_ISO and VERIFY_REQUIRE_CANON=1: 454 passed, 0 failed (verify.log); exit status 0; the container and the volume
+          were removed by the script (build-status.txt is its own output)
+
+What it adds: the script's amd64-on-a-Mac route works end to end (the first version refused it, and with --allow-emulated would have used an amd64 container, the less
+predictable route: docs/guides/building-on-a-mac.md, "Why arm64"). The image of this commit verifies: 454 checks. The arm64 image of 82e9335 passed 446; amd64 carries 8 checks more (Companion Capture is x86-64 only), as 444 against
+436 did before. The build took longer than the 772 s of the first run (a quiet machine); no time here is a benchmark.
+What it does not show: that the image boots, installs or runs on anything (no run of this file exists), a real x86-64 host (a release image should come from one), the
+other architecture. It is the image to flash for the first real-hardware shoot (docs/guides/real-hardware-shoot.md) unless a newer commit supersedes it.
+Credentials: none were used; the logs were scanned for password, token, secret and key blocks and have none; host paths are replaced by <home>, <scratch> and <tmp>.
