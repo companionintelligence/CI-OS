@@ -123,9 +123,9 @@ sign-in counts), so its numbers were taken on other evenings at other loads.
 
 | | Style | Words | Companion OS next to it |
 |---|---|---|---|
-| Ubuntu | a Flutter window in the Yaru light theme, one illustration per page with an orange accent, page dots at the bottom; the first-run wizard is a full-screen GNOME window with the same illustrations | short, friendly ("Fast, free and full of new features") | the same window opens first, then Companion's dialog; the Companion wallpaper is dark teal, the Canonical window is light |
+| Ubuntu | a window in the Yaru light theme, one illustration per page with an orange accent, page dots at the bottom; the first-run wizard is a full-screen GNOME window with the same illustrations | short, friendly ("Fast, free and full of new features") | the same window opens first, then Companion's dialog; the Companion wallpaper is dark teal, the Canonical window is light |
 | Fedora | a web page in a window: a blue gradient header, a **numbered list of steps on the left**, large type, flat buttons; the first-run wizard is plain GNOME with large icons | plain, one idea per screen | none of this: Companion's dialog is a small stock GTK dialog with a table |
-| Debian | the 2000s GTK installer: a beige page under a **"debian13" banner**, long explanatory paragraphs (the root password page is five paragraphs), a Go Back button on every page | accurate and long (the root password page is five paragraphs) | the opposite pole: Companion's text is short |
+| Debian | the classic GTK installer: a beige page under a **"debian13" banner**, long explanatory paragraphs (the root password page is five paragraphs), a Go Back button on every page | accurate and long (the root password page is five paragraphs) | the opposite pole: Companion's text is short |
 | Companion OS | the desktop itself is dark teal with Companion icons; the installer dialog and the progress window are small, light, unbranded GTK dialogs; notifications are GNOME's | terse | see [Frames](#frames) |
 
 ## Frames
