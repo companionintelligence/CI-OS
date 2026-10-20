@@ -825,6 +825,9 @@ echo "[*] Step 7b: Canonical's installer window no longer opens by itself in the
 # still opens the stock window. The installer stays reachable without it: "Install Companion OS" in the application grid starts the stock
 # installer, and the one-click dialog has a "Use the normal installer" button. What the person sees instead is the desktop with
 # "Install Companion OS (automatic)" first in the dock (ci-os-auto-install --live-setup), or, from the automatic boot entry, its dialog.
+# One more thing the unit did: the live layer starts the session in "installer mode" (the dock never shows, the desktop-icons extension is off) and the
+# unit's ExecStopPost undoes that when its window closes. With the unit not started nothing would, so ci-os-auto-install --live-setup does it
+# (restore_normal_session; verify-iso.sh restore_drift keeps its commands equal to the unit's). Found in a boot of an image without it: no dock, no icons.
 # The unit file is looked for in the usual three directories; a link of either kind (wants or requires) is removed. The split needs no change:
 # the link is in the table's `rm` rows and is absent from C now, so it is in neither the base layer nor the live layer.
 # live-installer-autostart begin
@@ -1140,8 +1143,8 @@ echo "[+] One-click automatic installer installed"
 # The list is backends/ubuntu/chroot/start-links.txt (checked by backends/ubuntu/lib/start-links.sh before anything is
 # written). Every row becomes /usr/share/applications/<id>.desktop, which opens the page in the default browser; every row
 # marked "yes" is also copied to /etc/skel/Desktop, so each user created on the installed system finds it on the desktop.
-# A live session has no desktop icons (the live layer turns the extension off), so there the same links are in the
-# application grid and, for the ones the dock list pins, in the dock. welcome-once opens the getting-started page once on
+# A live session starts with the desktop-icons extension off and the dock hidden (the live layer's "installer mode") until ci-os-auto-install --live-setup
+# has taken it out of that (restore_normal_session), so there the same links are also in the application grid and, for the ones the dock list pins, in the dock. welcome-once opens the getting-started page once on
 # the first login of an installed system (never in a live session, never without a network).
 #=============================================================================
 echo "[*] Step 10g: Installing the Companion links, desktop shortcuts and first-login welcome..."

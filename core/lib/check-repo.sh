@@ -257,6 +257,7 @@ for suite in \
   "Ubuntu Pro and telemetry quieting|bash backends/ubuntu/lib/tests/quiet-canonical.sh" \
   "GNOME appearance defaults|bash backends/ubuntu/lib/tests/appearance.sh" \
   "verify-iso.sh sections 6b and 6c, real blocks on fake roots|bash backends/ubuntu/iso/tests/verify-quiet-appearance.sh" \
+  "verify-iso.sh restore_drift (the stock installer unit against the helper), real function|bash backends/ubuntu/iso/tests/verify-restore-drift.sh" \
   "Companion links and welcome|bash backends/ubuntu/lib/tests/start-links.sh" \
   ".deb member names (needs dpkg-deb)|bash backends/ubuntu/lib/tests/deb-members.sh" \
   "first-boot wait-quiet|bash backends/ubuntu/chroot/tests/wait-quiet.sh" \

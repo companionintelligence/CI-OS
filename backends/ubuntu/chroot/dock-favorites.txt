@@ -12,7 +12,7 @@
 # Also left out on purpose: Resources (the resource monitor). The apps are still installed and in the application grid.
 
 # Companion apps. Companion Hub comes from the companion-hub .deb (its desktop file really has a space in its name).
-# Companion Docs is a link (start-links.txt): the live session has no desktop icons, so this is where its user finds the docs.
+# Companion Docs is a link (start-links.txt): a live session has no desktop icons until the one-click helper has run, so the dock is where its user finds the docs first.
 Companion Hub.desktop
 companion-capture.desktop
 companion-docs.desktop

@@ -144,6 +144,29 @@ check() { # check "<label>" <command...>
     local label="$1"; shift
     if "$@" >/dev/null 2>&1; then pass "$label"; else fail "$label"; fi
 }
+# restore_drift <installer unit file> <helper>: what Canonical's installer unit undoes when its window closes (its ExecStopPost, "restore normal session":
+# dock-fixed, intellihide, enabling the desktop-icons extension) must be in the helper's RESTORE_SESSION. The live layer starts the session in "installer mode"
+# (no dock, no desktop icons); this image does not start that unit (customize-chroot.sh Step 7b), so the helper undoes it at the start of the live session.
+# The helper's own tests pin the three commands they know; only this check can see the unit change in a point release. A unit that no longer names
+# any key or extension is a note (the helper may be unnecessary), not a failure.
+restore_drift() {
+    local unit="$1" helper="$2" stock names name absent="" restore
+    # only the helper's RESTORE_SESSION counts: the helper names some of these keys elsewhere (it reads favorite-apps to pin the launcher)
+    restore="$(sed -n '/^RESTORE_SESSION = (/,/^)/p' "$helper" 2>/dev/null || true)"
+    stock="$(sed -n 's/^ExecStopPost=//p' "$unit" 2>/dev/null || true)"
+    names="$(printf '%s\n' "$stock" | grep -o -E "gsettings set [^ ;\"']+ [^ ;\"']+|gnome-extensions (enable|disable) [^ ;\"']+" \
+        | awk '$1 == "gsettings" { print $4; next } { print $3 }' | sort -u || true)"
+    if [[ -z "$names" ]]; then
+        note "installer unit: ExecStopPost names no dconf key and no extension (read: ${stock:-nothing}); the helper's RESTORE_SESSION may no longer be needed, or the unit changed shape: compare them"
+        return 0
+    fi
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        grep -q -F -- "\"$name\"" <<<"$restore" || absent="$absent $name"
+    done <<<"$names"
+    if [[ -z "$absent" ]]; then pass "the helper restores everything that Canonical's installer unit restores when its window closes ($(printf '%s' "$names" | tr '\n' ' ' | sed 's/ $//'))"
+    else fail "Canonical's installer unit restores${absent} when its window closes but ci-os-auto-install does not (RESTORE_SESSION): the live session would stay in installer mode, with no dock and no desktop icons"; fi
+}
 
 # ── extract what we need ────────────────────────────────────────────────────
 echo "ISO: $ISO ($(du -h "$ISO" | cut -f1))"
@@ -233,7 +256,7 @@ LR="$WORK/live-root"; mkdir -p "$LR"
 : > "$LIVELIST"
 if [[ -s "$LIVESQ" ]]; then
     unsquashfs -ll "$LIVESQ" 2>/dev/null | sed 's#squashfs-root##' > "$LIVELIST"
-    unsquashfs -no-xattrs -q -f -d "$LR" "$LIVESQ" etc/casper.conf var/lib/dpkg/status var/lib/snapd/seed/seed.yaml etc/cloud/cloud.cfg >/dev/null 2>&1 || true
+    unsquashfs -no-xattrs -q -f -d "$LR" "$LIVESQ" etc/casper.conf var/lib/dpkg/status var/lib/snapd/seed/seed.yaml etc/cloud/cloud.cfg usr/lib/systemd/user/ubuntu-desktop-installer.service >/dev/null 2>&1 || true
 fi
 # casper.conf belongs to the live session, so the build keeps it out of the base layer. An image built before the
 # layers were split still has it there: the checks that read it follow it.
@@ -889,6 +912,10 @@ else
     hits="$(grep -E '^/(etc|usr/lib|lib)/systemd/user/[^/]+\.(wants|requires)/ubuntu-desktop-installer\.service$|^/etc/xdg/autostart/.*(ubuntu-desktop-(installer|bootstrap)|subiquity)' "$LIVE_PATHS" | head -n 3 | tr '\n' ' ')"
     if [[ -z "$hits" ]]; then pass "live layer does not start Canonical's installer by itself (no wants link for ubuntu-desktop-installer.service, no autostart entry for it)"
     else fail "live layer starts Canonical's installer window by itself (it opens in front of the Companion dialog): ${hits% }"; fi
+    # With the unit not started, nothing takes the live session out of "installer mode" (no dock, no desktop icons) when the window would have closed:
+    # the helper does it (live_setup). What the stock unit undoes must be what the helper undoes.
+    if [[ -s "$LR/usr/lib/systemd/user/ubuntu-desktop-installer.service" ]]; then restore_drift "$LR/usr/lib/systemd/user/ubuntu-desktop-installer.service" "$AI"
+    else note "live layer: ubuntu-desktop-installer.service could not be read, so what the helper restores in the live session was not compared with it"; fi
     if [[ -s "$LR/var/lib/snapd/seed/seed.yaml" ]] && grep -q 'ubuntu-desktop-bootstrap' "$LR/var/lib/snapd/seed/seed.yaml"; then pass "live layer's snapd seed.yaml still names the installer snap"
     else fail "live layer's snapd seed.yaml does not name the installer snap (the live session cannot seed it)"; fi
     # Ubuntu 26.04.1's live layer carries the snapd seed of its TPM full-disk-encryption variant (seed/systems/enhanced-secureboot-desktop, and in

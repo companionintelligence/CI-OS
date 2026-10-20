@@ -34,10 +34,12 @@ Usage:
   --locale de_DE.UTF-8 --keyboard de --timezone Europe/Berlin
                                      the starting answers of the dialog (and of --plan); default en_US.UTF-8, us, geoip
   ci-os-auto-install --disks         print the candidate/excluded disk table
-  ci-os-auto-install --live-setup    desktop-session autostart hook: in a live session only, put the launcher on the
-                                     desktop, in the app grid and first in the dock (the 26.04 live session draws no
-                                     desktop icons); with ci.autoinstall=1 on the kernel command line
-                                     (the boot menu's automatic entry) it also starts the install dialog
+  ci-os-auto-install --live-setup    desktop-session autostart hook: in a live session only, put the live session back
+                                     to a normal desktop (the live layer starts it with no dock and no desktop icons, and
+                                     Canonical's installer unit, which undoes that when its window closes, is not started
+                                     here), then put the launcher on the desktop, in the app grid and first in the dock;
+                                     with ci.autoinstall=1 on the kernel command line (the boot menu's automatic entry)
+                                     it also starts the install dialog
 Environment (tests only): CI_OS_AI_LSBLK_JSON, CI_OS_AI_CDROM_SOURCE, CI_OS_AI_LOOP_BACKING ("<device> <fstype>"),
 CI_OS_AI_CMDLINE read fixtures instead of the system.
 
@@ -70,6 +72,16 @@ AUTOINSTALL_PATH = os.path.join(RUN_DIR, "autoinstall.yaml")
 AUTOINSTALL_LINK = "/autoinstall.yaml"
 LAUNCHER_SRC = "/usr/share/ci-os/live/ci-os-auto-install.desktop"
 LAUNCHER_ID = "ci-os-auto-install.desktop"
+# What Canonical's installer unit does when its window closes (ubuntu-desktop-installer.service, "start the installer on session start,
+# restore normal session on close": its ExecStopPost, read from the 26.04.1 live layer). The live layer starts the session in "installer mode":
+# the dock never shows (dock-fixed and intellihide are off) and the desktop-icons extension is disabled; that unit puts it back. This image does not
+# start the unit (customize-chroot.sh, Step 7b), so nothing would, and the live session would have no dock and no icons.
+# live_setup() runs the same three commands. verify-iso.sh section 3g compares them with the unit's own ExecStopPost.
+RESTORE_SESSION = (
+    ("gsettings", "set", "org.gnome.shell.extensions.dash-to-dock", "dock-fixed", "true"),
+    ("gsettings", "set", "org.gnome.shell.extensions.dash-to-dock", "intellihide", "true"),
+    ("gnome-extensions", "enable", "ding@rastersoft.com"),
+)
 STICK_LABELS = ("CI-EFI", "CI-SHARED", "CI-BOOT-A", "CI-BOOT-B", "CI-CACHE", "CI-PERSIST", "writable", "casper-rw")
 # Mount points that mean "this session is running from / through this disk".
 MEDIUM_MOUNTS = ("/cdrom", "/isodevice", "/rofs", "/run/ci-os", "/run/live")
@@ -1132,9 +1144,10 @@ def run_install(d, cfg_yaml, password):
 def pin_to_dock(desktop_id=LAUNCHER_ID):
     """Put the launcher first in the dock's favourites (gsettings org.gnome.shell favorite-apps). True when it is there.
 
-    The live session of Ubuntu 26.04 has no desktop icons to find the launcher by: livecd-rootfs ships a schema override
-    in the live layer with disabled-extensions=['ding@rastersoft.com'] (read from the 26.04.1 image), so the file in
-    ~/Desktop is never drawn. The dock is, and the stock installer sits in it already. Best effort: a failure is only logged."""
+    livecd-rootfs ships a schema override in the live layer that starts the session with disabled-extensions=['ding@rastersoft.com']
+    (read from the 26.04.1 image), so until restore_normal_session() has run the file in ~/Desktop is not drawn, and if that fails
+    the dock is the one place the launcher is. The stock installer's launcher sat first in the dock already. Best effort: a failure
+    is only logged."""
     try:
         got = sh(["gsettings", "get", "org.gnome.shell", "favorite-apps"])
         if got.returncode != 0:
@@ -1152,6 +1165,24 @@ def pin_to_dock(desktop_id=LAUNCHER_ID):
         return False
 
 
+def restore_normal_session():
+    """Take the live session out of "installer mode" the way Canonical's installer unit does when its window closes (RESTORE_SESSION):
+    the dock is fixed and shows, and the desktop-icons extension is on, so the launchers placed by live_setup() are drawn.
+
+    Every command is tried even when an earlier one failed. True when all of them worked; a failure is only logged."""
+    ok = True
+    for cmd in RESTORE_SESSION:
+        try:
+            done = sh(list(cmd))
+            if done.returncode != 0:
+                ok = False
+                print(f"ci-os-auto-install: {' '.join(cmd)} failed ({done.returncode}): {str(done.stderr).strip()}", file=sys.stderr)
+        except OSError as exc:
+            ok = False
+            print(f"ci-os-auto-install: could not run {cmd[0]}: {exc}", file=sys.stderr)
+    return ok
+
+
 def live_setup():
     """Autostart hook. Does nothing outside a live session, so the installed system is untouched."""
     if not is_live():
@@ -1167,6 +1198,7 @@ def live_setup():
             sh(["gio", "set", dst, "metadata::trusted", "true"])
         except OSError as exc:
             print(f"ci-os-auto-install: could not place the launcher in {folder}: {exc}", file=sys.stderr)
+    restore_normal_session()
     pin_to_dock()
     if "ci.autoinstall=1" in read_cmdline().split():
         return interactive()

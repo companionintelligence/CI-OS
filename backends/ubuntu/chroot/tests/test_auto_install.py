@@ -2002,6 +2002,7 @@ class LiveSetupTests(unittest.TestCase):
                     mock.patch.object(ai, "LAUNCHER_SRC", launcher), \
                     mock.patch.object(ai.os.path, "exists", side_effect=lambda p: cdrom_present if p == "/cdrom/casper/vmlinuz" else os.path.lexists(p)), \
                     mock.patch.object(ai, "sh") as sh_, \
+                    mock.patch.object(ai, "restore_normal_session"), \
                     mock.patch.object(ai, "interactive", return_value=0) as inter:
                 rc = ai.live_setup()
             placed = sorted(os.path.relpath(os.path.join(r, f), home) for r, _, fs in os.walk(home) for f in fs)
@@ -2028,7 +2029,7 @@ class LiveSetupTests(unittest.TestCase):
 
 
 class PinToDockTests(unittest.TestCase):
-    """The live session of 26.04 has no desktop icons (ding@rastersoft.com is disabled by the live layer): the dock is the place."""
+    """Until restore_normal_session() has run, the live session of 26.04 has no desktop icons (ding@rastersoft.com is disabled by the live layer): the dock is the place."""
 
     def run_pin(self, get_out, get_rc=0, set_rc=0, side_effect=None):
         calls = []
@@ -2074,15 +2075,84 @@ class PinToDockTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"HOME": home, "CI_OS_AI_CMDLINE": "boot=casper quiet"}), \
                     mock.patch.object(ai, "LAUNCHER_SRC", launcher), \
                     mock.patch.object(ai.os.path, "exists", side_effect=lambda p: p == "/cdrom/casper/vmlinuz" or os.path.lexists(p)), \
-                    mock.patch.object(ai, "sh"), mock.patch.object(ai, "pin_to_dock") as pin:
+                    mock.patch.object(ai, "sh"), mock.patch.object(ai, "restore_normal_session"), mock.patch.object(ai, "pin_to_dock") as pin:
                 self.assertEqual(ai.live_setup(), 0)
                 pin.assert_called_once_with()
             with mock.patch.dict(os.environ, {"HOME": home, "CI_OS_AI_CMDLINE": "root=/dev/nvme0n1p2 ro quiet"}), \
                     mock.patch.object(ai, "LAUNCHER_SRC", launcher), \
                     mock.patch.object(ai.os.path, "exists", side_effect=lambda p: False if p == "/cdrom/casper/vmlinuz" else os.path.lexists(p)), \
-                    mock.patch.object(ai, "pin_to_dock") as pin:
+                    mock.patch.object(ai, "restore_normal_session") as restore, mock.patch.object(ai, "pin_to_dock") as pin:
                 self.assertEqual(ai.live_setup(), 0)
                 pin.assert_not_called()
+                restore.assert_not_called()
+
+
+class RestoreSessionTests(unittest.TestCase):
+    """The live layer starts the session in "installer mode" (no dock, no desktop icons) and Canonical's installer unit undoes it when its window
+    closes. This image does not start that unit (customize-chroot.sh Step 7b), so live_setup() does it. Found in a boot of the arm64 image of
+    cf68024: without it the live session had no dock and no icons, and a person who cancelled the dialog had no way to see the launcher."""
+
+    EXPECTED = [
+        ["gsettings", "set", "org.gnome.shell.extensions.dash-to-dock", "dock-fixed", "true"],
+        ["gsettings", "set", "org.gnome.shell.extensions.dash-to-dock", "intellihide", "true"],
+        ["gnome-extensions", "enable", "ding@rastersoft.com"],
+    ]
+
+    def run_restore(self, failing=(), missing=()):
+        calls = []
+
+        def fake_sh(cmd, **kw):
+            calls.append(cmd)
+            if cmd[0] in missing:
+                raise FileNotFoundError(cmd[0])
+            return subprocess.CompletedProcess(cmd, 1 if len(calls) - 1 in failing else 0, "", "refused" if len(calls) - 1 in failing else "")
+        with mock.patch.object(ai, "sh", side_effect=fake_sh), mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            result = ai.restore_normal_session()
+        return result, calls, err.getvalue()
+
+    def test_the_three_commands_of_the_stock_unit_run_in_order(self):
+        ok, calls, err = self.run_restore()
+        self.assertTrue(ok)
+        self.assertEqual(calls, self.EXPECTED)
+        self.assertEqual(err, "")
+
+    def test_the_constant_is_exactly_those_three(self):
+        self.assertEqual([list(c) for c in ai.RESTORE_SESSION], self.EXPECTED)
+
+    def test_a_failed_command_does_not_stop_the_others_and_is_reported(self):
+        ok, calls, err = self.run_restore(failing={0})
+        self.assertFalse(ok)
+        self.assertEqual(calls, self.EXPECTED)
+        self.assertIn("dock-fixed", err)
+        self.assertIn("refused", err)
+
+    def test_a_missing_tool_is_not_an_exception(self):
+        ok, calls, err = self.run_restore(missing={"gnome-extensions"})
+        self.assertFalse(ok)
+        self.assertEqual(calls, self.EXPECTED)
+        self.assertIn("could not run gnome-extensions", err)
+
+    def test_live_setup_restores_first_then_pins_and_only_in_a_live_session(self):
+        with tempfile.TemporaryDirectory() as td:
+            launcher = os.path.join(td, "launcher.desktop")
+            write_text(launcher, "[Desktop Entry]\nName=x\n")
+            home = os.path.join(td, "home")
+            os.makedirs(home)
+            order = mock.Mock()
+            with mock.patch.dict(os.environ, {"HOME": home, "CI_OS_AI_CMDLINE": "boot=casper quiet"}), \
+                    mock.patch.object(ai, "LAUNCHER_SRC", launcher), \
+                    mock.patch.object(ai.os.path, "exists", side_effect=lambda p: p == "/cdrom/casper/vmlinuz" or os.path.lexists(p)), \
+                    mock.patch.object(ai, "sh"), \
+                    mock.patch.object(ai, "restore_normal_session", order.restore), mock.patch.object(ai, "pin_to_dock", order.pin):
+                self.assertEqual(ai.live_setup(), 0)
+            self.assertEqual(order.mock_calls, [mock.call.restore(), mock.call.pin()])
+            order.reset_mock()
+            with mock.patch.dict(os.environ, {"HOME": home, "CI_OS_AI_CMDLINE": "root=/dev/nvme0n1p2 ro quiet"}), \
+                    mock.patch.object(ai, "LAUNCHER_SRC", launcher), \
+                    mock.patch.object(ai.os.path, "exists", side_effect=lambda p: False if p == "/cdrom/casper/vmlinuz" else os.path.lexists(p)), \
+                    mock.patch.object(ai, "restore_normal_session", order.restore), mock.patch.object(ai, "pin_to_dock", order.pin):
+                self.assertEqual(ai.live_setup(), 0)
+            self.assertEqual(order.mock_calls, [])
 
 
 class LockTests(unittest.TestCase):
