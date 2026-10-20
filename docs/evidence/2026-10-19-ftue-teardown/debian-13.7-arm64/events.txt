@@ -1,0 +1,96 @@
+2026-10-20T01:10:44Z run start: debian-13.7.0-arm64-netinst.iso (sha256 6e93fa17...024b, verified against the signed SHA256SUMS)
+2026-10-20T01:10:44Z recorder started (1.5 s)
+2026-10-20T01:10:46Z VM start (power on): debian-13.7.0-arm64-netinst.iso
+2026-10-20T01:11:08Z GRUB menu on screen: default highlighted entry is the text-mode Install (no countdown); choosing Graphical install (Down, Enter) to compare the look
+2026-10-20T01:11:08Z key down 
+2026-10-20T01:11:10Z key ret Graphical install
+2026-10-20T01:11:45Z installer GUI (Select a language) on screen by 01:11:30, 20 s after Graphical install; counting the language list by scrolling (Home, then Page Down) and OCR
+2026-10-20T01:11:45Z key home 
+2026-10-20T01:11:47Z key pgdn 
+2026-10-20T01:11:49Z key pgdn 
+2026-10-20T01:11:51Z key pgdn 
+2026-10-20T01:11:53Z key pgdn 
+2026-10-20T01:11:54Z key pgdn 
+2026-10-20T01:11:56Z key pgdn 
+2026-10-20T01:11:58Z key pgdn 
+2026-10-20T01:12:19Z language list counted: 77 entries (OCR of 4 scrolled pages); selection moved by the count, putting it back on English
+2026-10-20T01:12:19Z key home 
+2026-10-20T01:12:20Z key down 
+2026-10-20T01:12:20Z key down 
+2026-10-20T01:12:20Z key down 
+2026-10-20T01:12:21Z key down 
+2026-10-20T01:12:21Z key down 
+2026-10-20T01:12:21Z key down 
+2026-10-20T01:12:21Z key down 
+2026-10-20T01:12:21Z key down 
+2026-10-20T01:12:22Z key down 
+2026-10-20T01:12:22Z key down 
+2026-10-20T01:12:22Z key down 
+2026-10-20T01:12:22Z key down 
+2026-10-20T01:12:22Z key down 
+2026-10-20T01:12:23Z key down 
+2026-10-20T01:12:23Z key down 
+2026-10-20T01:12:23Z key down 
+2026-10-20T01:12:23Z key down 
+2026-10-20T01:12:23Z key down 
+2026-10-20T01:12:33Z key down 
+2026-10-20T01:12:34Z click 1218 774 Continue (language English, default)
+2026-10-20T01:12:48Z click 1218 774 Continue (location United States, default)
+2026-10-20T01:13:03Z click 1218 774 Continue (keymap American English, default)
+2026-10-20T01:13:47Z click 1218 774 Continue (hostname debian, default)
+2026-10-20T01:14:01Z click 1218 774 Continue (domain name left empty)
+2026-10-20T01:14:15Z click 1218 774 Continue (root password left empty: root locked, the user gets sudo)
+2026-10-20T01:14:33Z type: FTUE Tester
+2026-10-20T01:14:34Z click 1218 774 Continue (full name typed)
+2026-10-20T01:14:48Z click 1218 774 Continue (username ftue, derived default)
+2026-10-20T01:15:05Z typed the throwaway password from a file (not shown)
+2026-10-20T01:15:07Z key tab 
+2026-10-20T01:15:11Z typed the throwaway password from a file (not shown)
+2026-10-20T01:15:22Z click 640 285 field: Re-enter password
+2026-10-20T01:15:26Z typed the throwaway password from a file (not shown)
+2026-10-20T01:15:32Z click 1218 774 Continue (password set twice)
+2026-10-20T01:15:50Z Configure the clock page: the time zone is asked (list starts on Eastern, no detection); choosing Pacific, the host's zone
+2026-10-20T01:15:50Z click 47 267 Pacific (the list default is Eastern)
+2026-10-20T01:15:52Z click 1218 774 Continue (time zone Pacific)
+2026-10-20T01:16:26Z click 1218 774 Continue (Guided - use entire disk, default)
+2026-10-20T01:16:40Z click 1218 774 Continue (disk nvme0n1, preselected; the installer medium is listed too)
+2026-10-20T01:16:54Z click 1218 774 Continue (All files in one partition, default)
+2026-10-20T01:17:09Z click 1218 774 Continue (Finish partitioning and write changes to disk, preselected)
+2026-10-20T01:17:27Z Write the changes to disks? default No; choosing Yes (the point of no return) after 15 pages: language, location, keyboard, hostname, domain, root password, full name, username, password, time zone, partitioning method, disk, scheme, overview, confirm
+2026-10-20T01:17:27Z click 28 328 Yes (write the changes to disks)
+2026-10-20T01:17:28Z click 1218 774 Continue (write the changes)
+2026-10-20T01:18:40Z after the disk write: base system installed from the media in about 1 min; then questions resume: mirror country
+2026-10-20T01:18:40Z click 1218 774 Continue (mirror country United States, default)
+2026-10-20T01:18:56Z click 1218 774 Continue (mirror deb.debian.org, default)
+2026-10-20T01:19:11Z click 1218 774 Continue (no proxy)
+2026-10-20T01:20:26Z click 1218 774 Continue (package usage survey: No, default)
+2026-10-20T01:20:48Z Software selection page: NO desktop environment is ticked by default (only SSH server and standard system utilities); a user who just presses Continue gets a text-only system; ticking Debian desktop environment and GNOME
+2026-10-20T01:20:49Z click 32 183 tick: Debian desktop environment
+2026-10-20T01:20:50Z click 32 206 tick: GNOME
+2026-10-20T01:21:00Z click 1218 774 Continue (software selection: desktop + GNOME ticked)
+2026-10-20T01:24:32Z Installation complete page first recorded 01:23:52 (disk write confirmed 01:17:28: 6 min 24 s, including five questions asked during the install: mirror country, mirror, proxy, survey, software selection); text says to remove the installation media; clicking Continue
+2026-10-20T01:24:32Z click 1218 774 Continue (reboot)
+2026-10-20T01:25:06Z the firmware booted the installer ISO again (the medium was still attached); stopping the VM and starting it without the ISO, as removing the stick would
+2026-10-20T01:25:06Z VM stopped
+2026-10-20T01:25:06Z VM start (power on): -
+2026-10-20T01:26:01Z installed Debian: GDM greeter on screen by 01:25:52 (power-on 01:25:06: 46 s); signing in
+2026-10-20T01:26:01Z click 640 350 user: FTUE Tester
+2026-10-20T01:26:07Z typed the throwaway password from a file (not shown)
+2026-10-20T01:26:09Z key ret sign in
+2026-10-20T01:26:50Z first desktop (Enter 01:26:09, desktop by about 01:26:24): GNOME overview with a modal Welcome to Debian GNU/Linux 13 (trixie) tour prompt (Skip / Take Tour); no first-run wizard (the account was made in the installer); observing without input
+2026-10-20T01:27:21Z click 539 607 Skip (Welcome to Debian tour prompt)
+2026-10-20T01:27:35Z type: terminal
+2026-10-20T01:27:38Z key ret open Terminal from the overview search
+2026-10-20T01:28:00Z type: (curl -s 10.0.2.2:8800/f.sh || wget -qO- 10.0.2.2:8800/f.sh) | sh -s debian-installed
+2026-10-20T01:28:00Z key ret run the read-only facts script (text channel)
+2026-10-20T01:28:28Z facts collected at 2 min after boot (01:28:09): running, no failed unit, no firewall, SSH listening on all interfaces; last input 01:28:0x, waiting for the idle blank
+2026-10-20T01:33:47Z screen blanked at 01:33:10, 5 min 02 s after the last input (01:28:08); waking with a pointer move
+2026-10-20T01:34:00Z lock screen shown after the pointer move: the session had locked with the blank; unlocking to read the facts again at 8 min
+2026-10-20T01:34:01Z key shift 
+2026-10-20T01:34:07Z typed the throwaway password from a file (not shown)
+2026-10-20T01:34:08Z key ret unlock
+2026-10-20T01:34:31Z type: (curl -s 10.0.2.2:8800/f.sh || wget -qO- 10.0.2.2:8800/f.sh) | sh -s debian-installed-8min
+2026-10-20T01:34:32Z key ret run the facts script again (8 min after boot)
+2026-10-20T01:34:54Z end of the Debian run: stopping the VM and the recorder
+2026-10-20T01:34:54Z VM stopped
+2026-10-20T01:34:54Z recorder stop requested

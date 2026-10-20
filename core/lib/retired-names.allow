@@ -26,5 +26,13 @@ backends/arch/
 # (Add docs/retired/ here when that directory exists.)
 docs/architecture/multi-distro-design.md
 
+# --- a comparison, not history and not a target: needs a maintainer's yes -----------------------------------------------------
+# The first-run teardown (docs/architecture/ftue-teardown.md) reads how other major distributions install and start, one of them
+# a retired name above, next to Companion OS. It names them on purpose, as the subjects of a measurement made on 2026-10-19; nothing in
+# these paths describes a Companion OS target. Rewording would remove the point of the page, so the three paths are listed.
+docs/architecture/ftue-teardown.md
+docs/evidence/2026-10-19-ftue-teardown/
+docs/ui/ftue-teardown/
+
 # --- PENDING: documents the docs phase rewrites. Delete each line when its file is clean (a stale line fails the check) -----
 
