@@ -184,7 +184,7 @@ table; a number is quoted wherever there is one, and a difference of a few secon
 | 10 | Windows and notices not asked for at first sign-in | Fedora, Debian: 1 modal prompt | 1 window (Firefox, 1 tab), 0 notices | Level |
 | 11 | Failed units | 0 (all three) | 1 | **Behind** |
 | 12 | Telemetry | Ubuntu and Debian ask, default off; Fedora default on | four packages removed; `ubuntu-insights` and the Pro client's timers remain | Level |
-| 13 | Services reachable from the LAN | Ubuntu: none | SSH, Hub, Traefik, Ollama | **Behind** |
+| 13 | Services listening on all interfaces | Ubuntu: none beyond localhost | SSH, Hub, Traefik, Ollama (the `ufw` service is active; its rules were not read) | **Behind** |
 | 14 | Says what the machine is doing after the install | nobody does | notifications, "step n of 7" | **Ahead** |
 | 15 | Idle blank and lock | all: 5 minutes, then locked | the same | Level |
 | 16 | Languages in the first list | Debian, 77 (Ubuntu and Fedora not counted) | 59 locales of 8 languages, behind a button | **Behind** |
@@ -201,11 +201,11 @@ The order is: seen by every user at every install, then how many of the three st
 
 | Rank | Gap | What the best do | Companion OS today | Item | Effort |
 |---|---|---|---|---|---|
-| 1 | **Two installers at once.** Canonical's window, with Ubuntu's name and logo, opens in front of Companion's dialog | one installer, or none until the user asks (Fedora: a dialog with "Install" and "Not Now") **[V]** | Canonical's 13-page window in both boot entries, the dialog behind it, two launchers **[V]**. The owner's request of 2026-10-19 ("hide the parts of the Ubuntu wizard") is this gap | 5 | M |
+| 1 | **Two installers at once.** Canonical's window, with Ubuntu's name and logo, opens in front of Companion's dialog | one installer, or none until the user asks (Fedora: a dialog with "Install" and "Not Now") **[V]** | Canonical's 13-page window in both boot entries, the dialog behind it, two launchers **[V]**. The owner's request of 2026-10-19 ("hide the parts of the Ubuntu wizard") is this gap: pull request 88 hides Canonical's window (with the Pro prompts, the telemetry and a dark green theme) and was seen in a virtual machine, where the dialog is the only window and the plain boot entry opens nothing | 5 | M |
 | 2 | **A password to copy, then three to type.** The one-time password has to be written down, typed at the greeter, then replaced twice | the user picks the name and the password during setup and has nothing to remember (all three) **[V]** | one-time password in a dialog ("write it down now"), typed at the greeter, then the forced change **[V]** | 6 | M |
 | 3 | **A failed unit at every start** on an arm64 machine that is not a Snapdragon | none: `running` on all three **[V]** | `pd-mapper.service` fails, the system reads `degraded`, `ci-os-info` says "1 failed service(s)" **[V]** | 7 | S |
 | 4 | **The clock is wrong.** The dialog promises "time zone: detected automatically" and the installed system is on `Etc/UTC` | Ubuntu (geoip) and Fedora (location) found the host's zone on the same machine, Debian asks from a list **[V]** | `Etc/UTC` after the default install, so every clock outside UTC is off by hours at the first sign-in **[V]**, one run; the zone chosen by hand did arrive (`b124745`). Cause not looked for | N1 | S to M |
-| 5 | **Services open to the LAN.** Not seen in the first ten minutes, but the one gap here that is a risk and not a look | Ubuntu: nothing beyond localhost; Fedora: a firewall and two ports; Debian: SSH only **[V]** | SSH, Hub, Traefik and an unauthenticated Ollama on all interfaces, `ufw` inactive **[V]** | 8 | M, needs a human reviewer |
+| 5 | **Services listening on all interfaces.** Not seen in the first ten minutes, but the one gap here that is a risk and not a look | Ubuntu: nothing beyond localhost; Fedora: a firewall and two ports; Debian: SSH only **[V]** | SSH, Hub, Traefik and an unauthenticated Ollama listen on all interfaces **[V]**; the `ufw` service is active and its rules were not read, so whether the LAN can reach them is **[N]** (the CI-Engineering proposal, tier 2, says it can) | 8 | M, needs a human reviewer |
 | 6 | **No sense of progress for 11 minutes** | Fedora: four named stages with marks, a percentage, the current step; Debian: the current package **[V]** | one text block and a bar with no percentage **[V]** | N2 | S to M |
 | 7 | **Plain, unbranded dialogs.** The Companion look is on the wallpaper only | branded, illustrated pages with one idea each (Fedora, Ubuntu) **[V]** | a small stock GTK dialog with a table, a progress dialog, GNOME's notifications **[V]**. The owner's request for a dark, green theme lands here | N3 | M |
 | 8 | **The install takes 3 times Fedora's, and the live desktop a third longer** | 3:52 for 4.1 GB used; live desktop 1:01 **[V]** | 11:27, and 1:30; 11 GB used on stock Ubuntu, 19 GB after Companion's first boot. Profile before acting; a one-off cost | N4 | M to L |
@@ -233,7 +233,7 @@ installs a system without one; the SSH server ticked by default.
 * `systemctl --failed` was read once, 5 to 8 minutes after the first sign-in; a unit that fails later is not counted.
 * openSUSE was not run (the owner did not approve the download); Linux Mint, Pop!_OS, elementary OS and Zorin were not looked for.
 * The streamlining the owner asked for on 2026-10-19 (no Ubuntu Pro prompting, no Canonical telemetry, the Ubuntu wizard hidden, a dark green theme) is a separate change with its own pull
-  request; this page measures the state before it (`main` at `5d50582`).
+  request (88); this page measures the state before it (`main` at `5d50582`).
 
 **Records.** Text records, the signature checks and the facts script are in [`docs/evidence/2026-10-19-ftue-teardown/`](../evidence/2026-10-19-ftue-teardown/) (`run.txt`
 with the times, `events.txt` with every action, `installed-facts.txt`, `SHA256SUMS` per run, `verify-downloads.txt` for the signed lists). The frames are in
