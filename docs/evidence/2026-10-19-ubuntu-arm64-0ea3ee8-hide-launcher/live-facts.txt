@@ -1,0 +1,35 @@
+== date (UTC)
+2026-10-20T05:52:17Z
+up 2 minutes
+== appearance, for the live user
+color-scheme: 'prefer-dark'
+accent-color: 'green'
+== dock and extensions
+dock-fixed: true
+intellihide: true
+disabled-extensions: @as []
+== desktop-icons process
+   5106       01:02 gjs /usr/share/gnome-shell/extensions/ding@rastersoft.com/app/ding.js -E -P /usr
+== files on the desktop (ls -la ~/Desktop)
+  total 24
+  drwxr-xr-x  2 companion companion 160 Oct 20 05:51 .
+  drwxr-x--- 15 companion companion 360 Oct 20 05:50 ..
+  -rwxr-xr-x  1 companion companion 302 Oct 20 05:51 ci-os-auto-install.desktop
+  -rwxr-xr-x  1 companion companion 247 Oct 20 05:49 companion-app-store.desktop
+  -rwxr-xr-x  1 companion companion 251 Oct 20 05:49 companion-community.desktop
+  -rwxr-xr-x  1 companion companion 256 Oct 20 05:49 companion-docs.desktop
+  -rwxr-xr-x  1 companion companion 275 Oct 20 05:49 companion-getting-started.desktop
+  -rwxr-xr-x  1 companion companion 229 Oct 20 05:49 companion-support.desktop
+== installer launchers on the desktop (any file that names the stock installer)
+(none)
+== the stock launcher that snapd exports and casper copies to the desktop at boot
+Type=Application
+Name=Install RELEASE
+Exec=/snap/bin/ubuntu-desktop-bootstrap
+Icon=ubiquity
+== the same launcher among the applications of the session (gtk-launch needs it by id)
+ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop
+== dock favorites
+['ci-os-auto-install.desktop', 'Companion Hub.desktop', 'companion-capture.desktop', 'companion-docs.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Ptyxis.desktop']
+== helper messages of this session (journal, user)
+

@@ -1,0 +1,37 @@
+Follow-up of the streamlined setup (pull request 88): Canonical's own installer launcher is taken off the live desktop and ours stays. One arm64 image, booted once through each boot entry in the repository's arm64 VM harness, not installed. The records behind the follow-up row of KI-30 (docs/architecture/known-issues-and-decisions.md).
+Evidence label: tested in a virtual machine (QEMU 11.1.2, HVF, one Apple-silicon Mac); not real hardware; one boot through each boot entry; the image was not installed; no amd64 image was built for the follow-up. 2026-10-19 local time; every time below is UTC of 2026-10-20.
+
+Image  a clean `git archive` tree of 0ea3ee8, built in a native arm64 ubuntu:26.04 container (the Mac recipe of CLAUDE.md), then verify-iso.sh with VERIFY_BASE_ISO and VERIFY_REQUIRE_CANON=1
+  0ea3ee8   sha256 3936d54d...adbc (SHA256SUMS)   5,590,548,480 bytes   build 1516 s (build-status.txt; the earlier arm64 builds of this change took 759 s and 779 s, the difference was not looked into)   493 passed, 0 failed (verify-iso.log)
+  The verifier ran the helper's unit tests against the helper inside the image: "disk-selection unit tests pass against the image's helper (Ran 222 tests ...)", ten of them new (HideStockLauncherTests).
+Harness  as in ../2026-10-19-ubuntu-arm64-streamline/run.txt: boot-arm64-vm.sh, qmp-drive.py and record-frames.sh; -smp 6 -m 8192, virtio-gpu 1280x800, the ISO as a USB drive, a new 64 GiB NVMe qcow2 on the SSD that was never installed to.
+Facts    read by guest-scripts/live-facts-v3.sh (read-only: gsettings, ps, ls, grep), fetched by the guest from a loopback server on the host and posted back (curl, or wget); the frames and the recorder's frames are not in the repository.
+Credentials  the one-click dialog (shown twice) printed one-time passwords; no install was started, no password was used, none is in any record or frame kept here (frames 14 to 17 show no dialog), and the VM disks were deleted.
+Load     two other sessions' virtual machines were running on the same machine during both boots (seen in the process list), so no time below is a speed measurement.
+
+== Boot 1: the automatic entry (events.txt) ==
+  05:49:22  power-on;  05:49:50 the boot menu, the automatic entry (Down, Enter)
+  05:51:41  the live session: the one-click dialog (dark) in front of the dock and the desktop icons; ONE installer icon on the desktop (ours); no Canonical window. The dialog was cancelled
+  05:51:46  frame 14: the dock (ours first), the five Companion links, Home and one installer icon. Canonical's launcher, the second icon with the Ubuntu mark that sat below ours on the image of 5ff5224, is gone
+  05:52:17  live-facts.txt (up 2 minutes): color-scheme prefer-dark, accent-color green; dock-fixed true, intellihide true, disabled-extensions empty, the desktop-icons process running;
+            ~/Desktop holds ci-os-auto-install.desktop and the five companion-*.desktop files, and NO file that names the stock installer (the grep over ~/Desktop prints "(none)");
+            the stock launcher is still exported by snapd (Name=Install RELEASE, Exec=/snap/bin/ubuntu-desktop-bootstrap) and still listed among the session's applications; the dock favourites start with ci-os-auto-install.desktop
+  05:54:27  frame 15: the application grid searched for "Install": two results, ours ("Install Co...") and Canonical's with the Ubuntu mark ("Install REL...", the label cut off by the grid; the file's Name is "Install RELEASE")
+  05:54:51  the first dock icon reopened the dialog (a new one-time password; not kept)
+  05:55:13  Use the normal installer clicked;  05:55:28 frame 16: Canonical's window (Welcome to Ubuntu, Choose your language), dark, the first of the page dots green (17 dots in the frame)
+  05:55:5x  the VM and the recorder stopped
+
+== Boot 2: the plain entry, Try or Install Companion OS (events.txt) ==
+  05:56:24  power-on;  05:56:41 the boot menu, Enter on the default entry
+  06:00:12  frame 17: the live session: the dock, the five Companion links, Home and one installer icon (ours); no window of any kind (first looked at 3 min 31 s after the menu; not the moment it appeared)
+  06:01:10  live-facts-plain-entry.txt (up 4 minutes): the same as boot 1 apart from times and process ids
+  06:01:36  the VM and the recorder stopped
+
+== What this shows ==
+  [V] Canonical's launcher is not on the live desktop in either boot entry on this arm64 image; ours is the only installer icon there.
+  [V] Canonical's installer is still reachable: in the application grid and from the dialog's Use the normal installer button (it starts the installer by desktop id, so the removed desktop file is not needed).
+  [V] The live session is otherwise as on 5ff5224: dock-fixed and intellihide true, ding enabled and running, the dock favourites the same, nothing opens by itself from the plain entry.
+  [V] The grid entry of Canonical's installer is named "Install RELEASE" (the placeholder in snapd's file). Not changed by this follow-up; listed in KI-30 as a decision.
+== What it does not show ==
+  An install of this image (the install path is not touched by the change); an amd64 image of the follow-up (the helper is the same file on both architectures and its 222 tests ran on the host and inside the verifier); real hardware; a second run;
+  whether the desktop shows the icon again after a later change of casper (hide_stock_launcher runs at each session start and the unit tests cover a renamed copy, which is not the same as a boot of a newer casper).
