@@ -1770,7 +1770,8 @@ if tier_requested hardware && [[ -f "${SCRIPT_DIR}/../lib/install-rocm-driver.sh
 fi
 
 # Hook: tune AMD Strix Halo unified-memory boot params (iommu=pt, amdgpu.gttsize,
-# ttm.pages_limit). Runs at first-boot/provisioning time (not ISO build time)
+# ttm.pages_limit, and amdttm.pages_limit when AMD's DKMS amdgpu driver is installed:
+# that driver's own copy of TTM ignores ttm.pages_limit). Runs at first-boot/provisioning time (not ISO build time)
 # because it depends on detecting the *target* hardware (CPU model / rocminfo)
 # and total RAM, neither of which is known when the ISO is built. Standalone
 # script; can also be run directly: ./backends/ubuntu/lib/strix-halo-boot-params.sh

@@ -25,7 +25,7 @@ other workflows (`build-companion-os-iso.yml`, `style-canon-lint.yml`) are manua
 Touching `backends/ubuntu/iso/scripts/md5sum-txt.sh` or the md5sum.txt part of `build-iso.sh` → the
 `check-repo.sh` run above already includes `backends/ubuntu/iso/tests/md5sum-txt.sh` (with `xorriso` and GNU `dd` installed it
 also builds a mini ISO; PR checks install `xorriso`). It also runs the Ubuntu 26.04 backend's host suites: `iso/tests/grub-live-menu-modules.sh`
-(the live GRUB menu insmods only modules the signed GRUB has built in), `backends/ubuntu/lib/tests/{os-release-golden,install-rocm-driver,lact-release,shell-theme}.sh`,
+(the live GRUB menu insmods only modules the signed GRUB has built in), `backends/ubuntu/lib/tests/{os-release-golden,install-rocm-driver,strix-halo-boot-params,lact-release,shell-theme}.sh`,
 `chroot/tests/customize-chroot-checks.sh`, `headless-package/tests/control-depends.sh` and `core/render/tests/gresource-provenance.sh`
 (a suite that needs a tool the host lacks exits 2 and is reported, not failed). The ISO tests that need a container are **manual**: no
 workflow runs them (`iso/tests/{boot-media-plymouth,plymouth-ground-render,placeholder-layer-modes,verify-logo-surfaces,verify-installer-base}.sh`,
