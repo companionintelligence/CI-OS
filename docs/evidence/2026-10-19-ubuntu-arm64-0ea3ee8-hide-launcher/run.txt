@@ -30,7 +30,7 @@ Load     two other sessions' virtual machines were running on the same machine d
 == What this shows ==
   [V] Canonical's launcher is not on the live desktop in either boot entry on this arm64 image; ours is the only installer icon there.
   [V] Canonical's installer is still reachable: in the application grid and from the dialog's Use the normal installer button (it starts the installer by desktop id, so the removed desktop file is not needed).
-  [V] The live session is otherwise as on 5ff5224: dock-fixed and intellihide true, ding enabled and running, the dock favourites the same, nothing opens by itself from the plain entry.
+  [V] The live session is otherwise as on 5ff5224: dock-fixed and intellihide true, disabled-extensions empty, the desktop-icons process running, the dock favourites the same (the list is identical to the one in ../2026-10-19-ubuntu-arm64-streamline/after-5ff5224/live-facts-attempt1.txt), nothing opens by itself from the plain entry.
   [V] The grid entry of Canonical's installer is named "Install RELEASE" (the placeholder in snapd's file). Not changed by this follow-up; listed in KI-30 as a decision.
 == What it does not show ==
   An install of this image (the install path is not touched by the change); an amd64 image of the follow-up (the helper is the same file on both architectures and its 222 tests ran on the host and inside the verifier); real hardware; a second run;
