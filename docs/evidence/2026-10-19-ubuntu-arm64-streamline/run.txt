@@ -1,5 +1,5 @@
 Streamlined setup of Companion OS (Ubuntu edition) on arm64, three images, one run each, in the repository's arm64 VM harness. The records behind KI-30 (docs/architecture/known-issues-and-decisions.md).
-Evidence label: tested in a virtual machine (QEMU 11.1.2, HVF, one Apple-silicon Mac); not real hardware; one run of each image; amd64 not built. 2026-10-19 local time; every time below is UTC of 2026-10-20.
+Evidence label: tested in a virtual machine (QEMU 11.1.2, HVF, one Apple-silicon Mac); not real hardware; one run of each image; amd64 built and verified but not booted (../2026-10-19-ubuntu-amd64-streamline-8fea315/). 2026-10-19 local time; every time below is UTC of 2026-10-20.
 
 Images (all built from a clean `git archive` tree in a native arm64 ubuntu:26.04 container, then verify-iso.sh with VERIFY_BASE_ISO and VERIFY_REQUIRE_CANON=1)
   before   main at 5d50582                   before-main-5d50582/   sha256 0cc31d9c...5110  5,593,038,848 bytes   build 871 s   446 passed, 0 failed
@@ -70,4 +70,4 @@ Credentials  the one-time passwords were read from the screen by eye (a magnifie
             Canonical's 13-page window opened first from both entries); frame 13
 
 Limits  one run of each image; a virtual machine; arm64 only; the host was busy with other sessions during some runs (loads in host-load-at-start.txt of the teardown records: 5.5 to 6.6 at the
-        starts here); times are read from frames (about 3 s) or from a command's own timestamp. Not looked at: amd64, real hardware, a GTK 3 window other than Firefox's, the application grid.
+        starts here); times are read from frames (about 3 s) or from a command's own timestamp. Not looked at: a boot of the amd64 image, real hardware, a GTK 3 window other than Firefox's, the application grid.

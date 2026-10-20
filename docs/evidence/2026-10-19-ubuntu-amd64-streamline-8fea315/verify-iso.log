@@ -1,0 +1,558 @@
+ISO: /vol/out/companion-os-1.0-amd64.iso (6.6G)
+Architecture: amd64 (EFI files: bootx64.efi, grubx64.efi, mmx64.efi)
+
+== 1. Pre-installed packages (wireless setup + CI-Hub tooling)
+PASS  package installed: setup-device
+PASS  package installed: hostapd
+PASS  package installed: dnsmasq
+PASS  package installed: nginx-light
+PASS  package installed: python3-flask
+PASS  package installed: gunicorn
+PASS  package installed: network-manager
+PASS  package installed: iw
+PASS  package installed: curl
+PASS  package installed: jq
+PASS  package installed: openssl
+PASS  package installed: ufw
+PASS  package installed: rfkill
+PASS  package installed: wpasupplicant
+PASS  package installed: docker-ce
+PASS  package installed: docker-ce-cli
+PASS  package installed: containerd.io
+PASS  package installed: docker-compose-plugin
+PASS  package installed: docker-buildx-plugin
+
+== 2. Pre-installed files (wireless setup payload + CI-Hub tooling)
+PASS  present: /usr/local/bin/setup-network-monitor.sh
+PASS  present: /usr/local/bin/setup-device-hotspot-start.sh
+PASS  present: /usr/local/bin/setup-device-prescan.py
+PASS  present: /usr/local/bin/setup-wifi-recover
+PASS  present: /usr/local/bin/setup-hotspot-reset.sh
+PASS  present: /usr/local/bin/ci-os-hub-start.sh
+PASS  present: /usr/local/bin/ci-os-post-validation.sh
+PASS  present: /opt/setup-backend/setup_service.py
+PASS  present: /var/www/setup-portal/index.html
+PASS  present: /etc/hostapd/hostapd-setup.conf
+PASS  present: /etc/dnsmasq.d/setup-portal.conf
+PASS  present: /etc/nginx/sites-available/setup-portal
+PASS  present: /etc/systemd/system/hostapd-setup.service
+PASS  present: /etc/systemd/system/dnsmasq-setup.service
+PASS  present: /etc/systemd/system/setup-backend.service
+PASS  present: /etc/systemd/system/setup-network-monitor.service
+PASS  present: /usr/share/applications/ci-os-hub.desktop
+PASS  present: /usr/lib/ci-os/bootstrap/core/lib/ci-hub.sh
+PASS  present: /usr/lib/ci-os/bootstrap/backends/ubuntu/provision/provision.sh
+PASS  present: /usr/bin/docker
+PASS  present: /usr/local/bin/ci-os-info
+
+== 3. Services: enabled / on demand, guarded where they must not run live
+PASS  enabled for the installed system: setup-backend.service
+PASS  enabled for the installed system: setup-network-monitor.service
+PASS  on demand, not enabled at boot: hostapd-setup.service
+PASS  on demand, not enabled at boot: dnsmasq-setup.service
+PASS  on demand, not enabled at boot: nginx.service
+PASS  never starts in a live session (casper): hostapd-setup.service
+PASS  never starts in a live session (casper): dnsmasq-setup.service
+PASS  never starts in a live session (casper): setup-backend.service
+PASS  never starts in a live session (casper): setup-network-monitor.service
+PASS  enabled: docker.service
+PASS  enabled: containerd.service
+PASS  distro dnsmasq.service is not enabled
+PASS  distro nginx.service is guarded against live sessions
+
+== 3b. Docker works in every boot mode (installed, plain-ISO live, Companion Stick live)
+PASS  enabled: docker.service
+PASS  enabled: containerd.service
+PASS  enabled: docker.socket
+PASS  no live-session guard on docker.service
+PASS  no live-session guard on docker.socket
+PASS  no live-session guard on containerd.service
+PASS  docker waits for the live storage unit
+PASS  containerd waits for the live storage unit
+PASS  live storage unit runs only in live sessions
+PASS  live storage unit runs before docker.service
+PASS  live storage script present and executable
+PASS  docker-group unit is installed-system only
+PASS  enabled: ci-os-docker-group.service
+PASS  docker-group script present and executable
+PASS  group docker exists in the image
+PASS  debconf passwd/user-default-groups contains docker (casper live user gets it)
+PASS  no UID 1000-59999 account in the image (casper creates the live user)
+PASS  casper.conf does not pretend to set USERGROUPS (casper ignores it)
+PASS  docker.io is not installed (conflicts with docker-ce)
+
+== One-click automatic install
+PASS  ci-os-auto-install is present and executable
+PASS  ci-os-auto-install runs under python3
+PASS  launcher .desktop runs the helper
+PASS  launcher is named "Install Companion OS (automatic)"
+PASS  autostart hook places the launcher in live sessions
+PASS  image ships zenity (the helper needs it)
+PASS  image ships curl (the helper needs it)
+PASS  image ships openssl (the helper needs it)
+PASS  image ships lsblk (the helper needs it)
+PASS  image ships findmnt (the helper needs it)
+PASS  image ships python3-yaml
+PASS  helper never shells out with shell=True
+PASS  helper never partitions or formats a disk itself
+PASS  disk-selection unit tests pass against the image's helper (Ran 212 tests in 2.284s)
+PASS  GRUB menu has exactly one 'Install Companion OS (automatic)' entry
+PASS  only that entry's kernel line carries ci.autoinstall=1
+PASS  no entry boots the installer unattended (no 'autoinstall' word without the ci. prefix)
+
+== 3c. Optional tools (Tier B): tailscale, cloudflared, gh, Ollama, Companion Launcher, Companion Capture
+PASS  baked-hub-tools.txt: bake-third-party=1
+PASS  baked-hub-tools.txt: bake-ollama=1
+PASS  baked-hub-tools.txt: bake-launcher=1
+PASS  baked-hub-tools.txt: bake-capture=1
+PASS  package installed: tailscale
+PASS  version recorded: tailscale=1.104.1
+PASS  package installed: cloudflared
+PASS  version recorded: cloudflared=2026.10.1
+PASS  package installed: gh
+PASS  version recorded: gh=2.102.0
+PASS  present: /usr/sbin/tailscaled
+PASS  present: /usr/bin/tailscale
+PASS  present: /usr/bin/cloudflared
+PASS  present: /usr/bin/gh
+PASS  apt source tailscale.list is signed-by /usr/share/keyrings/tailscale-archive-keyring.gpg
+PASS  keyring present: /usr/share/keyrings/tailscale-archive-keyring.gpg
+PASS  apt source cloudflared.list is signed-by /usr/share/keyrings/cloudflare-main.gpg
+PASS  keyring present: /usr/share/keyrings/cloudflare-main.gpg
+PASS  apt source github-cli.list is signed-by /usr/share/keyrings/githubcli-archive-keyring.gpg
+PASS  keyring present: /usr/share/keyrings/githubcli-archive-keyring.gpg
+PASS  no apt source disables signature checks
+PASS  keyring tailscale-archive-keyring.gpg holds exactly the pinned key (2596A99EAAB33821893C0A79458CA832957F5868)
+PASS  keyring cloudflare-main.gpg holds exactly the pinned key (CC94B39C77AE7342A68B89628A682D308D4E5E73)
+PASS  keyring githubcli-archive-keyring.gpg holds exactly the pinned key (7F38BBB59D064DBCB3D84D725612B36462313325)
+PASS  enabled for the installed system: tailscaled.service
+PASS  never starts in a live session (casper): tailscaled.service
+PASS  cloudflared installs no systemd unit (nothing to start)
+PASS  no tailscaled state in the image
+PASS  present: /usr/bin/ollama
+PASS  present: /usr/lib/ollama/libggml-base.so.0
+PASS  present: /etc/systemd/system/ollama.service
+PASS  present: /usr/libexec/ci-os/ollama-models-env
+PASS  present: /usr/lib/ollama/vulkan/libggml-vulkan.so
+PASS  system user 'ollama' (uid < 1000, home /usr/share/ollama, no login)
+PASS  group 'ollama' exists
+PASS  enabled for the installed system: ollama.service
+PASS  never starts in a live session (casper): ollama.service
+PASS  ollama.service uses the models-dir selector (safe when CI-CACHE is absent)
+PASS  ollama.service reads the selector's optional env file
+PASS  no models in the image (they live on CI-CACHE or are pulled at first boot)
+PASS  usr/bin/ollama sha256 equals the one recorded at build time
+PASS  usr/bin/ollama is an ELF binary
+PASS  baked Ollama is the pinned release (0.40.3)
+PASS  package installed: companion-hub
+PASS  present: /usr/bin/companion-hub
+PASS  present: /usr/bin/cihub
+PASS  no stale ci-os-hub-desktop binary
+PASS  baked Launcher is the pinned release (0.3.5)
+info  Launcher autostart not baked (CI_OS_LAUNCHER_AUTOSTART=0, the default)
+PASS  package installed: companion-capture
+PASS  present: /usr/bin/companion-capture
+PASS  present: /usr/share/applications/companion-capture.desktop
+PASS  baked Capture is the pinned release (0.2.0-alpha.7)
+PASS  no Capture autostart entry
+PASS  no Capture systemd unit
+info  root squashfs: 5.2G
+
+== 3d. Installed system: one layer, so the package database stays ours
+PASS  install-sources.yaml lists no preinstalled_langs (installer uses minimal.squashfs alone)
+PASS  install-sources.yaml keeps both entries (ubuntu-desktop-minimal, ubuntu-desktop)
+PASS  install-sources.yaml is the version 2 mapping (kernel:, sources:, version: 2), not a bare list
+PASS  install-sources.yaml names the kernel meta-package linux-generic-hwe-24.04
+PASS  the kernel meta-package linux-generic-hwe-24.04 is installed in the base layer (curtin finds no new kernel to install and removes none)
+PASS  install-sources.yaml carries the stock ISO's kernel: block, verbatim
+PASS  every layer named in install-sources.yaml exists on the ISO
+PASS  install-sources.yaml lists no enhanced-secureboot variations
+PASS  no stock language layers on the ISO
+PASS  no enhanced-secureboot layer, size or manifest file on the ISO (this image ships no TPM full-disk-encryption variant)
+PASS  /casper holds exactly the three layers' .squashfs, .size, .manifest and .manifest.full files and no other minimal* file
+
+== 3e. Casper overlay layers must not change directory modes
+PASS  root layer: /tmp is drwxrwxrwt
+PASS  layer minimal.standard: all 4 directories have the same mode as in the root layer
+PASS  layer minimal.standard: /tmp is drwxrwxrwt
+PASS  layer minimal.standard.live: all 127 directories have the same mode as in the root layer
+PASS  layer minimal.standard.live: has no /tmp, so the layers below provide it (drwxrwxrwt)
+
+== 3f. NetworkManager still manages wired devices
+PASS  no etc/netplan file sets a global renderer other than NetworkManager
+PASS  01-network-manager-all.yaml still has renderer: NetworkManager
+
+== 3g. Installer base layer is clean: nothing live-only reaches the installed system
+PASS  base layer: listing and dpkg status are readable (236888 entries)
+PASS  base layer has no /etc/casper.conf
+PASS  base layer has no casper initramfs configuration (casperize.conf, default-layer.conf)
+PASS  base layer has no casper initramfs scripts and hook (the hook is what makes every initrd boot casper)
+PASS  base layer has no casper programs, data and documentation
+PASS  base layer has no casper dpkg file lists and helper state
+PASS  base layer has no casper systemd units and their enable links
+PASS  base layer has no finalrd (casper's shutdown helper) files, unit and enable links
+PASS  base layer has no live-session dconf overrides (livecd-rootfs.gschema.override)
+PASS  base layer has no installer snap files, snapd state, AppArmor and seccomp profiles (ubuntu-desktop-bootstrap; its base core24 is the system's own and stays)
+PASS  base layer has no installer snap mount units and service units
+PASS  base layer has no installer user service (ubuntu-desktop-installer.service)
+PASS  base layer has no subiquity live-session files (/etc/subiquity, subiquity_config.mount and the device drop-in that wants it)
+PASS  base layer has no live-image cloud-init files (06_quiet.cfg, the NoCloud seed)
+PASS  base layer has no live-image apt preferences backup (preferences.d.save/preferences.d; the stock standard layer has the flat files) and packages.chroot
+PASS  base layer has no live-session systemd settings (masked getty@tty1, udisks2-inhibit, media-filesystem.mount link, snapd re-exec drop-in, display-manager wait for snapd seeding)
+PASS  base layer has no live-session security settings (the polkit rule that grants snapd's configuration to every subject, the sysctl file that switches off AppArmor's unprivileged-userns restriction)
+PASS  base layer has no the snapd seed of the TPM full-disk-encryption variant (seed/systems/enhanced-secureboot-desktop; no such layer is shipped)
+PASS  base layer has no live-session journald drop-ins
+PASS  base layer has no SSH host keys (generated on the first boot)
+PASS  base layer's dpkg status has no live-only package casper
+PASS  base layer's dpkg status has no live-only package finalrd
+PASS  base layer's snapd seed.yaml names no installer snap
+PASS  base layer's snapd seed.yaml names only snap files the base layer holds
+PASS  base layer's seed/snaps holds only snap files its seed.yaml names
+PASS  base layer's snapd state.json knows no installer snap
+PASS  base layer's /etc/cloud/cloud.cfg is not the live session's
+PASS  base layer's systemd-networkd-wait-online is not replaced by a symlink
+PASS  base layer: initramfs-tools is installed (update-initramfs is the real one curtin calls)
+PASS  base layer's dpkg status has no dracut
+PASS  base layer's dpkg status has no dracut-core
+PASS  /etc/apt/preferences.d/ci-os-no-dracut pins dracut and dracut-core to Pin-Priority -1 (apt cannot swap the initramfs generator)
+PASS  base layer: /etc/apt/sources.list.d/cdrom.sources is there, for the ISO pool (subiquity 26.04 relies on it and removes it from the installed system)
+PASS  base layer: no cdrom.sources.disabled left over
+PASS  live layer is not a placeholder (224 entries that are not directories)
+PASS  live layer holds what the base had taken out: casper's files, casper-md5check and its enable link, the installer's pieces
+PASS  live layer does not start Canonical's installer by itself (no wants link for ubuntu-desktop-installer.service, no autostart entry for it)
+PASS  the helper restores everything that Canonical's installer unit restores when its window closes (ding@rastersoft.com dock-fixed intellihide)
+PASS  live layer's snapd seed.yaml still names the installer snap
+PASS  live layer has no snapd seed of the TPM full-disk-encryption variant (seed/systems)
+PASS  live layer's seed/snaps holds only snap files its seed.yaml names
+PASS  live layer carries the live session's /etc/cloud/cloud.cfg
+PASS  live layer's dpkg status lists casper as installed
+PASS  minimal.standard.squashfs is still the empty placeholder
+PASS  layer minimal: .size (10790860288) is plausible for what the layer holds (9636157164 to 17460659814 bytes)
+PASS  layer minimal.standard: .size (0) is plausible for what the layer holds (0 to 1068237 bytes)
+PASS  layer minimal.standard.live: .size (240520192) is plausible for what the layer holds (98903293 to 291065037 bytes)
+PASS  minimal.manifest lists exactly the packages of the base layer (1875)
+PASS  minimal.standard.manifest lists no package (the layer is empty)
+PASS  minimal.standard.live.manifest lists exactly the packages the live layer adds to the base (2)
+PASS  minimal.manifest.full lists exactly the packages of the stack up to that layer (1875)
+PASS  minimal.standard.manifest.full lists exactly the packages of the stack up to that layer (1875)
+PASS  minimal.standard.live.manifest.full lists exactly the packages of the stack up to that layer (1877)
+PASS  minimal.manifest.full lists the snaps of that stack's seed (14)
+PASS  minimal.standard.live.manifest.full lists the snaps of that stack's seed (15)
+PASS  minimal.standard.live.manifest lists casper 26.04.2, the version the live layer has
+PASS  minimal.manifest does not list casper
+PASS  grub.cfg: all 3 kernel lines are the stock ones (no boot=, layerfs-path= or other added parameter)
+PASS  loopback.cfg: all 2 kernel lines are the stock ones (no boot=, layerfs-path= or other added parameter)
+PASS  grub.cfg: the kernel lines equal the base ISO's (apart from ci.autoinstall=1)
+PASS  loopback.cfg: the kernel lines equal the base ISO's (apart from ci.autoinstall=1)
+
+== 4. Branding: user-visible identity is Companion OS
+PASS  os-release NAME is Companion OS
+PASS  os-release PRETTY_NAME starts with Companion OS
+PASS  os-release VERSION names the product Companion OS (not the company)
+PASS  os-release keeps ID=ubuntu (apt and the installer rely on it)
+PASS  os-release keeps VERSION_CODENAME (apt sources)
+PASS  lsb-release description is Companion OS
+PASS  lsb-release keeps DISTRIB_ID=Ubuntu (tools key off it)
+PASS  os-release keeps ID_LIKE=debian
+PASS  os-release keeps VERSION_ID (apt sources, installer)
+PASS  os-release keeps UBUNTU_CODENAME (apt sources)
+PASS  os-release has CI_OS_ID=ci-os, CI_OS_VERSION and a CI_OS_BUILD day
+PASS  /etc/os-release is still the symlink to ../usr/lib/os-release (the writer writes through it)
+PASS  the stock Ubuntu identity is saved at /etc/os-release.ubuntu-base (apt, ROCm and the first-boot rebrand read it)
+PASS  os-release VERSION_ID=26.04 matches the stock Ubuntu base
+PASS  os-release VERSION_CODENAME=resolute matches the stock Ubuntu base
+PASS  os-release UBUNTU_CODENAME=resolute matches the stock Ubuntu base
+PASS  os-release equals the shared writer's output for this base (apart from the CI_OS_BUILD day)
+PASS  lsb-release equals the shared writer's output for this base
+PASS  /etc/issue is Companion OS
+PASS  installed-system hostname is companion-os
+PASS  GRUB_DISTRIBUTOR is Companion OS
+PASS  live session host name is not 'ubuntu'
+PASS  live session user is not 'ubuntu'
+PASS  casper keeps BUILD_SYSTEM=Ubuntu (casper logic depends on it)
+PASS  MOTD header is Companion OS
+PASS  Ubuntu's own MOTD welcome (00-header) is disabled
+PASS  install-sources.yaml names every source Companion OS (each en: line starts with it)
+PASS  install-sources.yaml has no CI-OS or CI OS spelling
+PASS  Plymouth text theme is named Companion OS Text
+PASS  Plymouth text theme description says Companion OS
+PASS  Plymouth text splash title is 'Companion OS 1.0' (the version os-release carries)
+PASS  Plymouth text splash title is not the 0.0.1 placeholder
+PASS  no retired product name (CI OS, Companion Ubuntu, Intelligence Operating System, Companion Intelligence <version>) in os-release, issue, GRUB, MOTD, the Hub entry, the splash or the installer sources
+PASS  the MOTD and issue banners are words only (no block-letter art that could spell a retired name)
+
+== 4b. About logo, dock start icon, LOGO icon, greeter logo
+PASS  ubuntu-logo-text.png is a PNG, 192px wide
+PASS  ubuntu-logo-text.png is not Ubuntu's stock file
+PASS  ubuntu-logo-text.png is dpkg-diverted (base-files cannot restore Ubuntu's)
+PASS  ubuntu-logo-text.png (light mode): every opaque pixel is #0a6358, the mark covers 17.9% of the 192x192 image
+PASS  ubuntu-logo-text.png (light mode): shape matches a fresh render of the vendored mark (IoU 1.0000)
+PASS  ubuntu-logo-text-dark.png is a PNG, 192px wide
+PASS  ubuntu-logo-text-dark.png is not Ubuntu's stock file
+PASS  ubuntu-logo-text-dark.png is dpkg-diverted (base-files cannot restore Ubuntu's)
+PASS  ubuntu-logo-text-dark.png (dark mode): every opaque pixel is #c5e8dc, the mark covers 17.9% of the 192x192 image
+PASS  ubuntu-logo-text-dark.png (dark mode): shape matches a fresh render of the vendored mark (IoU 1.0000)
+PASS  ubuntu-logo-text.svg is an SVG
+PASS  ubuntu-logo-text.svg is not Ubuntu's stock file
+PASS  ubuntu-logo-text.svg has no Ubuntu orange
+PASS  ubuntu-logo-text.svg is dpkg-diverted (base-files cannot restore Ubuntu's)
+PASS  ubuntu-logo-text.svg carries all 18 paths of the vendored one-colour mark
+PASS  ubuntu-logo-text.svg is filled with the canon primary of light mode (#0a6358)
+PASS  ubuntu-logo-text-dark.svg is an SVG
+PASS  ubuntu-logo-text-dark.svg is not Ubuntu's stock file
+PASS  ubuntu-logo-text-dark.svg has no Ubuntu orange
+PASS  ubuntu-logo-text-dark.svg is dpkg-diverted (base-files cannot restore Ubuntu's)
+PASS  ubuntu-logo-text-dark.svg carries all 18 paths of the vendored one-colour mark
+PASS  ubuntu-logo-text-dark.svg is filled with the canon primary of dark mode (#c5e8dc)
+PASS  the image ships no backup directories of stock Ubuntu files
+PASS  Yaru start-here-symbolic.svg carries all 18 paths of the vendored mark (dock Show Applications button)
+PASS  Yaru start-here-symbolic.svg crop (34.60548 36.582936 178.465404 175.004856) lies inside the vendored mark's canvas (0 0 247.182 247.182)
+PASS  Yaru start-here-symbolic.svg keeps the whole mark inside its crop (206844 of 207149 opaque pixels at the same scale)
+PASS  Yaru start-here-symbolic.svg ships none of the logo artwork's colours (GTK repaints a symbolic icon; brand hexes belong in the artwork only)
+PASS  Yaru start-here-symbolic.svg is dpkg-diverted (yaru-theme-icon cannot restore Ubuntu's)
+PASS  the dock button icon (view-app-grid-ubuntu-symbolic.svg) still points at start-here-symbolic.svg
+PASS  os-release has LOGO=ci-os-logo
+PASS  icon ci-os-logo exists (hicolor scalable apps)
+PASS  hicolor icon-theme.cache lists ci-os-logo
+PASS  icon ci-os-logo.svg is the vendored canon mark (vendor/brand/logos/mark.svg), byte for byte
+PASS  Hub launcher entry uses the ci-os-logo icon
+PASS  Hub launcher entry is labelled Companion Hub (Name=)
+PASS  Hub launcher entry text has no 'CI OS' spelling (Name= and Comment=)
+PASS  GDM login dconf points the greeter logo at companion-logo.png
+PASS  greeter logo companion-logo.png is 256px wide, 11593 bytes
+PASS  greeter logo companion-logo.png: opaque pixels use exactly the mark's colours (#00a9a7, #066c80, #72ddd4), covering 18.4% of the 256x256 image
+PASS  greeter logo companion-logo.png: shape matches a fresh render of the vendored mark (IoU 1.0000)
+
+== 4c. Visible names (sessions, Settings panel, extensions)
+PASS  /usr/share/wayland-sessions/ubuntu.desktop is named 'Companion OS' (Name=, Comment=)
+PASS  /usr/share/wayland-sessions/ubuntu.desktop keeps its session identifiers (Exec=/usr/bin/gnome-session --session=ubuntu, TryExec=/usr/bin/gnome-session, DesktopNames=ubuntu;GNOME)
+PASS  /usr/share/wayland-sessions/ubuntu.desktop is dpkg-diverted (an ubuntu-session upgrade cannot restore Ubuntu's name)
+PASS  every Name= in the session file starts with 'Companion OS'
+PASS  exactly one session file exists (/usr/share/wayland-sessions/ubuntu.desktop; Ubuntu 26.04.1 has no Xorg session)
+PASS  Settings sidebar entry is 'Companion OS Desktop' (gnome-ubuntu-panel.desktop Name=, Comment=)
+PASS  Settings panel keeps its id (Exec=gnome-control-center ubuntu, OnlyShowIn=ubuntu;)
+PASS  /usr/share/applications/gnome-ubuntu-panel.desktop is dpkg-diverted (a gnome-control-center upgrade cannot restore Ubuntu's name)
+PASS  extension ubuntu-dock@ubuntu.com is named 'Companion OS Dock' (metadata.json is valid JSON)
+PASS  extension ubuntu-dock@ubuntu.com keeps its uuid (it matches the directory name)
+PASS  /usr/share/gnome-shell/extensions/ubuntu-dock@ubuntu.com/metadata.json is dpkg-diverted (an extension package upgrade cannot restore Ubuntu's name)
+PASS  extension ubuntu-appindicators@ubuntu.com is named 'Companion OS AppIndicators' (metadata.json is valid JSON)
+PASS  extension ubuntu-appindicators@ubuntu.com keeps its uuid (it matches the directory name)
+PASS  /usr/share/gnome-shell/extensions/ubuntu-appindicators@ubuntu.com/metadata.json is dpkg-diverted (an extension package upgrade cannot restore Ubuntu's name)
+PASS  extension tiling-assistant@ubuntu.com is named 'Companion OS Tiling Assistant' (metadata.json is valid JSON)
+PASS  extension tiling-assistant@ubuntu.com keeps its uuid (it matches the directory name)
+PASS  /usr/share/gnome-shell/extensions/tiling-assistant@ubuntu.com/metadata.json is dpkg-diverted (an extension package upgrade cannot restore Ubuntu's name)
+
+== 4d. GNOME Shell theme (the Ubuntu session and the GDM greeter)
+PASS  GNOME Shell theme: the Ubuntu session's gresource (theme/Yaru/gnome-shell-theme.gresource) is not Ubuntu's stock Yaru theme
+PASS  GNOME Shell theme: theme/Yaru/gnome-shell-theme.gresource is the branded blob of this checkout, byte for byte (0a0ec5cdc97ac1d6f01279111b0efce1cba6d3f9fcf4b3f83b9d3280d394c2f1)
+PASS  GNOME Shell theme: the upstream gnome-shell-theme.gresource still has gnome-shell-light.css and gnome-shell-dark.css (the built-in session modes load them)
+PASS  GNOME Shell theme: the greeter's gdm-theme.gresource still resolves, through /etc/alternatives, to the Yaru file that carries the branded theme
+
+== 5. Branding: boot menu
+PASS  GRUB menu says Companion OS
+PASS  /.disk/info starts with 'Companion OS', the release and LTS (no hyphen: the installer's last page shows this text)
+PASS  /.disk/info keeps the (serial) suffix pollinate parses
+PASS  /.disk/info: the installer's last page reads 'Companion OS 26.04.1 LTS is installed and ready to use' (Companion OS, no hyphen on screen)
+PASS  /.disk/info: casper's launcher label reads 'Install Companion OS' (Companion OS, no hyphen on screen)
+PASS  /.disk/info: the second word is 'OS' and subiquity's refresh.py never uses it: the installer snap tracks 26.04/stable/ubuntu-26.04.1, not stable/ubuntu-26.04, and it switches channel only for the latter
+PASS  no Ubuntu in any GRUB menu entry title
+PASS  the ISO volume id is the base ISO's ('Ubuntu 26.04.1 LTS amd64'), which the signed GRUB and casper look for
+PASS  live GRUB background /boot/grub/ci-os-bg.png is a PNG with 8-bit depth
+PASS  live GRUB background is 1920px wide
+PASS  grub.cfg loads the background (background_image /boot/grub/ci-os-bg.png)
+PASS  grub.cfg draws the menu with gfxterm (terminal_output gfxterm)
+PASS  grub.cfg insmods exactly gfxterm and png
+PASS  every module grub.cfg insmods (gfxterm png) is built into the signed GRUB on the ISO (/EFI/boot/grubx64.efi has 95 built-in modules)
+PASS  menu_color_highlight is black/cyan (nearest GRUB colour to the accent aqua)
+PASS  menu_color_normal is white/black (nearest GRUB colour to the dark foreground)
+PASS  installed-system GRUB background (/usr/share/pixmaps/ci-os-grub-bg.png) has 8-bit depth
+PASS  Secure Boot chain: /EFI/boot/bootx64.efi is byte-identical to the base ISO's
+PASS  Secure Boot chain: /EFI/boot/grubx64.efi is byte-identical to the base ISO's
+PASS  Secure Boot chain: /EFI/boot/mmx64.efi is byte-identical to the base ISO's
+
+== 6. Branding: desktop defaults (wallpaper / picker)
+PASS  dconf user profile reads the system 'local' db (without it local.d is ignored)
+PASS  wallpaper default comes from a schema override that sorts after Ubuntu's
+PASS  wallpaper override points at the Companion wallpaper
+PASS  Ubuntu wallpaper collections are not offered in Settings
+PASS  dock default is written to the local dconf db (02-ci-os-dock)
+PASS  dock default is exactly the committed list
+PASS  dock default is compiled into the local dconf db: Companion Hub.desktop
+PASS  dock default is compiled into the local dconf db: companion-capture.desktop
+PASS  dock default is compiled into the local dconf db: companion-docs.desktop
+PASS  dock default is compiled into the local dconf db: org.gnome.Ptyxis.desktop
+PASS  dock default does not pin ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop
+PASS  dock default does not pin firefox_firefox.desktop
+PASS  dock default does not pin thunderbird_thunderbird.desktop
+PASS  dock default does not pin libreoffice-writer.desktop
+PASS  dock default does not pin snap-store_snap-store.desktop
+PASS  dock default does not pin org.gnome.Yelp.desktop
+PASS  dock default does not pin org.gnome.Rhythmbox3.desktop
+PASS  dock default does not pin net.nokyan.Resources.desktop
+PASS  the links list is valid
+PASS  link entry /usr/share/applications/companion-getting-started.desktop opens https://docs.ci.computer/docs/getting-started
+PASS  desktop shortcut /etc/skel/Desktop/companion-getting-started.desktop exists and is executable
+PASS  link entry /usr/share/applications/companion-docs.desktop opens https://docs.ci.computer
+PASS  desktop shortcut /etc/skel/Desktop/companion-docs.desktop exists and is executable
+PASS  link entry /usr/share/applications/companion-app-store.desktop opens https://hub.ci.computer/store
+PASS  desktop shortcut /etc/skel/Desktop/companion-app-store.desktop exists and is executable
+PASS  link entry /usr/share/applications/companion-support.desktop opens https://ci.computer/support
+PASS  desktop shortcut /etc/skel/Desktop/companion-support.desktop exists and is executable
+PASS  link entry /usr/share/applications/companion-community.desktop opens https://discord.com/invite/yQp9hwpzAa
+PASS  desktop shortcut /etc/skel/Desktop/companion-community.desktop exists and is executable
+PASS  link entry /usr/share/applications/companion-capture-guide.desktop opens https://docs.ci.computer/docs/apps-available/first-party-apps/companion-capture
+PASS  no desktop shortcut for companion-capture-guide (menu only)
+PASS  link entry /usr/share/applications/companion-downloads.desktop opens https://ci.computer/download
+PASS  no desktop shortcut for companion-downloads (menu only)
+PASS  link entry /usr/share/applications/companion-website.desktop opens https://ci.computer
+PASS  no desktop shortcut for companion-website (menu only)
+PASS  first-login welcome script is installed and executable
+PASS  first-login welcome script skips a live session
+PASS  first-login welcome autostart entry runs it, hidden, for GNOME
+PASS  first-run: /etc/skel/.config/gnome-initial-setup-done exists (no Canonical first-run for a new user)
+PASS  first-run: the upgrade-login unit names a stamp (gnome-initial-setup/upgrade-26.04-done)
+PASS  first-run: /etc/skel/.config/gnome-initial-setup/upgrade-26.04-done exists (no 'Welcome to Companion OS' page after the first sign-in)
+PASS  first-run: gnome-initial-setup-first-login.service is skipped by a stamp (gnome-initial-setup-done)
+PASS  first-run: /etc/skel/.config holds every stamp that unit names (so Canonical's Ubuntu Pro, location and usage pages are not shown)
+PASS  quiet first sign-in: /etc/firefox/policies/policies.json is JSON with the four policies
+PASS  quiet first sign-in: the update notifier's pop-ups are off by default (dconf local.d)
+PASS  ci-os-info: reports the setup, Hub, models and health, not only the GPU
+PASS  ci-os-info: the ROCm command is offered only behind a check for it (arm64 has none)
+PASS  login text: motd script 00-header is held off by dpkg-statoverride
+PASS  login text: motd script 10-help-text is held off by dpkg-statoverride
+PASS  login text: motd script 50-motd-news is held off by dpkg-statoverride
+PASS  login text: motd script 91-contract-ua-esm-status is held off by dpkg-statoverride
+PASS  login text: /etc/legal names Companion OS
+PASS  login text: /etc/legal no longer says 'Ubuntu comes with'
+PASS  login text: the stock /etc/legal is diverted aside (a base-files upgrade cannot bring it back)
+PASS  login text: the Ubuntu Pro autostart notification is diverted aside
+PASS  first boot: the setup is started by its timer at 3 minutes, not linked into multi-user.target
+PASS  first boot: wait-quiet is installed and executable
+PASS  first boot progress: setup-progress is installed, executable, and skips a live session
+PASS  first boot progress: its autostart entry runs it, hidden, for GNOME
+PASS  first boot progress: the status library is in the bootstrap tree, and the wrapper and provision.sh use it
+PASS  first boot progress: the library writes the status file the desktop reads (state, step, steps, title; world-readable; one line each)
+
+== 6b. Ubuntu Pro does not prompt, and nothing reports to Canonical
+PASS  no Ubuntu Pro machine token is baked into the image (an image is never attached)
+PASS  Canonical: telemetry package ubuntu-report is not installed
+PASS  Canonical: telemetry package popularity-contest is not installed
+PASS  Canonical: telemetry package apport is not installed
+PASS  Canonical: telemetry package whoopsie is not installed
+PASS  Canonical: telemetry package apport-symptoms is not installed
+PASS  Canonical: telemetry package landscape-common is not installed
+PASS  Canonical: telemetry package ubuntu-insights is not installed
+PASS  Canonical: /etc/hosts sends metrics.ubuntu.com to localhost
+PASS  Canonical: /etc/hosts sends www.metrics.ubuntu.com to localhost
+PASS  Canonical: /etc/hosts sends popcon.ubuntu.com to localhost
+PASS  Canonical: /etc/hosts sends www.popcon.ubuntu.com to localhost
+PASS  Canonical: /etc/hosts sends daisy.ubuntu.com to localhost
+PASS  Canonical: /etc/hosts sends motd.ubuntu.com to localhost
+PASS  Canonical: uaclient.conf has apt_news: false
+PASS  Canonical: uaclient.conf has update_messaging_timer: 0
+PASS  Canonical: uaclient.conf has update_status_timer: 0
+PASS  Canonical: uaclient.conf has metering_timer: 0
+PASS  Canonical: apt runs no Ubuntu Pro hook (no active file of /etc/apt/apt.conf.d runs the Pro client)
+PASS  Canonical: login-text script 00-header is off and kept off by dpkg-statoverride
+PASS  Canonical: login-text script 10-help-text is off and kept off by dpkg-statoverride
+PASS  Canonical: login-text script 50-motd-news is off and kept off by dpkg-statoverride
+PASS  Canonical: login-text script 88-esm-announce is not in this system
+PASS  Canonical: login-text script 91-contract-ua-esm-status is off and kept off by dpkg-statoverride
+PASS  Canonical: no executable login-text script advertises Ubuntu Pro or fetches from Canonical
+PASS  Canonical: /etc/default/motd-news is not in this system
+PASS  Canonical: unit ua-timer.timer is masked
+PASS  Canonical: unit ua-timer.service is masked
+PASS  Canonical: unit apt-news.service is masked
+PASS  Canonical: unit esm-cache.service is masked
+PASS  Canonical: unit motd-news.timer is masked
+PASS  Canonical: unit motd-news.service is masked
+PASS  Canonical: unit pollinate.service is not in this system
+PASS  Canonical: no autostart entry of the Pro client or of telemetry is active (/etc/xdg/autostart)
+PASS  Canonical: the dconf defaults turn off error reports and usage statistics (org.gnome.desktop.privacy)
+PASS  Canonical: the Pro client's apt hook is a registered local diversion (an upgrade of the package cannot bring it back)
+
+== 6c. Appearance: dark, with a green accent, for every user
+PASS  appearance: the values are ones GNOME's schema accepts (color-scheme prefer-dark, accent-color green)
+PASS  appearance: /etc/dconf/db/local.d/04-ci-os-appearance is the library's keyfile: color-scheme 'prefer-dark', accent-color 'green'
+PASS  appearance: 90_companion-os.gschema.override carries the same two keys under [org.gnome.desktop.interface]
+PASS  appearance: the compiled local dconf database holds color-scheme 'prefer-dark'
+PASS  appearance: the compiled local dconf database holds accent-color 'green'
+PASS  appearance: the wallpaper has a dark-scheme variant (picture-uri-dark is the Companion wallpaper, so the dark desktop does not fall back to Ubuntu's)
+
+== 7. Branding: live boot splash and live identity (initrd)
+PASS  initrd carries the Companion OS overlay (appended archive)
+PASS  live splash logo (initrd overlay) is the same branded image as the installed system
+PASS  Plymouth logo is splash-sized (512px wide)
+PASS  initrd overlay carries exactly the branded files: casper.conf, the bgrt, spinner and text-splash themes, the watermark and bgrt-fallback.png (the 26.04.1 initrd has no ubuntu-logo.png to replace)
+PASS  bgrt.plymouth (initrd overlay): ground is the canon dark background (0x041620)
+PASS  bgrt.plymouth (initrd overlay): progress bar is the canon primary on the canon secondary (0xc5e8dc on 0x073038)
+PASS  spinner.plymouth (initrd overlay): ground is the canon dark background (0x041620)
+PASS  spinner.plymouth (initrd overlay): progress bar is the canon primary on the canon secondary (0xc5e8dc on 0x073038)
+PASS  bgrt.plymouth (rootfs): ground is the canon dark background (0x041620)
+PASS  bgrt.plymouth (rootfs): progress bar is the canon primary on the canon secondary (0xc5e8dc on 0x073038)
+PASS  spinner.plymouth (rootfs): ground is the canon dark background (0x041620)
+PASS  spinner.plymouth (rootfs): progress bar is the canon primary on the canon secondary (0xc5e8dc on 0x073038)
+PASS  bgrt.plymouth (initrd overlay) keeps the stock font, the only one the initrd carries
+PASS  bgrt.plymouth (initrd overlay): no section asks for the firmware background (UseFirmwareBackground: boot-up=false shutdown=false reboot=false), so the plugin fills the screen with BackgroundStartColor
+PASS  bgrt.plymouth (initrd overlay): the ground drawn at boot is the canon dark background (0x041620)
+PASS  spinner.plymouth (initrd overlay): no section asks for the firmware background (UseFirmwareBackground: boot-up=unset shutdown=unset reboot=unset), so the plugin fills the screen with BackgroundStartColor
+PASS  spinner.plymouth (initrd overlay): the ground drawn at boot is the canon dark background (0x041620)
+PASS  bgrt.plymouth (rootfs): no section asks for the firmware background (UseFirmwareBackground: boot-up=false shutdown=false reboot=false), so the plugin fills the screen with BackgroundStartColor
+PASS  bgrt.plymouth (rootfs): the ground drawn at boot is the canon dark background (0x041620)
+PASS  spinner.plymouth (rootfs): no section asks for the firmware background (UseFirmwareBackground: boot-up=unset shutdown=unset reboot=unset), so the plugin fills the screen with BackgroundStartColor
+PASS  spinner.plymouth (rootfs): the ground drawn at boot is the canon dark background (0x041620)
+PASS  bgrt.plymouth (initrd overlay) sets UseFirmwareBackground=false in boot-up, shutdown and reboot (the key is there and off, not just missing)
+PASS  bgrt.plymouth: the live (initrd overlay) and installed (rootfs) copies have the same keys and values apart from the fonts
+PASS  spinner.plymouth: the live (initrd overlay) and installed (rootfs) copies have the same keys and values apart from the fonts
+PASS  installed system: the default Plymouth theme is bgrt, the one that is branded
+PASS  text splash (initrd overlay) is titled Companion OS, not Ubuntu 26.04
+PASS  text splash (initrd overlay) is no longer aubergine (0x2c001e)
+PASS  text splash (initrd overlay) ground is the canon dark background (0x041620)
+PASS  text splash (installed system) ground is the canon dark background (0x041620)
+PASS  text splash title is the same in the initrd overlay and the installed system (title=Companion OS 1.0)
+PASS  firmware-logo fallback (initrd overlay) is the same file as the installed system's
+PASS  bgrt-fallback.png (initrd overlay) is 128x128, the size of Ubuntu's
+PASS  bgrt-fallback.png (initrd overlay) is not Ubuntu's stock logo
+PASS  bgrt-fallback.png (rootfs) is 128x128, the size of Ubuntu's
+PASS  bgrt-fallback.png (rootfs) is not Ubuntu's stock logo
+PASS  bgrt-fallback.png (firmware-logo fallback): opaque pixels use exactly the mark's colours (#00a9a7, #066c80, #72ddd4), covering 17.0% of the 128x128 image
+PASS  bgrt-fallback.png (firmware-logo fallback): shape matches a fresh render of the vendored mark (IoU 1.0000)
+PASS  spinner/bgrt-fallback.png is dpkg-diverted (a plymouth package upgrade cannot restore Ubuntu's)
+PASS  spinner/watermark.png is dpkg-diverted (a plymouth package upgrade cannot restore Ubuntu's)
+PASS  bgrt/bgrt.plymouth is dpkg-diverted (a plymouth package upgrade cannot restore Ubuntu's)
+PASS  spinner/spinner.plymouth is dpkg-diverted (a plymouth package upgrade cannot restore Ubuntu's)
+PASS  ubuntu-text/ubuntu-text.plymouth.in is dpkg-diverted (a plymouth package upgrade cannot restore Ubuntu's)
+PASS  text splash template is titled Companion OS and not aubergine (the postinst regenerates the text theme from it)
+PASS  text splash template has the same title as the installed text theme (title=Companion OS 1.0)
+PASS  initrd layout: the overlay is appended 4-byte aligned, at byte 95487356
+PASS  the stock part of the initrd is byte-identical to the base ISO's (95487354 bytes)
+PASS  the overlay starts right after the stock initrd and its 2 NUL padding bytes
+PASS  GRUB background image is installed (19027 bytes)
+PASS  live session user is not 'ubuntu' (initrd casper.conf)
+PASS  live session host name is not 'ubuntu' (initrd casper.conf)
+PASS  FLAVOUR is set so casper does not re-derive user/host from /.disk/info (initrd casper.conf)
+PASS  the initrd's default Plymouth theme is bgrt: the theme the overlay repaints is the one the live boot loads
+PASS  nothing in the initrd selects another Plymouth theme than bgrt (its plymouthd.conf names no theme, as in Ubuntu 26.04.1's own initrd)
+PASS  the initrd's two-step plugin reads UseFirmwareBackground (the key the ground depends on)
+info  the kernel's acceptance of the appended archive is only proven by booting the ISO (see the QEMU boot check)
+
+== 8. Disc integrity: md5sum.txt matches the files in the image (casper-md5check)
+PASS  md5sum.txt lists 800 files
+PASS  every file listed in md5sum.txt hashes to its entry (800 files, streamed out of the image)
+PASS  no md5sum.txt entry names a file that is not in the image
+PASS  every regular file the stock convention lists is in md5sum.txt (all but /md5sum.txt, /boot.catalog and the BIOS boot image eltorito.img)
+PASS  md5sum.txt has no duplicate and no malformed line
+PASS  the exclusions checked above are the stock ISO's own (stock md5sum.txt convention holds: 948 entries, 950 regular files, 2 excluded, sorted by path (C locale))
+info  casper-md5check itself is not run here: verify models it (compared with the real binary on a synthetic tree only), so the result on a booted image (journalctl -u casper-md5check, or /run/casper-md5check.json) is still the proof
+
+== 9. The image fits the smallest Companion Stick boot slot
+PASS  the image is 7083458560 bytes, within 8589934592 (the 8 GiB boot slot of a 64 GB Companion Stick); 1506476032 bytes to spare
+
+== Known residual Ubuntu strings (cannot be changed by remastering; not counted as failures)
+info  ISO volume id: 'Ubuntu 26.04.1 LTS amd64' (casper/EFI rely on it, so it stays Ubuntu's)
+info  /.disk/info is now: Companion OS 26.04.1 LTS "Resolute Raccoon" - Release amd64 (20260826) (the product is spelt Companion OS in it, as the installer's last page shows it; the stock field layout is otherwise kept for casper, subiquity and pollinate, see section 5)
+info  installer window text ('Welcome to Ubuntu', 'Erase disk and install Ubuntu', the logo): Canonical snap ubuntu-desktop-bootstrap, fixed text; only its last page ('<product> is installed and ready to use') and the launcher's label come from /.disk/info
+info  ID=ubuntu / DISTRIB_ID=Ubuntu / UBUNTU_CODENAME: required by apt, curtin and tooling
+info  session file name (ubuntu.desktop), DesktopNames=ubuntu, extension uuids (*@ubuntu.com), OnlyShowIn=ubuntu: ids the session and the shell look things up by; only their display names are Companion OS
+
+== Summary: 501 passed, 0 failed

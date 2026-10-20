@@ -1,0 +1,11 @@
+The amd64 image of the streamlined setup, built and verified (not booted). Evidence label: built in an arm64 ubuntu:26.04 container on an Apple-silicon Mac with backends/ubuntu/iso/scripts/build-in-docker.sh
+(the image's x86-64 programs run in the chroot through the Docker VM's Rosetta binfmt, the route that built the earlier amd64 images), 2026-10-19 local time, 04:47 to 05:02 UTC of 2026-10-20.
+  commit    8fea315 of liam/companion-os-streamline-setup-2: the code of 5ff5224 (the arm64 image that was installed and looked at) plus documents, evidence and frames
+  base ISO  ubuntu-26.04.1-desktop-amd64.iso, sha256 601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f (the pinned one; build-in-docker.sh refuses any other)
+  image     companion-os-1.0-amd64.iso, 7,083,458,560 bytes, sha256 aafdbf01...9690 (SHA256SUMS), build 892 s
+  verifier  verify-iso.sh with VERIFY_BASE_ISO and VERIFY_REQUIRE_CANON=1: 501 passed, 0 failed (verify-iso.log), among them the real stock amd64 installer unit read out of the live layer and
+            compared with the helper (restore_drift: ding@rastersoft.com dock-fixed intellihide), sections 6b (Ubuntu Pro and telemetry) and 6c (dark, green accent), and the test of the helper
+            run against the helper inside the image
+  build log "[+] ubuntu-insights purged and held" as on arm64
+What this shows: the streamlined setup builds and passes every static check on amd64. What it does not show: a boot or an install of this image (the amd64 live session was only ever booted under
+software emulation, which is too slow to compare with the arm64 runs), so the live session's dock and icons, the dialog and the first sign-in are [N] on amd64.
