@@ -7,14 +7,16 @@
 #   - the copy sits in a throwaway tree whose core/lib/gpu-detect.sh is a stub: the real support rule, fed made-up facts
 #     (RAM, CPU model) instead of /proc/meminfo, lscpu and rocminfo;
 #   - PATH holds only symlinks to the few tools the script uses, plus shims for id (root), dpkg-query (the amdgpu-dkms
-#     package state) and update-grub (records the call), so nothing on the machine running the test is touched;
+#     package state), update-grub (records the call) and mv (the real one, unless a case makes the rename fail), so nothing
+#     on the machine running the test is touched;
 #   - the three CI_OS_* path hooks of the script point into a per-case directory (a GRUB file, a /lib/modules tree and a
-#     /sys/module tree).
+#     /sys/module tree), and the script runs in a working directory of its own inside it.
 # After every rewrite the file is also sourced by dash and by bash, the way grub-mkconfig sources it (under /bin/sh, which
 # is dash on Ubuntu), and the value of GRUB_CMDLINE_LINUX_DEFAULT is compared with the expected one.
 #
 # This file is POSIX sh, so `sh`, `dash` and `bash` all run it the same way; the script under test needs bash 4 (it sources
-# core/lib/gpu-detect.sh) and GNU sed (sed -i), so on a Mac the test exits 2 ("cannot run here"). Run it in a container:
+# core/lib/gpu-detect.sh), and this rig has only been run on GNU sed and coreutils (Ubuntu 26.04), so on a Mac the test
+# exits 2 ("cannot run here"). Run it in a container:
 #
 #   docker run --rm -v "$PWD":/src:ro -w /src ubuntu:26.04 bash backends/ubuntu/lib/tests/strix-halo-boot-params.sh
 #   docker run --rm -v "$PWD":/src:ro -w /src ubuntu:26.04 dash backends/ubuntu/lib/tests/strix-halo-boot-params.sh
@@ -45,15 +47,17 @@ cannot_run() {
 BASH_BIN="$(command -v bash)" || cannot_run "no bash"
 "$BASH_BIN" -c '[ "${BASH_VERSINFO:-0}" -ge 4 ]' || cannot_run "bash 4 or newer is needed (core/lib/gpu-detect.sh uses \${var,,})"
 ENV_BIN="$(command -v env)" || cannot_run "no env"
-for tool in sed grep tail cp date dirname cat cksum mktemp; do
+for tool in sed grep tail cp mv rm date dirname cat cksum mktemp stat chmod; do
     command -v "$tool" >/dev/null 2>&1 || cannot_run "no $tool"
 done
+REAL_MV="$(command -v mv)"
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/boot-params-test.XXXXXX")" || cannot_run "mktemp -d failed"
 trap 'rm -rf "$TMP"' EXIT
 trap 'exit 1' HUP INT TERM
 
-# The script calls `sed -i "s|...|"`; BSD sed (macOS) reads that script as the backup suffix.
+# This tells GNU sed from BSD sed: BSD sed (macOS) reads the script of `sed -i "s|...|"` as the backup suffix. The script under
+# test no longer calls sed -i, but the rig has only been run on GNU userland, so any other sed is refused here, not trusted.
 printf 'a\n' >"$TMP/sedprobe"
 sed -i "s|^a\$|b|" "$TMP/sedprobe" 2>/dev/null && [ "$(cat "$TMP/sedprobe")" = b ] || cannot_run "sed -i is not GNU sed's"
 
@@ -76,7 +80,7 @@ GRUB_SHIM="$TMP/grub-shim"
 TREE="$TMP/tree"
 mkdir -p "$TOOLS" "$GRUB_SHIM" "$TREE/core/lib" "$TREE/backends/ubuntu/lib"
 
-for tool in sed grep tail cp date dirname; do
+for tool in sed grep tail cp rm date dirname; do
     ln -s "$(command -v "$tool")" "$TOOLS/$tool"
 done
 cat >"$TOOLS/id" <<'EOF'
@@ -98,7 +102,13 @@ cat >"$GRUB_SHIM/update-grub" <<'EOF'
 echo "update-grub" >>"$T_CALLS"
 exit 0
 EOF
-chmod +x "$TOOLS/id" "$TOOLS/dpkg-query" "$GRUB_SHIM/update-grub"
+cat >"$TOOLS/mv" <<'EOF'
+#!/bin/sh
+# stand-in for mv: the real one, unless T_MV_FAILS is set (a rename that cannot happen: a read-only file system, a full disk)
+if [ -n "${T_MV_FAILS:-}" ]; then echo "mv: cannot move '$1' to '$2': simulated failure" >&2; exit 1; fi
+exec "$T_REAL_MV" "$@"
+EOF
+chmod +x "$TOOLS/id" "$TOOLS/dpkg-query" "$TOOLS/mv" "$GRUB_SHIM/update-grub"
 
 cat >"$TREE/core/lib/gpu-detect.sh" <<'EOF'
 # shellcheck shell=bash
@@ -145,12 +155,14 @@ T_CPU=""
 T_DPKG_STATUS=""
 T_UID=0
 T_PATH=""
+T_MV_FAILS=""
+NAMES0=""
 
 # new_case LINE: a fresh case directory whose GRUB file carries LINE, on a 125,780 MiB Strix Halo machine with no DKMS sign
 new_case() {
     CASE_N=$((CASE_N + 1))
     C="$TMP/case$CASE_N"
-    mkdir -p "$C/modules/7.0.0-14-generic/kernel" "$C/sysmod/ttm"
+    mkdir -p "$C/modules/7.0.0-14-generic/kernel" "$C/sysmod/ttm" "$C/cwd"
     : >"$C/calls"
     : >"$C/out"
     : >"$C/err"
@@ -161,6 +173,7 @@ new_case() {
     T_DPKG_STATUS=""
     T_UID=0
     T_PATH="$GRUB_SHIM:$TOOLS"
+    T_MV_FAILS=""
 }
 # the three signs of the DKMS driver
 sign_module() { mkdir -p "$C/modules/$1/updates/dkms"; : >"$C/modules/$1/updates/dkms/amdttm.ko.zst"; }
@@ -168,11 +181,14 @@ sign_loaded() { mkdir -p "$C/sysmod/amdttm/parameters"; }
 sign_package() { T_DPKG_STATUS="$1"; }
 
 run_script() {
-    "$ENV_BIN" -i PATH="$T_PATH" HOME="$C" LC_ALL=C \
-        CI_OS_GRUB_DEFAULT_FILE="$C/grub" CI_OS_MODULES_DIR="$C/modules" CI_OS_SYSFS_MODULE_DIR="$C/sysmod" \
-        T_CALLS="$C/calls" T_RAM_MIB="$T_RAM_MIB" T_CPU="$T_CPU" T_DPKG_STATUS="$T_DPKG_STATUS" T_UID="$T_UID" \
-        T_REAL_GPU_LIB="$GPU_LIB" \
-        "$BASH_BIN" "$TREE/backends/ubuntu/lib/strix-halo-boot-params.sh" >"$C/out" 2>"$C/err"
+    (
+        cd "$C/cwd" || exit 97
+        exec "$ENV_BIN" -i PATH="$T_PATH" HOME="$C" LC_ALL=C \
+            CI_OS_GRUB_DEFAULT_FILE="$C/grub" CI_OS_MODULES_DIR="$C/modules" CI_OS_SYSFS_MODULE_DIR="$C/sysmod" \
+            T_CALLS="$C/calls" T_RAM_MIB="$T_RAM_MIB" T_CPU="$T_CPU" T_DPKG_STATUS="$T_DPKG_STATUS" T_UID="$T_UID" \
+            T_MV_FAILS="$T_MV_FAILS" T_REAL_MV="$REAL_MV" T_REAL_GPU_LIB="$GPU_LIB" \
+            "$BASH_BIN" "$TREE/backends/ubuntu/lib/strix-halo-boot-params.sh" >"$C/out" 2>"$C/err"
+    )
     RC=$?
 }
 
@@ -196,6 +212,18 @@ backup_is_the_original() {
     return 1
 }
 cmdline_via() { "$1" -c '. "$1"; printf %s "$GRUB_CMDLINE_LINUX_DEFAULT"' sh "$C/grub" 2>/dev/null; }
+
+# the names in the case directory other than the backup: a rewrite must not leave a temporary file beside the GRUB file
+case_names() {
+    for cn_path in "$C"/* "$C"/.[!.]*; do
+        [ -e "$cn_path" ] || continue
+        case "${cn_path##*/}" in grub.bak.*) ;; *) printf '%s\n' "${cn_path##*/}" ;; esac
+    done
+}
+snap() { NAMES0="$(case_names)"; }
+expect_clean_dir() { expect "nothing new in the directory but the backup" test "$(case_names)" = "$NAMES0"; }
+# put_file: the bytes on stdin become the case's GRUB file (and its pristine copy)
+put_file() { cat >"$C/grub"; cp "$C/grub" "$C/grub.orig"; }
 
 # expect_cmdline VALUE: the file has exactly that value, and every shell that sources it gets the same value back
 expect_cmdline() {
@@ -484,6 +512,190 @@ expect "exit status 0" test "$RC" -eq 0
 expect_cmdline "quiet splash $DKMS"
 expect "it says GRUB was not regenerated" err_has "update-grub not found; boot params written to $C/grub but GRUB config was NOT regenerated."
 expect "it does not claim to have run update-grub" out_lacks "[+] Ran update-grub."
+
+echo
+echo "== the user's own kernel parameters come back exactly as they were"
+# The line used to be written by sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|<new line>|", and in a sed replacement & is the matched
+# text, a backslash escapes and | ends the expression. Every case has an existing line "quiet TEXT splash": TEXT is a parameter
+# written the way it stands in the file, VALUE is what a shell that sources the file reads for it (the two differ wherever TEXT
+# has a backslash: grub-mkconfig reads \\ as one backslash, \$ as a dollar sign, \` as a backtick and \" as a double quote).
+# The file must come back byte for byte with only the managed parameters added, both shells must read the same VALUE as before,
+# and a second run must find nothing to do. The working directory holds files (foo=1, foo=2, acpi_osi=!x, README) that a
+# parameter with a pattern character would match if anything split the line with pathname expansion on.
+hostile() {
+    h_label="$1"; h_text="$2"; h_value="$3"
+    printf '%s\n' "-- $h_label: $h_text"
+    new_case "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet $h_text splash\""
+    # files in the working directory, for the parameters that look like patterns
+    : >"$C/cwd/foo=1"; : >"$C/cwd/foo=2"; : >"$C/cwd/acpi_osi=!x"; : >"$C/cwd/README"
+    make_grub "$C/grub.want" "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet $h_text splash $BASE\""
+    for h_sh in $SHELLS; do
+        expect "before: ${h_sh##*/} reads the line as: quiet $h_value splash" test "$(cmdline_via "$h_sh")" = "quiet $h_value splash"
+    done
+    snap
+    run_script
+    expect_rewritten
+    expect "it says what it wrote, as written" out_has "[+] Updated $C/grub: GRUB_CMDLINE_LINUX_DEFAULT=\"quiet $h_text splash $BASE\""
+    expect "the file is the original with only that line replaced, byte for byte" same_file "$C/grub" "$C/grub.want"
+    for h_sh in $SHELLS; do
+        expect "after: ${h_sh##*/} reads the line as: quiet $h_value splash $BASE" test "$(cmdline_via "$h_sh")" = "quiet $h_value splash $BASE"
+    done
+    expect_clean_dir
+    cp "$C/grub" "$C/grub.after1"
+    run_script
+    expect "run again: exit status 0" test "$RC" -eq 0
+    expect "  it says there is nothing to do" out_has "already has the correct Strix Halo boot params; nothing to do."
+    expect "  the file did not change" same_file "$C/grub" "$C/grub.after1"
+    expect "  update-grub did not run again" test "$(count_calls update-grub)" -eq 1
+}
+hostile 'ampersand' 'foo=a&b' 'foo=a&b'
+hostile 'pipe' 'foo=a|b' 'foo=a|b'
+hostile 'doubled backslash' 'foo=a\\b' 'foo=a\b'
+hostile 'escaped dollar sign' 'foo=\$HOME' 'foo=$HOME'
+hostile 'escaped backtick' 'foo=\`id\`' 'foo=`id`'
+hostile 'escaped double quote' 'foo=\"a\"' 'foo="a"'
+hostile 'single quote' "foo='a'" "foo='a'"
+hostile 'dollar sign, unescaped' 'foo=$ci_os_unset' 'foo='
+hostile 'backslash and ampersand' 'foo=a\&b' 'foo=a\&b'
+hostile 'backslash n' 'foo=a\nb' 'foo=a\nb'
+hostile 'backslash and a digit' 'foo=a\1b' 'foo=a\1b'
+hostile 'printf directives' 'foo=50%s%b%d' 'foo=50%s%b%d'
+hostile 'punctuation' 'foo=/dev/sda1,x:y@z%1#2~3^4=!' 'foo=/dev/sda1,x:y@z%1#2~3^4=!'
+hostile 'all of it at once' 'foo=a&b|c\\d\$e\`f\"g%s' 'foo=a&b|c\d$e`f"g%s'
+hostile 'pattern: star after =' 'foo=*' 'foo=*'
+hostile 'pattern: a lone star' '*' '*'
+hostile 'pattern: question mark' 'foo=?' 'foo=?'
+hostile 'pattern: bracket set' 'foo=[12]' 'foo=[12]'
+hostile 'pattern: acpi_osi=!* (a real parameter)' 'acpi_osi=!*' 'acpi_osi=!*'
+
+echo
+echo "== the rest of the file comes back byte for byte"
+# expect_swapped LABEL: one run, and the file is now exactly grub.want
+expect_swapped() {
+    expect "$1: exit status 0" test "$RC" -eq 0
+    expect "  the file is byte for byte what was wanted" same_file "$C/grub" "$C/grub.want"
+    expect "  the old file is kept as grub.bak.<time>, unchanged" backup_is_the_original
+    expect "  update-grub ran once" test "$(count_calls update-grub)" -eq 1
+    expect_clean_dir
+}
+# odd_lines LINE: a GRUB file whose other lines are what a careless copy mangles: printf directives and backslashes, a leading
+# tab, a line of blanks, trailing spaces, lines that look like echo options
+odd_lines() {
+    cat <<'EOF'
+# 100% sure: %s %b %d \n \t \\ \x41 \0 `no` $HOME "q" 'q'
+-n
+-e
+EOF
+    printf '\ta line that starts with a tab\n'
+    printf '   \n\n'
+    printf 'GRUB_TIMEOUT=0   \n'
+    printf '%s\n' "$1"
+    printf 'GRUB_CMDLINE_LINUX=""\n'
+}
+# look_alikes LINE: lines that start like the one the script rewrites and are not it
+look_alikes() {
+    cat <<'EOF'
+#GRUB_CMDLINE_LINUX_DEFAULT="from a comment"
+# GRUB_CMDLINE_LINUX_DEFAULT="from another comment"
+EOF
+    printf ' GRUB_CMDLINE_LINUX_DEFAULT="indented"\n'
+    printf 'GRUB_CMDLINE_LINUX_DEFAULT_EXTRA="another variable"\n'
+    printf 'XGRUB_CMDLINE_LINUX_DEFAULT="prefixed"\n'
+    printf '%s\n' "$1"
+    printf 'GRUB_CMDLINE_LINUX="keep me"\n'
+}
+
+echo "-- the line is the last one and the file has no newline at its end"
+new_case ""
+printf '# stock\nGRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' | put_file
+printf '# stock\nGRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash %s"' "$BASE" >"$C/grub.want"
+snap
+run_script
+expect_swapped "no newline after the line"
+
+echo "-- the file has no newline at its end and the last line is another one"
+new_case ""
+printf 'GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash"\nGRUB_CMDLINE_LINUX=""' | put_file
+printf 'GRUB_DEFAULT=0\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash %s"\nGRUB_CMDLINE_LINUX=""' "$BASE" >"$C/grub.want"
+snap
+run_script
+expect_swapped "no newline after the last line"
+
+echo "-- the line is the only one and has no newline"
+new_case ""
+printf 'GRUB_CMDLINE_LINUX_DEFAULT=""' | put_file
+printf 'GRUB_CMDLINE_LINUX_DEFAULT="%s"' "$BASE" >"$C/grub.want"
+snap
+run_script
+expect_swapped "one line, no newline"
+
+echo "-- other lines end in a carriage return (a file edited on Windows)"
+new_case ""
+printf 'GRUB_DEFAULT=0\r\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash"\nGRUB_TIMEOUT=0\r\n' | put_file
+printf 'GRUB_DEFAULT=0\r\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash %s"\nGRUB_TIMEOUT=0\r\n' "$BASE" >"$C/grub.want"
+snap
+run_script
+expect_swapped "carriage returns"
+
+echo "-- other lines a careless copy would mangle: printf directives, backslashes, a tab, blanks, trailing spaces, echo options"
+new_case ""
+odd_lines 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' | put_file
+odd_lines "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash $BASE\"" >"$C/grub.want"
+snap
+run_script
+expect_swapped "odd lines"
+
+echo "-- lines that only start like it (a comment, an indented line, GRUB_CMDLINE_LINUX_DEFAULT_EXTRA, a prefix) are left alone"
+new_case ""
+look_alikes 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"' | put_file
+look_alikes "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash $BASE\"" >"$C/grub.want"
+snap
+run_script
+expect_swapped "look-alikes"
+
+echo "-- two lines set it: both are replaced, with the line worked out from the last one"
+new_case ""
+printf 'GRUB_CMDLINE_LINUX_DEFAULT="quiet"\nGRUB_TIMEOUT=0\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash"\n' | put_file
+printf 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash %s"\nGRUB_TIMEOUT=0\nGRUB_CMDLINE_LINUX_DEFAULT="quiet splash %s"\n' "$BASE" "$BASE" >"$C/grub.want"
+snap
+run_script
+expect_swapped "two assignments"
+
+echo
+echo "== the rewritten file keeps the mode and the owner of the one it replaces"
+for mode in 600 640 664; do
+    new_case 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"'
+    chmod "$mode" "$C/grub"
+    run_script
+    expect "mode $mode: exit status 0" test "$RC" -eq 0
+    expect "  the file is rewritten" file_has_line "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash $BASE\""
+    expect "  and is still mode $mode" test "$(stat -c %a "$C/grub")" = "$mode"
+done
+if [ "$(id -u)" -eq 0 ] && command -v chown >/dev/null 2>&1; then
+    new_case 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"'
+    chmod 640 "$C/grub"
+    chown 4242:4343 "$C/grub"
+    run_script
+    expect "owner 4242:4343: exit status 0" test "$RC" -eq 0
+    expect "  the file is rewritten" file_has_line "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet splash $BASE\""
+    expect "  and is still owned by 4242:4343" test "$(stat -c %u:%g "$C/grub")" = "4242:4343"
+else
+    echo "SKIP  not root here: the owner of the rewritten file is not checked"
+fi
+
+echo
+echo "== a rewrite that fails leaves the file as it was, and no temporary file behind"
+new_case 'GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"'
+T_MV_FAILS=1
+snap
+run_script
+expect "the rename fails: exit status 1" test "$RC" -eq 1
+expect "  it says the file was left as it was" err_has "Could not rewrite $C/grub; the file was left as it was and update-grub was not run."
+expect "  the file is byte for byte as it was" file_untouched
+expect "  the old file is still kept as grub.bak.<time>, unchanged" backup_is_the_original
+expect "  update-grub did not run" test "$(count_calls update-grub)" -eq 0
+expect "  it does not say it updated the file" out_lacks "[+] Updated"
+expect_clean_dir
 
 echo
 echo "== the real paths are still the defaults"
