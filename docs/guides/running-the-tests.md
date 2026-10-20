@@ -168,7 +168,7 @@ done
 ```
 
 Second, that every relative link and anchor resolves (the script reads Markdown, skips fenced code and web links, and compares an anchor with
-the headings of the target file in GitHub's style; save it as `linkcheck.py` outside the repository):
+the headings of the target file in GitHub's style and with its explicit `<a id="...">` anchors; save it as `linkcheck.py` outside the repository):
 
 ```python
 import os, re, sys
@@ -183,8 +183,10 @@ for f in sys.argv[1:]:
         if not os.path.exists(full):
             print('MISSING', f, t); bad += 1
         elif '#' in t and full.endswith('.md'):
+            body = open(full, encoding='utf-8').read()
             heads = [re.sub(r'[^\w\- ]', '', h.strip().lower()).replace(' ', '-')
-                     for h in re.findall(r'^#+\s+(.*)$', open(full, encoding='utf-8').read(), flags=re.M)]
+                     for h in re.findall(r'^#+\s+(.*)$', body, flags=re.M)]
+            heads += re.findall(r'<a (?:id|name)="([^"]+)"', body)
             if t.split('#', 1)[1] not in heads: print('ANCHOR?', f, t); bad += 1
 sys.exit(1 if bad else 0)
 ```
