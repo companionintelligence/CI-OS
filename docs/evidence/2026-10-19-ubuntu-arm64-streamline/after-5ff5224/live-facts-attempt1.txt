@@ -1,0 +1,42 @@
+== date (UTC)
+2026-10-20T04:14:07Z
+up 2 minutes
+== appearance, for the live user
+color-scheme: 'prefer-dark'
+accent-color: 'green'
+gtk-theme: 'Yaru'
+== Canonical's installer unit in the user session
+static
+inactive
+0 /usr/lib/systemd/user/spice-vdagent.service 
+== installer server unit (system)
+active
+== processes of the stock installer and of the one-click helper
+   2928       02:10 subiquity-serve /bin/bash /snap/ubuntu-desktop-bootstrap/664/bin/subiquity-server
+   2956       02:10 python3.12      /snap/ubuntu-desktop-bootstrap/664/usr/bin/python3.12 -m subiquity.cmd.server --use-os-prober --storage-version=2 
+== dock settings
+dock-fixed: true
+autohide: true
+intellihide: true
+intellihide-mode: 'ALL_WINDOWS'
+dock-position: 'LEFT'
+== extensions
+enabled-extensions: ['ding@rastersoft.com']
+disabled-extensions: @as []
+== gnome-extensions list --enabled
+ding@rastersoft.com
+snapd-prompting@canonical.com
+snapd-search-provider@canonical.com
+tiling-assistant@ubuntu.com
+ubuntu-appindicators@ubuntu.com
+ubuntu-dock@ubuntu.com
+web-search-provider@ubuntu.com
+== desktop-icons process
+   4827       01:39 gjs /usr/share/gnome-shell/extensions/ding@rastersoft.com/app/ding.js -E -P /usr/share/gnome-shell/e
+== files on the desktop
+ci-os-auto-install.desktop companion-app-store.desktop companion-community.desktop companion-docs.desktop companion-getting-started.desktop companion-support.desktop ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop 
+== dock favorites
+['ci-os-auto-install.desktop', 'Companion Hub.desktop', 'companion-capture.desktop', 'companion-docs.desktop', 'org.gnome.Nautilus.desktop', 'org.gnome.Ptyxis.desktop']
+== failed units
+● pd-mapper.service loaded failed failed Qualcomm PD mapper service
+

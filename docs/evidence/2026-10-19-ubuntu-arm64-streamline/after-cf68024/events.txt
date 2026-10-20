@@ -1,0 +1,72 @@
+2026-10-20T03:14:44Z run start: companion-os-1.0-arm64.iso built from the streamline branch tip cf68024 (sha256 ee5f850d...76e9), install target on the SSD (qcow2)
+2026-10-20T03:14:44Z recorder started (1.5 s)
+2026-10-20T03:14:48Z VM start (power on): companion-os-1.0-arm64.iso
+2026-10-20T03:15:06Z GRUB menu on screen (same four entries); choosing the automatic entry with Down, Enter as in the before run
+2026-10-20T03:15:06Z key down 
+2026-10-20T03:15:07Z key ret Install Companion OS (automatic)
+2026-10-20T03:16:52Z live desktop: no Canonical window; the one-click dialog is the first and only thing (dark); no dock and no desktop icons visible; reading the one-time password from the picture and the zoomed crop
+2026-10-20T03:16:52Z key ctrl+alt+t try a terminal in the live session for the live proof
+2026-10-20T03:17:19Z type: (curl -s 10.0.2.2:8800/liveproof.sh || wget -qO- 10.0.2.2:8800/liveproof.sh) | sh -s ca-live
+2026-10-20T03:17:19Z key ret live proof script (text channel)
+2026-10-20T03:18:15Z type: (gsettings get org.gnome.shell enabled-extensions; gsettings get org.gnome.shell disabled-extensions; gnome-extensions list --enabled; gnome-extensions list --disabled; gsettings get org.gnome.shell.extensions.dash-to-dock dock-fixed; gsettings get org.gnome.shell.extensions.dash-to-dock autohide; gsettings get org.gnome.shell.extensions.dash-to-dock intellihide-mode; gsettings get org.gnome.shell.extensions.dash-to-dock dock-position) 2>&1 | curl -s --data-binary @- 10.0.2.2:8800/up/ca-dock
+2026-10-20T03:18:15Z key ret diagnostic: why is no dock drawn
+2026-10-20T03:18:43Z a key stuck and repeated 'e' while typing a diagnostic command into the guest terminal (a known driver effect under load); releasing modifiers, cancelling the line and retyping slower
+2026-10-20T03:18:44Z key shift shift_r ctrl alt e release modifiers; tap the repeating key
+2026-10-20T03:18:45Z key ctrl+c cancel the garbled line
+2026-10-20T03:18:47Z key ctrl+l clear
+2026-10-20T03:19:17Z key ctrl+c cancel the garbled line
+2026-10-20T03:19:19Z key ctrl+l clear
+2026-10-20T03:19:41Z click 640 500 click inside the terminal to focus it
+2026-10-20T03:19:42Z key x 
+2026-10-20T03:19:59Z key shift shift_r ctrl ctrl_r alt alt_r tap every modifier once
+2026-10-20T03:20:01Z key backspace backspace backspace 
+2026-10-20T03:20:02Z key x 
+2026-10-20T03:20:13Z the guest terminal no longer reacts to the keyboard after the stuck-key burst; closing its window with the pointer
+2026-10-20T03:20:13Z click 942 195 close the terminal window
+2026-10-20T03:20:28Z key meta_l open the overview to see whether a dock or dash exists
+2026-10-20T03:20:32Z key esc 
+2026-10-20T03:20:51Z key ctrl+alt+t terminal for the dock diagnostic
+2026-10-20T03:21:09Z type: (curl -s 10.0.2.2:8800/dock.sh || wget -qO- 10.0.2.2:8800/dock.sh) | sh -s ca-dock
+2026-10-20T03:21:09Z key ret dock diagnostic via the text channel
+2026-10-20T03:21:46Z key meta_l overview
+2026-10-20T03:21:50Z click 33 320 Terminal in the overview dash
+2026-10-20T03:22:11Z diagnostic typing went into the GNOME overview search once and opened a Firefox web search window (my own test input, not the product); a terminal is open now
+2026-10-20T03:22:11Z click 640 450 focus the terminal
+2026-10-20T03:22:21Z type: (curl -s 10.0.2.2:8800/dock.sh || wget -qO- 10.0.2.2:8800/dock.sh) | sh -s ca-dock
+2026-10-20T03:22:21Z key ret dock diagnostic via the text channel
+2026-10-20T03:23:21Z click 942 195 close the terminal
+2026-10-20T03:23:23Z click 1258 54 close the stray Firefox window (opened by my own test typing)
+2026-10-20T03:23:36Z the one-click dialog is the first and only page (dark); clicking Erase the disk and install
+2026-10-20T03:23:36Z click 640 629 Erase the disk and install
+2026-10-20T03:34:13Z the VM exited at 03:33:55, powered off by the installer: the install took at most 10 min 19 s (clicked 03:23:36; the wait loop polls every 5 s)
+2026-10-20T03:34:13Z VM start (power on): -
+2026-10-20T03:34:56Z installed system: GDM greeter on screen by 03:34:43 (power-on 03:34:13); the user card is outlined in green; signing in as companion with the one-time password
+2026-10-20T03:34:57Z click 640 350 user: Companion
+2026-10-20T03:34:58Z typed the throwaway password from a file (not shown)
+2026-10-20T03:34:59Z key ret sign in with the one-time password
+2026-10-20T03:35:08Z forced password change: Changing password for companion (current password asked first)
+2026-10-20T03:35:10Z typed the throwaway password from a file (not shown)
+2026-10-20T03:35:10Z key ret current password
+2026-10-20T03:35:22Z typed the throwaway password from a file (not shown)
+2026-10-20T03:35:22Z key ret new password
+2026-10-20T03:35:33Z typed the throwaway password from a file (not shown)
+2026-10-20T03:35:33Z key ret retype the new password
+2026-10-20T03:35:33Z new password confirmed at 03:35:33; watching the first session without input (first-boot job starts by a timer about 3 min after boot)
+2026-10-20T03:41:30Z the screen blanked at 03:40:37, 5 min 04 s after the last input (03:35:33); waking and unlocking with the new password
+2026-10-20T03:41:31Z key shift 
+2026-10-20T03:41:39Z key shift 
+2026-10-20T03:41:41Z typed the throwaway password from a file (not shown)
+2026-10-20T03:41:41Z key ret unlock
+2026-10-20T03:41:59Z unlocked with the new password at 03:41:4x; opening a terminal for the read-only facts scripts (same two scripts as the before run)
+2026-10-20T03:41:59Z key ctrl+alt+t open a terminal
+2026-10-20T03:42:19Z type: (curl -s 10.0.2.2:8800/f.sh || wget -qO- 10.0.2.2:8800/f.sh) | sh -s ca-installed
+2026-10-20T03:42:19Z key ret facts script
+2026-10-20T03:42:42Z type: (curl -s 10.0.2.2:8800/proof.sh || wget -qO- 10.0.2.2:8800/proof.sh) | sh -s ca-proof
+2026-10-20T03:42:42Z key ret proof script
+2026-10-20T03:43:17Z facts and proof read at 03:42:27 and 03:42:50 (8 min after boot): degraded (pd-mapper), time zone Etc/UTC, color-scheme prefer-dark, accent green, Pro timers and motd-news masked, apt hook diverted, ubuntu-insights removed
+2026-10-20T03:43:20Z type: gnome-control-center appearance &
+2026-10-20T03:43:25Z key ret open Settings on the Appearance page for a proof frame
+2026-10-20T03:43:39Z click 270 446 Appearance in Settings
+2026-10-20T03:43:57Z Settings, Appearance: Style Dark selected and the green accent selected (frame 034346-x); stopping the VM and the recorder
+2026-10-20T03:43:57Z VM stopped
+2026-10-20T03:43:57Z recorder stop requested

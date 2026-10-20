@@ -1,0 +1,50 @@
+== date (UTC)
+2026-10-20T04:36:57Z
+== os-release
+Companion OS 1.0
+kernel 7.0.0-38-generic aarch64
+== uptime and boot time
+ 04:36:57 up 6 min,  1 user,  load average: 0.42, 0.37, 0.17
+Startup finished in 1.224s (kernel) + 18.489s (userspace) = 19.713s 
+graphical.target reached after 18.455s in userspace.
+== system state
+degraded
+== failed units (system)
+● pd-mapper.service loaded failed failed Qualcomm PD mapper service
+== failed units (user)
+== locale, keyboard, time zone
+LANG=en_US.UTF-8
+System Locale: LANG=en_US.UTF-8
+VC Keymap: (unset)
+X11 Layout: us
+X11 Model: pc105
+Time zone: Etc/UTC (UTC, +0000)
+System clock synchronized: yes
+NTP service: active
+RTC in local TZ: no
+== host name and user
+companion-os
+companion
+== packages
+dpkg installed: 1875
+rpm installed: 0
+== disk and memory
+/dev/nvme0n1p2   62G   19G   40G  32% /
+Mem:            7397        3413         303          90        3935        3984
+== firewall and mandatory access control
+ufw: active
+firewalld: inactive
+nftables: inactive
+apparmor: active
+== listening TCP ports
+0.0.0.0:22 0.0.0.0:5002 0.0.0.0:8080 0.0.0.0:8443 0.0.0.0:8880 *:11434 127.0.0.1:5000 127.0.0.1:5001 127.0.0.1:631 127.0.0.1:6543 127.0.0.53%lo:53 127.0.0.54:53 [::1]:631 [::]:22 [::]:5002 [::]:8080 [::]:8443 [::]:8880 
+== journal lines at priority err or worse, this boot
+20
+== xdg autostart entries
+at-spi-dbus-bus.desktop ci-os-live-setup.desktop ci-os-setup-progress.desktop ci-os-welcome.desktop geoclue-demo-agent.desktop gnome-keyring-pkcs11.desktop gnome-keyring-secrets.desktop ibus-mozc-gnome-initial-setup.desktop ibus-mozc-launch-xwayland.desktop im-launch.desktop localsearch-3.desktop orca-autostart.desktop org.gnome.DejaDup.Monitor.desktop org.gnome.Evolution-alarm-notify.desktop org.gnome.SettingsDaemon.DiskUtilityNotify.desktop snap-userd-autostart.desktop spice-vdagent.desktop ubuntu-advantage-notification.desktop.disabled update-notifier.desktop user-dirs-update-gtk.desktop xdg-user-dirs.desktop 
+== first-run and update helpers running
+firefox packagekitd update-notifier 
+== snap and flatpak counts
+snaps: 10
+flatpaks: 0
+

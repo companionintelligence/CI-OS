@@ -1,0 +1,73 @@
+2026-10-20T04:10:43Z run start: companion-os-1.0-arm64.iso built from the streamline branch tip 5ff5224 (sha256 217c1144...3f07, 5,590,548,480 bytes, verify-iso.sh 493 passed 0 failed), install target on the SSD (qcow2)
+2026-10-20T04:10:43Z recorder started (1.5 s)
+2026-10-20T04:10:45Z VM start (power on): companion-os-1.0-arm64.iso
+2026-10-20T04:11:10Z GRUB menu on screen (the same four entries, a 30 s countdown, 21 s left at the first look); choosing the automatic entry with Down, Enter as in the earlier runs
+2026-10-20T04:11:10Z key down 
+2026-10-20T04:11:11Z key ret Install Companion OS automatic
+2026-10-20T04:13:13Z attempt 1 (discarded as an install, kept for the live session): started WITHOUT a target disk by my mistake; the live session came up with the dock and the desktop icons drawn, and the one-click dialog answered with its error text (no internal disk of at least 25 GB; use the normal installer from the dock). Taking the live-session facts here, then restarting with a disk
+2026-10-20T04:13:13Z click 672 502 OK on the no-disk error dialog
+2026-10-20T04:13:35Z the live desktop after the error dialog was closed: dock visible (our launcher first, Canonical's not pinned), desktop icons drawn (the Companion links, two Install launchers, Home): the normal live session
+2026-10-20T04:13:35Z key ctrl+alt+t terminal for the live-session facts
+2026-10-20T04:14:01Z type: (curl -s 10.0.2.2:8800/live2.sh || wget -qO- 10.0.2.2:8800/live2.sh) | sh -s cf-live
+2026-10-20T04:14:02Z key ret live-session facts script
+2026-10-20T04:14:25Z live facts read at 04:14:07 (2 min after boot): dock-fixed true, intellihide true, ding enabled and running, Canonical's installer unit not started, installer server unit active; checking that Canonical's own launcher on the desktop still opens the stock installer
+2026-10-20T04:14:26Z click 975 195 close the terminal
+2026-10-20T04:14:45Z dclick 1076 718 the stock launcher Install Companion OS with the Ubuntu mark on the desktop
+2026-10-20T04:15:10Z Canonical's own launcher on the desktop opened the stock installer: Welcome to Ubuntu, Choose your language, dark with a green page dot (frame 041459-stock2); closing it with the X, then stopping this attempt
+2026-10-20T04:15:11Z click 1130 99 close the stock installer window
+2026-10-20T04:15:14Z VM stopped
+2026-10-20T04:15:14Z attempt 1 ended; restarting the same image WITH a target disk (ISO plus a new 64 GiB qcow2)
+2026-10-20T04:15:17Z VM start (power on): companion-os-1.0-arm64.iso
+2026-10-20T04:15:45Z attempt 2: GRUB menu on screen; choosing the automatic entry with Down, Enter
+2026-10-20T04:15:45Z key down 
+2026-10-20T04:15:45Z key ret Install Companion OS automatic
+2026-10-20T04:17:42Z attempt 2: the live session came up with the dock and the desktop icons drawn and the one-click dialog (dark) in front as the only window: no Canonical window; reading the one-time password from the picture and a magnified crop
+2026-10-20T04:17:52Z testing the dialog's Use the normal installer button first, then the dock launcher again before the real install
+2026-10-20T04:17:52Z click 672 517 Use the normal installer
+2026-10-20T04:18:16Z the Use the normal installer button opened Canonical's stock installer window (Welcome to Ubuntu, dark, green page dot); closing it and reopening the one-click dialog from the first icon in the dock
+2026-10-20T04:18:16Z click 1130 99 close the stock installer window
+2026-10-20T04:18:21Z click 33 64 the first dock icon, Install Companion OS automatic
+2026-10-20T04:18:54Z attempt 2: the dock launcher reopened the one-click dialog (the one-time password is new for each run); read from the picture and the magnified crop; clicking Erase the disk and install
+2026-10-20T04:18:54Z click 672 629 Erase the disk and install
+2026-10-20T04:30:19Z the VM exited at 04:30:06, powered off by the installer: install from the click at 04:18:54 (the wait loop polls every 5 s)
+2026-10-20T04:30:19Z VM start (power on): -
+2026-10-20T04:31:03Z installed system: GDM greeter on screen (power-on 04:30:19, first look 04:30:45); the user card is outlined in green; signing in as companion with the one-time password
+2026-10-20T04:31:03Z click 640 350 user: Companion
+2026-10-20T04:31:05Z typed the throwaway password from a file (not shown)
+2026-10-20T04:31:05Z key ret sign in with the one-time password
+2026-10-20T04:31:16Z forced password change: Changing password for companion (current password asked first)
+2026-10-20T04:31:18Z typed the throwaway password from a file (not shown)
+2026-10-20T04:31:18Z key ret current password
+2026-10-20T04:31:38Z typed the throwaway password from a file (not shown)
+2026-10-20T04:31:39Z key ret new password
+2026-10-20T04:31:51Z typed the throwaway password from a file (not shown)
+2026-10-20T04:31:51Z key ret retype the new password
+2026-10-20T04:31:51Z new password confirmed at 04:31:51; the first session next (no input until the first-boot notifications are done)
+2026-10-20T04:36:32Z first-boot notifications seen from 04:33:42 (getting ready, step 3 of 7, step 5 of 7, step 7 of 7); Companion OS is ready at 04:36:23 (2 min 40 s after the job started); opening a terminal for the read-only facts scripts
+2026-10-20T04:36:32Z key ctrl+alt+t terminal for the facts scripts
+2026-10-20T04:36:50Z type: (curl -s 10.0.2.2:8800/f.sh || wget -qO- 10.0.2.2:8800/f.sh) | sh -s cf-installed
+2026-10-20T04:36:51Z key ret facts script
+2026-10-20T04:37:16Z type: (curl -s 10.0.2.2:8800/proof.sh || wget -qO- 10.0.2.2:8800/proof.sh) | sh -s cf-proof
+2026-10-20T04:37:16Z key ret proof script
+2026-10-20T04:37:41Z apt check: typing sudo -S apt-get update into the guest terminal (output to a file in the guest) and the password from a file (not shown)
+2026-10-20T04:37:46Z type: sudo -S apt-get update > /tmp/ftue-apt-raw.txt 2>&1
+2026-10-20T04:37:47Z key ret run apt-get update as root
+2026-10-20T04:37:50Z typed the throwaway password from a file (not shown)
+2026-10-20T04:37:51Z key ret the sudo password
+2026-10-20T04:38:15Z type: (curl -s 10.0.2.2:8800/apt.sh || wget -qO- 10.0.2.2:8800/apt.sh) | sh -s cf-apt
+2026-10-20T04:38:15Z key ret apt facts script
+2026-10-20T04:39:08Z type: (echo "== apt-get -s upgrade, last lines"; apt-get -s upgrade 2>&1 | tail -n 8; echo "== lines about Pro, ESM or news"; apt-get -s upgrade 2>&1 | grep -i -E "ubuntu pro|esm|apt news|pro attach" || echo "(none)") > /tmp/ftue-up.txt 2>&1; curl -s --data-binary @/tmp/ftue-up.txt 10.0.2.2:8800/up/cf-upgrade-sim
+2026-10-20T04:39:08Z key ret simulated upgrade facts
+2026-10-20T04:39:54Z apt check done: apt-get update as root (11 lines) and a simulated apt-get upgrade as the user print no line about Ubuntu Pro, ESM, news or pro attach; facts and proof read at 04:36:57 and 04:37:20 (6 min after boot): the same as the first image; now Settings, Appearance
+2026-10-20T04:39:58Z type: gnome-control-center appearance &
+2026-10-20T04:39:58Z key ret open Settings
+2026-10-20T04:40:10Z click 270 446 Appearance in Settings
+2026-10-20T04:40:29Z Settings, Appearance on the installed system of 5ff5224: Dark selected and the green swatch selected (frame 044018-set2); stopping the installed VM
+2026-10-20T04:40:29Z VM stopped
+2026-10-20T04:40:29Z plain boot entry check: starting the same ISO again (with a throwaway disk) and leaving the default entry, Try or Install Companion OS, to see what the live session shows when the automatic entry was not chosen
+2026-10-20T04:40:31Z VM start (power on): companion-os-1.0-arm64.iso
+2026-10-20T04:41:05Z plain boot entry: GRUB menu on screen; pressing Enter on the default entry, Try or Install Companion OS
+2026-10-20T04:41:05Z key ret the default entry Try or Install Companion OS
+2026-10-20T04:43:02Z plain boot entry: the live session shows the dock and the desktop icons and no window at all (no Canonical window, no dialog); frame 044246-plain6; stopping this VM and the recorder
+2026-10-20T04:43:02Z VM stopped
+2026-10-20T04:43:02Z recorder stop requested
