@@ -74,7 +74,9 @@
 # line while the script still exited 0 and ran update-grub; foo=a|b made sed
 # fail; a backslash-n split the line in two; and an escaped \` or \$ lost its
 # backslash, so an escaped backtick became a command that update-grub (it
-# sources this file as root) would run.
+# sources this file as root) would run. The value is also split with pathname
+# expansion off: foo=*, a lone * or acpi_osi=!* used to turn into the names of
+# the files in the working directory that match them.
 #
 # Can be run standalone or invoked from provision.sh.
 #
@@ -203,14 +205,18 @@ fi
 
 # Idempotent rebuild: drop any tokens we manage (from a prior run, possibly
 # with stale RAM-based values), keep everything else untouched, then append
-# the freshly computed set.
+# the freshly computed set. Pathname expansion is off while the value is split:
+# a parameter such as foo=* or acpi_osi=!* is data, not a pattern for the files
+# in the working directory.
 cleaned_value=""
+set -f
 for tok in $current_value; do
   case "$tok" in
     iommu=pt|amdgpu.gttsize=*|ttm.pages_limit=*|amdttm.pages_limit=*) continue ;;
     *) cleaned_value="${cleaned_value:+$cleaned_value }${tok}" ;;
   esac
 done
+set +f
 
 if [[ -n "$cleaned_value" ]]; then
   new_value="${cleaned_value} ${STRIX_PARAMS}"

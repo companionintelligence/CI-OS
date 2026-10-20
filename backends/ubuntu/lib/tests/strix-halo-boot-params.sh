@@ -520,11 +520,14 @@ echo "== the user's own kernel parameters come back exactly as they were"
 # written the way it stands in the file, VALUE is what a shell that sources the file reads for it (the two differ wherever TEXT
 # has a backslash: grub-mkconfig reads \\ as one backslash, \$ as a dollar sign, \` as a backtick and \" as a double quote).
 # The file must come back byte for byte with only the managed parameters added, both shells must read the same VALUE as before,
-# and a second run must find nothing to do.
+# and a second run must find nothing to do. The working directory holds files (foo=1, foo=2, acpi_osi=!x, README) that a
+# parameter with a pattern character would match if anything split the line with pathname expansion on.
 hostile() {
     h_label="$1"; h_text="$2"; h_value="$3"
     printf '%s\n' "-- $h_label: $h_text"
     new_case "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet $h_text splash\""
+    # files in the working directory, for the parameters that look like patterns
+    : >"$C/cwd/foo=1"; : >"$C/cwd/foo=2"; : >"$C/cwd/acpi_osi=!x"; : >"$C/cwd/README"
     make_grub "$C/grub.want" "GRUB_CMDLINE_LINUX_DEFAULT=\"quiet $h_text splash $BASE\""
     for h_sh in $SHELLS; do
         expect "before: ${h_sh##*/} reads the line as: quiet $h_value splash" test "$(cmdline_via "$h_sh")" = "quiet $h_value splash"
@@ -559,6 +562,11 @@ hostile 'backslash and a digit' 'foo=a\1b' 'foo=a\1b'
 hostile 'printf directives' 'foo=50%s%b%d' 'foo=50%s%b%d'
 hostile 'punctuation' 'foo=/dev/sda1,x:y@z%1#2~3^4=!' 'foo=/dev/sda1,x:y@z%1#2~3^4=!'
 hostile 'all of it at once' 'foo=a&b|c\\d\$e\`f\"g%s' 'foo=a&b|c\d$e`f"g%s'
+hostile 'pattern: star after =' 'foo=*' 'foo=*'
+hostile 'pattern: a lone star' '*' '*'
+hostile 'pattern: question mark' 'foo=?' 'foo=?'
+hostile 'pattern: bracket set' 'foo=[12]' 'foo=[12]'
+hostile 'pattern: acpi_osi=!* (a real parameter)' 'acpi_osi=!*' 'acpi_osi=!*'
 
 echo
 echo "== the rest of the file comes back byte for byte"
