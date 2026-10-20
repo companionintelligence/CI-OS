@@ -51,6 +51,9 @@
 #      is gone), no autostart entry of the Pro client or of a telemetry service is active, the telemetry packages are not installed, the
 #      telemetry hosts resolve to localhost, and GNOME's error-report and usage-statistics switches default to off. The properties are the
 #      audit ci_quiet_audit of backends/ubuntu/lib/quiet-canonical.sh, run on the files extracted from the installed layer;
+#   6c. the desktop is dark with a green accent for every user, live session and installed system alike: the dconf default
+#      (04-ci-os-appearance), the schema override and the compiled dconf database carry the values of backends/ubuntu/lib/appearance.sh
+#      (color-scheme prefer-dark, accent-color green);
 #   5.  the boot menu names, /.disk/info (the product is spelt Companion OS in it, as the installer's last page shows it: the
 #      launcher label, the product name and the subiquity channel chain are asserted from casper's and the installer's own logic);
 #   3e. the casper layers stacked on the base keep the rootfs directory modes (/tmp stays 1777);
@@ -1796,6 +1799,32 @@ if [[ -f "$QUIET_LIB" ]]; then
     fi
 else
     skip "Ubuntu Pro and telemetry audit (backends/ubuntu/lib/quiet-canonical.sh not found next to this script)"
+fi
+
+section "6c. Appearance: dark, with a green accent, for every user"
+# backends/ubuntu/lib/appearance.sh holds the two values and the two texts customize-chroot.sh writes (the dconf keyfile that counts, a system database
+# value beats every schema default including Ubuntu's session-scoped ones, and the same two keys as a schema override). Read back here from the built image.
+APPEARANCE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../lib/appearance.sh"
+if [[ -f "$APPEARANCE_LIB" ]]; then
+    # shellcheck source=../../lib/appearance.sh
+    source "$APPEARANCE_LIB"
+    appearance_file_is() { [[ "$(cat "$1" 2>/dev/null)" == "$2" ]]; }
+    appearance_override_has() { # the [org.gnome.desktop.interface] stanza of the override holds the library's two lines
+        [[ "$(awk '/^\[org\.gnome\.desktop\.interface\]$/ { f = 1; next } /^\[/ { f = 0 } f' "$1" 2>/dev/null)" == "$(ci_os_appearance_override | sed 1d)" ]]
+    }
+    check "appearance: the values are ones GNOME's schema accepts (color-scheme $CI_OS_COLOR_SCHEME, accent-color $CI_OS_ACCENT_COLOR)" ci_os_appearance_valid
+    check "appearance: /etc/dconf/db/local.d/04-ci-os-appearance is the library's keyfile: color-scheme '$CI_OS_COLOR_SCHEME', accent-color '$CI_OS_ACCENT_COLOR'" \
+        appearance_file_is "$R/etc/dconf/db/local.d/04-ci-os-appearance" "$(ci_os_appearance_dconf)"
+    check "appearance: 90_companion-os.gschema.override carries the same two keys under [org.gnome.desktop.interface]" \
+        appearance_override_has "$R/usr/share/glib-2.0/schemas/90_companion-os.gschema.override"
+    # dconf compiles local.d into one binary file that stores the keys and the strings as they are: a failed `dconf update` (the build tolerates its
+    # failure) leaves the keyfile above unread, and shows up as a missing string here.
+    check "appearance: the compiled local dconf database holds color-scheme '$CI_OS_COLOR_SCHEME'" bash -c "grep -aqF 'color-scheme' '$R/etc/dconf/db/local' && grep -aqF '$CI_OS_COLOR_SCHEME' '$R/etc/dconf/db/local'"
+    check "appearance: the compiled local dconf database holds accent-color '$CI_OS_ACCENT_COLOR'" bash -c "grep -aqF 'accent-color' '$R/etc/dconf/db/local' && grep -aqF '$CI_OS_ACCENT_COLOR' '$R/etc/dconf/db/local'"
+    check "appearance: the wallpaper has a dark-scheme variant (picture-uri-dark is the Companion wallpaper, so the dark desktop does not fall back to Ubuntu's)" \
+        bash -c "grep -q '^picture-uri-dark=.*ci-os-wallpaper' '$R/etc/dconf/db/local.d/01-ci-os-wallpaper' && grep -q '^picture-uri-dark=.*ci-os-wallpaper' '$R/usr/share/glib-2.0/schemas/90_companion-os.gschema.override'"
+else
+    skip "appearance defaults (backends/ubuntu/lib/appearance.sh not found next to this script)"
 fi
 
 section "7. Branding: live boot splash and live identity (initrd)"

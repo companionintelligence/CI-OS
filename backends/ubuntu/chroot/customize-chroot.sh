@@ -49,6 +49,14 @@ source "$REPO_ROOT/backends/ubuntu/lib/start-links.sh"
 source "$REPO_ROOT/backends/ubuntu/lib/deb-members.sh"
 # shellcheck source=../lib/quiet-canonical.sh
 source "$REPO_ROOT/backends/ubuntu/lib/quiet-canonical.sh"
+# shellcheck source=../lib/appearance.sh
+source "$REPO_ROOT/backends/ubuntu/lib/appearance.sh"
+
+# The appearance defaults (dark, green accent) must be values GNOME's schema accepts: checked before anything in the chroot changes.
+if ! _appearance_problem="$(ci_os_appearance_valid)"; then
+    echo "[ERROR] backends/ubuntu/lib/appearance.sh: $_appearance_problem" >&2
+    exit 1
+fi
 
 # The architecture of the image: amd64 (the default) or arm64. build-iso.sh --arch sets CI_OS_ARCH. The chroot is built for this
 # architecture: natively on a host of the same one, or under emulation (Rosetta or qemu-user) on the other.
@@ -476,6 +484,12 @@ report-technical-problems=false
 send-software-usage-stats=false
 EOF
 
+# Dark, with a green accent, for every user of the live session and of the installed system (backends/ubuntu/lib/appearance.sh has the values and
+# why green). A system database value beats every schema default, including Ubuntu's session-scoped overrides, so this is the file that counts; the
+# schema override below says the same for anything that reads the schema default. A user's own choice in Settings > Appearance still wins.
+# The login screen keeps its own database (gdm.d) and its recoloured shell theme; Plymouth and GRUB are static navy.
+ci_os_appearance_dconf > "$CHROOT_PATH/etc/dconf/db/local.d/04-ci-os-appearance"
+
 # ── Configure GDM (login screen) branding ──────────────────────────────────
 # GDM reads from its OWN dconf database, not the user's local.d.
 # The profile at /usr/share/dconf/profile/gdm tells GDM to read:
@@ -535,6 +549,8 @@ picture-options='zoom'
 picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
 picture-options='zoom'
 EOF
+
+ci_os_appearance_override >> "$CHROOT_PATH/usr/share/glib-2.0/schemas/90_companion-os.gschema.override"
 
 # The SVG fallback above rewrote a file that did not exist yet; apply the extension to what was written.
 if [[ "${WALLPAPER_EXT:-png}" != "png" ]]; then

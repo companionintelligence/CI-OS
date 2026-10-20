@@ -446,5 +446,21 @@ expect "the block never removes anything but a link inside a .wants or .requires
     bash -c 'grep -v "^ *#" "$1" | grep "rm " | grep -q -F "rm -f \"\$_link\"" && [ "$(grep -v "^ *#" "$1" | grep -c "rm ")" = 1 ]' _ "$LI_BLOCK"
 
 echo
+echo "== 15. dark with a green accent by default (backends/ubuntu/lib/appearance.sh)"
+# The values and the two texts are tested by backends/ubuntu/lib/tests/appearance.sh; these pin how the build uses them.
+expect "the library is sourced" grep -q -F 'source "$REPO_ROOT/backends/ubuntu/lib/appearance.sh"' "$SCRIPT"
+before "the two values are validated before the base release is checked and the chroot is touched" 'ci_os_appearance_valid\)' 'ci_os_base_is_supported "\$BASE_VERSION_ID"'
+expect "a value GNOME does not accept stops the build" bash -c 'grep -q -F "backends/ubuntu/lib/appearance.sh: \$_appearance_problem" "$1"' _ "$SCRIPT"
+expect "the dconf default is written to /etc/dconf/db/local.d/04-ci-os-appearance from the library" grep -q -F 'ci_os_appearance_dconf > "$CHROOT_PATH/etc/dconf/db/local.d/04-ci-os-appearance"' "$SCRIPT"
+before "  and before the dconf database is compiled" 'ci_os_appearance_dconf > ' 'chroot_exec "dconf update"'
+expect "the schema override gets the same two keys, appended to 90_companion-os.gschema.override" grep -q -F 'ci_os_appearance_override >> "$CHROOT_PATH/usr/share/glib-2.0/schemas/90_companion-os.gschema.override"' "$SCRIPT"
+before "  and before the schemas are compiled" 'ci_os_appearance_override >> ' 'chroot_exec "glib-compile-schemas'
+expect "the colour scheme and the accent are not written as literals anywhere in the script (the library is the one place)" \
+    bash -c '! grep -v "^ *#" "$1" | grep -q -E "prefer-dark|accent-color"' _ "$SCRIPT"
+gdm_block="$(sed -n '/gdm.d\/01-ci-os-login" << /,/^EOF$/p' "$SCRIPT")"
+expect "the greeter's database (gdm.d/01-ci-os-login) is found, and has no appearance keys: the login screen keeps its recoloured shell theme" \
+    bash -c 'printf "%s\n" "$1" | grep -q -F "[org/gnome/login-screen]" && ! printf "%s\n" "$1" | grep -q -E "color-scheme|accent-color"' _ "$gdm_block"
+
+echo
 echo "$PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]
