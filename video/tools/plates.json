@@ -1,0 +1,91 @@
+{
+  "recording": {
+    "taken": "2026-10-19",
+    "image": "companion-os-1.0-arm64.iso, built from 82e9335",
+    "image_sha256": "e43e2066713306494abe541faff6ab20f3ec56c8676ac61b1a85bc05252e86ac",
+    "machine": "QEMU virt with HVF on Apple silicon, virtio-gpu 1920x1080, 8 GiB, 6 CPUs",
+    "choices": "English (United Kingdom), keyboard English (UK), time zone London",
+    "evidence": "docs/evidence/2026-10-19-ubuntu-arm64-82e9335-video-run/"
+  },
+  "size": [1920, 1080],
+  "plates": [
+    {
+      "id": "grub",
+      "source": "frames/f-1792455257.png",
+      "shows": "the boot menu, Install Companion OS (automatic) highlighted"
+    },
+    {
+      "id": "one-click-dialog",
+      "source": "confirm-en.png",
+      "shows": "the one-click installer's question with the English (United States) defaults",
+      "cover": [[668, 529, 882, 550]]
+    },
+    {
+      "id": "region-menu",
+      "source": "menu0.png",
+      "shows": "language, keyboard and time zone before the change (English (United States))"
+    },
+    {
+      "id": "region-search",
+      "source": "lang-search.png",
+      "shows": "the language list narrowed by typing United Kingdom"
+    },
+    {
+      "id": "region-done",
+      "source": "menu1.png",
+      "shows": "language, keyboard and time zone after the change (English (United Kingdom), London)"
+    },
+    {
+      "id": "confirm-uk",
+      "source": "confirm-uk.png",
+      "shows": "the one-click installer's question naming the English (United Kingdom) choice",
+      "cover": [[701, 529, 915, 550]]
+    },
+    {
+      "id": "installing",
+      "source": "progress0.png",
+      "shows": "the installer's progress window",
+      "cover": [[866, 545, 1009, 564]]
+    },
+    {
+      "id": "greeter",
+      "source": "greeter.png",
+      "shows": "the sign-in screen after the first start, English (United Kingdom) date"
+    },
+    {
+      "id": "greeter-change",
+      "source": "greeter-change.png",
+      "shows": "the forced password change at the first sign-in (empty field)"
+    },
+    {
+      "id": "desktop-welcome",
+      "source": "after-login.png",
+      "shows": "the first desktop, the getting started page open"
+    },
+    {
+      "id": "banner-waiting",
+      "source": "frames/f-1792456745.png",
+      "shows": "the waiting banner: Companion OS is getting ready"
+    },
+    {
+      "id": "banner-step5",
+      "source": "frames/f-1792456905.png",
+      "shows": "the progress banner: step 5 of 7, Downloading the AI models"
+    },
+    {
+      "id": "banner-ready",
+      "source": "frames/f-1792456975.png",
+      "shows": "the ready banner: Companion OS is ready"
+    },
+    {
+      "id": "desktop-ready",
+      "source": "now.png",
+      "shows": "the desktop after setup finished, before Companion Hub is opened"
+    },
+    {
+      "id": "hub-pairing",
+      "source": "hub2.png",
+      "shows": "Companion Hub opened from the first dock icon, at its pairing page"
+    }
+  ]
+}

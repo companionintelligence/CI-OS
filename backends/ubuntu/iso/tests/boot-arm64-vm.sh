@@ -15,7 +15,7 @@
 #
 # DISK is created (sparse, 64 GiB) when it does not exist. It must be a file: a block or character device is refused, because a
 # test must never be able to write to a real disk. Environment: CI_VM_DIR (state directory, keep the path short: a QMP socket path
-# is limited to 104 bytes on macOS; default /tmp/ci-arm64-vm), CI_VM_CPUS (6), CI_VM_MEM (MiB, 8192), CI_VM_ACCEL (hvf on
+# is limited to 104 bytes on macOS; default /tmp/ci-arm64-vm), CI_VM_CPUS (6), CI_VM_MEM (MiB, 8192), CI_VM_RES (WIDTHxHEIGHT of the virtual display, for example 1920x1080: the guest's preferred mode; default the firmware's 1280x800), CI_VM_ACCEL (hvf on
 # macOS, kvm on Linux, else tcg: software emulation, an order of magnitude slower).
 #
 # Needs qemu-system-aarch64, qemu-img, python3 and the edk2 aarch64 firmware (macOS: `brew install qemu`; Debian and Ubuntu:
@@ -83,6 +83,12 @@ cmd_start() {
   rm -f "$SOCK"
   local acc; acc="$(accel)"
   local cpu="host"; [ "$acc" = tcg ] && cpu="max"
+  # CI_VM_RES=1920x1080 asks the virtual display for that mode (QEMU's xres and yres): 16:9 frames for video plates.
+  local gpu_mode=""
+  if [ -n "${CI_VM_RES:-}" ]; then
+    [[ "$CI_VM_RES" =~ ^[0-9]{3,4}x[0-9]{3,4}$ ]] || die "CI_VM_RES must look like 1920x1080, not '$CI_VM_RES'"
+    gpu_mode=",xres=${CI_VM_RES%x*},yres=${CI_VM_RES#*x}"
+  fi
   # The ISO is a USB drive (bootindex 0); the install target an NVMe disk (bootindex 1, or 0 when it boots alone).
   local media=() target=() idx=1
   if [ "$iso" != "-" ]; then
@@ -96,7 +102,7 @@ cmd_start() {
   qemu-system-aarch64 -name ci-arm64 -pidfile "$PIDFILE" -daemonize \
     -machine virt,gic-version=3 -accel "$acc" -cpu "$cpu" -smp "${CI_VM_CPUS:-6}" -m "${CI_VM_MEM:-8192}" \
     -drive "if=pflash,format=raw,readonly=on,file=$CODE" -drive "if=pflash,format=raw,file=$DIR/vars.fd" \
-    -device virtio-gpu-pci -device qemu-xhci -device usb-kbd -device usb-tablet \
+    -device "virtio-gpu-pci${gpu_mode}" -device qemu-xhci -device usb-kbd -device usb-tablet \
     -nic user,model=virtio-net-pci \
     -object rng-random,id=rng0,filename=/dev/urandom -device virtio-rng-pci,rng=rng0 \
     -qmp "unix:$SOCK,server=on,wait=off" -serial "file:$SERIAL" -display none \

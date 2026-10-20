@@ -43,8 +43,9 @@ rejects their names anywhere in the tracked tree except where `core/lib/retired-
 wraps, and its `headless-setup/install.sh` is the dependency oracle (`ARCH_DEPS`) that the payload tests and the CachyOS ISO
 verifier read. Change it only on an explicit decision (D8). Also not hand-edited: `vendor/brand/` (use
 `core/lib/vendor-brand.sh`), the digests in `core/manifest/model-packs.lock.json` (tooling writes them: `ci-stick models lock`),
-`docs/CI.md` (generated), and the `ci-local:gated` blocks in `.github/workflows/` (all four workflows are manual-only; restoring a
-trigger is a maintainer call).
+`docs/CI.md` (generated: regenerate it after a change to a workflow's inputs), the `ci-local:gated` blocks in `.github/workflows/` (all four workflows are manual-only; restoring a
+trigger is a maintainer call), and `video/assets/shots/` with its `PROVENANCE.md` (made by `video/tools/make-plates.py`, which covers the one-time password; a plate
+is never edited by hand) and `video/assets/audio/` (recorded by the kit; `render.sh --narrate`, never `narrate --force`).
 
 ## Where things live
 
@@ -58,6 +59,7 @@ trigger is a maintainer call).
 | `backends/cachyos/` | `iso/` (host entry point, in-container engine, overlay, verifier, tests), `installer/` (Calamares overlay), `provision/` (first-boot wrapper, stager), `upstream.lock`, `compat-libs.lock` |
 | `backends/_mixins/` | `gnome-dconf/` (Ubuntu), `kde-plasma/` (CachyOS colour scheme) |
 | `stick/` | Rust workspace, binary crate `crates/ci-stick`; QEMU and Secure Boot harnesses under `tests/` |
+| `video/` | the stick's first-run film, made with the org's video-kit (CI-Common): `storyboard.json`, plates in `assets/shots/` made by `tools/make-plates.py` (the one-time password covered by a bar), narration, `render.sh`; read `video/README.md` |
 | `vendor/brand/`, `assets/` | the pinned brand bundle (ci-brand 1.0.0) and the mirrors/sources built from it |
 | `docs/` | start at `docs/README.md` (index) |
 
@@ -99,6 +101,15 @@ backends/cachyos/iso/scripts/build-iso.sh --version 1.0
 # Provision an existing machine (idempotent): Ubuntu; on CachyOS the first-boot unit runs it, `sudo ci-os-setup` re-runs it
 sudo ./backends/ubuntu/provision/provision.sh --tier=core,extended,hardware
 
+# Build the Ubuntu ISO in a container on this machine (a Mac or any Docker host); refuses a dirty tree and an unpinned base ISO
+backends/ubuntu/iso/scripts/build-in-docker.sh --base-iso ./ubuntu-26.04.1-desktop-arm64.iso --version 1.0 --output-dir ./release
+
+# Publish to Cloudflare R2: a DRY RUN until --apply (docs/guides/release-checklist.md, "Publishing to R2")
+backends/ubuntu/iso/scripts/publish-r2.sh --dir release --version 1.0 --channel dev
+
+# Render the stick's first-run film from the committed plates (landscape and square, about 3 minutes; needs a CI-Common clone)
+./video/render.sh
+
 # The fast gate: run before every push (same as the "PR checks" workflow)
 ./core/lib/check-repo.sh
 
@@ -110,8 +121,8 @@ sudo ./backends/ubuntu/provision/provision.sh --tier=core,extended,hardware
 verified the image, and the image's x86-64 chroot runs through the Docker VM's Rosetta binfmt. An amd64 `ubuntu:26.04` container *may fail*
 (on 2026-10-17 GNU tar 1.35 failed with "Function not implemented" under Rosetta in one; on 2026-10-18 another ran to the end; the trigger
 was not isolated), so do not build the ISO in one. Use a named volume for the work and output directories, a clean tree of the commit, and the
-verified base ISO. The same block is in `README.md` and, with the reasons for each step, in `docs/guides/building-on-a-mac.md`; change the
-three together:
+verified base ISO. `backends/ubuntu/iso/scripts/build-in-docker.sh` runs these steps as one command (it refuses a dirty tree and an unpinned
+base ISO). The same block is in `README.md` and, with the reasons for each step, in `docs/guides/building-on-a-mac.md`; change the three together:
 
 ```bash
 export ISO="$HOME/Downloads/ubuntu-26.04.1-desktop-amd64.iso"        # the 26.04.1 file, not the 26.04.0 image
@@ -162,6 +173,9 @@ PR conventions for agents (validation, layout, what not to commit, stale branche
   (templates only), or WIP commits on a branch meant for review. Commit `stick/Cargo.lock`.
 - **Credentials.** The repository review of 2026-10-12 found credentials that are still to be rotated. Never copy a credential
   value into a document, a log excerpt, a commit message or a test.
+- **Publishing.** Images go to Cloudflare R2 (the shared `dl-dev` and `dl-prod` buckets), never to a GitHub release asset (the limit is 2 GiB).
+  `publish-r2.sh` is a dry run until `--apply`: never pass `--apply`, create a bucket or a token, or print an R2 or signing credential unless
+  the owner asked for that exact action. Secrets are named, never copied; the owner's steps are in `docs/guides/release-checklist.md`.
 - **Block devices.** Never write to a disk (`ci-stick flash --device`, `dd`) unless the user named that device. Always `--dry-run`
   first. VM tests use file-backed images only.
 - **Evidence.** A claim about behaviour needs a tag and a source. Do not write that an image "boots", "installs" or "works" unless a

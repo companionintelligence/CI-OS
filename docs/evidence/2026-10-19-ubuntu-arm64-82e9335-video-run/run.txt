@@ -1,0 +1,36 @@
+Fresh install of the arm64 image built from commit 82e9335, recorded at 1920x1080 from power-on to make the frames of the stick's video (video/, the
+org's video-kit). Evidence label: tested in a virtual machine (QEMU 11, HVF, Apple-silicon Mac); not real hardware. 2026-10-19 to 2026-10-20, times UTC.
+
+Image     companion-os-1.0-arm64.iso, 5,593,038,848 bytes, sha256 e43e2066713306494abe541faff6ab20f3ec56c8676ac61b1a85bc05252e86ac (SHA256SUMS), the
+          image of the record 2026-10-19-ubuntu-arm64-82e9335 (build and verify.log are there; this run did not build anything)
+Target    a new file-backed 64 GiB virtual NVMe disk and variable store; the ISO as a USB drive; 6 CPUs, 8 GiB, virtio-gpu at 1920x1080 (CI_VM_RES=1920x1080)
+Choices   English (United Kingdom), keyboard English (UK), time zone London, picked in the one-click dialog (the second language run: German was the first)
+Recording record-frames.sh from before power-on to the end of the first run: 1,009 frames, not kept in the repository (the dialogs show the one-time
+          password); QMP_CLICK_LOG gave clicks.txt (epoch, x, y, screen size: the pointer coordinates in video/storyboard.json come from it);
+          events.txt is the log of what was done and when
+
+00:13:52  recorder and VM started (power on); 00:14:18 GRUB: "Install Companion OS (automatic)" highlighted (the frame is the plate "grub")
+00:16:21  live desktop (2 min 29 s after power-on); Canonical's installer window in front, closed; the one-click dialog behind it
+00:16:52  the dialog read: "English (United States), keyboard: English (US), time zone: detected automatically"
+00:16:56  "Language, keyboard, time zone...": Language, typed "United Kingdom", Choose; 00:17:44 the list read English (United Kingdom), English (UK), London; Done
+00:18:04  the dialog named the choice; 00:18:07 "Erase the disk and install"
+00:34:40  VM powered off by the installer: 16 min 33 s after the click, on a loaded host (the German run took at most 11 min 38 s on a quiet one);
+          nothing in this record is a statement about how long an install takes
+00:35:02  installed disk started alone; the greeter at 00:35:47
+00:36:47  the installed system showed the root filesystem check message and then nothing for a minute (idle guest, no input, no console output): stopped and
+          started again at 00:36:49. The second time this has been seen (events.txt says so); the start after the restart was normal; the cause is not known
+00:38:02  greeter up (English date, London time); 00:38:05 clicked the user; 00:38:10 typed the one-time password; the forced change at 00:38:24
+          (current password), 00:38:39 (new), 00:38:53 (repeated); the desktop at 00:39:19, the getting started page open
+00:39:02  banner "Companion OS is getting ready" (two frames); 00:40:31 "Setting up Companion OS: getting the computer ready"; 00:41:29 "step 1 of 7";
+          00:41:45 "step 5 of 7, Downloading the AI models (the longest step)"; 00:42:03 "step 7 of 7"; 00:42:46 "Companion OS is ready" (the banner stayed
+          until 00:43:04). Setup was on screen for 2 min 15 s
+00:45:00  clicked the first icon of the dock: Companion Hub opened at its pairing page in about 12 s (a toast "CI Hub 0.3.6 is available" showed first and went)
+
+Plates: video/assets/shots/ (PROVENANCE.md there has the sha256 of each source frame and plate). Three of them cover the one-time password with a bar
+before the file was written (make-plates.py refuses a bar that ends beside more text, and --verify fails when a covered region is not a flat bar); each
+was checked by eye at 2x after the last change.
+What this adds: the English (United Kingdom) path end to end on the image of 82e9335, at a size a video can use; the six frames of the waiting, progress
+and ready notices on a first boot.
+What it does not show: a real machine, amd64, a first boot on a slow network, the banner "needs attention", step 3, any model actually answering, the
+Hub paired with an account.
+Credentials: the one-time password and the new password were throwaway values of this virtual machine; neither is in any record here.

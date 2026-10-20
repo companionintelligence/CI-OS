@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+#=============================================================================
+# Gate 14 of docs/guides/release-checklist.md, as a command: is what is served at the public URL what was built?
+#
+#   verify-published.sh --base-url https://dl.ci.computer [--version 1.0] [--prefix os] [--arch amd64|arm64] [--full] [--pubkey FILE]
+#
+# Reads <base>/<prefix>/latest.json (or the version you name), then <base>/<prefix>/<version>/manifest.json, and for every image (or the one --arch)
+#   - HEAD: the served size equals the manifest's size;
+#   - with --full: downloads the image and checks its sha256 against the manifest (5.6 GB each: this is the check that matters, run it from a
+#     machine that is not the builder, ideally the one the user will use);
+# then fetches SHA256SUMS, checks that it lists exactly the manifest's hashes, and, with --pubkey, that SHA256SUMS.asc verifies against that public
+# key in a throw-away keyring (the key is the one published by the release key's holder, not whatever is in your keyring).
+# It builds every URL itself from --base-url, the prefix, the version, the architecture and a file name that matches ^[A-Za-z0-9._-]+$; a URL inside
+# the manifest is only compared with that, never followed. https only (http is accepted for localhost, for the test of this script).
+#
+# Prints one line per check, then a line to paste into the release record. Exit status: 0 every check passed, 1 a check failed, 2 a usage problem.
+#
+# Needs bash 3.2+, curl, python3, shasum or sha256sum (gpg for --pubkey).      © Companion Intelligence — Lifescope Inc
+#=============================================================================
+set -uo pipefail
+
+die() { echo "verify-published: $*" >&2; exit 2; }
+BASE="" VERSION="" PREFIX="os" ARCH="" FULL=0 PUBKEY=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --base-url) [ $# -ge 2 ] || die "$1 needs a value"; BASE="$2"; shift 2 ;;
+    --version) [ $# -ge 2 ] || die "$1 needs a value"; VERSION="$2"; shift 2 ;;
+    --prefix) [ $# -ge 2 ] || die "$1 needs a value"; PREFIX="$2"; shift 2 ;;
+    --arch) [ $# -ge 2 ] || die "$1 needs a value"; ARCH="$2"; shift 2 ;;
+    --pubkey) [ $# -ge 2 ] || die "$1 needs a value"; PUBKEY="$2"; shift 2 ;;
+    --full) FULL=1; shift ;;
+    -h|--help) sed -n '2,/^# Needs /p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) die "unknown argument: $1 (see --help)" ;;
+  esac
+done
+BASE="${BASE%/}"
+case "$BASE" in
+  https://*) ;;
+  http://localhost|http://localhost:*|http://127.0.0.1|http://127.0.0.1:*) ;;
+  *) die "--base-url must be an https URL" ;;
+esac
+echo "$PREFIX" | grep -q -E '^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$' || die "--prefix is not a plain key prefix"
+[ -z "$ARCH" ] || case "$ARCH" in amd64|arm64) ;; *) die "--arch must be amd64 or arm64" ;; esac
+[ -z "$VERSION" ] || echo "$VERSION" | grep -q -E '^[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z]+)*$' || die "--version is not a version"
+command -v curl >/dev/null 2>&1 || die "curl is required"
+command -v python3 >/dev/null 2>&1 || die "python3 is required"
+sha_of() { if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi; }
+
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/verify-published.XXXXXX")"
+trap 'rm -rf "$WORK"' EXIT
+FAILS=0
+ok() { printf 'ok    %s\n' "$*"; }
+bad() { printf 'FAIL  %s\n' "$*"; FAILS=$((FAILS + 1)); }
+get() { curl -fsSL --retry 2 --max-time "${3:-120}" "$1" -o "$2" 2>/dev/null; }
+json() { python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print($2)" "$1" 2>/dev/null; }
+
+if [ -z "$VERSION" ]; then
+  get "$BASE/$PREFIX/latest.json" "$WORK/latest.json" 60 || { bad "$BASE/$PREFIX/latest.json does not answer"; echo "verify-published: FAILED"; exit 1; }
+  VERSION="$(json "$WORK/latest.json" "d['version']")"
+  echo "$VERSION" | grep -q -E '^[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z]+)*$' || { bad "latest.json names no usable version"; exit 1; }
+  ok "latest.json names version $VERSION ($(json "$WORK/latest.json" "d.get('channel','?')"))"
+fi
+MURL="$BASE/$PREFIX/$VERSION/manifest.json"
+get "$MURL" "$WORK/manifest.json" 60 || { bad "$MURL does not answer"; echo "verify-published: FAILED"; exit 1; }
+[ "$(json "$WORK/manifest.json" "d['product']")" = "companion-os" ] && [ "$(json "$WORK/manifest.json" "d['version']")" = "$VERSION" ] \
+  && ok "manifest.json is Companion OS $VERSION" || bad "manifest.json is not Companion OS $VERSION"
+
+ARCHES="$(json "$WORK/manifest.json" "' '.join(sorted(d['images']))")"
+[ -n "$ARCH" ] && ARCHES="$ARCH"
+for a in $ARCHES; do
+  name="$(json "$WORK/manifest.json" "d['images']['$a']['iso']['name']")"
+  size="$(json "$WORK/manifest.json" "d['images']['$a']['iso']['size']")"
+  want="$(json "$WORK/manifest.json" "d['images']['$a']['iso']['sha256']")"
+  murl="$(json "$WORK/manifest.json" "d['images']['$a']['iso']['url']")"
+  if ! echo "$name" | grep -q -E '^[A-Za-z0-9._-]+$' || ! echo "$want" | grep -q -E '^[0-9a-f]{64}$' || ! echo "$size" | grep -q -E '^[0-9]+$'; then
+    bad "$a: the manifest's entry is malformed"; continue
+  fi
+  url="$BASE/$PREFIX/$VERSION/$a/$name"
+  case "$murl" in */"$PREFIX/$VERSION/$a/$name") ok "$a: the manifest's URL ends in $PREFIX/$VERSION/$a/$name" ;; *) bad "$a: the manifest's URL ($murl) is not this release's path" ;; esac
+  served="$(curl -fsSIL --retry 2 --max-time 60 "$url" 2>/dev/null | tr -d '\r' | awk 'tolower($1)=="content-length:" {n=$2} END {print n}')"
+  if [ "$served" = "$size" ]; then ok "$a: $name is served at $size bytes"; else bad "$a: $name is served at '${served:-nothing}' bytes, the manifest says $size"; fi
+  if [ "$FULL" = 1 ]; then
+    if get "$url" "$WORK/$a.iso" 7200; then
+      got="$(sha_of "$WORK/$a.iso")"
+      if [ "$got" = "$want" ]; then ok "$a: downloaded and sha256 $got matches"; else bad "$a: the downloaded file has sha256 $got, the manifest says $want"; fi
+      rm -f "$WORK/$a.iso"
+    else
+      bad "$a: the download from $url failed"
+    fi
+  fi
+done
+
+if get "$BASE/$PREFIX/$VERSION/SHA256SUMS" "$WORK/SHA256SUMS" 60; then
+  for a in $ARCHES; do
+    name="$(json "$WORK/manifest.json" "d['images']['$a']['iso']['name']")"
+    want="$(json "$WORK/manifest.json" "d['images']['$a']['iso']['sha256']")"
+    if grep -q -E "^$want [ *]$name\$" "$WORK/SHA256SUMS"; then ok "$a: SHA256SUMS lists the manifest's hash"; else bad "$a: SHA256SUMS does not list the manifest's hash for $name"; fi
+  done
+  if [ -n "$PUBKEY" ]; then
+    command -v gpg >/dev/null 2>&1 || die "--pubkey needs gpg"
+    [ -f "$PUBKEY" ] || die "--pubkey $PUBKEY does not exist"
+    if get "$BASE/$PREFIX/$VERSION/SHA256SUMS.asc" "$WORK/SHA256SUMS.asc" 60; then
+      export GNUPGHOME="$WORK/gnupg"; mkdir -p "$GNUPGHOME"; chmod 700 "$GNUPGHOME"
+      gpg --batch --quiet --import "$PUBKEY" 2>/dev/null
+      if gpg --batch --verify "$WORK/SHA256SUMS.asc" "$WORK/SHA256SUMS" >/dev/null 2>&1; then ok "SHA256SUMS.asc verifies against $(basename "$PUBKEY")"; else bad "SHA256SUMS.asc does not verify against $(basename "$PUBKEY")"; fi
+    else
+      bad "SHA256SUMS.asc is not served"
+    fi
+  else
+    echo "note  signature not checked (give --pubkey with the release key's public key)"
+  fi
+else
+  bad "SHA256SUMS is not served at $BASE/$PREFIX/$VERSION/SHA256SUMS"
+fi
+
+echo
+if [ "$FAILS" -eq 0 ]; then
+  echo "verify-published: $VERSION at $BASE/$PREFIX: all checks passed$([ "$FULL" = 1 ] || echo ' (sizes only: run with --full for the bytes)')"
+  echo "release record: re-verified from $(hostname -s 2>/dev/null || echo this machine) on $(date -u +%Y-%m-%d), $([ "$FULL" = 1 ] && echo 'sha256 of the downloaded bytes' || echo 'served sizes')"
+  exit 0
+fi
+echo "verify-published: FAILED ($FAILS)"
+exit 1

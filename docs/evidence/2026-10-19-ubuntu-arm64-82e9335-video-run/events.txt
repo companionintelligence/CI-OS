@@ -1,0 +1,27 @@
+2026-10-20T00:13:52Z recorder started (1.5 s), VM start at 1920x1080 (power on)
+2026-10-20T00:14:18Z GRUB: Install Companion OS (automatic)
+2026-10-20T00:16:21Z live desktop; Canonical's installer window in front
+2026-10-20T00:16:21Z installer window closed: the one-click dialog is behind it
+2026-10-20T00:16:52Z the confirmation dialog is read (English, US, automatic)
+2026-10-20T00:16:56Z click: Language, keyboard, time zone...
+2026-10-20T00:17:01Z menu: Language row, Change
+2026-10-20T00:17:06Z typing United Kingdom
+2026-10-20T00:17:21Z pick English (United Kingdom), Choose
+2026-10-20T00:17:44Z menu shows English (UK), English (UK), London; Done
+2026-10-20T00:18:04Z the confirmation names the choice
+2026-10-20T00:18:07Z click: Erase the disk and install
+2026-10-20T00:34:40Z install finished, VM off
+2026-10-20T00:35:02Z VM start: installed disk alone
+2026-10-20T00:35:47Z greeter is up
+2026-10-20T00:36:47Z the installed system froze after the root filesystem check, idle guest (the second time seen); stopped and started again
+2026-10-20T00:36:49Z VM start again: installed disk alone
+2026-10-20T00:38:02Z greeter is up (English, UK date, London time)
+2026-10-20T00:38:05Z click: Companion (the user)
+2026-10-20T00:38:10Z typing the one-time password
+2026-10-20T00:38:24Z forced password change: current password
+2026-10-20T00:38:39Z forced password change: new password
+2026-10-20T00:38:53Z forced password change: repeat
+2026-10-20T00:39:19Z desktop
+2026-10-20T00:45:00Z first-boot setup finished (ready banner at 00:42:46)
+2026-10-20T00:45:00Z click: Companion Hub, the first icon in the dock
+2026-10-20T01:02:02Z plates secured; stopping the recorder, the keep-alive and the VM

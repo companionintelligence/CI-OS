@@ -123,13 +123,16 @@ mkdir -p output && docker cp ci-os-ubuild:/vol/out/. ./output/
 docker rm -f ci-os-ubuild && docker volume rm ci-os-ubuild-vol
 ```
 
-The same commands, with the reasons for each step, are in [`docs/guides/building-on-a-mac.md`](docs/guides/building-on-a-mac.md#recipe);
+The same commands as one script: `backends/ubuntu/iso/scripts/build-in-docker.sh --base-iso "$ISO"` (it refuses a dirty tree and an unpinned base ISO). The commands, with the reasons for each step, are in [`docs/guides/building-on-a-mac.md`](docs/guides/building-on-a-mac.md#recipe);
 `CLAUDE.md` carries the same block, and the three are changed together. Never run systemd as PID 1 in that container, in any privileged
 container or with `CAP_SYS_ADMIN` (a privileged one wipes the Docker VM's Rosetta registrations, and the capability alone lets a container
 mount the shared `binfmt_misc` itself; restart Docker Desktop to recover; the reference implementation of a test that must boot systemd is
 `backends/ubuntu/chroot/tests/first-boot-units-boot.sh`), and keep more than 40 GiB free on the Data volume.
 [`.github/workflows/build-companion-os-iso.yml`](.github/workflows/build-companion-os-iso.yml) does the same in CI, in a privileged
-`ubuntu:26.04` container, and is manual-only.
+`ubuntu:26.04` container, and is manual-only. **Publishing:** images go to Cloudflare R2 (the shared `dl-dev` and `dl-prod` buckets, served from
+`dl-dev.ci.computer` and `dl.ci.computer`), not to GitHub releases (an asset is limited to 2 GiB, an image is 5.6 GB):
+`backends/ubuntu/iso/scripts/publish-r2.sh` (a dry run until `--apply`), `verify-published.sh` and the workflow's `publish` input are **[I]**,
+tested against stubs and never run against the real buckets; [Publishing to R2](docs/guides/release-checklist.md#publishing-to-r2) has the layout and the steps left for the owner. Nothing has been published.
 
 ### Plasma edition (CachyOS base)
 
@@ -523,7 +526,7 @@ change is in [Running the tests](docs/guides/running-the-tests.md); the per-suit
 
 | Layer | Command | Needs | Time | What it proves |
 |---|---|---|---|---|
-| 1. The gate | `./core/lib/check-repo.sh` | `git`, `shellcheck`, `python3` with PyYAML, `yamllint` (macOS: `brew install shellcheck yamllint`) | about 6 minutes on a quiet laptop, 25 to 40 on a Mac that is also running builds and VMs | Syntax and lint of every shell, Python and YAML file, the retired-name and block-art guards, and about 35 host-side suites of both editions |
+| 1. The gate | `./core/lib/check-repo.sh` | `git`, `shellcheck`, `python3` with PyYAML, `yamllint` (macOS: `brew install shellcheck yamllint`) | about 6 minutes on a quiet laptop, 25 to 40 on a Mac that is also running builds and VMs | Syntax and lint of every shell, Python and YAML file, the retired-name and block-art guards, and about 40 host-side suites of both editions |
 | 2. One behaviour | `bash <suite>` from [Running the tests](docs/guides/running-the-tests.md), for example `backends/ubuntu/chroot/tests/customize-chroot-checks.sh` (159 checks) | `bash` | seconds | One script, one rule: the dock list (40), the Companion links and welcome page (70), the first-boot load gate (11), the headless Hub start (20), the download-progress filter (21), the one-click installer (121 unit tests) |
 | 3. A built image, read | `VERIFY_BASE_ISO=<stock ISO> VERIFY_REQUIRE_CANON=1 backends/ubuntu/iso/scripts/verify-iso.sh <ISO>` | `xorriso`, `squashfs-tools`, `zstd`, `cpio`, `python3` | 35 to 90 s | The finished ISO against the stock one and against what the build meant to do: 444 checks on amd64, 436 on arm64 (the architecture is read from the volume id) |
 | 4. A built image, run | `backends/ubuntu/iso/tests/boot-arm64-vm.sh`, `installed-boot.sh`, `stick/tests/qemu/run.sh` | QEMU, firmware, a container for some | 2 to 20 min (arm64 with hardware acceleration); hours for x86-64 under emulation | The live desktop, the one-click install, the installed boot and the first-boot job, as a person would see them |
@@ -545,6 +548,14 @@ $T/boot-arm64-vm.sh stop
 # 3. After the installer powers the machine off, boot the installed disk alone
 $T/boot-arm64-vm.sh start - ./target.qcow2
 ```
+
+### Film the first run
+
+The first run (boot menu, the one-click dialog, the install, the first sign-in, the setup notices, Companion Hub's pairing page) is also a film, made with the
+org's video kit (CI-Common `packages/video-kit`, CI-Engineering `projects/product-video-pipeline`) from plates recorded in a VM: `./video/render.sh` renders
+landscape and square cuts in about three minutes. [`video/README.md`](video/README.md) says what is true about it (a virtual machine, not real hardware), how
+the plates are made (the one-time password is covered by a bar that a test checks) and how to shoot it again. The internal time-lapse of the same run is in
+[`docs/guides/testing-in-qemu.md`](docs/guides/testing-in-qemu.md#recording-a-first-run-video).
 
 The runner needs `qemu-system-aarch64`, `qemu-img`, `python3` and the edk2 aarch64 firmware (macOS: `brew install qemu`). It refuses a block
 or character device as the disk, so a test cannot write to a real one. The guest has no Secure Boot firmware under Homebrew's QEMU.
@@ -591,7 +602,7 @@ captured from an image (`backends/ubuntu/chroot/tests/fixtures/`). A claim about
 │   └── headless/         payload/ (setup backend, portal, hostapd/dnsmasq/nginx, units), ci_setup/ (tested library), tests/
 ├── backends/
 │   ├── ubuntu/           Companion OS on Ubuntu 26.04.1: apt/dpkg + Bash
-│   │   ├── iso/          scripts/ (build-iso.sh, verify-iso.sh, md5sum-txt.sh, lib/split-live-layer.sh, gresource builder), tests/, README.md
+│   │   ├── iso/          scripts/ (build-iso.sh, build-in-docker.sh, verify-iso.sh, publish-r2.sh, verify-published.sh, release-manifest.py, md5sum-txt.sh, lib/split-live-layer.sh, gresource builder), tests/, README.md
 │   │   ├── chroot/       customize-chroot.sh, payload/ (apt, docker, live-start = one-click installer, models, ssh), tests/
 │   │   ├── provision/    provision.sh, bootstrap-ci-os.sh, install-models.sh
 │   │   ├── desktop-theme/  apply-ci-os-desktop.sh + plymouth, grub, wallpaper, start-icon, about-logo, os-release, names steps; tests/
@@ -606,6 +617,7 @@ captured from an image (`backends/ubuntu/chroot/tests/fixtures/`). A claim about
 │   ├── arch/             NOT a target: the frozen pacman engine under CachyOS (provision/, headless-setup/ oracle, desktop-theme/ unused)
 │   └── _mixins/          gnome-dconf/ (Ubuntu), kde-plasma/ (CachyOS)
 ├── stick/                Rust workspace: crates/ci-stick, schema/, scripts/ (signed-boot fetch, GRUB), tests/{qemu,secureboot}
+├── video/                the stick's first-run film (org video-kit): storyboard.json, plates from a VM recording, narration, render.sh
 ├── vendor/brand/         the pinned brand bundle (ci-brand 1.0.0): tokens, logos, Manrope font; SHA256SUMS
 ├── assets/               logos, wallpaper, branding/brand-guidelines.md, GNOME Shell theme assets
 ├── docs/                 README.md (index), architecture/, guides/, evidence/ (text records behind the verified rows), plans/, ui/, CI.md
@@ -652,6 +664,7 @@ The index of every document is [`docs/README.md`](docs/README.md). Start here:
   [Testing in QEMU](docs/guides/testing-in-qemu.md), [Running the tests](docs/guides/running-the-tests.md),
   [Release checklist](docs/guides/release-checklist.md), [CI-Hub deploy](docs/guides/ci-hub-deploy.md),
   [Environment reference](docs/guides/environment-reference.md).
+* The stick's first-run film: [`video/README.md`](video/README.md).
 * Per edition: [`backends/ubuntu/iso/README.md`](backends/ubuntu/iso/README.md), [`backends/cachyos/README.md`](backends/cachyos/README.md),
   [Ubuntu ISO layers](docs/architecture/ubuntu-iso-layers.md), [CachyOS backend](docs/architecture/cachyos-backend.md).
 * Stick and models: [`stick/README.md`](stick/README.md), [Companion Stick](docs/architecture/companion-stick.md),

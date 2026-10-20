@@ -1,0 +1,4 @@
+# the confirmation dialog: the password line (both dialog widths)
+2026-10-19T23:14:20Z 2026-10-19T23:15:56Z 340 386 290 26 bright 700 130 100 20
+# the progress window: its whole text block (the password moves between lines as the status text changes)
+2026-10-19T23:15:56Z 2026-10-19T23:27:34Z 385 386 580 62 bright 400 330 100 20

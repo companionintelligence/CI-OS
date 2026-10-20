@@ -1,0 +1,283 @@
+{
+  "$schema": "https://raw.githubusercontent.com/companionintelligence/CI-Common/main/packages/video-kit/schema/storyboard.schema.json",
+  "app": {
+    "id": "companion-os-usb",
+    "name": "Companion OS",
+    "repo": "companionintelligence/CI-OS",
+    "website": "ci.computer"
+  },
+  "formats": ["landscape", "square"],
+  "meta": {
+    "fps": 30,
+    "transitionSeconds": 0.5,
+    "pacing": "fit",
+    "pacingTail": 0.4,
+    "subtitles": "sidecar"
+  },
+  "chapters": {
+    "stick": "The stick",
+    "install": "Install",
+    "first-run": "First run"
+  },
+  "media": {
+    "music": null,
+    "sfx": true
+  },
+  "scenes": [
+    {
+      "id": "open",
+      "kind": "intro",
+      "seconds": 5,
+      "minSeconds": 4,
+      "reveal": "paced",
+      "mark": "brand:logo.mark",
+      "title": "Companion OS",
+      "caption": "Install it from a USB stick, in one click.",
+      "narration": "Companion OS turns a computer you own into a private AI server. It arrives on a USB stick."
+    },
+    {
+      "id": "the-stick",
+      "kind": "feature",
+      "chapter": "stick",
+      "seconds": 6,
+      "title": "The installer stick",
+      "caption": "It carries the installer. The computer does the rest.",
+      "narration": "The stick holds the installer. Plug it in, and start the computer from it.",
+      "columns": { "landscape": 2, "square": 1 },
+      "items": [
+        {
+          "image": "./assets/brand-photos/usb-closed.webp",
+          "alt": "The Companion OS installer USB stick with its cap on"
+        },
+        {
+          "image": "./assets/brand-photos/usb-open-stick.webp",
+          "alt": "The same stick with the cap off, showing the USB plug"
+        }
+      ]
+    },
+    {
+      "id": "boot-menu",
+      "kind": "screen",
+      "chapter": "install",
+      "seconds": 6,
+      "caption": "Choose Install Companion OS (automatic).",
+      "narration": "Choose the automatic entry. The computer starts a live desktop from the stick.",
+      "shots": [
+        {
+          "id": "grub",
+          "url": "boot menu",
+          "alt": "The boot menu with Install Companion OS (automatic) highlighted",
+          "motion": "push-in",
+          "focus": { "x": 0.005, "y": 0.055, "w": 0.2, "h": 0.085 }
+        }
+      ]
+    },
+    {
+      "id": "one-question",
+      "kind": "screen",
+      "chapter": "install",
+      "seconds": 8,
+      "caption": "One question. It names the disk it will erase.",
+      "narration": "One window asks one question. It names the disk it will erase, and gives a one-time password for your first sign-in.",
+      "shots": [
+        {
+          "id": "one-click-dialog",
+          "url": "live desktop, Install Companion OS",
+          "alt": "The installer asks to erase the disk and install; the one-time password is hidden",
+          "motion": "push-in",
+          "focus": { "x": 0.3083, "y": 0.2222, "w": 0.3828, "h": 0.5843 },
+          "pointer": { "x": 0.5, "y": 0.6611 }
+        }
+      ]
+    },
+    {
+      "id": "your-language",
+      "kind": "screen",
+      "chapter": "install",
+      "transition": "cut",
+      "seconds": 9,
+      "caption": "Language, keyboard and time zone are asked up front.",
+      "narration": "If a default is wrong, one button changes the language, the keyboard and the time zone. Here, English, United Kingdom.",
+      "shots": [
+        {
+          "id": "region-menu",
+          "url": "language, keyboard and time zone",
+          "alt": "The list of language, keyboard and time zone, set to English (United States)",
+          "motion": "push-in",
+          "focus": { "x": 0.3557, "y": 0.3759, "w": 0.3224, "h": 0.2769 },
+          "pointer": { "x": 0.5927, "y": 0.6111 }
+        },
+        {
+          "id": "region-search",
+          "url": "language, keyboard and time zone",
+          "alt": "The language list narrowed by typing United Kingdom",
+          "motion": "push-in",
+          "focus": { "x": 0.3557, "y": 0.2556, "w": 0.3224, "h": 0.5176 }
+        },
+        {
+          "id": "region-done",
+          "url": "language, keyboard and time zone",
+          "alt": "The list now reads English (United Kingdom), English (UK) and London",
+          "motion": "push-in",
+          "focus": { "x": 0.3557, "y": 0.3759, "w": 0.3224, "h": 0.2769 },
+          "pointer": { "x": 0.4406, "y": 0.6111 }
+        }
+      ]
+    },
+    {
+      "id": "confirm",
+      "kind": "screen",
+      "chapter": "install",
+      "transition": "cut",
+      "seconds": 7,
+      "caption": "Then one click: erase the disk and install.",
+      "narration": "The window now names the choice. One click on erase the disk and install, and it asks nothing more.",
+      "shots": [
+        {
+          "id": "confirm-uk",
+          "url": "live desktop, Install Companion OS",
+          "alt": "The installer names English (United Kingdom), keyboard English (UK), time zone London; the one-time password is hidden",
+          "motion": "push-in",
+          "focus": { "x": 0.3255, "y": 0.2222, "w": 0.3828, "h": 0.5843 },
+          "pointer": { "x": 0.5167, "y": 0.713 }
+        }
+      ]
+    },
+    {
+      "id": "installing",
+      "kind": "screen",
+      "chapter": "install",
+      "seconds": 8,
+      "caption": "It installs by itself.",
+      "narration": "Then it installs by itself. When it finishes, the computer turns off. Take out the stick, and turn it on.",
+      "shots": [
+        {
+          "id": "installing",
+          "url": "installing Companion OS",
+          "alt": "The progress window; the one-time password in its text is hidden",
+          "motion": "push-in",
+          "focus": { "x": 0.3589, "y": 0.4148, "w": 0.3161, "h": 0.1991 }
+        }
+      ]
+    },
+    {
+      "id": "sign-in",
+      "kind": "screen",
+      "chapter": "first-run",
+      "seconds": 8,
+      "caption": "Sign in once. Then choose your own password.",
+      "narration": "Sign in as companion with the one-time password. The first sign-in asks you to choose your own.",
+      "shots": [
+        {
+          "id": "greeter",
+          "url": "sign in",
+          "alt": "The sign-in screen, with the user Companion",
+          "motion": "push-in",
+          "focus": { "x": 0.34, "y": 0.4, "w": 0.32, "h": 0.5 },
+          "pointer": { "x": 0.5, "y": 0.4509 }
+        },
+        {
+          "id": "greeter-change",
+          "url": "first sign-in",
+          "alt": "The first sign-in asks to change the password for companion",
+          "motion": "push-in",
+          "focus": { "x": 0.33, "y": 0.3, "w": 0.34, "h": 0.45 }
+        }
+      ]
+    },
+    {
+      "id": "desktop",
+      "kind": "screen",
+      "chapter": "first-run",
+      "seconds": 5,
+      "caption": "The getting started page is already open.",
+      "narration": "Then the desktop, with the getting started page already open.",
+      "shots": [
+        {
+          "id": "desktop-welcome",
+          "url": "your desktop",
+          "alt": "The desktop with the Companion dock and the getting started page open",
+          "motion": "push-in"
+        }
+      ]
+    },
+    {
+      "id": "setup",
+      "kind": "screen",
+      "chapter": "first-run",
+      "seconds": 12,
+      "caption": "Setup runs in the background, and says so.",
+      "narration": "A few minutes after the first start, setup runs in the background. It says what it is doing, step by step, and you can keep working. Then it says it is ready.",
+      "shots": [
+        {
+          "id": "banner-waiting",
+          "url": "setup, in the background",
+          "alt": "A notice: Companion OS is getting ready",
+          "motion": "push-in",
+          "focus": { "x": 0.38, "y": 0.02, "w": 0.27, "h": 0.13 }
+        },
+        {
+          "id": "banner-step5",
+          "url": "setup, in the background",
+          "alt": "A notice: step 5 of 7, downloading the AI models",
+          "motion": "push-in",
+          "focus": { "x": 0.38, "y": 0.02, "w": 0.27, "h": 0.13 }
+        },
+        {
+          "id": "banner-ready",
+          "url": "setup, in the background",
+          "alt": "A notice: Companion OS is ready",
+          "motion": "push-in",
+          "focus": { "x": 0.38, "y": 0.02, "w": 0.27, "h": 0.13 }
+        }
+      ]
+    },
+    {
+      "id": "hub",
+      "kind": "screen",
+      "chapter": "first-run",
+      "seconds": 8,
+      "caption": "Companion Hub opens at its pairing page.",
+      "narration": "Open Companion Hub, the first icon in the dock. It starts at its pairing page.",
+      "shots": [
+        {
+          "id": "desktop-ready",
+          "url": "your desktop",
+          "alt": "The desktop once setup has finished; the first icon in the dock is Companion Hub",
+          "motion": "hold",
+          "pointer": { "x": 0.0172, "y": 0.0593 }
+        },
+        {
+          "id": "hub-pairing",
+          "url": "Companion Hub",
+          "alt": "Companion Hub at its pairing page: sign in to a CI account, or enter a pairing code",
+          "motion": "push-in",
+          "focus": { "x": 0.27, "y": 0.42, "w": 0.5, "h": 0.37 }
+        }
+      ]
+    },
+    {
+      "id": "close",
+      "kind": "outro",
+      "seconds": 5,
+      "minSeconds": 4,
+      "cta": "UnCloud your life.",
+      "url": "ci.computer",
+      "mark": "brand:logo.full",
+      "narration": "Companion Intelligence. Apps you own."
+    },
+    {
+      "id": "how-this-was-filmed",
+      "kind": "feature",
+      "coda": true,
+      "seconds": 7,
+      "title": "How this was filmed",
+      "caption": "The one-time password is hidden.",
+      "items": [
+        { "label": "Recorded in", "value": "a virtual machine" },
+        { "label": "Image", "value": "Companion OS 1.0, arm64" },
+        { "label": "Real hardware", "value": "not yet" }
+      ]
+    }
+  ]
+}
