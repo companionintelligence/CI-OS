@@ -1,0 +1,123 @@
+== date (UTC)
+2026-10-20T04:37:23Z
+== appearance, for the signed-in user
+color-scheme: 'prefer-dark'
+accent-color: 'green'
+gtk-theme: 'Yaru'
+icon-theme: 'Yaru'
+privacy report-technical-problems: false
+privacy send-software-usage-stats: false
+== dconf system database files
+01-ci-os-wallpaper
+02-ci-os-dock
+03-ci-os-quiet-first-run
+04-ci-os-appearance
+== 04-ci-os-appearance
+[org/gnome/desktop/interface]
+color-scheme='prefer-dark'
+accent-color='green'
+== Pro and telemetry unit files
+UNIT FILE                               STATE   PRESET
+apt-news.service                        masked  enabled
+esm-cache.service                       masked  enabled
+motd-news.service                       masked  enabled
+ua-reboot-cmds.service                  enabled enabled
+ua-timer.service                        masked  enabled
+ubuntu-advantage-desktop-daemon.service static  -
+ubuntu-advantage.service                enabled enabled
+motd-news.timer                         masked  enabled
+ua-timer.timer                          masked  enabled
+
+9 unit files listed.
+== timers that exist
+NEXT                                 LEFT LAST                              PASSED UNIT                           ACTIVATES
+Tue 2026-10-20 04:40:00 UTC      2min 36s -                                      - sysstat-collect.timer          sysstat-collect.service
+Tue 2026-10-20 04:45:26 UTC          8min -                                      - systemd-tmpfiles-clean.timer   systemd-tmpfiles-clean.service
+Tue 2026-10-20 04:51:02 UTC         13min Tue 2026-10-20 04:33:31 UTC 3min 51s ago ci-os-first-boot-setup.timer   ci-os-first-boot-setup.service
+Tue 2026-10-20 05:21:56 UTC         44min -                                      - fwupd-refresh.timer            fwupd-refresh.service
+Tue 2026-10-20 06:32:57 UTC      1h 55min -                                      - apt-daily-upgrade.timer        apt-daily-upgrade.service
+Tue 2026-10-20 07:30:47 UTC      2h 53min -                                      - anacron.timer                  anacron.service
+Tue 2026-10-20 17:50:15 UTC           13h -                                      - apt-daily.timer                apt-daily.service
+Wed 2026-10-21 00:00:00 UTC           19h -                                      - dpkg-db-backup.timer           dpkg-db-backup.service
+Wed 2026-10-21 00:00:00 UTC           19h -                                      - sysstat-rotate.timer           sysstat-rotate.service
+Wed 2026-10-21 00:07:00 UTC           19h -                                      - sysstat-summary.timer          sysstat-summary.service
+Wed 2026-10-21 00:23:14 UTC           19h -                                      - logrotate.timer                logrotate.service
+Wed 2026-10-21 04:35:28 UTC           23h Tue 2026-10-20 04:35:28 UTC 1min 54s ago update-notifier-download.timer update-notifier-download.service
+Wed 2026-10-21 10:55:36 UTC      1 day 6h -                                      - man-db.timer                   man-db.service
+Sun 2026-10-25 03:10:05 UTC        4 days -                                      - xfs_scrub_all.timer            xfs_scrub_all.service
+Sun 2026-10-25 03:10:53 UTC        4 days -                                      - e2scrub_all.timer              e2scrub_all.service
+Mon 2026-10-26 00:08:24 UTC        5 days -                                      - fstrim.timer                   fstrim.service
+Thu 2026-10-29 10:08:26 UTC 1 week 2 days -                                      - update-notifier-motd.timer     update-notifier-motd.service
+-                                       - -                                      - motd-news.timer                -
+-                                       - -                                      - snapd.snap-repair.timer        snapd.snap-repair.service
+-                                       - -                                      - ua-timer.timer                 -
+
+20 timers listed.
+== failed units
+● pd-mapper.service loaded failed failed Qualcomm PD mapper service
+== system state
+degraded
+== autostart entries
+at-spi-dbus-bus.desktop ci-os-live-setup.desktop ci-os-setup-progress.desktop ci-os-welcome.desktop geoclue-demo-agent.desktop gnome-keyring-pkcs11.desktop gnome-keyring-secrets.desktop ibus-mozc-gnome-initial-setup.desktop ibus-mozc-launch-xwayland.desktop im-launch.desktop localsearch-3.desktop orca-autostart.desktop org.gnome.DejaDup.Monitor.desktop org.gnome.Evolution-alarm-notify.desktop org.gnome.SettingsDaemon.DiskUtilityNotify.desktop snap-userd-autostart.desktop spice-vdagent.desktop ubuntu-advantage-notification.desktop.disabled update-notifier.desktop user-dirs-update-gtk.desktop xdg-user-dirs.desktop 
+/etc/xdg/autostart/ubuntu-advantage-notification.desktop.disabled 
+== login text scripts
+total 52
+-rwxr-xr-x 00-ci-os-header
+-rw-r--r-- 00-header
+-rw-r--r-- 10-help-text
+-rw-r--r-- 50-motd-news
+-rwxr-xr-x 85-fwupd
+-rwxr-xr-x 90-updates-available
+-rw-r--r-- 91-contract-ua-esm-status
+-rwxr-xr-x 91-release-upgrade
+-rwxr-xr-x 92-unattended-upgrades
+-rwxr-xr-x 95-hwe-eol
+-rwxr-xr-x 98-fsck-at-reboot
+-rwxr-xr-x 98-reboot-required
+== hosts
+1:127.0.0.1 localhost
+12:127.0.0.1 metrics.ubuntu.com
+13:127.0.0.1 www.metrics.ubuntu.com
+14:127.0.0.1 popcon.ubuntu.com
+15:127.0.0.1 www.popcon.ubuntu.com
+16:127.0.0.1 daisy.ubuntu.com
+17:127.0.0.1 motd.ubuntu.com
+== Pro client
+WARNING: this output is intended to be human readable, and subject to change.
+In scripts, prefer using machine readable data from the `pro api` command,
+or use `pro status --format json`.
+
+SERVICE          AVAILABLE  DESCRIPTION
+anbox-cloud      yes        Scalable Android in the cloud
+esm-apps         yes        Expanded Security Maintenance for Applications
+esm-infra        yes        Expanded Security Maintenance for Infrastructure
+landscape        yes        Management and administration tool for Ubuntu
+livepatch        yes        Canonical Livepatch service
+
+For a list of all Ubuntu Pro services, run 'pro status --all'
+
+This machine is not attached to an Ubuntu Pro subscription.
+== uaclient.conf keys
+apt_news: false
+update_messaging_timer: 0
+update_status_timer: 0
+metering_timer: 0
+== apt hooks
+01-vendor-ubuntu 01autoremove 10periodic 15update-stamp 20apt-esm-hook.conf.disabled 20archive 20auto-upgrades 20dbus 20packagekit 20snapd.conf 50appstream 50command-not-found 50unattended-upgrades 60icons 60icons-hidpi 70debconf 99force-ipv4 99update-notifier 
+== telemetry packages
+hn apport <none>
+hn landscape-common <none>
+hn popularity-contest <none>
+hn ubuntu-insights <none>
+hn ubuntu-report <none>
+hn whoopsie <none>
+== first-run state
+gnome-initial-setup gnome-initial-setup-done ibus-mozc-gnome-initial-setup-done 
+update-notifier 
+== disk, packages, time
+/dev/nvme0n1p2   62G   19G   40G  32% /
+dpkg installed: 1875
+up 6 minutes
+Startup finished in 1.224s (kernel) + 18.489s (userspace) = 19.713s 
+graphical.target reached after 18.455s in userspace.
+

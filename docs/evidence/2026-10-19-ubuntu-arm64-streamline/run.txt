@@ -1,0 +1,73 @@
+Streamlined setup of Companion OS (Ubuntu edition) on arm64, three images, one run each, in the repository's arm64 VM harness. The records behind KI-30 (docs/architecture/known-issues-and-decisions.md).
+Evidence label: tested in a virtual machine (QEMU 11.1.2, HVF, one Apple-silicon Mac); not real hardware; one run of each image; amd64 built and verified but not booted (../2026-10-19-ubuntu-amd64-streamline-8fea315/). 2026-10-19 local time; every time below is UTC of 2026-10-20.
+
+Images (all built from a clean `git archive` tree in a native arm64 ubuntu:26.04 container, then verify-iso.sh with VERIFY_BASE_ISO and VERIFY_REQUIRE_CANON=1)
+  before   main at 5d50582                   before-main-5d50582/   sha256 0cc31d9c...5110  5,593,038,848 bytes   build 871 s   446 passed, 0 failed
+  after 1  branch at cf68024 (five commits)  after-cf68024/        sha256 ee5f850d...76e9  5,590,548,480 bytes   build 759 s   492 passed, 0 failed
+  after 2  branch at 5ff5224 (the fix)       after-5ff5224/         sha256 217c1144...3f07  5,590,548,480 bytes   build 779 s   493 passed, 0 failed
+Harness  boot-arm64-vm.sh, qmp-drive.py, record-frames.sh (a screendump about every 3 s); -smp 6 -m 8192, virtio-gpu 1280x800, the ISO as a USB drive, a new 64 GiB NVMe qcow2 on the SSD;
+         the boot menu's automatic entry chosen with Down, Enter; after the install the disk started alone. Facts were read by the scripts in guest-scripts/ (read-only), fetched by the
+         guest from a loopback server on the host and posted back (curl, or wget where curl is missing). Frames and videos are not in the repository.
+Credentials  the one-time passwords were read from the screen by eye (a magnified crop, never OCR) and typed from 0600 files; the new password is a throwaway of the same kind; none is in any
+         record or frame kept here.
+
+== Run 1: main at 5d50582 (the before run; the same run is the Companion OS column of the first-run teardown) ==
+  see before-main-5d50582/events.txt and installed-facts.txt, proof-facts.txt: Canonical's window first, the dock and the icons only after it was closed by hand, color-scheme default and accent
+  orange, the Pro apt hook and the ua-timer and motd-news timers active, ubuntu-insights installed, 1876 packages, degraded by pd-mapper.service, the clock on Etc/UTC.
+  Install 11 min 27 s at most (the wait polls every 5 s); screen blank 5 min 04 s after the last input.
+
+== Run 2: this branch at cf68024 (after-cf68024/) ==
+  03:14:48  power-on
+  03:15:07  the automatic entry (Down, Enter)
+  03:16:20  the first live desktop frame: the wallpaper and the top bar, NO dock and NO desktop icons
+  03:16:25  the one-click dialog (dark) is the first and only window: no Canonical window (the point of the change). The session is still in the live layer's installer mode
+  03:17:29  live-facts.txt: color-scheme prefer-dark, accent green; Canonical's installer unit static and inactive; the server unit active; the dock favourites have the automatic launcher first
+  03:22:28  dock-facts.txt: ubuntu-dock@ubuntu.com enabled but dock-fixed false, autohide true, intellihide false; enabled-extensions [] and disabled-extensions ['ding@rastersoft.com']
+            (the facts were taken after my own diagnostic typing went wrong twice: a key stuck and repeated, and text went into the overview search and opened a Firefox window; closed by hand)
+  03:23:36  Erase the disk and install clicked: the progress window is dark with a green bar
+  03:33:55  the VM exited: install 10 min 19 s at most
+  03:34:13  the installed disk started alone; 03:34:43 the greeter, the selected card outlined in green
+  03:34:59  the one-time password; the forced change; 03:35:33 the new password confirmed
+  03:35:40  the first session: the "Companion OS is getting ready" notification, then Firefox with one tab, the docs page DARK; no first-run page, no Software Updater banner
+  03:38:01  the first-boot notifications (steps of 7); "Companion OS is ready" at 03:39:23
+  03:40:37  the screen blanked, 5 min 04 s after the last input; locked (a pointer move shows the lock screen)
+  03:42:27  installed-facts.txt, proof-facts.txt (8 min after boot): degraded by pd-mapper.service; Etc/UTC; color-scheme prefer-dark and accent green; Pro timers and motd-news masked;
+            20apt-esm-hook.conf.disabled; uaclient.conf apt_news false and three timers 0; ubuntu-insights removed and held (hn); six hosts blocked; 1875 packages
+  03:43:46  Settings, Appearance: Dark selected and the green swatch selected
+  FINDING   the live session had no dock and no desktop icons (above). Cause: Canonical's installer unit undoes the live layer's installer mode when its window closes (ExecStopPost in the
+            stock unit, read from the 26.04.1 live layer) and this branch stops that unit from starting. Fix and its guard: commit 5ff5224.
+
+== Run 3: this branch at 5ff5224, the fix (after-5ff5224/) ==
+  Attempt 1 (kept for its live session; not an install): started WITHOUT a target disk by my mistake.
+  04:10:45  power-on;  04:11:11 the automatic entry
+  04:12:44  the live session: the dock and the desktop icons are drawn; the one-click dialog answered with its error text (no internal disk of at least 25 GB was found; use the normal
+            installer from the dock): the helper refuses cleanly, and the text names the dock, which is there now
+  04:13:13  the error dialog closed: a normal live desktop (the dock with the automatic launcher first and Canonical's not pinned; the Companion links, two Install launchers and Home as icons)
+  04:14:07  live-facts-attempt1.txt: dock-fixed true, intellihide true, enabled-extensions ['ding@rastersoft.com'], disabled-extensions [], ding running; Canonical's installer unit static and
+            inactive, its server unit active; the stock launcher and ours in ~/Desktop
+  04:14:59  Canonical's own launcher on the desktop opened the stock installer (Welcome to Ubuntu, Choose your language): dark, with a green page dot
+  Attempt 2 (the run): the same image with a target disk
+  04:15:17  power-on;  04:15:45 the automatic entry
+  04:17:32  the live session: the one-click dialog (dark) in front of the dock and the icons; no Canonical window
+  04:18:07  Use the normal installer: Canonical's window opened from the button (dark, green page dot); closed at 04:18:20
+  04:18:36  the first dock icon (the automatic launcher) reopened the dialog; its one-time password is new for each run
+  04:18:54  Erase the disk and install clicked: the progress window (dark, green bar); its text goes from "getting ready" to "this takes a while" to "Applying updates" and the one-time
+            password wraps differently in each: a box over one place hides it in only one of them
+  04:30:06  the VM exited, powered off by the installer: install 11 min 12 s at most (the wait polls every 5 s; the install applies updates from the network)
+  04:30:19  the installed disk started alone;  04:30:55 the greeter, the selected card outlined in green (first look 04:30:45, power-on + 26 s)
+  04:31:09  the one-time password accepted, the forced change (current, new, retype);  04:31:51 the new password confirmed
+  04:31:57  the first session: "Companion OS is getting ready" notification, Firefox opened by itself, the docs page DARK by 04:32:03; no first-run page, no Software Updater banner
+  04:33:42  the first-boot job's notifications (getting ready, step 3 of 7, step 5 of 7, step 7 of 7); "Companion OS is ready" at 04:36:23 (2 min 40 s)
+  04:36:57  installed-facts.txt, proof-facts.txt (6 min after boot): the same as the image of cf68024 in every line except uptime and boot time (diff of the two runs): degraded by
+            pd-mapper.service; Etc/UTC; prefer-dark and green; Pro timers and motd-news masked; apt hook diverted; uaclient.conf apt_news false and three timers 0; ubuntu-insights removed
+            and held; six hosts blocked; 1875 packages
+  04:37:40  apt-update.txt: `sudo apt-get update` (11 lines) printed no line about Ubuntu Pro, ESM, news or pro attach; apt-upgrade-simulation.txt: `apt-get -s upgrade` as the user printed none
+            either (a real upgrade as root was not run)
+  04:40:18  Settings, Appearance: the Dark style and the green swatch selected, for a user who chose nothing
+  Plain boot entry (the same ISO again, with a throwaway disk, the default entry "Try or Install Companion OS" left to run)
+  04:40:31  power-on;  04:41:05 the default entry
+  04:42:46  the live session: the dock (the automatic launcher first) and the desktop icons, and NO window: neither Canonical's installer nor the dialog opens from this entry either (on main
+            Canonical's 13-page window opened first from both entries); frame 13
+
+Limits  one run of each image; a virtual machine; arm64 only; the host was busy with other sessions during some runs (loads in host-load-at-start.txt of the teardown records: 5.5 to 6.6 at the
+        starts here); times are read from frames (about 3 s) or from a command's own timestamp. Not looked at: a boot of the amd64 image, real hardware, a GTK 3 window other than Firefox's, the application grid.

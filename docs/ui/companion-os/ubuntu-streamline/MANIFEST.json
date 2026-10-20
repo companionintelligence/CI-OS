@@ -1,0 +1,176 @@
+{
+  "run": "2026-10-19 (local), arm64, QEMU 11.1.2 with HVF; the times are UTC of 2026-10-20",
+  "images": {
+    "cf68024": "companion-os-1.0-arm64.iso built from cf68024 (sha256 ee5f850d...76e9)",
+    "5ff5224": "companion-os-1.0-arm64.iso built from 5ff5224 (sha256 217c1144...3f07)"
+  },
+  "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware; one run of each image",
+  "frames": [
+    {
+      "file": "01-live-session-before-fix-dialog-no-dock.png",
+      "sha256": "1d30bce4264115dcb4bb06ef5026d398ed26e65d5f09b52e8943b3758781093f",
+      "bytes": 787327,
+      "size": "1280x800",
+      "image": "cf68024",
+      "alt": "The live session of the image of cf68024: the one-click dialog, dark, on a desktop with no dock and no desktop icons",
+      "shows": "No Canonical window opened (the point of the change), but the session is still in the live layer's installer mode: no dock, no icons, eight minutes after boot. The one-time password line is covered by a dark bar added after the capture",
+      "stage": "live session",
+      "taken_approx_utc": "2026-10-20T03:23:27Z"
+    },
+    {
+      "file": "02-live-session-fixed-dialog-dock-icons.png",
+      "sha256": "43d6a15ef99b2528201614790fc381fa79877de833063051add1b7e13f9b5304",
+      "bytes": 763171,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "The live session of the image of 5ff5224: the one-click dialog, dark, in front of a desktop with the dock and the desktop icons",
+      "shows": "The dock shows the automatic launcher first and Canonical's is not pinned; the Companion links and two installer launchers are on the desktop. The one-time password line is covered by a dark bar added after the capture",
+      "stage": "live session",
+      "taken_approx_utc": "2026-10-20T04:17:32Z"
+    },
+    {
+      "file": "03-live-session-fixed-desktop.png",
+      "sha256": "b05e9ef7e172307cc558a100df874fb9f01b98aaad2278d3be3e8b50c6d007e4",
+      "bytes": 1324434,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "The live session of the image of 5ff5224 with the dialog closed: a normal live desktop with the dock and the icons",
+      "shows": "The first attempt of that run, which had no install target disk (the dialog said so and was closed)",
+      "stage": "live session",
+      "taken_approx_utc": "2026-10-20T04:13:23Z"
+    },
+    {
+      "file": "04-stock-installer-from-button-dark-green.png",
+      "sha256": "a24232f2f9762a34b5db6a26bd06dc31d69c879be0b0bffa9f2b3aa3a91ffe6c",
+      "bytes": 442255,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "Canonical's installer window, opened by the dialog's Use the normal installer button: Welcome to Ubuntu, Choose your language, dark, with a green page dot",
+      "shows": "Still Canonical's text and logo; the dark scheme and the green accent reach it",
+      "stage": "live session",
+      "taken_approx_utc": "2026-10-20T04:18:07Z"
+    },
+    {
+      "file": "05-install-progress-dark-green.png",
+      "sha256": "9c13d362caa3badea292ca2ff483a56df80f85738d0c316940a6d9991c083c1b",
+      "bytes": 1172878,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "The install in progress: one text block and a progress bar with no percentage, dark, the bar green",
+      "shows": "The one-time password in the sentence is covered by a dark bar added after the capture",
+      "stage": "install",
+      "taken_approx_utc": "2026-10-20T04:19:00Z"
+    },
+    {
+      "file": "06-installed-greeter-green.png",
+      "sha256": "ddba2c5141b98349cacfab0901866347c62f45a5f8ebd1115fbaed0c617d0839",
+      "bytes": 27362,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "The installed system's greeter: the Companion mark and one user, the selected card outlined in green",
+      "shows": "On main the outline was orange (compare-before-after.png)",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T04:30:55Z"
+    },
+    {
+      "file": "07-forced-password-change-dark.png",
+      "sha256": "df0e029b80f38707b0230c42332e6225036383fb6b72ffce7c31b3b7241d298f",
+      "bytes": 38844,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "The sign-in after the one-time password: the greeter asks for a new password, dark",
+      "shows": "No password is shown",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T04:31:09Z"
+    },
+    {
+      "file": "08-first-session-getting-ready.png",
+      "sha256": "a97431f1307c33edfb5b1d5cadf9717ea0c5e60da3325945c4051333b8ab27e9",
+      "bytes": 1270524,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "The first session: the desktop with the Companion OS is getting ready notification",
+      "shows": "The first-boot job tells the user what it is doing",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T04:31:57Z"
+    },
+    {
+      "file": "09-first-session-firefox-dark.png",
+      "sha256": "a2ebe648bf9c69cc808424dae47b4f59e15c55917afaa29971d2746e2919c93e",
+      "bytes": 169904,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "The first session: Firefox with one tab, the Companion getting-started page, dark",
+      "shows": "The only window that opens by itself; the page follows the dark scheme (the theme switch reads System)",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T04:32:03Z"
+    },
+    {
+      "file": "10-first-boot-notification-dark.png",
+      "sha256": "76bda421f7a6244a6b705613c5d3e40dd1fbac98e20717081f393fd1466dff5e",
+      "bytes": 182659,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "A first-boot notification over the dark page: Setting up Companion OS, step 5 of 7, downloading the AI models",
+      "shows": "",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T04:35:01Z"
+    },
+    {
+      "file": "11-first-boot-ready-dark.png",
+      "sha256": "4d92cdc144c4236a8907502a068ec54a31ff573a6b70aac83d70d94cc6979b5d",
+      "bytes": 181828,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "The first-boot notification: Companion OS is ready",
+      "shows": "",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T04:36:23Z"
+    },
+    {
+      "file": "12-settings-appearance-dark-green.png",
+      "sha256": "cbc71b3f6a39be9ccb31e36348dceaa64f50469b01f8b6b26547b05b97cad8dc",
+      "bytes": 212589,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "Settings, Appearance: the Dark style selected and the green accent selected",
+      "shows": "The default for the new user; nobody chose it",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T04:40:18Z"
+    },
+    {
+      "file": "13-live-session-plain-entry-desktop.png",
+      "sha256": "6aea101dd7e92192ab73fb9edba16d1cacee9e46afaf8e7f8536fced778f9adc",
+      "bytes": 1336478,
+      "size": "1280x800",
+      "image": "5ff5224",
+      "alt": "The live session after the boot menu's default entry, Try or Install Companion OS: the dock and the desktop icons, and no window",
+      "shows": "No Canonical window and no dialog open by themselves from this entry either (on main Canonical's 13-page window opened); the automatic launcher is first in the dock",
+      "stage": "live session",
+      "taken_approx_utc": "2026-10-20T04:42:46Z"
+    }
+  ],
+  "comparisons": [
+    {
+      "file": "compare-live-session.png",
+      "bytes": 720688,
+      "sha256": "065312b51701fb463896dbba6e3d22b9ec38cace3aa800e77f862e5381a93044",
+      "made_from": [
+        "01",
+        "02",
+        "03",
+        "04"
+      ],
+      "note": "a composite of four frames reduced to 632 pixels wide, with captions; not a capture"
+    },
+    {
+      "file": "compare-before-after.png",
+      "bytes": 250150,
+      "sha256": "809091591e562f2a6c2149fdabf626773166b97f046d661404a3e58baaba7165",
+      "made_from": [
+        "main 06 and 08 of the teardown set, 06 and 09 here"
+      ],
+      "note": "a composite of four frames reduced to 632 pixels wide, with captions; not a capture"
+    }
+  ]
+}

@@ -100,18 +100,20 @@ eq "the value parses as a list of strings, one per id" "$parsed" "$(printf '%s' 
 
 has() { grep -qxF "$1" <<<"$ids"; }
 for want in "Companion Hub.desktop" "companion-capture.desktop" "companion-docs.desktop" "org.gnome.Ptyxis.desktop" \
-            "org.gnome.Nautilus.desktop" "ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop"; do
+            "org.gnome.Nautilus.desktop"; do
   if has "$want"; then pass "dock holds $want"; else fail "dock is missing $want"; fi
 done
 # The five Ubuntu removes from its default dock (10_ubuntu-settings.gschema.override), by the ids that file uses.
-for gone in "firefox_firefox.desktop" "thunderbird_thunderbird.desktop" "libreoffice-writer.desktop" "snap-store_snap-store.desktop" \
+for gone in "ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop" \
+            "firefox_firefox.desktop" "thunderbird_thunderbird.desktop" "libreoffice-writer.desktop" "snap-store_snap-store.desktop" \
             "org.gnome.Yelp.desktop" "firefox.desktop" "org.gnome.Evolution.desktop" "org.gnome.Software.desktop" \
             "org.gnome.Rhythmbox3.desktop" "net.nokyan.Resources.desktop"; do
   if has "$gone"; then fail "dock still holds $gone"; else pass "dock does not hold $gone"; fi
 done
 
 pos() { grep -nxF "$1" <<<"$ids" | head -n 1 | cut -d: -f1; }
-if [[ "$(pos 'ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop')" == 1 ]]; then pass "the live installer is first, so the live-session launcher sits in front of it"; else fail "the installer is not the first entry"; fi
+# Canonical's installer is not pinned (the loop above); the Companion apps come first, and the live-session hook puts "Install Companion OS (automatic)" in front of them.
+if [[ "$(pos 'Companion Hub.desktop')" == 1 ]]; then pass "Companion Hub is first, so the live-session installer launcher sits right in front of the Companion apps"; else fail "Companion Hub is not the first entry"; fi
 if [[ "$(pos 'Companion Hub.desktop')" -lt "$(pos 'org.gnome.Nautilus.desktop')" && "$(pos 'companion-capture.desktop')" -lt "$(pos 'org.gnome.Nautilus.desktop')" ]]; then
   pass "the Companion apps come before the stock apps"
 else

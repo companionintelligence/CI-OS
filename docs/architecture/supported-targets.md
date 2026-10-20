@@ -97,7 +97,7 @@ remaining capture records of the QEMU runs are still in a session scratch direct
   1.35 "Function not implemented" under Rosetta (`stick/tests/secureboot/build-in-container.sh` checks for it first), and on 2026-10-18 another
   one ran `installed-boot.sh --no-boot` to the end (25 PASS). The trigger was not isolated **[N]**.
 * **arm64** is a supported architecture of this target since 2026-10-19, with the limits of [`arm64.md`](arm64.md): QEMU/HVF only, no Secure Boot or hardware run, no `ci-stick` support, no Capture, no CI job, and the installed system reads "degraded" on non-Snapdragon machines (`pd-mapper.service`, KI-28).
-* **The installer window stays Ubuntu's.** It is Canonical's snap; "Welcome to Ubuntu" and the roundel are inside it. The launcher
+* **The installer window stays Ubuntu's.** It is Canonical's snap; "Welcome to Ubuntu" and the roundel are inside it. The live session no longer opens it by itself (2026-10-19, **[I]**). The launcher
   label and the last page read "Companion OS" through `/.disk/info`. The one-click path uses its own progress window.
 * **Installer base layer and live layer.** The image is split so that the installed system never receives live-only content
   (`ubuntu-iso-layers.md`). The merged base is initramfs-tools based, and `/etc/apt/preferences.d/ci-os-no-dracut` pins dracut out.

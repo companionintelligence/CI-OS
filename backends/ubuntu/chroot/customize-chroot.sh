@@ -28,6 +28,9 @@ if [[ -z "$CHROOT_PATH" ]] || [[ ! -d "$CHROOT_PATH" ]]; then
     exit 1
 fi
 
+# The commands quiet-canonical.sh runs inside the system (dpkg-divert, dpkg-statoverride, apt-get -s, dpkg -L) run in this chroot.
+CI_QUIET_CHROOT="$CHROOT_PATH"
+
 # SCRIPT_DIR is backends/ubuntu/chroot/ — three levels below the repo root.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
@@ -44,6 +47,16 @@ source "$REPO_ROOT/backends/ubuntu/lib/dock-favorites.sh"
 source "$REPO_ROOT/backends/ubuntu/lib/start-links.sh"
 # shellcheck source=../lib/deb-members.sh
 source "$REPO_ROOT/backends/ubuntu/lib/deb-members.sh"
+# shellcheck source=../lib/quiet-canonical.sh
+source "$REPO_ROOT/backends/ubuntu/lib/quiet-canonical.sh"
+# shellcheck source=../lib/appearance.sh
+source "$REPO_ROOT/backends/ubuntu/lib/appearance.sh"
+
+# The appearance defaults (dark, green accent) must be values GNOME's schema accepts: checked before anything in the chroot changes.
+if ! _appearance_problem="$(ci_os_appearance_valid)"; then
+    echo "[ERROR] backends/ubuntu/lib/appearance.sh: $_appearance_problem" >&2
+    exit 1
+fi
 
 # The architecture of the image: amd64 (the default) or arm64. build-iso.sh --arch sets CI_OS_ARCH. The chroot is built for this
 # architecture: natively on a host of the same one, or under emulation (Rosetta or qemu-user) on the other.
@@ -324,15 +337,10 @@ echo "[+] dracut and dracut-core are pinned to priority -1 (/etc/apt/preferences
 #=============================================================================
 echo "[*] Step 2: Removing telemetry and bloatware..."
 
-# Add telemetry domains to /etc/hosts
-cat >> "$CHROOT_PATH/etc/hosts" << 'EOF'
-
-# Block Ubuntu telemetry
-127.0.0.1 metrics.ubuntu.com
-127.0.0.1 www.metrics.ubuntu.com
-127.0.0.1 popcon.ubuntu.com
-127.0.0.1 www.popcon.ubuntu.com
-EOF
+# The telemetry hosts go to /etc/hosts in Step 2c (ci_quiet_hosts), from the one list in backends/ubuntu/lib/quiet-canonical.sh.
+# The Pro client's apt hook is diverted aside here, before the first apt-get of the build: it runs at every `apt-get update` below and calls
+# out to Canonical's servers (the rest of the quieting is Step 2c, and this call is repeat-safe there).
+ci_quiet_apt_hooks "$CHROOT_PATH" || echo "[WARN] Step 2: the Ubuntu Pro apt hook could not be diverted (see above); verify-iso.sh will say so"
 
 # Disable Ubuntu MOTD ads
 chroot_exec "chmod -x /etc/update-motd.d/50-motd-news" || true
@@ -380,6 +388,23 @@ chroot_exec "/tmp/remove-packages.sh"
 rm "$CHROOT_PATH/tmp/remove-packages.sh"
 
 echo "[+] Telemetry and bloatware removed"
+
+#=============================================================================
+# 2c. Ubuntu Pro and Canonical's background callers go quiet
+#=============================================================================
+echo "[*] Step 2c: Quieting Ubuntu Pro prompts and Canonical telemetry..."
+
+# Everything "disable Ubuntu Pro prompting and Canonical telemetry" needs beyond the purge above, in one library whose audit (verify-iso.sh)
+# reads the same lists (backends/ubuntu/lib/quiet-canonical.sh, tested by backends/ubuntu/lib/tests/quiet-canonical.sh): the telemetry hosts
+# in /etc/hosts; ubuntu-insights purged when apt can remove it alone and its units masked when it cannot; the Pro client's settings (apt news
+# and its timers off); the Pro client's apt hook diverted aside; the timers and services that call Canonical masked (ua-timer, apt-news,
+# esm-cache, motd-news); the Pro and telemetry autostart entries diverted aside; the login-text scripts that advertise Pro (including
+# 88-esm-announce) kept non-executable by dpkg-statoverride; motd-news set to ENABLED=0. Nothing leaves the package database but
+# ubuntu-insights, and only when it goes alone. A step that fails says why and the build goes on: verify-iso.sh is the gate, and it names
+# the property that is still loud.
+ci_quiet_apply_all "$CHROOT_PATH" || echo "[WARN] Step 2c: a quieting step failed (see above); verify-iso.sh will name what is still loud"
+
+echo "[+] Ubuntu Pro prompts and Canonical telemetry are off"
 
 #=============================================================================
 # 2b. Apply CI-OS Branding Theme (direct file copy — no packages/postinst)
@@ -448,10 +473,22 @@ EOF
 # themselves (unattended-upgrades), so the notifier's pop-ups are turned off for every user; `ci-os-info` says when a restart is
 # waiting, and `sudo apt update && sudo apt upgrade` still works. (A user can turn the pop-ups back on in their own settings.)
 # Found on the first installed arm64 image, 2026-10-19.
+# The same file carries GNOME's two privacy switches, off: report-technical-problems (automatic error reports) and send-software-usage-stats.
+# The "Help improve Ubuntu" page of Canonical's first-run is what sets them to true; it is skipped (Step 10g), so the default is what stays.
 cat > "$CHROOT_PATH/etc/dconf/db/local.d/03-ci-os-quiet-first-run" << 'EOF'
 [com/ubuntu/update-notifier]
 no-show-notifications=true
+
+[org/gnome/desktop/privacy]
+report-technical-problems=false
+send-software-usage-stats=false
 EOF
+
+# Dark, with a green accent, for every user of the live session and of the installed system (backends/ubuntu/lib/appearance.sh has the values and
+# why green). A system database value beats every schema default, including Ubuntu's session-scoped overrides, so this is the file that counts; the
+# schema override below says the same for anything that reads the schema default. A user's own choice in Settings > Appearance still wins.
+# The login screen keeps its own database (gdm.d) and its recoloured shell theme; Plymouth and GRUB are static navy.
+ci_os_appearance_dconf > "$CHROOT_PATH/etc/dconf/db/local.d/04-ci-os-appearance"
 
 # ── Configure GDM (login screen) branding ──────────────────────────────────
 # GDM reads from its OWN dconf database, not the user's local.d.
@@ -512,6 +549,8 @@ picture-options='zoom'
 picture-uri='file:///usr/share/backgrounds/ci-os-wallpaper.png'
 picture-options='zoom'
 EOF
+
+ci_os_appearance_override >> "$CHROOT_PATH/usr/share/glib-2.0/schemas/90_companion-os.gschema.override"
 
 # The SVG fallback above rewrote a file that did not exist yet; apply the extension to what was written.
 if [[ "${WALLPAPER_EXT:-png}" != "png" ]]; then
@@ -769,8 +808,44 @@ echo "[+] AMD GPU support configured$([[ "$CI_ARCH" == amd64 ]] && echo " (ROCm 
 # step used to write under /usr/share/desktop-provision were never read by it.
 # What the image CAN control is the launcher label ("Install Companion OS ..."), which casper derives from
 # /.disk/info at boot: see brand_boot_media in backends/ubuntu/iso/scripts/build-iso.sh. Rebranding the
-# installer window itself would mean shipping a modified installer snap.
+# installer window itself would mean shipping a modified installer snap. What it can also control is whether the window opens
+# by itself: Step 7b.
 echo "[*] Step 7: Installer: nothing to configure (launcher label comes from /.disk/info)"
+
+#=============================================================================
+# 7b. The live session does not open Canonical's installer window by itself
+#=============================================================================
+echo "[*] Step 7b: Canonical's installer window no longer opens by itself in the live session..."
+
+# The stock live layer starts Canonical's installer at every graphical session of the live user: ubuntu-desktop-installer.service, enabled by
+# a user-level wants link (etc/systemd/user/graphical-session.target.wants/ubuntu-desktop-installer.service on 26.04.1; the split table in
+# scripts/lib/split-live-layer.sh lists both paths). Its window, Canonical's 13-page wizard, opened in front of Companion's one-click dialog
+# (the dialog the boot menu's automatic entry opens) and was what a person saw first from the plain entry. The link goes. The unit file stays: it
+# is live-only, the layer split requires it in the live layer (verify-iso.sh section 3g), and `systemctl --user start ubuntu-desktop-installer`
+# still opens the stock window. The installer stays reachable without it: "Install Companion OS" in the application grid starts the stock
+# installer, and the one-click dialog has a "Use the normal installer" button. What the person sees instead is the desktop with
+# "Install Companion OS (automatic)" first in the dock (ci-os-auto-install --live-setup), or, from the automatic boot entry, its dialog.
+# One more thing the unit did: the live layer starts the session in "installer mode" (the dock never shows, the desktop-icons extension is off) and the
+# unit's ExecStopPost undoes that when its window closes. With the unit not started nothing would, so ci-os-auto-install --live-setup does it
+# (restore_normal_session; verify-iso.sh restore_drift keeps its commands equal to the unit's). Found in a boot of an image without it: no dock, no icons.
+# The unit file is looked for in the usual three directories; a link of either kind (wants or requires) is removed. The split needs no change:
+# the link is in the table's `rm` rows and is absent from C now, so it is in neither the base layer nor the live layer.
+# live-installer-autostart begin
+_installer_unlinked=""
+for _dir in etc/systemd/user usr/lib/systemd/user lib/systemd/user; do
+    for _link in "$CHROOT_PATH/$_dir"/*.wants/ubuntu-desktop-installer.service "$CHROOT_PATH/$_dir"/*.requires/ubuntu-desktop-installer.service; do
+        if [[ -L "$_link" || -e "$_link" ]]; then
+            rm -f "$_link"
+            _installer_unlinked="$_installer_unlinked ${_link#"$CHROOT_PATH"/}"
+        fi
+    done
+done
+if [[ -n "$_installer_unlinked" ]]; then
+    echo "[+] Canonical's installer no longer starts with the live session (removed:$_installer_unlinked)"
+else
+    echo "[i] Step 7b: no link starts ubuntu-desktop-installer.service in this image (nothing to remove)"
+fi
+# live-installer-autostart end
 
 #=============================================================================
 # 8. Create CI-OS MOTD
@@ -790,15 +865,10 @@ EOF
 
 chmod +x "$CHROOT_PATH/etc/update-motd.d/00-ci-os-header"
 
-# Ubuntu's own welcome line, its help text, its news and the Ubuntu Pro advert. chmod -x alone does not last: the installer runs
-# unattended-upgrades on the new system, and a package upgrade puts the executable bit back (the first install of this image
-# showed the "Expanded Security Maintenance" advert at the login prompt). dpkg-statoverride makes dpkg keep the mode.
-for _motd in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
-    if [[ -e "$CHROOT_PATH/etc/update-motd.d/$_motd" ]]; then
-        chmod -x "$CHROOT_PATH/etc/update-motd.d/$_motd"
-        chroot_exec "dpkg-statoverride --list /etc/update-motd.d/$_motd >/dev/null 2>&1 || dpkg-statoverride --update --add root root 0644 /etc/update-motd.d/$_motd"
-    fi
-done
+# Ubuntu's own welcome line, its help text, its news, the ESM announcement and the contract status (the Ubuntu Pro adverts) are switched off
+# in Step 2c (ci_quiet_motd_scripts): non-executable and kept so by dpkg-statoverride, because chmod -x alone does not last. The installer runs
+# unattended-upgrades on the new system, and a package upgrade puts the executable bit back (the first install of this image showed the
+# "Expanded Security Maintenance" advert at the login prompt).
 
 # The notice a login prints after the MOTD (/etc/legal, base-files) names Ubuntu three times. Same legal content, Companion OS's
 # name: diverted so a base-files upgrade writes the stock text to the side instead of over ours.
@@ -814,10 +884,8 @@ applicable law.
 LEGAL
 chmod 0644 "$CHROOT_PATH/etc/legal"
 
-# The Ubuntu Pro notification that autostarts in every session (ubuntu-pro-client).
-if [[ -e "$CHROOT_PATH/etc/xdg/autostart/ubuntu-advantage-notification.desktop" ]]; then
-    chroot_exec "dpkg-divert --list /etc/xdg/autostart/ubuntu-advantage-notification.desktop | grep -q . || dpkg-divert --local --rename --divert /etc/xdg/autostart/ubuntu-advantage-notification.desktop.disabled --add /etc/xdg/autostart/ubuntu-advantage-notification.desktop"
-fi
+# The Ubuntu Pro notification that autostarts in every session, and the other autostart entries of the Pro client and of telemetry
+# (ubuntu-report-on-upgrade.desktop, ubuntu-insights), are diverted aside in Step 2c (ci_quiet_autostart).
 
 echo "[+] MOTD created"
 
@@ -1075,8 +1143,8 @@ echo "[+] One-click automatic installer installed"
 # The list is backends/ubuntu/chroot/start-links.txt (checked by backends/ubuntu/lib/start-links.sh before anything is
 # written). Every row becomes /usr/share/applications/<id>.desktop, which opens the page in the default browser; every row
 # marked "yes" is also copied to /etc/skel/Desktop, so each user created on the installed system finds it on the desktop.
-# A live session has no desktop icons (the live layer turns the extension off), so there the same links are in the
-# application grid and, for the ones the dock list pins, in the dock. welcome-once opens the getting-started page once on
+# A live session starts with the desktop-icons extension off and the dock hidden (the live layer's "installer mode") until ci-os-auto-install --live-setup
+# has taken it out of that (restore_normal_session), so there the same links are also in the application grid and, for the ones the dock list pins, in the dock. welcome-once opens the getting-started page once on
 # the first login of an installed system (never in a live session, never without a network).
 #=============================================================================
 echo "[*] Step 10g: Installing the Companion links, desktop shortcuts and first-login welcome..."

@@ -1,0 +1,12 @@
+== apt-get -s upgrade, last lines
+Conf pipewire-audio (1.6.2-1ubuntu1.2 Ubuntu:26.04/resolute-updates [all])
+Conf shotwell-common (0.32.13-2ubuntu1.1 Ubuntu:26.04/resolute-updates [all])
+Conf shotwell (0.32.13-2ubuntu1.1 Ubuntu:26.04/resolute-updates [arm64])
+Conf snapd (2.77.1+ubuntu26.04.2 Ubuntu:26.04/resolute-updates [arm64])
+Conf xdg-terminal-exec (0.14.0-1ubuntu0.1 Ubuntu:26.04/resolute-updates [all])
+Conf ubuntu-desktop-minimal (1.570.4 Ubuntu:26.04/resolute-updates [arm64])
+Conf ubuntu-desktop (1.570.4 Ubuntu:26.04/resolute-updates [arm64])
+Conf ubuntu-kernel-accessories (1.570.4 Ubuntu:26.04/resolute-updates [arm64])
+== lines about Pro, ESM or news
+(none)
+

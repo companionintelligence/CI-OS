@@ -46,7 +46,7 @@ The support policy and the full capability matrix are in [`docs/architecture/sup
 | Build host | Ubuntu 26.04 as root; a privileged container on a Mac | Any host with Docker |
 | Package source | Ubuntu archive at build time, vendor apt repositories with pinned keys | CachyOS and Arch repositories, rolling, on build day and again on install day |
 | Installer | Canonical's installer, plus "Install Companion OS (automatic)" | Calamares, online only |
-| One-click install | Yes: **[V]** on the arm64 image in a virtual machine (dialog, install in 12 min 10 s, power-off, installed boot); **[I]** on amd64 (204 unit tests, not driven on a booted ISO) | No **[N]** |
+| One-click install | Yes: **[V]** on the arm64 image in a virtual machine (dialog, install in 12 min 10 s, power-off, installed boot); **[I]** on amd64 (207 unit tests, not driven on a booted ISO) | No **[N]** |
 | Companion Stick boot | Yes. The stock 26.04.1 ISO boots from a stick under Secure Boot to early systemd **[V]**; a Companion image on a stick **[I]** | No **[N]**: the stick's boot menu is built for casper |
 | Secure Boot | Inherited from the base ISO **[I]** | No **[N]**: unsigned GRUB and kernels |
 | Hotspot setup | `setup-device` package, installed system **[I]** | Payload staged by the installer **[I]** |
@@ -272,7 +272,9 @@ The hash form above was run against a file standing in for a stick, once matchin
    On arm64 the screen shows kernel messages while the live system starts, and the desktop takes about two minutes under a virtual machine
    with hardware acceleration.
 3. On the live desktop the left dock starts with **Install Companion OS (automatic)**. The five Companion shortcuts (Support, Getting
-   Started, Docs, Community, App Store) are on the desktop. Canonical's installer window opens first; closing it is safe.
+   Started, Docs, Community, App Store) are on the desktop. Canonical's installer window no longer opens by itself (**[I]**: the link that started
+   it is removed from the image, not yet seen on a booted one); it is one click away in the application grid (**Install Companion OS**) and behind
+   **Use the normal installer** in the dialog.
 4. **One dialog** names the disk it will erase (model, size, device node, and everything found on it), shows a one-time password for the
    user `companion`, says which language, keyboard and time zone it will use (a button changes them) and defaults to **Cancel**. After "Erase the disk and install" a progress window follows the installer; the computer turns itself off when it is done.
    Remove the stick, then turn the machine on. Safety rules: [`docs/architecture/one-click-install.md`](docs/architecture/one-click-install.md).
@@ -363,7 +365,8 @@ The GRUB menu has two entries: **Try or Install Companion OS** and **Install Com
   computer turns off when it is done, and the first sign-in forces a new password. The tool never offers the boot medium, a removable
   disk or one under 25 GB. Safety rules, state machine and tests: [`docs/architecture/one-click-install.md`](docs/architecture/one-click-install.md).
   Status: **[V]** on the arm64 image in a virtual machine (the frames are in [Flash the USB installer](#flash-the-usb-installer)); **[I]** on amd64: unit-tested, not yet driven on a booted image.
-* **Interactive.** Pick the first entry and use Canonical's installer. Its window keeps Ubuntu's own text (it is a Canonical snap); the
+* **Interactive.** Pick the first entry, then start Canonical's installer from the application grid (**Install Companion OS**) or press **Use the normal
+  installer** in the automatic dialog. Its window keeps Ubuntu's own text and its 13 pages (it is a Canonical snap, which a remaster cannot change); the
   launcher label and the last page read "Companion OS".
 
 ### Plasma edition

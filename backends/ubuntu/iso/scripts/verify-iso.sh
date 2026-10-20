@@ -45,6 +45,15 @@
 #   4d. the GNOME Shell theme: the Ubuntu session's and the greeter's gresource (theme/Yaru/gnome-shell-theme.gresource) is the
 #      branded blob of the checkout, not Ubuntu's stock Yaru file, and the upstream gnome-shell-theme.gresource, which the built-in
 #      session modes load, still has the stylesheets the branded blob lacks (gnome-shell-light.css);
+#   6b. Ubuntu Pro does not prompt and nothing reports to Canonical: the Pro client's apt news and timers are off in uaclient.conf, its apt
+#      hook is diverted aside, the login-text scripts that advertise it are non-executable and kept so by dpkg-statoverride, the timers and
+#      services that call Canonical (ua-timer, apt-news, esm-cache, motd-news) and every unit of ubuntu-insights are masked (or that package
+#      is gone), no autostart entry of the Pro client or of a telemetry service is active, the telemetry packages are not installed, the
+#      telemetry hosts resolve to localhost, and GNOME's error-report and usage-statistics switches default to off. The properties are the
+#      audit ci_quiet_audit of backends/ubuntu/lib/quiet-canonical.sh, run on the files extracted from the installed layer;
+#   6c. the desktop is dark with a green accent for every user, live session and installed system alike: the dconf default
+#      (04-ci-os-appearance), the schema override and the compiled dconf database carry the values of backends/ubuntu/lib/appearance.sh
+#      (color-scheme prefer-dark, accent-color green);
 #   5.  the boot menu names, /.disk/info (the product is spelt Companion OS in it, as the installer's last page shows it: the
 #      launcher label, the product name and the subiquity channel chain are asserted from casper's and the installer's own logic);
 #   3e. the casper layers stacked on the base keep the rootfs directory modes (/tmp stays 1777);
@@ -135,6 +144,29 @@ check() { # check "<label>" <command...>
     local label="$1"; shift
     if "$@" >/dev/null 2>&1; then pass "$label"; else fail "$label"; fi
 }
+# restore_drift <installer unit file> <helper>: what Canonical's installer unit undoes when its window closes (its ExecStopPost, "restore normal session":
+# dock-fixed, intellihide, enabling the desktop-icons extension) must be in the helper's RESTORE_SESSION. The live layer starts the session in "installer mode"
+# (no dock, no desktop icons); this image does not start that unit (customize-chroot.sh Step 7b), so the helper undoes it at the start of the live session.
+# The helper's own tests pin the three commands they know; only this check can see the unit change in a point release. A unit that no longer names
+# any key or extension is a note (the helper may be unnecessary), not a failure.
+restore_drift() {
+    local unit="$1" helper="$2" stock names name absent="" restore
+    # only the helper's RESTORE_SESSION counts: the helper names some of these keys elsewhere (it reads favorite-apps to pin the launcher)
+    restore="$(sed -n '/^RESTORE_SESSION = (/,/^)/p' "$helper" 2>/dev/null || true)"
+    stock="$(sed -n 's/^ExecStopPost=//p' "$unit" 2>/dev/null || true)"
+    names="$(printf '%s\n' "$stock" | grep -o -E "gsettings set [^ ;\"']+ [^ ;\"']+|gnome-extensions (enable|disable) [^ ;\"']+" \
+        | awk '$1 == "gsettings" { print $4; next } { print $3 }' | sort -u || true)"
+    if [[ -z "$names" ]]; then
+        note "installer unit: ExecStopPost names no dconf key and no extension (read: ${stock:-nothing}); the helper's RESTORE_SESSION may no longer be needed, or the unit changed shape: compare them"
+        return 0
+    fi
+    while IFS= read -r name; do
+        [[ -n "$name" ]] || continue
+        grep -q -F -- "\"$name\"" <<<"$restore" || absent="$absent $name"
+    done <<<"$names"
+    if [[ -z "$absent" ]]; then pass "the helper restores everything that Canonical's installer unit restores when its window closes ($(printf '%s' "$names" | tr '\n' ' ' | sed 's/ $//'))"
+    else fail "Canonical's installer unit restores${absent} when its window closes but ci-os-auto-install does not (RESTORE_SESSION): the live session would stay in installer mode, with no dock and no desktop icons"; fi
+}
 
 # ── extract what we need ────────────────────────────────────────────────────
 echo "ISO: $ISO ($(du -h "$ISO" | cut -f1))"
@@ -188,10 +220,13 @@ R="$WORK/root"; mkdir -p "$R"
 unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/os-release usr/lib/os-release etc/os-release.ubuntu-base etc/lsb-release etc/issue etc/issue.net etc/hostname \
     etc/casper.conf etc/default/grub var/lib/dpkg/status var/lib/snapd/seed/seed.yaml var/lib/snapd/state.json etc/cloud/cloud.cfg \
-    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service etc/firefox \
+    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service usr/lib/systemd/user/gnome-initial-setup-first-login.service etc/firefox \
     usr/share/glib-2.0/schemas \
     usr/share/gnome-background-properties \
     etc/update-motd.d etc/systemd/system etc/sudoers.d etc/netplan \
+    etc/hosts etc/default/motd-news etc/apt/apt.conf.d etc/ubuntu-advantage etc/systemd/user usr/lib/systemd/system usr/lib/systemd/user \
+    var/lib/dpkg/info/ubuntu-insights.list var/lib/dpkg/info/ubuntu-pro-client.list var/lib/dpkg/info/ubuntu-advantage-tools.list \
+    var/lib/dpkg/info/ubuntu-advantage-desktop-daemon.list var/lib/dpkg/info/ubuntu-report.list \
     usr/lib/ci-os usr/local/bin/ci-os-info \
     etc/group etc/gshadow etc/passwd var/cache/debconf/config.dat etc/ci-os \
     usr/lib/systemd/system/docker.service usr/lib/systemd/system/docker.socket \
@@ -221,7 +256,7 @@ LR="$WORK/live-root"; mkdir -p "$LR"
 : > "$LIVELIST"
 if [[ -s "$LIVESQ" ]]; then
     unsquashfs -ll "$LIVESQ" 2>/dev/null | sed 's#squashfs-root##' > "$LIVELIST"
-    unsquashfs -no-xattrs -q -f -d "$LR" "$LIVESQ" etc/casper.conf var/lib/dpkg/status var/lib/snapd/seed/seed.yaml etc/cloud/cloud.cfg >/dev/null 2>&1 || true
+    unsquashfs -no-xattrs -q -f -d "$LR" "$LIVESQ" etc/casper.conf var/lib/dpkg/status var/lib/snapd/seed/seed.yaml etc/cloud/cloud.cfg usr/lib/systemd/user/ubuntu-desktop-installer.service >/dev/null 2>&1 || true
 fi
 # casper.conf belongs to the live session, so the build keeps it out of the base layer. An image built before the
 # layers were split still has it there: the checks that read it follow it.
@@ -870,6 +905,17 @@ else
     done
     if [[ -z "$live_missing" ]]; then pass "live layer holds what the base had taken out: casper's files, casper-md5check and its enable link, the installer's pieces"
     else fail "live layer lacks:$live_missing"; fi
+    # Canonical's installer window must not open by itself in the live session: it would open in front of the Companion one-click dialog and show
+    # Canonical's 13-page wizard first. The stock live layer enables ubuntu-desktop-installer.service with a user-level wants link (and the unit file,
+    # required above, stays so that `systemctl --user start ubuntu-desktop-installer` still works); customize-chroot.sh Step 7b removes the link. Any
+    # wants or requires link of that unit, or an autostart entry that names the installer, in the live layer starts the window again.
+    hits="$(grep -E '^/(etc|usr/lib|lib)/systemd/user/[^/]+\.(wants|requires)/ubuntu-desktop-installer\.service$|^/etc/xdg/autostart/.*(ubuntu-desktop-(installer|bootstrap)|subiquity)' "$LIVE_PATHS" | head -n 3 | tr '\n' ' ')"
+    if [[ -z "$hits" ]]; then pass "live layer does not start Canonical's installer by itself (no wants link for ubuntu-desktop-installer.service, no autostart entry for it)"
+    else fail "live layer starts Canonical's installer window by itself (it opens in front of the Companion dialog): ${hits% }"; fi
+    # With the unit not started, nothing takes the live session out of "installer mode" (no dock, no desktop icons) when the window would have closed:
+    # the helper does it (live_setup). What the stock unit undoes must be what the helper undoes.
+    if [[ -s "$LR/usr/lib/systemd/user/ubuntu-desktop-installer.service" ]]; then restore_drift "$LR/usr/lib/systemd/user/ubuntu-desktop-installer.service" "$AI"
+    else note "live layer: ubuntu-desktop-installer.service could not be read, so what the helper restores in the live session was not compared with it"; fi
     if [[ -s "$LR/var/lib/snapd/seed/seed.yaml" ]] && grep -q 'ubuntu-desktop-bootstrap' "$LR/var/lib/snapd/seed/seed.yaml"; then pass "live layer's snapd seed.yaml still names the installer snap"
     else fail "live layer's snapd seed.yaml does not name the installer snap (the live session cannot seed it)"; fi
     # Ubuntu 26.04.1's live layer carries the snapd seed of its TPM full-disk-encryption variant (seed/systems/enhanced-secureboot-desktop, and in
@@ -1662,7 +1708,9 @@ if [[ -f "$DOCK_DIR/dock-favorites.txt" && -f "$DOCK_LIB" ]]; then
     for _d in 'Companion Hub.desktop' 'companion-capture.desktop' 'companion-docs.desktop' 'org.gnome.Ptyxis.desktop'; do
         check "dock default is compiled into the local dconf db: $_d" grep -aqF "$_d" "$R/etc/dconf/db/local"
     done
-    for _d in firefox_firefox.desktop thunderbird_thunderbird.desktop libreoffice-writer.desktop snap-store_snap-store.desktop org.gnome.Yelp.desktop org.gnome.Rhythmbox3.desktop net.nokyan.Resources.desktop; do
+    # Canonical's installer is not in the dock: "Install Companion OS (automatic)" is the only installer there (the live-session hook pins it first);
+    # the stock one is in the application grid and behind the dialog's "Use the normal installer" button.
+    for _d in ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop firefox_firefox.desktop thunderbird_thunderbird.desktop libreoffice-writer.desktop snap-store_snap-store.desktop org.gnome.Yelp.desktop org.gnome.Rhythmbox3.desktop net.nokyan.Resources.desktop; do
         check "dock default does not pin $_d" bash -c "! grep -qF '$_d' '$DOCK_FILE'"
     done
 else
@@ -1709,6 +1757,20 @@ else
     note "gnome-initial-setup-upgrade-login.service is not in this image: no upgrade-welcome stamp is needed"
 fi
 
+# The first-login unit is the one that shows Canonical's wizard (welcome, Ubuntu Pro, Location Services, Help improve Ubuntu, Appearance, Ready to go): it
+# is skipped by the stamp its own ConditionPathExists=! names. The stamp is written into /etc/skel by customize-chroot.sh as a literal; reading the name from
+# the unit in the image makes a base that renames it fail here instead of at the first sign-in.
+_gis_first="$R/usr/lib/systemd/user/gnome-initial-setup-first-login.service"
+if [[ -f "$_gis_first" ]]; then
+    _gis_first_stamps="$(sed -n 's|^ConditionPathExists=!%E/\(.*\)$|\1|p' "$_gis_first" | tr '\n' ' ')"
+    check "first-run: gnome-initial-setup-first-login.service is skipped by a stamp (${_gis_first_stamps% })" test -n "$_gis_first_stamps"
+    _gis_first_missing=""
+    for _s in $_gis_first_stamps; do [[ -e "$R/etc/skel/.config/$_s" ]] || _gis_first_missing="$_gis_first_missing $_s"; done
+    check "first-run: /etc/skel/.config holds every stamp that unit names (so Canonical's Ubuntu Pro, location and usage pages are not shown)${_gis_first_missing:+ - missing:$_gis_first_missing}" test -z "$_gis_first_missing" -a -n "$_gis_first_stamps"
+else
+    note "gnome-initial-setup-first-login.service is not in this image: no first-run wizard to skip"
+fi
+
 # The rest of a quiet first sign-in (found on the first installed arm64 image, 2026-10-19): Firefox opens no "Firefox Privacy Notice" tab
 # (an enterprise policy, which the snap reads through its etc-firefox interface), the update notifier does not announce the build day's
 # pending packages, and ci-os-info offers the ROCm command only where that command exists.
@@ -1738,6 +1800,59 @@ check "first boot progress: the library writes the status file the desktop reads
   export CI_OS_SETUP_STATUS='$_ss/status'; . '$R/usr/lib/ci-os/bootstrap/core/lib/setup-status.sh' && ci_os_status_begin 7 && ci_os_status_step 'Installing Docker' &&
   grep -qx 'state=running' '$_ss/status' && grep -qx 'step=1' '$_ss/status' && grep -qx 'steps=7' '$_ss/status' && grep -qx 'title=Installing Docker' '$_ss/status' &&
   test \"\$(grep -c . '$_ss/status')\" = 6 && test \"\$(stat -c %a '$_ss/status')\" = 644"
+
+section "6b. Ubuntu Pro does not prompt, and nothing reports to Canonical"
+# The properties live in backends/ubuntu/lib/quiet-canonical.sh (ci_quiet_audit), next to the code that makes them true, and
+# backends/ubuntu/lib/tests/quiet-canonical.sh shows each of them failing on a root that lacks it. They are read here from the files extracted
+# from the installed layer (the paths are in the extraction list above). An image is never attached to a subscription: a machine token baked
+# into it would be a credential in the image, and would make the audit leave the Pro client alone as it does on an attached machine.
+QUIET_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../lib/quiet-canonical.sh"
+if [[ -f "$QUIET_LIB" ]]; then
+    # shellcheck source=../../lib/quiet-canonical.sh
+    source "$QUIET_LIB"
+    check "no Ubuntu Pro machine token is baked into the image (an image is never attached)" bash -c "! grep -q -E 'var/lib/ubuntu-advantage/private/machine-token\\.json' '$LISTING'"
+    while IFS= read -r _q; do
+        case "$_q" in
+            "ok "*) pass "${_q#ok }" ;;
+            "bad "*) fail "${_q#bad }" ;;
+            "info "*) note "${_q#info }" ;;
+        esac
+    done < <(ci_quiet_audit "$R")
+    if in_listing ' /etc/apt/apt.conf.d/20apt-esm-hook\.conf\.disabled$'; then
+        check "Canonical: the Pro client's apt hook is a registered local diversion (an upgrade of the package cannot bring it back)" \
+            grep -q -x '/etc/apt/apt.conf.d/20apt-esm-hook.conf' "$R/var/lib/dpkg/diversions"
+    else
+        note "the Pro client's apt hook (20apt-esm-hook.conf.disabled) is not in this image: nothing was diverted"
+    fi
+else
+    skip "Ubuntu Pro and telemetry audit (backends/ubuntu/lib/quiet-canonical.sh not found next to this script)"
+fi
+
+section "6c. Appearance: dark, with a green accent, for every user"
+# backends/ubuntu/lib/appearance.sh holds the two values and the two texts customize-chroot.sh writes (the dconf keyfile that counts, a system database
+# value beats every schema default including Ubuntu's session-scoped ones, and the same two keys as a schema override). Read back here from the built image.
+APPEARANCE_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../lib/appearance.sh"
+if [[ -f "$APPEARANCE_LIB" ]]; then
+    # shellcheck source=../../lib/appearance.sh
+    source "$APPEARANCE_LIB"
+    appearance_file_is() { [[ "$(cat "$1" 2>/dev/null)" == "$2" ]]; }
+    appearance_override_has() { # the [org.gnome.desktop.interface] stanza of the override holds the library's two lines
+        [[ "$(awk '/^\[org\.gnome\.desktop\.interface\]$/ { f = 1; next } /^\[/ { f = 0 } f' "$1" 2>/dev/null)" == "$(ci_os_appearance_override | sed 1d)" ]]
+    }
+    check "appearance: the values are ones GNOME's schema accepts (color-scheme $CI_OS_COLOR_SCHEME, accent-color $CI_OS_ACCENT_COLOR)" ci_os_appearance_valid
+    check "appearance: /etc/dconf/db/local.d/04-ci-os-appearance is the library's keyfile: color-scheme '$CI_OS_COLOR_SCHEME', accent-color '$CI_OS_ACCENT_COLOR'" \
+        appearance_file_is "$R/etc/dconf/db/local.d/04-ci-os-appearance" "$(ci_os_appearance_dconf)"
+    check "appearance: 90_companion-os.gschema.override carries the same two keys under [org.gnome.desktop.interface]" \
+        appearance_override_has "$R/usr/share/glib-2.0/schemas/90_companion-os.gschema.override"
+    # dconf compiles local.d into one binary file that stores the keys and the strings as they are: a failed `dconf update` (the build tolerates its
+    # failure) leaves the keyfile above unread, and shows up as a missing string here.
+    check "appearance: the compiled local dconf database holds color-scheme '$CI_OS_COLOR_SCHEME'" bash -c "grep -aqF 'color-scheme' '$R/etc/dconf/db/local' && grep -aqF '$CI_OS_COLOR_SCHEME' '$R/etc/dconf/db/local'"
+    check "appearance: the compiled local dconf database holds accent-color '$CI_OS_ACCENT_COLOR'" bash -c "grep -aqF 'accent-color' '$R/etc/dconf/db/local' && grep -aqF '$CI_OS_ACCENT_COLOR' '$R/etc/dconf/db/local'"
+    check "appearance: the wallpaper has a dark-scheme variant (picture-uri-dark is the Companion wallpaper, so the dark desktop does not fall back to Ubuntu's)" \
+        bash -c "grep -q '^picture-uri-dark=.*ci-os-wallpaper' '$R/etc/dconf/db/local.d/01-ci-os-wallpaper' && grep -q '^picture-uri-dark=.*ci-os-wallpaper' '$R/usr/share/glib-2.0/schemas/90_companion-os.gschema.override'"
+else
+    skip "appearance defaults (backends/ubuntu/lib/appearance.sh not found next to this script)"
+fi
 
 section "7. Branding: live boot splash and live identity (initrd)"
 # build-iso.sh appends a small zstd-compressed cpio overlay to casper/initrd (the kernel unpacks concatenated
