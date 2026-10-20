@@ -1,0 +1,43 @@
+Stock Ubuntu 26.04.1 LTS desktop arm64, installed interactively and photographed from power-on: the control of the first-run teardown. Evidence
+label: tested in a virtual machine (QEMU 11.1.2, HVF, Apple-silicon Mac); not real hardware; one run. 2026-10-19 local time, times below are UTC
+(2026-10-20), frames about 3 s apart, event times are logged when the action returns (typing takes up to 30 s).
+
+Image     ubuntu-26.04.1-desktop-arm64.iso, 4,154,798,080 bytes, sha256 c54d196489d3c867975fb3bbb72ca52ec2e137456e305481f81096304e4d2517 (SHA256SUMS), equal
+          to the line of Canonical's signed SHA256SUMS; signature and key checked in ../verify-downloads.txt
+Harness   backends/ubuntu/iso/tests/boot-arm64-vm.sh, lib/qmp-drive.py, record-frames.sh at 1.5 s; -smp 6 -m 8192, virtio-gpu 1280x800, the ISO as a USB drive,
+          a new 64 GiB virtual NVMe disk (qcow2 on a RAM disk) and a new variable store; QMP_TYPE_DELAY 0.08 to 0.4 s per key (see the account page below)
+Host load 10.4 at the first start, 6.7 at the second (one-minute averages; other sessions were using the machine)
+Frames    667 frames after the removal of byte-identical repeats, not kept (they show the typed account on the installer page); the frames of docs/ui/ftue-teardown/ubuntu-stock/ are picked from them
+
+Attempt 1 (power-on 00:11:13): GRUB 00:11:20, Enter 00:11:45, the screen froze on a text boot log from 00:11:52; the guest was idle (QEMU 1 percent CPU) and did
+not react to a key press or a pointer move for 4 minutes; stopped. The repository's own record of 2026-10-19 (docs/architecture/arm64.md, run of ee4a3b4) has the
+same freeze once on the Companion OS image, so it is not specific to the Companion OS customisation [I]; the cause was not looked for. Not counted.
+Attempt 2 (the run below):
+00:15:41  power-on; firmware logo 00:15:42 to 00:15:46
+00:15:48  first boot-menu frame (t0): GNU GRUB 2.14, "Try or Install Ubuntu" (default), "Boot from next volume", "UEFI Firmware Settings"; a 30 s countdown
+00:15:58  Enter (t0 + 10 s)
+00:16:01  a text boot log (systemd lines, cloud-init, snap seeding), no splash: the arm64 menu line carries console=tty0 (docs/architecture/arm64.md)
+00:16:56  the first desktop frame (t0 + 1:08); the "Welcome to Ubuntu" installer window drawn at 00:17:02 (t0 + 1:14), in front, without a click
+00:17:19  the installer's 13 pages, each at its default except where typed: language (English) > accessibility > keyboard (English US, Detect button, test field) >
+          internet (wired) > try or install > type of installation > apps (default selection) > proprietary software (both unchecked) > disk setup (erase disk) >
+          encryption (none) > create your account > time zone (a map, pre-filled with the detected zone) > review ("Ready to install")
+00:19:21  account page: one name typed ("FTUE Tester"), the computer name and the user name were filled in; the password twice. The password field dropped keys while it
+          computed the strength (17 of 20 dots at 0.14 s per key) and the two fields did not match; retyped at 0.4 s per key. A test-driver effect, not counted
+00:21:09  the time zone page showed the zone of the host's region, detected without being asked
+00:21:26  Install clicked. The slideshow ("Fast, free and full of new features") with a segmented bar and a "Copying files..." line
+00:31:28  "Ubuntu 26.04.1 LTS is installed and ready to use" with Continue testing / Restart now (first recorded frame): install 10 min 02 s
+00:36:06  Restart now; shutdown about 1.5 min; the ISO was still attached, so the VM booted the live session again (a real stick would be removed at a prompt that
+          did not appear in this VM). The VM was stopped and started without the ISO at 00:38:48
+00:39:18  the greeter, first recorded frame (power-on + 30 s), after a boot log that ends in cloud-init tables; the user listed by name
+00:39:42  password typed, Enter; the desktop is drawn at 00:39:47 (5 s), the first-run wizard window at 00:39:49 (7 s) and a Software Updater banner "72 Updates Available" at 00:39:56 (14 s)
+00:40:28  the wizard, 6 pages: Welcome > Ubuntu Pro (Enable / Skip for now) > Location Services (off) > Help Improve Ubuntu (system data off, error reports off) >
+          Appearance (Default or Dark, accent colours) > Ready to go (App Center). Finish at 00:41:31
+00:41:31  the desktop: no window, no tab, no notice (the updater banner was only during the wizard)
+00:46:33  the screen blanked, 5 min 02 s after the last input; moving the pointer showed the lock screen: the session had locked with it
+00:47:51  installed-facts.txt (8 min after boot): system running, no failed unit, graphical.target after 21.0 s of userspace, ufw service active, only localhost
+          ports, 1505 packages, 11 GB used, 3 error-level journal lines, time zone America/Los_Angeles, LANG en_US.UTF-8, layout us
+
+What it shows: the stock Ubuntu 26.04.1 arm64 install and first run in this harness, the control for the Companion OS column.
+What it does not: a second run (no spread), amd64, real hardware, the language count (not measured), what a slow network does, the time zone page's pin (that
+frame is not published: it names the host's region).
+Credentials: the throwaway account password is a random value of this virtual machine; it is in no record here and no frame shows it (the fields show dots).

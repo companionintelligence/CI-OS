@@ -1,0 +1,47 @@
+2026-10-20T00:49:11Z run start: Fedora-Workstation-Live-44-1.7.aarch64.iso (sha256 162ba3c5...33ef, verified against the signed CHECKSUM)
+2026-10-20T00:49:18Z recorder started (1.5 s)
+2026-10-20T00:49:19Z VM start (power on): Fedora-Workstation-Live-44-1.7.aarch64.iso
+2026-10-20T00:49:44Z GRUB menu on screen (Start / Test this media and start (default) / Troubleshooting); the default entry runs by itself when the countdown ends; no key pressed
+2026-10-20T00:51:13Z live desktop: GNOME overview with a Welcome to Fedora Linux dialog (Install Fedora Linux... / Not Now); the installer is NOT open by itself
+2026-10-20T00:51:13Z click 524 520 Install Fedora Linux...
+2026-10-20T00:51:33Z click 518 558 Install Fedora Linux... (second click: the first one only closed the overview)
+2026-10-20T00:51:59Z installer (Anaconda web UI) open about 15 s after the click: 4 steps (Welcome, Installation method, Storage configuration, Review and install); Welcome page asks language (English US preselected) and shows keyboard us
+2026-10-20T00:52:00Z click 407 758 Next (language English US, keyboard us, defaults)
+2026-10-20T00:52:14Z click 407 758 Next (Use entire disk, default; destination nvme0n1)
+2026-10-20T00:52:28Z click 407 758 Next (Encrypt my data unchecked, default)
+2026-10-20T00:52:44Z Review and install page: 4 steps, no account or time zone asked; clicking Erase data and install
+2026-10-20T00:52:44Z click 458 758 Erase data and install
+2026-10-20T00:57:59Z Successfully installed page first recorded 00:56:36 (Erase data and install clicked 00:52:44: 3 min 52 s; stages: storage, software, system configuration, finalization; sub-steps named: Installing boot loader, Generating initramfs)
+2026-10-20T00:57:59Z click 640 328 Exit to live desktop
+2026-10-20T00:58:05Z click 1256 15 system menu (power icon)
+2026-10-20T00:58:16Z click 1235 76 power button in the quick settings
+2026-10-20T00:58:28Z click 956 267 Power Off...
+2026-10-20T00:58:39Z click 730 458 Power Off (confirm)
+2026-10-20T00:58:59Z Power Off confirmed 00:58:3x; the guest powered off by itself; starting the installed disk alone (no ISO), as removing the stick would
+2026-10-20T00:58:59Z VM start (power on): -
+2026-10-20T01:00:02Z installed boot: GNOME Initial Setup (Welcome to Fedora Linux 44 Workstation Edition, Start Setup) on screen by 00:59:52, 53 s after power-on at 00:58:59
+2026-10-20T01:00:02Z click 639 712 Start Setup
+2026-10-20T01:00:16Z click 1111 55 Next (Privacy: Location Services ON and Automatic Problem Reporting ON by default, left as is)
+2026-10-20T01:00:29Z click 1111 55 Next (Time Zone detected automatically: Los Angeles)
+2026-10-20T01:00:42Z click 1111 55 Next (Third-Party Repositories not enabled)
+2026-10-20T01:00:57Z type: FTUE Tester
+2026-10-20T01:01:08Z click 1111 55 Next (About You: one name typed, user name derived)
+2026-10-20T01:01:30Z typed the throwaway password from a file (not shown)
+2026-10-20T01:01:33Z key tab 
+2026-10-20T01:01:41Z typed the throwaway password from a file (not shown)
+2026-10-20T01:01:54Z click 600 492 field: Confirm Password
+2026-10-20T01:02:01Z typed the throwaway password from a file (not shown)
+2026-10-20T01:02:13Z click 1111 55 Next (Password set)
+2026-10-20T01:02:28Z Setup Complete page (All done): first-run wizard was 7 screens (welcome, privacy, time zone, third-party repositories, about you, password, all done); clicking Start Using Fedora Linux
+2026-10-20T01:02:28Z click 639 572 Start Using Fedora Linux
+2026-10-20T01:02:59Z first desktop (Start Using clicked 01:02:28): GNOME overview with a Welcome to Fedora Linux 44 tour prompt (Skip / Take Tour); observing without input
+2026-10-20T01:03:48Z click 533 617 Skip (Welcome to Fedora tour prompt)
+2026-10-20T01:04:04Z type: terminal
+2026-10-20T01:04:07Z key ret open Terminal from the overview search
+2026-10-20T01:04:29Z type: (curl -s 10.0.2.2:8800/f.sh || wget -qO- 10.0.2.2:8800/f.sh) | sh -s fedora-installed
+2026-10-20T01:04:29Z key ret run the read-only facts script (text channel)
+2026-10-20T01:10:13Z idle check: last input 01:04:36 (Enter), shot taken at the 5-minute mark
+2026-10-20T01:10:23Z screen blanked at 01:09:39, 5 min 03 s after the last input (01:04:36); waking with a pointer move
+2026-10-20T01:10:38Z lock screen shown after the pointer move: the session had locked with the blank. End of the Fedora run
+2026-10-20T01:10:38Z VM stopped
+2026-10-20T01:10:38Z recorder stop requested

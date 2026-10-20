@@ -1,0 +1,107 @@
+{
+  "run": "2026-10-19 (local), arm64, QEMU 11.1.2 with HVF; the times are UTC of 2026-10-20",
+  "image": "Fedora-Workstation-Live-44-1.7.aarch64.iso (sha256 162ba3c5...33ef)",
+  "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware; one run",
+  "frames": [
+    {
+      "file": "01-grub-menu.png",
+      "sha256": "0921546e0ceb5fcd8d4a9d89fded7f9f7569442673aa60583b9fb890e8ea864c",
+      "bytes": 5104,
+      "size": "1280x800",
+      "alt": "The boot menu of Fedora Workstation Live 44: Start, Test this media and start (the default), Troubleshooting",
+      "shows": "The default entry runs by itself when a countdown of about 10 seconds ends",
+      "stage": "boot menu",
+      "taken_approx_utc": "2026-10-20T00:49:30Z"
+    },
+    {
+      "file": "02-live-desktop-welcome.png",
+      "sha256": "4b47c444eae10e43c225e5a6846e76abd9a37bd5feadaadbb70d648281a96750",
+      "bytes": 565843,
+      "size": "1280x800",
+      "alt": "The live desktop with a Welcome to Fedora Linux dialog: Install Fedora Linux or Not Now",
+      "shows": "No installer is open by itself; the live session starts with one dialog that offers the install",
+      "stage": "live desktop",
+      "taken_approx_utc": "2026-10-20T00:51:25Z"
+    },
+    {
+      "file": "03-installer-welcome.png",
+      "sha256": "a6f0df79eed6a0895708e62666f147ee4420e8af2607a36b068fb00dda28f859",
+      "bytes": 52908,
+      "size": "1280x800",
+      "alt": "The installer's first page: language with four suggested languages and a search, keyboard us",
+      "shows": "A web interface with a numbered list of four steps on the left",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T00:51:48Z"
+    },
+    {
+      "file": "04-installer-review.png",
+      "sha256": "60f2e14b90db00994fe35fdba373dad59ef4bc88083429075264f67da2c475b6",
+      "bytes": 68510,
+      "size": "1280x800",
+      "alt": "The installer's last page: Review and install, with the partition plan",
+      "shows": "Page 4 of 4; the button says Erase data and install",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T00:52:34Z"
+    },
+    {
+      "file": "05-installer-progress.png",
+      "sha256": "c7ce0154a4fe5be8875abda6a2ce180835cef3b1d0dda7814871f2729bab468c",
+      "bytes": 43614,
+      "size": "1280x800",
+      "alt": "The install in progress: four named stages and a percentage",
+      "shows": "Storage configuration done, Software installation 35 percent",
+      "stage": "install",
+      "taken_approx_utc": "2026-10-20T00:53:18Z"
+    },
+    {
+      "file": "06-installer-done.png",
+      "sha256": "5c861738a662c7ae1abf6f684eeb40d27143a3c72f433653f51755d13e3273bf",
+      "bytes": 57089,
+      "size": "1280x800",
+      "alt": "Successfully installed: Exit to live desktop, and a feedback QR code",
+      "shows": "First recorded at 00:56:36; install 3 min 52 s",
+      "stage": "install",
+      "taken_approx_utc": "2026-10-20T00:57:37Z"
+    },
+    {
+      "file": "07-first-run-welcome.png",
+      "sha256": "fc42c0a7c5f08b37d30bd7332e8629e6cab3bb2998b62526283b1b2c60c67f44",
+      "bytes": 255282,
+      "size": "1280x800",
+      "alt": "The installed system's first screen: Welcome to Fedora Linux 44, Start Setup",
+      "shows": "No sign-in screen first: the setup wizard creates the account",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T00:59:52Z"
+    },
+    {
+      "file": "08-first-run-privacy.png",
+      "sha256": "28b3de24c6445703971e39e639d1ddbd8b36ed695cdb9d5475310ed966aed5a0",
+      "bytes": 205453,
+      "size": "1280x800",
+      "alt": "First-run wizard: Privacy, Location Services and Automatic Problem Reporting, both on by default",
+      "shows": "Both switches are on; Next accepts them",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T01:00:08Z"
+    },
+    {
+      "file": "09-first-run-about-you.png",
+      "sha256": "d52b8bdbac2481b789a911c8228cefc5f919fa1d056b4f91fce2a386dcf56ddc",
+      "bytes": 198307,
+      "size": "1280x800",
+      "alt": "First-run wizard: About You, a full name typed and the user name derived",
+      "shows": "The account is created here, after the install",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T01:01:00Z"
+    },
+    {
+      "file": "10-first-desktop-tour-prompt.png",
+      "sha256": "8c6d6114e04f29400430774b40d69536bd12ed2760221c850c4ce348ae283725",
+      "bytes": 625081,
+      "size": "1280x800",
+      "alt": "The first session: the overview with a Welcome to Fedora Linux 44 tour prompt, Skip or Take Tour",
+      "shows": "The only thing the first session opens",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T01:02:49Z"
+    }
+  ]
+}
