@@ -18,6 +18,7 @@ Evidence tags used throughout: **[V]** verified, **[I]** implemented and not pro
 | Install Companion OS | [Installation guide](guides/installation-guide.md), [Quick start](guides/quick-start-guide.md) |
 | Make or flash a Companion Stick | [`stick/README.md`](../stick/README.md), [Companion Stick](architecture/companion-stick.md) |
 | Boot an image in QEMU and take screenshots | [Testing in QEMU](guides/testing-in-qemu.md) |
+| See how other distros install and start, and what to fix first | [First-run teardown](architecture/ftue-teardown.md) |
 | Know which tests to run for my change | [Running the tests](guides/running-the-tests.md) |
 | Look up an environment variable | [Environment reference](guides/environment-reference.md) |
 | Deploy CI-Hub on an appliance | [CI-Hub deploy](guides/ci-hub-deploy.md) |
@@ -45,6 +46,7 @@ Design records. Each states its own status and evidence.
 
 | Document | What it is |
 |---|---|
+| [First-run teardown](architecture/ftue-teardown.md) | How stock Ubuntu 26.04.1, Fedora Workstation 44 and Debian 13.7 install and start on arm64, read with the stopwatch and counts of the polish proposal, set next to Companion OS: the tables, a scorecard (ahead on 3, level on 4, behind on 10) and the nine gaps ranked by what the best installers do. A virtual machine, one run each. |
 | [Ubuntu ISO layers](architecture/ubuntu-iso-layers.md) | Why the Ubuntu ISO's root filesystem is split into an installer base layer and a live-only layer, what is in each, how to extend the list, and which tests prove it. |
 | [Ubuntu 26.04.1 port notes](architecture/ubuntu-2604-port-notes.md) | What changed from 24.04 to 26.04.1 and why, fact by fact, each with its evidence tag and the test that guards it. |
 | [One-click install](architecture/one-click-install.md) | The automatic installer: what the user sees, the safety rules, the subiquity state handling, the GRUB entry, the tests and the honest status. |
@@ -90,6 +92,7 @@ Design records. Each states its own status and evidence.
 | [`ui/`](ui/) | Screenshots. `setup-portal-*.png` are the six states of the setup portal (used by the README). Edition screenshots are under `ui/companion-os/`, indexed in [`ui/companion-os/README.md`](ui/companion-os/README.md). |
 | [`ui/companion-os/ubuntu-streamline/`](ui/companion-os/ubuntu-streamline/CAPTURE.md) | The streamlined Ubuntu edition (arm64 images of `cf68024` and `5ff5224`, 2026-10-19): 13 frames and 2 comparison figures in a virtual machine (the live session without and with the dock and icons, both boot entries, the install, the greeter, the first session, Settings), with `CAPTURE.md` and `MANIFEST.json`. |
 | [`ui/companion-os/ubuntu/`](ui/companion-os/ubuntu/CAPTURE.md) | The Ubuntu edition (arm64 image of `4b7597d`, 2026-10-19): 10 frames from the boot menu to Hub's pairing screen, in a virtual machine with hardware acceleration, with `CAPTURE.md` (inputs, times, redactions, what went wrong in the run) and `MANIFEST.json`. |
+| [`ui/ftue-teardown/`](ui/ftue-teardown/CAPTURE.md) | Frames of the first-run teardown (2026-10-19): 35 captures of stock Ubuntu 26.04.1, Fedora 44 and Debian 13.7 on arm64 in a virtual machine, three comparison figures, one `MANIFEST.json` per distro, and `CAPTURE.md` (inputs, times, hygiene). The text records are in `docs/evidence/2026-10-19-ftue-teardown/`. |
 | [`ui/companion-os/plasma/`](ui/companion-os/plasma/CAPTURE.md) | The Plasma edition capture of ISO #6 (2026-10-18): 29 frames of the live medium, the installer and the installed system, in a virtual machine, with `CAPTURE.md` (command lines, timings, what was fixed and found, hygiene checks) and `MANIFEST.json`. The Ubuntu frames are still to be captured; the documents carry commented-out placeholders for them, and the one table of figure names is in the [Figures section of the test evidence page](architecture/test-evidence.md#figures). |
 
 The text records of the main runs are in `docs/evidence/`, and the records and frames of the Plasma ISO #6 run are in `docs/evidence/2026-10-18-plasma-iso6/` and
