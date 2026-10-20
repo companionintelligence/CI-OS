@@ -48,7 +48,8 @@ cannot affect it; do not use it for a push.
 
 | Suite | Command | Covers | Needs | Where |
 |---|---|---|---|---|
-| One-click installer unit tests | `python3 backends/ubuntu/chroot/tests/test_auto_install.py` | the safety rules, state machine and zenity options of `ci-os-auto-install`, and its language, keyboard and time zone lists, suggestions and dialogs (207 tests) | python3, PyYAML | gate |
+| One-click installer unit tests | `python3 backends/ubuntu/chroot/tests/test_auto_install.py` | the safety rules, state machine and zenity options of `ci-os-auto-install`, and its language, keyboard and time zone lists, suggestions and dialogs, and the time zone lookup that replaces `geoip` (243 tests) | python3, PyYAML | gate |
+| One-click installer mutation check | `python3 backends/ubuntu/chroot/tests/mutants-auto-install-timezone.py` | 21 deliberate bugs in the helper's time zone lookup (the lookup left out, a zone the installer does not know let through, the wrong fallback, no time or size limit, ...); every one must make `test_auto_install.py` fail, and the unmutated copy must pass first (about 4 minutes). KI-29 | python3, PyYAML, curl | manual |
 | ISO `md5sum.txt` | `bash backends/ubuntu/iso/tests/md5sum-txt.sh` | `md5sum-txt.sh` and its wiring in `build-iso.sh`; with `xorriso` and GNU `dd` also the mini-ISO part (Part B). `CI_TEST_STOCK_ISO=<stock ISO>` adds the real `md5sum.txt` | awk, find, a hash tool | gate |
 | Live GRUB menu modules | `bash backends/ubuntu/iso/tests/grub-live-menu-modules.sh` | the `insmod` lines of the live menu against the module list of the signed GRUB | GNU sed and stat for part of it | gate |
 | Layer split, Part A | `bash backends/ubuntu/iso/tests/split-live-layer.sh` | the helpers of `scripts/lib/split-live-layer.sh` on synthetic trees | none special | gate |

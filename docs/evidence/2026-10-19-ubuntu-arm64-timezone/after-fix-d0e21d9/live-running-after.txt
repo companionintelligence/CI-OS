@@ -1,0 +1,39 @@
+== date (UTC)
+2026-10-20T06:19:43Z
+== installer snap
+Name                      Version  Rev  Tracking        Publisher    Notes
+ubuntu-desktop-bootstrap  26.04.1  664  26.04/stable/…  canonical**  classic
+== the zone geoip.ubuntu.com gives this guest (the service the installer asks)
+<TimeZone>America/Los_Angeles</TimeZone>
+== installer state
+{'state': 'RUNNING', 'interactive': False}
+== GET /timezone: what the installer answers now
+{"timezone": "America/Los_Angeles", "from_geoip": false}
+== time zone of the live system
+Time zone: America/Los_Angeles (PDT, -0700)
+== autoinstall file, timezone line
+6:  timezone: America/Los_Angeles
+== the helper's own line in the journal
+ci-os-auto-install: time zone: America/Los_Angeles, from geoip.ubuntu.com
+== server log, lines about the time zone or geoip (hashes filtered)
+2026-10-20 06:17:25,820 DEBUG root:38 start: subiquity/TimeZone/load_autoinstall_data: 
+2026-10-20 06:17:25,905 DEBUG root:38 finish: subiquity/TimeZone/load_autoinstall_data: SUCCESS: 
+2026-10-20 06:17:26,029 DEBUG subiquity.models.subiquity:257 model userdata for postinstall stage is configured, to go {'codecs', 'packages', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'locale', 'network', 
+2026-10-20 06:17:26,029 DEBUG subiquity.models.subiquity:257 model packages for postinstall stage is configured, to go {'codecs', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'locale', 'network', 'identity', 
+2026-10-20 06:17:26,029 DEBUG subiquity.models.subiquity:257 model locale for postinstall stage is configured, to go {'codecs', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'network', 'identity', 'snaplist', 
+2026-10-20 06:17:26,097 DEBUG subiquity.models.subiquity:257 model locale for postinstall stage is configured, to go {'codecs', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'network', 'identity', 'snaplist', 
+2026-10-20 06:17:26,334 DEBUG subiquity.models.subiquity:257 model network for postinstall stage is configured, to go {'codecs', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'identity', 'snaplist', 'ssh'}
+2026-10-20 06:17:26,334 DEBUG subiquity.models.subiquity:257 model ubuntu_pro for postinstall stage is configured, to go {'codecs', 'active_directory', 'drivers', 'timezone', 'identity', 'snaplist', 'ssh'}
+2026-10-20 06:17:32,515 DEBUG subiquity.models.subiquity:257 model identity for postinstall stage is configured, to go {'codecs', 'active_directory', 'drivers', 'timezone', 'snaplist', 'ssh'}
+2026-10-20 06:17:32,515 DEBUG subiquity.models.subiquity:257 model ssh for postinstall stage is configured, to go {'codecs', 'active_directory', 'drivers', 'timezone', 'snaplist'}
+2026-10-20 06:17:32,515 DEBUG subiquity.models.subiquity:257 model snaplist for postinstall stage is configured, to go {'timezone', 'codecs', 'active_directory', 'drivers'}
+2026-10-20 06:17:32,516 DEBUG subiquity.models.subiquity:257 model active_directory for postinstall stage is configured, to go {'timezone', 'codecs', 'drivers'}
+2026-10-20 06:17:32,517 DEBUG subiquity.models.subiquity:257 model codecs for postinstall stage is configured, to go {'timezone', 'drivers'}
+2026-10-20 06:17:32,517 DEBUG subiquity.models.subiquity:257 model drivers for postinstall stage is configured, to go {'timezone'}
+2026-10-20 06:17:35,534 DEBUG subiquity.models.subiquity:257 model ssh for postinstall stage is configured, to go {'timezone'}
+2026-10-20 06:17:35,535 DEBUG subiquity.models.subiquity:257 model snaplist for postinstall stage is configured, to go {'timezone'}
+2026-10-20 06:17:49,320 DEBUG root:38 start: subiquity/TimeZone/apply_autoinstall_config: 
+2026-10-20 06:17:49,320 DEBUG root:38 finish: subiquity/TimeZone/apply_autoinstall_config: SUCCESS: 
+2026-10-20 06:17:49,320 DEBUG subiquity.models.subiquity:257 model timezone for postinstall stage is configured, to go set()
+2026-10-20 06:19:46,678 DEBUG root:38 start: subiquity/TimeZone/GET: 
+2026-10-20 06:19:46,679 DEBUG root:38 finish: subiquity/TimeZone/GET: SUCCESS: 200 {"timezone": "America/Los_Angeles", "from_geoip": false}

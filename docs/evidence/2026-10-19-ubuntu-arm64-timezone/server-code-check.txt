@@ -1,0 +1,40 @@
+Why `timezone: geoip` in an autoinstall file never sets a zone: what was read in the installer's own code, and where. Read on 2026-10-19 (local time).
+
+Code that was read
+  snap       ubuntu-desktop-bootstrap, revision 664 (version 26.04.1), the one the live session of the stock image runs (live-before.txt shows `snap list`), taken from
+             var/lib/snapd/seed/snaps/ in casper/minimal.standard.live.squashfs of ubuntu-26.04.1-desktop-arm64.iso (the pinned stock image, sha256 c54d1964...2517),
+             snap file sha256 c722238266efd4c85ec37c04694a88bdd8114d9bf5814876a5c57e449579ce80 (the seed snap, unpacked with unsquashfs in a throw-away container)
+  upstream   https://raw.githubusercontent.com/canonical/subiquity/main/<path>, fetched 2026-10-20T05:29Z (2026-10-19 local)
+
+The same files in the snap and in subiquity's main branch (first 12 hex digits of the sha256)
+  subiquity/server/controllers/timezone.py   dd5eb1b6fd9b   dd5eb1b6fd9b   identical
+  subiquity/models/timezone.py               3501bd8d9790   3501bd8d9790   identical
+  subiquity/server/geoip.py                  85a1fc2d9504   b4239659530b   one line differs: `if tz != self.tz:` (the snap; compares an element with a string) against
+                                                                          `if tz.text != self.tz:` (main); it only decides whether a repeated lookup broadcasts again
+  subiquity/server/server.py                 7f8db089bcf3   ad86ce1739a6   differs elsewhere (a model name, a typo); the text of SubiquityServer.start() is identical (diffed)
+
+The chain, with the lines of the snap's files (the line numbers are the snap's)
+  server/server.py:1034  SubiquityServer.start()
+      :1035   self.controllers.load_all()
+      :1055   self.load_autoinstall_config(only_early=False)     calls every controller's setup_autoinstall() -> load_autoinstall_data()
+      :1060   await super().start()                              subiquitycore/core.py:123 Application.start() -> start_controllers() (:116), which starts the network controller
+  server/controllers/timezone.py
+      :110    load_autoinstall_data(data)  ->  :122 deserialize(data)
+      :127    self.model.set(data)
+      :128    if self.model.detect_with_geoip and self.app.geoip.timezone:      the answer is read ONCE, here; at this point the lookup has not started
+      :129        self.model.timezone = self.app.geoip.timezone
+      (no subscription to the GEOIP channel anywhere in the file; the only other readers of the answer are GET at :139-:146, which returns it without storing it)
+  models/timezone.py
+      :38     set(value): the request "geoip" is kept, the zone becomes ""
+      :47     should_set_tz is True only for a non-empty zone
+      :54     make_cloudconfig() returns {} without a zone: the cloud-init configuration of the new system carries no `timezone`
+  server/geoip.py
+      :76     the service: https://geoip.ubuntu.com/lookup
+      :97     the lookup starts on the NETWORK_UP channel (maybe_start_check, :103)
+  subiquitycore/controllers/network.py:537   CoreChannels.NETWORK_UP is broadcast when the network controller sees a default route
+
+The run says the same (before-main-b4872d0/live-running-before.txt, installed-before.txt)
+  05:56:26.037  TimeZone/load_autoinstall_data for the file's `timezone: geoip`
+  05:57:02.862  TimeZone/apply_autoinstall_config; "model timezone for postinstall stage is configured, to go set()": configured, with no zone
+  05:58:29.929  GET /timezone during the install answers {"timezone": <the host's zone>, "from_geoip": true}: the server had the zone, nothing used it
+  06:14:20      the installed system: Time zone: Etc/UTC; no /etc/timezone; cloud-init: "Skipping modules '...,timezone,...' because no applicable config is provided"

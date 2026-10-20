@@ -1,0 +1,37 @@
+== date (UTC)
+2026-10-20T05:58:27Z
+== installer snap
+Name                      Version  Rev  Tracking        Publisher    Notes
+ubuntu-desktop-bootstrap  26.04.1  664  26.04/stable/…  canonical**  classic
+== the zone geoip.ubuntu.com gives this guest (the service the installer asks)
+<TimeZone>America/Los_Angeles</TimeZone>
+== installer state
+{'state': 'RUNNING', 'interactive': False}
+== GET /timezone: what the installer answers now
+{"timezone": "America/Los_Angeles", "from_geoip": true}
+== time zone of the live system
+Time zone: Etc/UTC (UTC, +0000)
+== autoinstall file, timezone line
+6:  timezone: geoip
+== server log, lines about the time zone or geoip (hashes filtered)
+2026-10-20 05:56:26,037 DEBUG root:38 start: subiquity/TimeZone/load_autoinstall_data: 
+2026-10-20 05:56:26,403 DEBUG root:38 finish: subiquity/TimeZone/load_autoinstall_data: SUCCESS: 
+2026-10-20 05:56:26,767 DEBUG subiquity.models.subiquity:257 model userdata for postinstall stage is configured, to go {'active_directory', 'codecs', 'snaplist', 'ssh', 'locale', 'network', 'drivers', 'timezone', 'ubuntu
+2026-10-20 05:56:26,767 DEBUG subiquity.models.subiquity:257 model packages for postinstall stage is configured, to go {'active_directory', 'codecs', 'snaplist', 'ssh', 'locale', 'network', 'drivers', 'timezone', 'ubuntu
+2026-10-20 05:56:26,767 DEBUG subiquity.models.subiquity:257 model locale for postinstall stage is configured, to go {'active_directory', 'codecs', 'snaplist', 'ssh', 'network', 'drivers', 'timezone', 'ubuntu_pro', 'iden
+2026-10-20 05:56:26,805 DEBUG subiquity.models.subiquity:257 model locale for postinstall stage is configured, to go {'active_directory', 'codecs', 'snaplist', 'ssh', 'network', 'drivers', 'timezone', 'ubuntu_pro', 'iden
+2026-10-20 05:56:26,994 DEBUG subiquity.models.subiquity:257 model network for postinstall stage is configured, to go {'active_directory', 'codecs', 'snaplist', 'ssh', 'drivers', 'timezone', 'ubuntu_pro', 'identity'}
+2026-10-20 05:56:26,994 DEBUG subiquity.models.subiquity:257 model ubuntu_pro for postinstall stage is configured, to go {'active_directory', 'codecs', 'snaplist', 'ssh', 'drivers', 'timezone', 'identity'}
+2026-10-20 05:56:34,328 DEBUG subiquity.models.subiquity:257 model identity for postinstall stage is configured, to go {'active_directory', 'codecs', 'snaplist', 'ssh', 'drivers', 'timezone'}
+2026-10-20 05:56:34,329 DEBUG subiquity.models.subiquity:257 model ssh for postinstall stage is configured, to go {'active_directory', 'codecs', 'snaplist', 'drivers', 'timezone'}
+2026-10-20 05:56:34,330 DEBUG subiquity.models.subiquity:257 model snaplist for postinstall stage is configured, to go {'active_directory', 'drivers', 'codecs', 'timezone'}
+2026-10-20 05:56:34,331 DEBUG subiquity.models.subiquity:257 model active_directory for postinstall stage is configured, to go {'drivers', 'codecs', 'timezone'}
+2026-10-20 05:56:34,331 DEBUG subiquity.models.subiquity:257 model codecs for postinstall stage is configured, to go {'drivers', 'timezone'}
+2026-10-20 05:56:34,331 DEBUG subiquity.models.subiquity:257 model drivers for postinstall stage is configured, to go {'timezone'}
+2026-10-20 05:56:36,831 DEBUG subiquity.models.subiquity:257 model ssh for postinstall stage is configured, to go {'timezone'}
+2026-10-20 05:56:36,831 DEBUG subiquity.models.subiquity:257 model snaplist for postinstall stage is configured, to go {'timezone'}
+2026-10-20 05:57:02,861 DEBUG root:38 start: subiquity/TimeZone/apply_autoinstall_config: 
+2026-10-20 05:57:02,862 DEBUG root:38 finish: subiquity/TimeZone/apply_autoinstall_config: SUCCESS: 
+2026-10-20 05:57:02,862 DEBUG subiquity.models.subiquity:257 model timezone for postinstall stage is configured, to go set()
+2026-10-20 05:58:29,928 DEBUG root:38 start: subiquity/TimeZone/GET: 
+2026-10-20 05:58:29,929 DEBUG root:38 finish: subiquity/TimeZone/GET: SUCCESS: 200 {"timezone": "America/Los_Angeles", "from_geoip": true}

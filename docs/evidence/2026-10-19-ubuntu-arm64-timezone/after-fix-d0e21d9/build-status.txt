@@ -1,0 +1,15 @@
+==> Companion OS 1.0, arm64, from commit d0e21d9  ->  <scratch>
+==> clean checkout of the commit
+  976 files in <tmp>
+==> starting the ubuntu:26.04 container (privileged, platform linux/arm64)
+==> installing the build dependencies
+==> building companion-os-1.0-arm64.iso (about 10 to 15 minutes natively; the log is <scratch>)
+  built in 944 s
+==> verifying the image (verify-iso.sh with the stock ISO and the brand canon required)
+  == Summary: 493 passed, 0 failed
+==> copying the image out
+  5276dac4cfbca539d7b6529a09bb75bae68c011962e00ca7afd2f314df1636a5  companion-os-1.0-arm64.iso
+  5590548480 bytes, built from commit d0e21d9
+Next: publish it (a dry run first; docs/guides/release-checklist.md, "Publishing to R2"):
+  backends/ubuntu/iso/scripts/publish-r2.sh --dir <scratch> --version 1.0 --channel dev
+exit 0

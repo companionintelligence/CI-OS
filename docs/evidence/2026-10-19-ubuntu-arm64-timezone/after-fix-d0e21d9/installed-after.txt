@@ -1,0 +1,80 @@
+== date (UTC)
+2026-10-20T06:34:27Z
+== os-release
+Companion OS 1.0
+kernel 7.0.0-38-generic aarch64
+== timedatectl
+Local time: Mon 2026-10-19 23:34:27 PDT
+Universal time: Tue 2026-10-20 06:34:27 UTC
+RTC time: Tue 2026-10-20 06:34:28
+Time zone: America/Los_Angeles (PDT, -0700)
+System clock synchronized: yes
+NTP service: active
+RTC in local TZ: no
+== /etc/timezone
+America/Los_Angeles
+== /etc/localtime
+/usr/share/zoneinfo/America/Los_Angeles
+== uptime
+ 23:34:27 up 2 min,  1 user,  load average: 1.31, 0.52, 0.19
+== cloud-init
+2026-10-20 06:34:27,648 - util.py[WARNING]: REDACTED config part /etc/cloud/cloud.cfg.d/99-installer.cfg, insufficient permissions
+2026-10-20 06:34:27,649 - util.py[WARNING]: REDACTED config part /etc/cloud/cloud.cfg.d/00-subiquity-disable-cloudinit-networking.cfg, insufficient permissions
+status: disabled
+== cloud-config files, timezone keys only
+== files the installer left in /etc/cloud/cloud.cfg.d
+total 28
+-rw------- 1 root root   28 Oct 19 23:23 00-subiquity-disable-cloudinit-networking.cfg
+-rw-r--r-- 1 root root 2071 Feb 27  2026 05_logging.cfg
+-rw-r--r-- 1 root root   28 Oct 19 23:25 20-disable-cc-dpkg-grub.cfg
+-rw-r--r-- 1 root root  348 Aug 26 02:27 90_dpkg.cfg
+-rw------- 1 root root  595 Oct 19 23:25 99-installer.cfg
+-rw-r--r-- 1 root root  167 Feb 27  2026 README
+-rw-r--r-- 1 root root   35 Oct 19 23:17 curtin-preserve-sources.cfg
+== the installer's own files in /var/log/installer
+total 1412
+-r-------- 1 root root   3046 Oct 19 23:25 autoinstall-user-data
+drwxr-xr-x 2 root root   4096 Oct 19 23:16 block
+-rw-r--r-- 1 root root     52 Oct 19 23:23 casper-md5check.json
+-rw------- 1 root root   4278 Oct 19 23:16 cloud-init-output.log
+-rw------- 1 root root  88355 Oct 19 23:16 cloud-init.log
+drwxr-xr-x 2 root root   4096 Oct 19 23:23 curtin-install
+-rw-r--r-- 1 root root 111768 Oct 19 23:25 curtin-install.log
+-rw-r--r-- 1 root root     98 Oct 19 23:18 device-map.json
+-rw------- 1 root root 931240 Oct 19 23:31 installer-journal.txt
+-rw-r--r-- 1 root root     70 Oct 19 23:25 media-info
+lrwxrwxrwx 1 root root     31 Oct 19 23:17 subiquity-server-debug.log -> subiquity-server-debug.log.5346
+-rw------- 1 root root  50697 Oct 19 23:17 subiquity-server-debug.log.3015
+-rw------- 1 root root 171534 Oct 19 23:31 subiquity-server-debug.log.5346
+lrwxrwxrwx 1 root root     30 Oct 19 23:17 subiquity-server-info.log -> subiquity-server-info.log.5346
+-rw------- 1 root root   1709 Oct 19 23:17 subiquity-server-info.log.3015
+-rw------- 1 root root  44919 Oct 19 23:31 subiquity-server-info.log.5346
+== cloud-init log, lines about the time zone
+2026-10-20 06:32:18,315 - modules.py[DEBUG]: Running module timezone (<module 'cloudinit.config.cc_timezone' from '/usr/lib/python3/dist-packages/cloudinit/config/cc_timezone.py'>) with frequency once-per-instance
+2026-10-20 06:32:18,315 - handlers.py[DEBUG]: start: modules-config/config-timezone: running config-timezone with frequency once-per-instance
+2026-10-20 06:32:18,315 - util.py[DEBUG]: Writing to /var/lib/cloud/instances/iid-datasource-none/sem/config_timezone - wb: [644] 23 bytes
+2026-10-20 06:32:18,315 - helpers.py[DEBUG]: Running config-timezone using lock (<FileLock using file '/var/lib/cloud/instances/iid-datasource-none/sem/config_timezone'>)
+2026-10-20 06:32:18,315 - util.py[DEBUG]: Writing to /etc/timezone - wb: [644] 20 bytes
+2026-10-20 06:32:18,316 - handlers.py[DEBUG]: finish: modules-config/config-timezone: SUCCESS: config-timezone ran successfully and took 0.001 seconds (duration: 0.001s)
+== installer server log, lines about the time zone or geoip (hashes filtered)
+2026-10-20 06:17:25,820 DEBUG root:38 start: subiquity/TimeZone/load_autoinstall_data: 
+2026-10-20 06:17:25,905 DEBUG root:38 finish: subiquity/TimeZone/load_autoinstall_data: SUCCESS: 
+2026-10-20 06:17:26,029 DEBUG subiquity.models.subiquity:257 model userdata for postinstall stage is configured, to go {'codecs', 'packages', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'locale', 'network', 
+2026-10-20 06:17:26,029 DEBUG subiquity.models.subiquity:257 model packages for postinstall stage is configured, to go {'codecs', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'locale', 'network', 'identity', 
+2026-10-20 06:17:26,029 DEBUG subiquity.models.subiquity:257 model locale for postinstall stage is configured, to go {'codecs', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'network', 'identity', 'snaplist', 
+2026-10-20 06:17:26,097 DEBUG subiquity.models.subiquity:257 model locale for postinstall stage is configured, to go {'codecs', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'network', 'identity', 'snaplist', 
+2026-10-20 06:17:26,334 DEBUG subiquity.models.subiquity:257 model network for postinstall stage is configured, to go {'codecs', 'active_directory', 'ubuntu_pro', 'drivers', 'timezone', 'identity', 'snaplist', 'ssh'}
+2026-10-20 06:17:26,334 DEBUG subiquity.models.subiquity:257 model ubuntu_pro for postinstall stage is configured, to go {'codecs', 'active_directory', 'drivers', 'timezone', 'identity', 'snaplist', 'ssh'}
+2026-10-20 06:17:32,515 DEBUG subiquity.models.subiquity:257 model identity for postinstall stage is configured, to go {'codecs', 'active_directory', 'drivers', 'timezone', 'snaplist', 'ssh'}
+2026-10-20 06:17:32,515 DEBUG subiquity.models.subiquity:257 model ssh for postinstall stage is configured, to go {'codecs', 'active_directory', 'drivers', 'timezone', 'snaplist'}
+2026-10-20 06:17:32,515 DEBUG subiquity.models.subiquity:257 model snaplist for postinstall stage is configured, to go {'timezone', 'codecs', 'active_directory', 'drivers'}
+2026-10-20 06:17:32,516 DEBUG subiquity.models.subiquity:257 model active_directory for postinstall stage is configured, to go {'timezone', 'codecs', 'drivers'}
+2026-10-20 06:17:32,517 DEBUG subiquity.models.subiquity:257 model codecs for postinstall stage is configured, to go {'timezone', 'drivers'}
+2026-10-20 06:17:32,517 DEBUG subiquity.models.subiquity:257 model drivers for postinstall stage is configured, to go {'timezone'}
+2026-10-20 06:17:35,534 DEBUG subiquity.models.subiquity:257 model ssh for postinstall stage is configured, to go {'timezone'}
+2026-10-20 06:17:35,535 DEBUG subiquity.models.subiquity:257 model snaplist for postinstall stage is configured, to go {'timezone'}
+2026-10-20 06:17:49,320 DEBUG root:38 start: subiquity/TimeZone/apply_autoinstall_config: 
+2026-10-20 06:17:49,320 DEBUG root:38 finish: subiquity/TimeZone/apply_autoinstall_config: SUCCESS: 
+2026-10-20 06:17:49,320 DEBUG subiquity.models.subiquity:257 model timezone for postinstall stage is configured, to go set()
+2026-10-20 06:19:46,678 DEBUG root:38 start: subiquity/TimeZone/GET: 
+2026-10-20 06:19:46,679 DEBUG root:38 finish: subiquity/TimeZone/GET: SUCCESS: 200 {"timezone": "America/Los_Angeles", "from_geoip": false}

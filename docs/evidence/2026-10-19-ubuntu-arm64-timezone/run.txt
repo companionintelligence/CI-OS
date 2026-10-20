@@ -1,0 +1,70 @@
+Why every one-click install read Etc/UTC, and the fix (KI-29): two fresh installs of Companion OS (Ubuntu edition) on arm64 with the dialog's DEFAULT answers, one image
+before the fix and one with it, in the same harness on the same evening. Evidence label: tested in a virtual machine (QEMU, HVF, one Apple-silicon Mac); not real hardware; one
+run of each image. 2026-10-19 local time (PDT, UTC-7); every time below is UTC of 2026-10-20, read from the commands' own `date -u` and from the guests' logs.
+
+Images (both built from a clean `git archive` of the commit in a native arm64 ubuntu:26.04 container with build-in-docker.sh, then verify-iso.sh with the stock image and the brand canon)
+  before   main at b4872d0 (the commit before PR 88 merged; the helper's time zone code is the one of main at 8dd5747, the merge of PR 88)
+           before-main-b4872d0/   companion-os-1.0-arm64.iso  5,593,038,848 bytes  sha256 0afabb10...9877   build 1465 s   verify-iso.sh 446 passed, 0 failed
+  after    d0e21d9 = main at 8dd5747 (PR 88 merged: the streamlined setup, dark and green) plus the one commit of the fix
+           after-fix-d0e21d9/     companion-os-1.0-arm64.iso  5,590,548,480 bytes  sha256 5276dac4...36a5   build 944 s    verify-iso.sh 493 passed, 0 failed, among them
+                                  "disk-selection unit tests pass against the image's helper (Ran 243 tests in 7.383s)": the new tests ran against the helper INSIDE the image
+  The two images differ in more than the fix (PR 88's streamlining is in the second), which does not touch the time zone; the earlier images of the same bug, `main` at 5d50582 and the
+  streamline branch at cf68024 and 5ff5224, are in docs/evidence/2026-10-19-ubuntu-arm64-streamline/ (their installed-facts.txt say `Etc/UTC` too; 5ff5224 is the code of main at 8dd5747).
+Harness   backends/ubuntu/iso/tests/boot-arm64-vm.sh and lib/qmp-drive.py; -smp 6 -m 8192, virtio-gpu 1280x800, the ISO as a USB drive, a new 64 GiB NVMe qcow2 on the SSD, QEMU user
+          networking (NAT) to the host's real connection; after the install the disk was started alone. Facts were read by the scripts in guest-scripts/ (read-only), fetched from a loopback
+          server on the host (10.0.2.2:8811 as the guest sees it) and posted back with curl. No frame or video of these runs is kept: the dialog and the progress window show the one-time password.
+Host      the Mac's own zone is America/Los_Angeles (`readlink /etc/localtime`); geoip.ubuntu.com answers <TimeZone>America/Los_Angeles</TimeZone> for it (the rest of that answer names
+          the address and the town and is not recorded). Load average 12.9 at the first run's live desktop (the only reading); two other sessions' virtual machines were running on the same Mac, and this
+          session's build of the second image ran during the first install, so the times below are for this machine on this evening
+Credentials  the one-time passwords were read from the screen by eye and typed from 0600 files; the new password is a throwaway of the same kind; none is in any record kept here.
+          The hashes the installer logs are filtered out of every log excerpt (a `$6$` filter in live-probe.sh and installed-facts.sh)
+
+== Run 1: the image BEFORE the fix (main at b4872d0)
+  05:51:50  power-on. The GRUB countdown ran out before the first key (the default entry booted, not the automatic one); the dock's launcher starts the same helper, so the run goes on from it
+  05:54:20  the live desktop with Canonical's "Welcome to Ubuntu" window in front (this image predates PR 88); closed by hand
+  05:55     plan-compare.sh: the image's own helper `--plan` says `timezone: geoip`; the helper of the branch says `TIME ZONE LOOKUP: <the host's zone>, from geoip.ubuntu.com` and writes that zone
+            (plan-live.txt). The live session has curl and `timedatectl list-timezones` (485 names, the host's zone among them); the installer snap is revision 664
+  05:55:37  live-probe.sh before the install (live-before.txt): the guest's own lookup gives the host's zone; the installer is WAITING, interactive; GET /timezone answers
+            {"timezone": <the host's zone>, "from_geoip": true}; the live system is on Etc/UTC
+  05:56     the dialog from the dock's launcher: "English (United States), keyboard: English (US), time zone: detected automatically"
+  05:56:11  "Erase the disk and install" clicked
+  05:58:06  the progress window: "Installing Companion OS... this takes a while" (RUNNING)
+  05:58:27  live-probe.sh during the install (live-running-before.txt): the file has `timezone: geoip`; the log has TimeZone/load_autoinstall_data at 05:56:26, TimeZone/apply_autoinstall_config at
+            05:57:02 and "model timezone for postinstall stage is configured, to go set()"; GET /timezone still answers the host's zone with from_geoip true; the live system is still on Etc/UTC
+  06:11:37  the VM had exited (powered off by the installer): at most 15 min 26 s after the click (the wait loop polls every 20 s)
+  06:11:47  the installed disk started alone; the greeter's clock read "Oct 20 06:12" (UTC) while the host's clock said 23:12 of Oct 19
+  06:13     the one-time password, "Changing password for companion", a new password twice; the first session (Firefox on the getting started page, top bar clock again UTC)
+  06:14:20  installed-facts.sh (installed-before.txt): Time zone: Etc/UTC (UTC, +0000); no /etc/timezone, /etc/localtime -> /usr/share/zoneinfo/Etc/UTC; cloud-init's log: "Skipping modules
+            'wireguard,snap,ubuntu_autoinstall,keyboard,apt_pipelining,ubuntu_pro,ntp,timezone,disable_ec2_metadata,runcmd' because no applicable config is provided"
+
+== Run 2: the image WITH the fix (d0e21d9)
+  06:15:02  power-on
+  06:15:14  Down, Return at the GRUB menu: the automatic entry (the countdown showed 27 s at the first look)
+  06:17:02  the dialog opened by itself (1 min 48 s after power-on), the same text: "... time zone: detected automatically"
+  06:17:16  "Erase the disk and install" clicked
+  06:17:25  TimeZone/load_autoinstall_data in the installer's log, 9 s after the click (the lookup, the file and the server restart are in that time; Run 1 took 15 s, with a build
+            running on the host, so the lookup adds no delay that shows)
+  06:19     the top bar of the live session read "Oct 19 23:19" (Pacific time) where it had read "Oct 20 06:17" (UTC) at the dialog: the installer set the live system's zone from the file
+  06:19:43  live-probe.sh during the install (live-running-after.txt): the helper's journal line "ci-os-auto-install: time zone: <the host's zone>, from geoip.ubuntu.com"; the file has
+            `timezone: <the host's zone>`; GET /timezone answers {"timezone": <the host's zone>, "from_geoip": false} (the zone is in the model now, it did not come from the lookup);
+            the live system reads America/Los_Angeles (PDT, -0700)
+  06:31:56  the VM had exited: at most 14 min 40 s after the click
+  06:32:04  the installed disk started alone; the greeter's clock read "Oct 19 23:32", the host's own
+  06:33     the one-time password, the forced password change, the first session
+  06:34:27  installed-facts.sh (installed-after.txt): Time zone: America/Los_Angeles (PDT, -0700), local time 23:34:27 PDT = 06:34:27 UTC; /etc/timezone America/Los_Angeles; /etc/localtime ->
+            /usr/share/zoneinfo/America/Los_Angeles; cloud-init's log: "Running module timezone ... Writing to /etc/timezone ... SUCCESS"
+  06:35     cloudcfg-after.txt: the installer's cloud-config (stored as one escaped string in /etc/cloud/cloud.cfg.d/99-installer.cfg) now carries `timezone: America/Los_Angeles`
+
+What it shows: with the dialog's default answers the installed system read Etc/UTC before the fix, for the reason in server-code-check.txt (read in the installer's code and seen in its log and in
+cloud-init's), and reads the host's zone, America/Los_Angeles, after it, with a visible effect already in the live session. The installed system's time (23:34 PDT) is the host's local time.
+Also: the 243 unit tests (37 test classes) passed against the helper inside the image (verify-iso.log), mutants.txt (21 of 21 deliberate bugs caught), and the code of the fix is in the one
+commit d0e21d9 (later commits of the branch change documents and records only).
+
+What it does not show (and why):
+  * the fallback booted: no network, no answer or an unknown name leaves `timezone: geoip` in the file, which is what the BEFORE image wrote, so the result of Run 1 is what such an install
+    gives (a unit test pins the file). The fallback was not run in a virtual machine
+  * a zone chosen by hand on the new image: the unit tests pin that it is written as it is with no lookup; the Berlin of b124745 (docs/architecture/arm64.md, KI-29) went the same way into the
+    installer, and Run 2 shows the installer applying an explicit zone. Not run again on this image
+  * amd64, real hardware, a second run of either image, another country (the host's zone is the only one seen), Secure Boot
+  * the section "cloud-config files, timezone keys only" of installed-facts.sh is empty in both records because the installer keeps its cloud-config as one escaped string: cloudcfg-after.txt is
+    the read that works (the script is kept as it was run)

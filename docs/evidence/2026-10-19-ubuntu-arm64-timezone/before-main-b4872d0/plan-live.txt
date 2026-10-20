@@ -1,0 +1,12 @@
+== image's own helper, --plan
+6:LANGUAGE, KEYBOARD, TIME ZONE: English (United States), keyboard: English (US), time zone: detected automatically
+13:  timezone: geoip
+== helper of this branch, --plan
+6:LANGUAGE, KEYBOARD, TIME ZONE: English (United States), keyboard: English (US), time zone: detected automatically
+7:TIME ZONE LOOKUP: America/Los_Angeles, from geoip.ubuntu.com
+14:  timezone: America/Los_Angeles
+== live session tools
+/usr/bin/curl
+zone names in timedatectl list-timezones: 485; America/Los_Angeles listed: 1
+Name                      Version  Rev  Tracking        Publisher    Notes
+ubuntu-desktop-bootstrap  26.04.1  664  26.04/stable/…  canonical**  classic

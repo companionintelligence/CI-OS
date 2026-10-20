@@ -1,0 +1,24 @@
+control: the unmutated helper passes (243 tests)
+killed       install-writes-geoip-unresolved: 1 tests fail, first test_without_a_change_the_install_is_english_us_and_the_zone_the_service_names
+killed       resolve-never-resolves: 10 tests fail, first test_a_zone_the_installer_would_refuse_leaves_geoip
+killed       resolve-overrules-the-choice: 5 tests fail, first test_plan_with_a_zone_given_does_no_lookup
+killed       plan-skips-the-lookup: 3 tests fail, first test_plan_says_when_the_service_gave_nothing_and_keeps_geoip
+killed       lookup-before-the-dialog: 6 tests fail, first test_a_zone_chosen_in_the_menu_is_written_as_it_is_and_never_looked_up
+killed       zone-not-checked-against-the-installer: 4 tests fail, first test_without_a_change_and_without_an_answer_the_file_keeps_geoip
+killed       unknown-name-falls-back-to-utc: 4 tests fail, first test_without_a_change_and_without_an_answer_the_file_keeps_geoip
+killed       no-answer-falls-back-to-utc: 5 tests fail, first test_plan_says_when_the_service_gave_nothing_and_keeps_geoip
+killed       shape-not-checked: 3 tests fail, first test_whatever_is_returned_builds_a_valid_autoinstall_file
+killed       geoip-accepted-as-an-answer: 1 tests fail, first test_a_name_the_helper_would_not_write_into_a_file_is_no_zone
+killed       url-over-http: 2 tests fail, first test_curl_is_asked_for_the_installers_service_with_a_time_limit_and_without_following_errors_silently
+killed       url-another-service: 2 tests fail, first test_curl_is_asked_for_the_installers_service_with_a_time_limit_and_without_following_errors_silently
+killed       no-time-limit: 2 tests fail, first test_curl_is_asked_for_the_installers_service_with_a_time_limit_and_without_following_errors_silently
+killed       time-limit-ten-minutes: 1 tests fail, first test_curl_is_asked_for_the_installers_service_with_a_time_limit_and_without_following_errors_silently
+killed       no-size-limit: 2 tests fail, first test_curl_is_asked_for_the_installers_service_with_a_time_limit_and_without_following_errors_silently
+killed       http-errors-are-answers: 2 tests fail, first test_an_http_error_is_no_answer
+killed       failed-curl-is-an-answer: 5 tests fail, first test_a_missing_curl_or_a_failed_run_is_no_answer
+killed       missing-curl-stops-the-tool: 1 tests fail, first test_a_missing_curl_or_a_failed_run_is_no_answer
+killed       answer-bytes-are-not-tolerated: 1 tests fail, first test_bytes_that_are_not_text_do_not_stop_the_tool
+killed       zone-list-ignores-failure: 1 tests fail, first test_a_failed_or_missing_timedatectl_is_an_empty_list
+killed       zone-list-from-the-wrong-command: 1 tests fail, first test_the_names_timedatectl_lists
+== mutation: 21 of 21 mutants killed
+exit 0
