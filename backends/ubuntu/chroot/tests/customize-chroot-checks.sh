@@ -314,15 +314,20 @@ case "$gis_nostamp" in
     *) fail "  a unit that names no stamp stops the build (got: $gis_nostamp)" ;;
 esac
 expect "  no upgrade unit in the image: exit 0 and no stamp (nothing to skip)" test "$(gis_run -)" = "0||"
-# an upgrade restores the executable bit of a motd script; dpkg-statoverride is what keeps it off
-for m in 00-header 10-help-text 50-motd-news 91-contract-ua-esm-status; do
-    expect "motd script $m is kept off by dpkg-statoverride, not only by chmod" bash -c 'grep -q -E "for _motd in .*$1" "$2"' _ "$m" "$SCRIPT"
+# an upgrade restores the executable bit of a motd script; dpkg-statoverride is what keeps it off (ci_quiet_motd_scripts, which Step 2c calls)
+QUIET="$HERE/../../lib/quiet-canonical.sh"
+REMOVE_TELEMETRY="$HERE/../../lib/remove-telemetry.sh"
+[[ -f "$QUIET" && -f "$REMOVE_TELEMETRY" ]] || { echo "missing $QUIET or $REMOVE_TELEMETRY" >&2; exit 2; }
+for m in 00-header 10-help-text 50-motd-news 88-esm-announce 91-contract-ua-esm-status; do
+    expect "motd script $m is kept off by dpkg-statoverride, not only by chmod" bash -c '. "$1"; case " $CI_QUIET_MOTD_SCRIPTS " in *" $2 "*) true ;; *) false ;; esac' _ "$QUIET" "$m"
 done
-expect "  the override is 0644 root root and is applied now (--update)" grep -q -F 'dpkg-statoverride --update --add root root 0644 /etc/update-motd.d/$_motd' "$SCRIPT"
+expect "  the override is 0644 root root and is applied now (--update)" grep -q -F 'dpkg-statoverride --update --add root root 0644 "$p"' "$QUIET"
 expect "/etc/legal is diverted, then rewritten for Companion OS" bash -c 'grep -q -F "dpkg-divert --local --rename --divert /etc/legal.ubuntu-stock --add /etc/legal" "$1" && grep -q -F "Companion OS comes with ABSOLUTELY NO WARRANTY" "$1"' _ "$SCRIPT"
 expect "  the new text keeps the distribution-terms sentence and the no-warranty sentence" bash -c 'sed -n "/cat > \"\$CHROOT_PATH\/etc\/legal\"/,/^LEGAL$/p" "$1" | grep -c -E "exact distribution terms|ABSOLUTELY NO WARRANTY" | grep -q "^2$"' _ "$SCRIPT"
 expect "  and says nothing about Ubuntu except that it is the base" bash -c 'sed -n "/cat > \"\$CHROOT_PATH\/etc\/legal\"/,/^LEGAL$/p" "$1" | grep -i -c "ubuntu" | grep -q "^1$"' _ "$SCRIPT"
-expect "the Ubuntu Pro autostart notification is diverted aside (not just deleted)" grep -q -F 'dpkg-divert --local --rename --divert /etc/xdg/autostart/ubuntu-advantage-notification.desktop.disabled --add' "$SCRIPT"
+expect "the Ubuntu Pro autostart notification is on the library's deny list, and the library diverts it aside (not just deleted)" \
+    bash -c '. "$1"; ci_quiet_autostart_denied ubuntu-advantage-notification.desktop' _ "$QUIET"
+expect "  with dpkg-divert --local --rename to <name>.disabled" grep -q -F 'dpkg-divert --local --rename --divert "$p.disabled" --add "$p"' "$QUIET"
 
 echo
 echo "== 11. one script for two architectures (amd64 and arm64)"
@@ -368,6 +373,33 @@ done
 expect "provision.sh: the missing-desktop-user case is a note, not a WARNING" bash -c '! grep -q "log_warning \"gsettings not available or no valid user detected. Skipping GNOME Power" "$1" && grep -q "log_info \"No desktop user to configure" "$1"' _ "$PROVISION"
 expect "ci-hub.sh no longer says \"not deployed\" and sends the user to a portal that does not do this" bash -c '! grep -q "CI-Hub not deployed" "$1" && ! grep -q "run the WiFi/pairing portal, to enable this step" "$1"' _ "$CIHUB"
 expect "provision.sh's next steps name Hub, ci-os-info and the Docker group" bash -c 'grep -q "Open Companion Hub (from the dock" "$1" && grep -q "See how the machine is doing at any time: ci-os-info" "$1" && grep -q "no permission for Docker, sign out and back in" "$1"' _ "$PROVISION"
+
+echo
+echo "== 13. Ubuntu Pro and Canonical telemetry go quiet (Step 2c, backends/ubuntu/lib/quiet-canonical.sh)"
+# What the steps do is shown by backends/ubuntu/lib/tests/quiet-canonical.sh on fake roots; these pin how the build calls them.
+expect "the library is sourced, and the chroot its commands run in is the build's" \
+    bash -c 'grep -q -F "source \"\$REPO_ROOT/backends/ubuntu/lib/quiet-canonical.sh\"" "$1" && grep -q -x "CI_QUIET_CHROOT=\"\$CHROOT_PATH\"" "$1"' _ "$SCRIPT"
+expect "Step 2c runs every step on the chroot" grep -q -F 'ci_quiet_apply_all "$CHROOT_PATH"' "$SCRIPT"
+before "the Pro client's apt hook is diverted before the first apt-get of the build (Step 2, before remove-packages.sh)" 'ci_quiet_apt_hooks "\$CHROOT_PATH"' 'chroot_exec "/tmp/remove-packages\.sh"'
+before "Step 2c runs after the telemetry packages were purged" 'chroot_exec "/tmp/remove-packages\.sh"' 'ci_quiet_apply_all "\$CHROOT_PATH"'
+before "  and before the branding of Step 3" 'ci_quiet_apply_all "\$CHROOT_PATH"' 'Step 3: Installing CI-OS branding'
+before "  and before the first later apt-get update (Step 10b), which would otherwise run the Pro client's apt hook" 'ci_quiet_apply_all "\$CHROOT_PATH"' 'install-dev-packages\.sh"$'
+expect "a quieting step that fails is reported and the build goes on (verify-iso.sh names what is still loud)" grep -q -F 'a quieting step failed (see above); verify-iso.sh will name what is still loud' "$SCRIPT"
+inline_purge="$(grep -E '^apt-get purge -y ubuntu-report' "$SCRIPT" | sed 's/^apt-get purge -y //; s/ || true$//')"
+inline_hold="$(grep -E '^apt-mark hold ubuntu-report' "$SCRIPT" | sed 's/^apt-mark hold //; s/ || true$//')"
+lib_list="$(bash -c '. "$1"; printf "%s" "$CI_QUIET_PURGE_PACKAGES"' _ "$QUIET")"
+expect "Step 2 purges, and holds, exactly the library's list of telemetry packages (the list the verifier and remove-telemetry.sh use)" \
+    test "$inline_purge" = "$lib_list" -a "$inline_hold" = "$lib_list"
+expect "no second copy of the telemetry hosts is left in Step 2" bash -c '! grep -q "^127\.0\.0\.1 .*ubuntu\.com" "$1"' _ "$SCRIPT"
+expect "no second copy of the motd loop, or of the Pro notification divert, is left in Step 8" \
+    bash -c '! grep -q "for _motd in" "$1" && ! grep -q "ubuntu-advantage-notification.desktop.disabled --add" "$1"' _ "$SCRIPT"
+quiet_dconf="$(sed -n '/03-ci-os-quiet-first-run" << /,/^EOF$/p' "$SCRIPT")"
+expect "the quiet-first-run dconf file turns off GNOME's error reports and usage statistics, and still the update notifier's pop-ups" \
+    bash -c 'for l in "[org/gnome/desktop/privacy]" "report-technical-problems=false" "send-software-usage-stats=false" "[com/ubuntu/update-notifier]" "no-show-notifications=true"; do printf "%s\n" "$1" | grep -q -x -F -- "$l" || exit 1; done' _ "$quiet_dconf"
+expect "remove-telemetry.sh (an installed machine) takes its lists and its steps from the same library" \
+    bash -c 'grep -q -F "source \"\$HERE/quiet-canonical.sh\"" "$1" && grep -q -F "\$CI_QUIET_PURGE_PACKAGES" "$1" && grep -q -F "ci_quiet_apply_all \"\"" "$1" && ! grep -q "TELEMETRY_PACKAGES=" "$1"' _ "$REMOVE_TELEMETRY"
+expect "the library reaches the image's bootstrap tree with the other backends/ubuntu/lib scripts (remove-telemetry.sh sources it there)" \
+    grep -q -F 'for lib_script in "$REPO_ROOT/backends/ubuntu/lib/"*.sh' "$SCRIPT"
 
 echo
 echo "$PASS passed, $FAIL failed"

@@ -45,6 +45,12 @@
 #   4d. the GNOME Shell theme: the Ubuntu session's and the greeter's gresource (theme/Yaru/gnome-shell-theme.gresource) is the
 #      branded blob of the checkout, not Ubuntu's stock Yaru file, and the upstream gnome-shell-theme.gresource, which the built-in
 #      session modes load, still has the stylesheets the branded blob lacks (gnome-shell-light.css);
+#   6b. Ubuntu Pro does not prompt and nothing reports to Canonical: the Pro client's apt news and timers are off in uaclient.conf, its apt
+#      hook is diverted aside, the login-text scripts that advertise it are non-executable and kept so by dpkg-statoverride, the timers and
+#      services that call Canonical (ua-timer, apt-news, esm-cache, motd-news) and every unit of ubuntu-insights are masked (or that package
+#      is gone), no autostart entry of the Pro client or of a telemetry service is active, the telemetry packages are not installed, the
+#      telemetry hosts resolve to localhost, and GNOME's error-report and usage-statistics switches default to off. The properties are the
+#      audit ci_quiet_audit of backends/ubuntu/lib/quiet-canonical.sh, run on the files extracted from the installed layer;
 #   5.  the boot menu names, /.disk/info (the product is spelt Companion OS in it, as the installer's last page shows it: the
 #      launcher label, the product name and the subiquity channel chain are asserted from casper's and the installer's own logic);
 #   3e. the casper layers stacked on the base keep the rootfs directory modes (/tmp stays 1777);
@@ -192,6 +198,9 @@ unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     usr/share/glib-2.0/schemas \
     usr/share/gnome-background-properties \
     etc/update-motd.d etc/systemd/system etc/sudoers.d etc/netplan \
+    etc/hosts etc/default/motd-news etc/apt/apt.conf.d etc/ubuntu-advantage etc/systemd/user usr/lib/systemd/system usr/lib/systemd/user \
+    var/lib/dpkg/info/ubuntu-insights.list var/lib/dpkg/info/ubuntu-pro-client.list var/lib/dpkg/info/ubuntu-advantage-tools.list \
+    var/lib/dpkg/info/ubuntu-advantage-desktop-daemon.list var/lib/dpkg/info/ubuntu-report.list \
     usr/lib/ci-os usr/local/bin/ci-os-info \
     etc/group etc/gshadow etc/passwd var/cache/debconf/config.dat etc/ci-os \
     usr/lib/systemd/system/docker.service usr/lib/systemd/system/docker.socket \
@@ -1738,6 +1747,33 @@ check "first boot progress: the library writes the status file the desktop reads
   export CI_OS_SETUP_STATUS='$_ss/status'; . '$R/usr/lib/ci-os/bootstrap/core/lib/setup-status.sh' && ci_os_status_begin 7 && ci_os_status_step 'Installing Docker' &&
   grep -qx 'state=running' '$_ss/status' && grep -qx 'step=1' '$_ss/status' && grep -qx 'steps=7' '$_ss/status' && grep -qx 'title=Installing Docker' '$_ss/status' &&
   test \"\$(grep -c . '$_ss/status')\" = 6 && test \"\$(stat -c %a '$_ss/status')\" = 644"
+
+section "6b. Ubuntu Pro does not prompt, and nothing reports to Canonical"
+# The properties live in backends/ubuntu/lib/quiet-canonical.sh (ci_quiet_audit), next to the code that makes them true, and
+# backends/ubuntu/lib/tests/quiet-canonical.sh shows each of them failing on a root that lacks it. They are read here from the files extracted
+# from the installed layer (the paths are in the extraction list above). An image is never attached to a subscription: a machine token baked
+# into it would be a credential in the image, and would make the audit leave the Pro client alone as it does on an attached machine.
+QUIET_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../lib/quiet-canonical.sh"
+if [[ -f "$QUIET_LIB" ]]; then
+    # shellcheck source=../../lib/quiet-canonical.sh
+    source "$QUIET_LIB"
+    check "no Ubuntu Pro machine token is baked into the image (an image is never attached)" bash -c "! grep -q -E 'var/lib/ubuntu-advantage/private/machine-token\\.json' '$LISTING'"
+    while IFS= read -r _q; do
+        case "$_q" in
+            "ok "*) pass "${_q#ok }" ;;
+            "bad "*) fail "${_q#bad }" ;;
+            "info "*) note "${_q#info }" ;;
+        esac
+    done < <(ci_quiet_audit "$R")
+    if in_listing ' /etc/apt/apt.conf.d/20apt-esm-hook\.conf\.disabled$'; then
+        check "Canonical: the Pro client's apt hook is a registered local diversion (an upgrade of the package cannot bring it back)" \
+            grep -q -x '/etc/apt/apt.conf.d/20apt-esm-hook.conf' "$R/var/lib/dpkg/diversions"
+    else
+        note "the Pro client's apt hook (20apt-esm-hook.conf.disabled) is not in this image: nothing was diverted"
+    fi
+else
+    skip "Ubuntu Pro and telemetry audit (backends/ubuntu/lib/quiet-canonical.sh not found next to this script)"
+fi
 
 section "7. Branding: live boot splash and live identity (initrd)"
 # build-iso.sh appends a small zstd-compressed cpio overlay to casper/initrd (the kernel unpacks concatenated

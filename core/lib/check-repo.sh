@@ -253,6 +253,7 @@ for suite in \
   "headless package dependencies|bash backends/ubuntu/headless-package/tests/control-depends.sh" \
   "gnome-shell theme overlay|bash backends/ubuntu/lib/tests/shell-theme.sh" \
   "dock favourites list|bash backends/ubuntu/lib/tests/dock-favorites.sh" \
+  "Ubuntu Pro and telemetry quieting|bash backends/ubuntu/lib/tests/quiet-canonical.sh" \
   "Companion links and welcome|bash backends/ubuntu/lib/tests/start-links.sh" \
   ".deb member names (needs dpkg-deb)|bash backends/ubuntu/lib/tests/deb-members.sh" \
   "first-boot wait-quiet|bash backends/ubuntu/chroot/tests/wait-quiet.sh" \
