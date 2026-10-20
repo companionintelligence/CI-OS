@@ -29,6 +29,29 @@ its header and in [`backends/ubuntu/iso/README.md`](../../backends/ubuntu/iso/RE
 
 Pins are fail-closed. The knobs and the size each one saves are in [`tier-b-tools.md`](../architecture/tier-b-tools.md).
 
+## Building in a container and publishing to R2
+
+Read by `backends/ubuntu/iso/scripts/build-in-docker.sh`, `publish-r2.sh` and `verify-published.sh`; their options are in their headers and in
+[Publishing to R2](release-checklist.md#publishing-to-r2). A secret is never printed and never put on a command line: export it in your own shell (`read -rs`)
+or let the GitHub environment of the same name supply it.
+
+| Variable | Values, default | What it does |
+|---|---|---|
+| `CI_OS_BASE_ISO_SHA256` | a sha256, unset | `build-in-docker.sh` only: replaces the pin of the base ISO, for porting work on a newer stock ISO; the script says so loudly and the image is not a supported build (the workflow never reads it) |
+| `R2_ACCOUNT_ID` (or `CLOUDFLARE_ACCOUNT_ID`) | the Cloudflare account id | `publish-r2.sh --apply`: names the R2 endpoint, `https://<account>.r2.cloudflarestorage.com`; not needed for a dry run |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | an R2 S3 API token's key pair (R2, Manage API tokens), scoped to the bucket | `publish-r2.sh --apply`: exported to the AWS CLI as `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` inside the script only; the multipart settings (64 MB parts) go to a temporary AWS config file, and `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` is set because R2 does not take the newer default |
+| `GPG_PRIVATE_KEY`, `GPG_PASSPHRASE` | GitHub secrets of the `production` environment | the workflow's signing step only; never in a file or a log |
+
+## Recording and filming the first run
+
+| Variable | Values, default | What it does | Read by |
+|---|---|---|---|
+| `CI_VM_RES` | `<width>x<height>`, for example `1920x1080` (default: the firmware's 1280 x 800) | the guest's virtio-gpu size, for frames a film can use; the clicks of `qmp-drive.py` then take the same `WxH` as the screen size | `backends/ubuntu/iso/tests/boot-arm64-vm.sh` |
+| `CI_VM_DIR` | a directory, default `/tmp/ci-arm64-vm` | where the VM's pid file, QMP socket, serial log and variable store live; give each run its own so two runs never share them, and keep the path short (a QMP socket path is limited to 104 bytes on macOS) | `boot-arm64-vm.sh` |
+| `QMP_CLICK_LOG`, `QMP_LAYOUT` | a file; `de` | log every click (epoch, x, y, screen size); type for a German keyboard | `backends/ubuntu/iso/tests/lib/qmp-drive.py` |
+| `CI_WORKSPACE` | the directory that holds `CI-Common/` | where `video/render.sh` finds the video kit; default: a `CI-Common` clone above this repository. In a shared clone use a worktree: never switch its branch | `video/render.sh` |
+| `CI_VIDEO_ALLOW_STALE_KIT` | `1` | let `video/render.sh` run with a kit that is behind origin or has local changes, for testing a kit branch; do not publish a cut made that way | `video/render.sh` |
+
 ## Verifying an Ubuntu image
 
 Read by `backends/ubuntu/iso/scripts/verify-iso.sh`.

@@ -257,6 +257,11 @@ for suite in \
   "ci-os-info command|bash backends/ubuntu/chroot/tests/ci-os-info.sh" \
   "QMP driver keyboard layouts|python3 backends/ubuntu/iso/tests/test_qmp_layouts.py" \
   "first-run video assembly (needs Pillow)|python3 backends/ubuntu/iso/tests/test_make_video.py" \
+  "stick film plates and redaction (needs Pillow)|python3 video/tools/test_make_plates.py" \
+  "release manifest for the R2 publish|python3 backends/ubuntu/iso/tests/test_release_manifest.py" \
+  "build-in-docker.sh (a stub docker)|bash backends/ubuntu/iso/tests/build-in-docker.sh" \
+  "publish-r2.sh (stubbed aws, gpg and curl)|bash backends/ubuntu/iso/tests/publish-r2.sh" \
+  "verify-published.sh (a local HTTP server)|bash backends/ubuntu/iso/tests/verify-published.sh" \
   "first-boot progress library|bash core/lib/tests/setup-status.sh" \
   "first-boot progress notification|bash backends/ubuntu/chroot/tests/setup-progress.sh" \
   "Companion Hub first-boot start|bash backends/ubuntu/chroot/tests/start-companion-hub.sh" \

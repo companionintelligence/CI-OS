@@ -33,8 +33,11 @@ The same script is the `PR checks` GitHub workflow. A new file must be `git add`
 
 - The Ubuntu ISO builds as root on **Ubuntu 26.04** only (`build-iso.sh` stops elsewhere). On Apple silicon use a privileged
   **ARM64** `ubuntu:26.04` container, the route that built the verified image; an amd64 one may fail (tar "Function not implemented"
-  under Rosetta, cause not isolated). Recipe: `CLAUDE.md`.
+  under Rosetta, cause not isolated). Recipe: `CLAUDE.md`, or `backends/ubuntu/iso/scripts/build-in-docker.sh` (the same steps as one command; it refuses a
+  dirty tree and an unpinned base ISO).
 - The CachyOS ISO builds on any host with Docker.
+- Images are published to Cloudflare R2, never to a GitHub release asset (2 GiB limit). `publish-r2.sh` is a dry run until `--apply`: never apply, create a
+  bucket or a token, or print an R2 or signing credential unless the owner asked for that exact action (`docs/guides/release-checklist.md`).
 - Never run systemd as PID 1 in a privileged container or with `CAP_SYS_ADMIN`, and never touch `/proc/sys/fs/binfmt_misc`: a
   privileged one wipes Docker Desktop's Rosetta registrations, and the capability alone lets a container mount the shared
   `binfmt_misc` itself. A test that must boot systemd follows `backends/ubuntu/chroot/tests/first-boot-units-boot.sh`, the

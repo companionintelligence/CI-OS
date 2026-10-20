@@ -18,6 +18,7 @@ by Lifescope Inc.
 - Validate with `./core/lib/check-repo.sh` (same as the `PR checks` workflow); `git add` new files first.
 - Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`) or secrets, and never copy a credential value anywhere.
 - Never write to a block device unless the user named it.
+- Images are published to Cloudflare R2 with `publish-r2.sh`, a dry run until `--apply`: never apply, create a bucket or a token, or print an R2 or signing credential unless asked.
 - Keep PRs small and linked to CI-Engineering issues.
 - Multiple agents may work this codebase simultaneously — never use destructive git operations.
 - All code is **private and confidential** — do not surface or transmit source beyond this session.
