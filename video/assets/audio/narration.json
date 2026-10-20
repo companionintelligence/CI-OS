@@ -1,0 +1,115 @@
+{
+  "_": "Written by `ci-video narrate`. Records which line each mp3 is a read of, in which voice, on which engine, at what prosody — so a later edit to any of those can be detected instead of silently keeping the old recording. Commit this with the mp3s.",
+  "engine": "edge",
+  "voice": "en-GB-SoniaNeural",
+  "scenes": {
+    "open": {
+      "text": "Companion OS turns a computer you own into a private AI server. It arrives on a USB stick.",
+      "seconds": 7.382,
+      "prosody": {
+        "rate": "-6%",
+        "pitch": "-2Hz",
+        "volume": "+0%"
+      }
+    },
+    "the-stick": {
+      "text": "The stick holds the installer. Plug it in, and start the computer from it.",
+      "seconds": 5.186,
+      "prosody": {
+        "rate": "-5%",
+        "pitch": "-1Hz",
+        "volume": "+0%"
+      }
+    },
+    "boot-menu": {
+      "text": "Choose the automatic entry. The computer starts a live desktop from the stick.",
+      "seconds": 5.564,
+      "prosody": {
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
+      }
+    },
+    "one-question": {
+      "text": "One window asks one question. It names the disk it will erase, and gives a one-time password for your first sign-in.",
+      "seconds": 7.611,
+      "prosody": {
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
+      }
+    },
+    "your-language": {
+      "text": "If a default is wrong, one button changes the language, the keyboard and the time zone. Here, English, United Kingdom.",
+      "seconds": 8.452,
+      "prosody": {
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
+      }
+    },
+    "confirm": {
+      "text": "The window now names the choice. One click on erase the disk and install, and it asks nothing more.",
+      "seconds": 6.623,
+      "prosody": {
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
+      }
+    },
+    "installing": {
+      "text": "Then it installs by itself. When it finishes, the computer turns off. Take out the stick, and turn it on.",
+      "seconds": 7.843,
+      "prosody": {
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
+      }
+    },
+    "sign-in": {
+      "text": "Sign in as companion with the one-time password. The first sign-in asks you to choose your own.",
+      "seconds": 6.461,
+      "prosody": {
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
+      }
+    },
+    "desktop": {
+      "text": "Then the desktop, with the getting started page already open.",
+      "seconds": 4.244,
+      "prosody": {
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
+      }
+    },
+    "setup": {
+      "text": "A few minutes after the first start, setup runs in the background. It says what it is doing, step by step, and you can keep working. Then it says it is ready.",
+      "seconds": 10.616,
+      "prosody": {
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
+      }
+    },
+    "hub": {
+      "text": "Open Companion Hub, the first icon in the dock. It starts at its pairing page.",
+      "seconds": 6.026,
+      "prosody": {
+        "rate": "-3%",
+        "pitch": "+0Hz",
+        "volume": "+0%"
+      }
+    },
+    "close": {
+      "text": "Companion Intelligence. Apps you own.",
+      "seconds": 3.462,
+      "prosody": {
+        "rate": "-8%",
+        "pitch": "-2Hz",
+        "volume": "+0%"
+      }
+    }
+  }
+}

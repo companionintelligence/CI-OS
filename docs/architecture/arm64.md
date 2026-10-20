@@ -58,6 +58,10 @@ Commit `82e9335` (sha256 `e43e2066...e86ac`) installed fresh with German (German
 
 **Seen for the first time:** five minutes after the last input the screen **blanks and the session locks** ("Durch Mausklick oder Tastendruck entsperren"). The first boot takes about two minutes, so a person who leaves a new machine to set itself up will come back to a lock screen; the notifications wait in the list after the unlock (frame 23). Not changed here; the default is Ubuntu's.
 
+## The sixth run: the same image at 1920 x 1080, English (United Kingdom), for the film [V]
+
+The image of `82e9335` (sha256 `e43e2066...e86ac`, nothing rebuilt) installed fresh again, this time with the virtual display at **1920 x 1080** (`CI_VM_RES=1920x1080`) and **English (United Kingdom)**, keyboard English (UK) and London chosen in the dialog, to make the frames of the stick's film ([`video/README.md`](../../video/README.md)). **Install 16 min 33 s on a loaded host** (the German run took at most 11 min 38 s on a quiet one: nothing here says how long an install takes). The greeter showed the English date and London time, the first sign-in forced the password change as before, and the first boot showed the same notices (waiting, getting ready, step 1, step 5 "Downloading the AI models (the longest step)", step 7, "Companion OS is ready") over **2 min 15 s**; Companion Hub opened from the first dock icon at its pairing page about 12 s after the click. **Seen again:** the installed system showed the root filesystem check message and then nothing for a minute on its first start (the second time this was seen); a restart reached the greeter (KI-28, cause unknown). Records: [`../evidence/2026-10-19-ubuntu-arm64-82e9335-video-run/`](../evidence/2026-10-19-ubuntu-arm64-82e9335-video-run/). The film: 86 seconds, landscape and square, from 15 plates of 1,009 recorded frames, the one-time password covered by a bar that a test checks.
+
 ## How it differs from amd64
 
 | Difference | Why | What the build does |

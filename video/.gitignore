@@ -1,0 +1,6 @@
+# A video is build output. The plates (assets/shots), the stick images and the narration (assets/audio) ARE committed.
+/out/
+/build/
+/node_modules/
+# the click-tick track the kit pre-mixes on every build (about 8 MB)
+/assets/sfx/
