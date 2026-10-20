@@ -30,6 +30,11 @@ PyYAML; see Building on a Mac). It is what the `PR checks` workflow runs, and th
 yourself before every push**. `SKIP_CACHYOS_TESTS=1` skips the CachyOS block (`check-repo.sh`, "CachyOS edition tests"), for a change that
 cannot affect it; do not use it for a push.
 
+A bare Debian or Ubuntu container (say, because the host lacks `yamllint`) also lacks three tools that four suites want:
+`bsdtar` (package `libarchive-tools`; the `compat-libs.sh` part of the CachyOS `installer-config.sh`, and macOS has it), `gresource`
+(`libglib2.0-bin`; the gnome-shell theme overlay and the gresource provenance) and `curl` (`verify-published.sh`). Without one, the gate
+prints that suite with a leading `!` ("cannot run here") and does not fail; install the three to see all of them run.
+
 ## Index of the suites
 
 "Gate" means `check-repo.sh` runs it. "Manual" means nothing runs it for you.
@@ -88,7 +93,7 @@ cannot affect it; do not use it for a push.
 
 | Suite | Command | Covers | Needs | Where |
 |---|---|---|---|---|
-| Overlay engine, brand, installer, verifier self-test | `bash backends/cachyos/iso/tests/{overlay-engine,overlay-brand,installer-config,verify-selftest}.sh` | the merge engine and its guards, identity and hooks, the installer overlay with the launcher (`installer-launcher.sh`, including the `shell-timeouts` guard), the stager and first-boot provisioning (`installer-stage.sh`), the filter (`progress-filter.sh`), the compat lock and the gate (`compat-libs.sh`, `gate-calamares.sh`), and every check of `verify-iso.sh` against a good and a broken fixture (336 checks, about 20 s) | bash 3.2, awk, sed, python3 with PyYAML (check with `python3 -c 'import yaml'`) | gate |
+| Overlay engine, brand, installer, verifier self-test | `bash backends/cachyos/iso/tests/{overlay-engine,overlay-brand,installer-config,verify-selftest}.sh` | the merge engine and its guards, identity and hooks, the installer overlay with the launcher (`installer-launcher.sh`, including the `shell-timeouts` guard), the stager and first-boot provisioning (`installer-stage.sh`), the filter (`progress-filter.sh`), the compat lock and the gate (`compat-libs.sh`, `gate-calamares.sh`), and every check of `verify-iso.sh` against a good and a broken fixture (336 checks, about 20 s) | bash 3.2, awk, sed, python3 with PyYAML (check with `python3 -c 'import yaml'`), `bsdtar` for `compat-libs.sh` (macOS has it; Debian and Ubuntu: `libarchive-tools`; without it that part is reported as could not run here and `installer-config.sh` exits 2, not 1) | gate |
 | QEMU boot helper | `bash backends/cachyos/iso/tests/qemu-boot.sh --selftest` | the helper code of the boot recipe | python3 | gate |
 | Mini ISO | `backends/cachyos/iso/tests/verify-mini-iso.sh` | the real overlay and renderer into a 15 MB ISO, then `verify-iso.sh` (about 2 minutes) | Docker, network | manual |
 | Container tests | `backends/cachyos/iso/tests/{overlay-engine-container,overlay-pacstrap,overlay-hook-pacman,overlay-menu-shot,compat-gate-container,first-boot-units-container,first-boot-drain-container}.sh` | the pipeline up to `mkarchiso`, identity against real pacman hooks, the boot menus in QEMU, the installer gate on the real packages (about 10 minutes), `systemd-analyze verify`, the first-boot drain | Docker, network for most; **these never run systemd as PID 1** | manual |
@@ -163,7 +168,7 @@ done
 ```
 
 Second, that every relative link and anchor resolves (the script reads Markdown, skips fenced code and web links, and compares an anchor with
-the headings of the target file in GitHub's style; save it as `linkcheck.py` outside the repository):
+the headings of the target file in GitHub's style and with its explicit `<a id="...">` anchors; save it as `linkcheck.py` outside the repository):
 
 ```python
 import os, re, sys
@@ -178,8 +183,10 @@ for f in sys.argv[1:]:
         if not os.path.exists(full):
             print('MISSING', f, t); bad += 1
         elif '#' in t and full.endswith('.md'):
+            body = open(full, encoding='utf-8').read()
             heads = [re.sub(r'[^\w\- ]', '', h.strip().lower()).replace(' ', '-')
-                     for h in re.findall(r'^#+\s+(.*)$', open(full, encoding='utf-8').read(), flags=re.M)]
+                     for h in re.findall(r'^#+\s+(.*)$', body, flags=re.M)]
+            heads += re.findall(r'<a (?:id|name)="([^"]+)"', body)
             if t.split('#', 1)[1] not in heads: print('ANCHOR?', f, t); bad += 1
 sys.exit(1 if bad else 0)
 ```

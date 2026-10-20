@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Fast repo checks, run on every PR (.github/workflows/pr-checks.yml) and before any push.
 # Needs: bash 3.2+ (so it runs on a stock macOS too), git, shellcheck, python3, yamllint.
+# A few suites also want bsdtar (CachyOS compat-libs.sh; Debian and Ubuntu: libarchive-tools), gresource (libglib2.0-bin) or curl; without
+# one the suite is printed with a leading "!" (cannot run here) and does not fail the gate.
 # Runs every category and exits non-zero if any of them failed.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -210,7 +212,8 @@ else
     if [ "$trc" -eq 0 ]; then
       echo "  $t: $(grep -E '^== ' "$tout" | tail -n 1)"
     elif [ "$trc" -eq 2 ]; then
-      echo "! $t cannot run here: $(head -n 1 "$tout")"
+      # the last line: a script that stops at once prints one line, and installer-config.sh sums up its parts on its last
+      echo "! $t cannot run here: $(tail -n 1 "$tout")"
     else
       echo "✖ $t failed (exit $trc):"
       { grep -E '^FAIL' "$tout" | head -n 25; } || true

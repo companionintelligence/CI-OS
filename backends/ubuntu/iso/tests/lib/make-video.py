@@ -139,18 +139,53 @@ def annotate(img, t, t0, caption, redactions, clicks, clock):
     return img
 
 
+def wrap(d, text, f, max_w):
+    """The words of `text` on as many lines as it takes to keep each line within max_w pixels (a word wider than that stays alone on its line)."""
+    lines, line = [], ""
+    for word in text.split():
+        trial = line + " " + word if line else word
+        bx = d.textbbox((0, 0), trial, font=f)
+        if line and bx[2] - bx[0] > max_w:
+            lines.append(line)
+            line = word
+        else:
+            line = trial
+    return lines + [line] if line else [text]
+
+
 def card(size, text):
-    """A title or end card: the text centred on a dark picture, in the largest size (up to a fourteenth of the height) that fits in 90% of the width."""
+    """A title or end card: the text centred on a dark picture, in the largest size (up to a fourteenth of the height) that fits in 90% of the width.
+
+    A title that does not fit on one line even at the smallest size (11 or 12 pixels) is wrapped onto more lines; the size shrinks further
+    only for a single word that is still too wide, down to 6 pixels, where the picture is simply too small for any text. So the text lies
+    inside the picture whatever font the host has: the first version drew the 12 pixel line whether it fitted or not, which a wider font
+    (DejaVu Sans on Ubuntu) pushed out of a 320 pixel picture while the host font of a Mac (SF NS) just fitted."""
     img = Image.new("RGB", size, (4, 24, 31))
     d = ImageDraw.Draw(img)
+    max_w, max_h = size[0] * 0.9, size[1] * 0.9
     px = max(14, size[1] // 14)
-    while px > 10:
+    while True:
         f = font(px)
         bx = d.textbbox((0, 0), text, font=f)
-        if bx[2] - bx[0] <= size[0] * 0.9:
+        if bx[2] - bx[0] <= max_w or px - 2 <= 10:
             break
         px -= 2
-    d.text(((size[0] - (bx[2] - bx[0])) // 2 - bx[0], (size[1] - (bx[3] - bx[1])) // 2 - bx[1]), text, fill=(240, 250, 250), font=f)
+    if bx[2] - bx[0] <= max_w:
+        d.text(((size[0] - (bx[2] - bx[0])) // 2 - bx[0], (size[1] - (bx[3] - bx[1])) // 2 - bx[1]), text, fill=(240, 250, 250), font=f)
+        return img
+    while True:
+        lines = wrap(d, text, f, max_w)
+        boxes = [d.textbbox((0, 0), line, font=f) for line in lines]
+        ref = d.textbbox((0, 0), "Ag", font=f)                       # one height and pitch for every line, so the lines keep their rhythm
+        pitch = int((ref[3] - ref[1]) * 1.4)
+        block = pitch * (len(lines) - 1) + (ref[3] - ref[1])
+        if (max(b[2] - b[0] for b in boxes) <= max_w and block <= max_h) or px <= 6:
+            break
+        px -= 1
+        f = font(px)
+    top = (size[1] - block) // 2 - ref[1]
+    for i, (line, b) in enumerate(zip(lines, boxes)):
+        d.text(((size[0] - (b[2] - b[0])) // 2 - b[0], top + i * pitch), line, fill=(240, 250, 250), font=f)
     return img
 
 

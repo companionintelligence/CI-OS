@@ -19,7 +19,7 @@ import unittest
 from unittest import mock
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageChops
 except ImportError:
     print("cannot run here: Pillow is missing (pip install pillow, or apt install python3-pil)")
     sys.exit(2)
@@ -206,6 +206,37 @@ class RenderTests(unittest.TestCase):
             self.assertTrue(cols, size)                                  # there is text
             self.assertGreaterEqual(cols[0], int(w * 0.04), size)        # and it starts and ends well inside the frame
             self.assertLessEqual(cols[-1], int(w * 0.96), size)
+
+    def assert_text_inside(self, size, text):
+        """Every non-background pixel of the card lies inside the picture, with a margin of 4% on all four sides."""
+        bg = (4, 24, 31)
+        img = mv.card(size, text)
+        self.assertEqual(img.size, size)
+        box = ImageChops.difference(img, Image.new("RGB", size, bg)).getbbox()
+        self.assertIsNotNone(box, (size, text))                          # there is text
+        w, h = size
+        self.assertGreaterEqual(box[0], int(w * 0.04), (size, text))
+        self.assertLessEqual(box[2], int(w * 0.96), (size, text))
+        self.assertGreaterEqual(box[1], int(h * 0.04), (size, text))
+        self.assertLessEqual(box[3], int(h * 0.96), (size, text))
+        return box
+
+    def test_a_title_too_long_for_one_line_is_wrapped_and_still_fits(self):
+        title = ("Companion OS: from the USB stick to a ready desktop, installed in one click, "
+                 "with nothing to type and nothing to configure first")
+        for size in ((1280, 800), (640, 400), (320, 200)):
+            self.assert_text_inside(size, title)
+
+    def test_a_wrapped_title_has_more_than_one_line_and_the_short_one_still_has_one(self):
+        # a 320 x 200 picture cannot hold this on one line at any size above 6 pixels in a wide font, so it is wrapped: the text block is
+        # then taller than one line of the same size would be; the short title stays on one line, as it always did
+        short = self.assert_text_inside((320, 200), "Start")
+        long_ = self.assert_text_inside((320, 200), "Companion OS: from the USB stick to a ready desktop, installed in one click")
+        self.assertLess(short[3] - short[1], 20)                         # one line of about 14 pixels
+        self.assertGreater(long_[3] - long_[1], short[3] - short[1])    # two or more lines
+
+    def test_a_single_word_wider_than_the_picture_shrinks_instead_of_overflowing(self):
+        self.assert_text_inside((320, 200), "Companion" * 8)              # 72 characters, no space to wrap at
 
     def test_an_unreadable_frame_is_skipped(self):
         files = self.frames([(0, frame()), (3, frame(color=(0, 90, 120)))])
