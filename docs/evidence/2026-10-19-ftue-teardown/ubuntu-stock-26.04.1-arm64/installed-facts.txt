@@ -1,0 +1,49 @@
+== date (UTC)
+2026-10-20T00:47:51Z
+== os-release
+Ubuntu 26.04.1 LTS
+kernel 7.0.0-38-generic aarch64
+== uptime and boot time
+ 17:47:51 up 8 min,  1 user,  load average: 0.69, 0.24, 0.13
+Startup finished in 172ms (kernel) + 1.233s (initrd) + 21.072s (userspace) = 22.479s 
+graphical.target reached after 21.004s in userspace.
+== system state
+running
+== failed units (system)
+== failed units (user)
+== locale, keyboard, time zone
+LANG=en_US.UTF-8
+System Locale: LANG=en_US.UTF-8
+VC Keymap: (unset)
+X11 Layout: us
+X11 Model: pc105
+Time zone: America/Los_Angeles (PDT, -0700)
+System clock synchronized: yes
+NTP service: active
+RTC in local TZ: no
+== host name and user
+ftue-tester-QEMU-Virtual-Machine
+ftue-tester
+== packages
+dpkg installed: 1505
+rpm installed: 0
+== disk and memory
+/dev/nvme0n1p2   62G   11G   48G  19% /
+Mem:            7397        2195        4053          57        1373        5202
+== firewall and mandatory access control
+ufw: active
+firewalld: inactive
+nftables: inactive
+apparmor: active
+== listening TCP ports
+127.0.0.1:631 127.0.0.53%lo:53 127.0.0.54:53 [::1]:631 
+== journal lines at priority err or worse, this boot
+3
+== xdg autostart entries
+at-spi-dbus-bus.desktop geoclue-demo-agent.desktop gnome-keyring-pkcs11.desktop gnome-keyring-secrets.desktop im-launch.desktop localsearch-3.desktop orca-autostart.desktop org.gnome.Evolution-alarm-notify.desktop org.gnome.SettingsDaemon.DiskUtilityNotify.desktop snap-userd-autostart.desktop spice-vdagent.desktop ubuntu-advantage-notification.desktop ubuntu-report-on-upgrade.desktop update-notifier.desktop user-dirs-update-gtk.desktop xdg-user-dirs.desktop 
+== first-run and update helpers running
+update-notifier 
+== snap and flatpak counts
+snaps: 11
+flatpaks: 0
+

@@ -1,0 +1,72 @@
+2026-10-20T00:11:08Z recorder started (1.5 s)
+2026-10-20T00:11:13Z VM start (power on): ubuntu-26.04.1-desktop-arm64.iso
+2026-10-20T00:11:45Z key ret GRUB: Try or Install Ubuntu (default entry, 30 s countdown)
+2026-10-20T00:15:20Z observation: screen unchanged on the text boot log since 00:11:52 (about 3 min); QEMU CPU 1 percent; trying a key press and mouse move
+2026-10-20T00:15:20Z key shift poke the frozen text boot log
+2026-10-20T00:15:40Z attempt 1 froze: text boot log since 00:11:52, guest idle (QEMU CPU 1 percent), no reaction to a key press or a pointer move after 4 min; VM stopped, attempt 2 follows
+2026-10-20T00:15:40Z VM stopped
+2026-10-20T00:15:40Z VM start (power on): ubuntu-26.04.1-desktop-arm64.iso
+2026-10-20T00:15:58Z key ret GRUB: Try or Install Ubuntu (attempt 2)
+2026-10-20T00:17:19Z live desktop: Welcome to Ubuntu installer window (Choose your language, English preselected)
+2026-10-20T00:17:19Z click 1035 716 Next (language: English, default)
+2026-10-20T00:17:33Z click 1035 716 Next (accessibility: nothing changed)
+2026-10-20T00:17:43Z click 1035 716 Next (keyboard: English US, default)
+2026-10-20T00:17:53Z click 1035 716 Next (internet: wired, default)
+2026-10-20T00:18:05Z click 1035 716 Next (Install Ubuntu, default)
+2026-10-20T00:18:16Z click 1035 716 Next (Interactive installation, default)
+2026-10-20T00:18:29Z click 1035 716 Next (apps: Default selection, default)
+2026-10-20T00:18:41Z click 1035 716 Next (proprietary software: both unchecked, default)
+2026-10-20T00:18:54Z click 1035 716 Next (Erase disk and install Ubuntu, default)
+2026-10-20T00:19:07Z click 1035 716 Next (No encryption, default)
+2026-10-20T00:19:21Z installer page: Create your account (name, computer name, username, password, confirm)
+2026-10-20T00:19:21Z click 820 255 field: Your name
+2026-10-20T00:19:23Z type: FTUE Tester
+2026-10-20T00:19:33Z click 770 423 field: Password
+2026-10-20T00:19:36Z typed the throwaway password from a file (not shown)
+2026-10-20T00:19:37Z click 820 480 field: Confirm password
+2026-10-20T00:19:40Z typed the throwaway password from a file (not shown)
+2026-10-20T00:19:54Z password and confirm did not match (a key was probably dropped); retyping both slower
+2026-10-20T00:19:54Z click 700 412 field: Password (retype)
+2026-10-20T00:19:56Z key ctrl+a 
+2026-10-20T00:19:59Z typed the throwaway password from a file (not shown)
+2026-10-20T00:20:01Z click 700 469 field: Confirm password (retype)
+2026-10-20T00:20:03Z key ctrl+a 
+2026-10-20T00:20:06Z typed the throwaway password from a file (not shown)
+2026-10-20T00:20:24Z installer password field drops keys while it computes the strength (17 of 20 dots); retyping only that field at 0.4 s per key
+2026-10-20T00:20:24Z click 700 412 field: Password (slow retype)
+2026-10-20T00:20:25Z key ctrl+a 
+2026-10-20T00:20:34Z typed the throwaway password from a file (not shown)
+2026-10-20T00:20:47Z click 1035 716 Next (account created: one name typed, two auto-filled, password twice)
+2026-10-20T00:21:09Z click 1035 716 Next (time zone detected: America/Los_Angeles, default)
+2026-10-20T00:21:26Z click 1035 716 Install (Review your choices page)
+2026-10-20T00:22:00Z Install clicked at 00:21:26; installer progress: Copying files (slideshow). Owner asked to approve the third-party downloads
+2026-10-20T00:35:31Z owner approved the downloads of Fedora 44 Workstation Live and Debian 13.7.0 netinst (openSUSE and the Debian DVD were not approved)
+2026-10-20T00:36:06Z Installation complete page first recorded at 00:31:28 (install click 00:21:26: 10 min 02 s, frames about 3 s apart); the screen waited for me until 00:35:xx
+2026-10-20T00:36:06Z click 720 641 Restart now
+2026-10-20T00:38:48Z Restart now clicked at about 00:36:06; shutdown took about 1.5 min; the firmware booted the ISO again (the medium was still attached: the VM cannot eject it). Stopping the VM and starting it without the ISO, as removing the stick would
+2026-10-20T00:38:48Z VM stopped
+2026-10-20T00:38:48Z VM start (power on): -
+2026-10-20T00:39:34Z installed system: GDM greeter shown (power-on 00:38:48, greeter by 00:39:25)
+2026-10-20T00:39:34Z click 640 350 user: FTUE Tester
+2026-10-20T00:39:41Z typed the throwaway password from a file (not shown)
+2026-10-20T00:39:42Z key ret sign in
+2026-10-20T00:40:27Z first sign-in desktop (pressed Enter 00:39:42): full-screen Welcome to Ubuntu 26.04.1 LTS (gnome-initial-setup) and a Software Updater banner: 72 Updates Available; seen 00:40:16
+2026-10-20T00:40:28Z click 1144 55 Next (Welcome to Ubuntu)
+2026-10-20T00:40:40Z click 1146 55 Skip (Ubuntu Pro, default Skip for now)
+2026-10-20T00:40:53Z click 1144 55 Next (Location Services off, default)
+2026-10-20T00:41:05Z click 1144 55 Next (Help Improve Ubuntu: both off, default)
+2026-10-20T00:41:17Z click 1144 55 Next (Appearance: default)
+2026-10-20T00:41:31Z click 1140 55 Finish (Ready to go page): first-run flow was 6 pages
+2026-10-20T00:46:44Z screen blanked at 00:46:33, 5 min 02 s after the last input (Finish click 00:41:31); waking with a pointer move
+2026-10-20T00:46:58Z pointer move showed the lock screen (the session had locked with the blank)
+2026-10-20T00:46:59Z key shift 
+2026-10-20T00:47:05Z typed the throwaway password from a file (not shown)
+2026-10-20T00:47:06Z key ret unlock
+2026-10-20T00:47:19Z unlocked; opening a terminal (ctrl+alt+t) to read the installed facts through the text channel
+2026-10-20T00:47:19Z key ctrl+alt+t 
+2026-10-20T00:47:41Z type: (curl -s 10.0.2.2:8800/f.sh || wget -qO- 10.0.2.2:8800/f.sh) | sh -s ubuntu-installed
+2026-10-20T00:47:41Z key ret run the read-only facts script (text channel)
+2026-10-20T00:48:17Z facts collected: system running, 0 failed units, graphical.target 21.0 s of userspace, ufw service active, ports only on localhost; autostart includes ubuntu-advantage-notification, ubuntu-report-on-upgrade, update-notifier
+2026-10-20T00:48:17Z end of the Ubuntu run: stopping the VM and the recorder
+2026-10-20T00:48:17Z VM stopped
+2026-10-20T00:48:17Z recorder stop requested
