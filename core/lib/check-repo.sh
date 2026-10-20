@@ -231,7 +231,8 @@ echo "── setup portal, Ubuntu 26.04 backend, ISO layer split and model tooli
 # Each suite exits 0 = passed, 2 = cannot run here (reported, not failed), anything else = failed. They cover: the shared setup-portal
 # payload (core/headless/tests/payload), the ci_setup library (quick run), the layer split (Part A: pure helpers; Part B runs only with
 # SPLIT_TEST_CHROOT, in a container), the installed-boot smoke test's self-test, the OS-side model adapter (core/lib/ci-os-models.sh), and the
-# Ubuntu 26.04 port's own suites: the os-release writer's golden files, the ROCm and LACT helpers, customize-chroot.sh's base-release guard and
+# Ubuntu 26.04 port's own suites: the os-release writer's golden files, the ROCm and LACT helpers, the Strix Halo GRUB boot-parameter rewrite
+# (rehearsed on throwaway files; it needs GNU sed and bash 4, so a Mac reports it as "cannot run here"), customize-chroot.sh's base-release guard and
 # step order (it refuses a 24.04 base: ci_os_base_is_supported), the headless package's dependencies, the gnome-shell theme overlay decision and
 # the gresource provenance (these two need the glib tools), the live GRUB menu's modules against the signed GRUB's built-in list, and the
 # untracked-file guard's own test. The heavy parts (Part B of the split test, verify-installer-base.sh, no-dracut-pin.sh, about-logo-svg.sh,
@@ -245,6 +246,7 @@ for suite in \
   "OS model adapter|bash backends/ubuntu/chroot/tests/models-all.sh" \
   "os-release writer, golden files|bash backends/ubuntu/lib/tests/os-release-golden.sh" \
   "ROCm driver installer|bash backends/ubuntu/lib/tests/install-rocm-driver.sh" \
+  "Strix Halo boot parameters (GNU sed)|bash backends/ubuntu/lib/tests/strix-halo-boot-params.sh" \
   "LACT release lookup|bash backends/ubuntu/lib/tests/lact-release.sh" \
   "customize-chroot guards (26.04 base only)|bash backends/ubuntu/chroot/tests/customize-chroot-checks.sh" \
   "first-boot-units containment self-test|bash backends/ubuntu/chroot/tests/first-boot-units-boot.sh --selftest" \

@@ -513,7 +513,8 @@ otherwise shows up only after a one-hour build (or in `verify-iso.sh`, which the
 | `core/lib/tests/*.sh` | `ci_grub_nearest_color`, `ci_divert_file`, `check-untracked-deps.sh` | `untracked-deps.sh`: the fast gate; the others manual |
 
 The Ubuntu 26.04 backend's other suites, outside this directory. `check-repo.sh` runs these on any host (a suite that needs a tool the
-host lacks exits 2 and is reported as "cannot run here", not failed): `backends/ubuntu/lib/tests/{os-release-golden,install-rocm-driver,lact-release,shell-theme}.sh`,
+host lacks exits 2 and is reported as "cannot run here", not failed): `backends/ubuntu/lib/tests/{os-release-golden,install-rocm-driver,strix-halo-boot-params,lact-release,shell-theme}.sh`
+(`strix-halo-boot-params.sh` rehearses `lib/strix-halo-boot-params.sh` on throwaway GRUB files and needs GNU sed and bash 4, so it exits 2 on a Mac),
 `backends/ubuntu/chroot/tests/customize-chroot-checks.sh` (the refusal of a base that is not Ubuntu 26.04, 24.04 included),
 `backends/ubuntu/headless-package/tests/control-depends.sh`, `core/render/tests/gresource-provenance.sh` and `core/lib/tests/untracked-deps.sh`.
 These are manual, in a throw-away `ubuntu:26.04` container (command in each header): `backends/ubuntu/chroot/tests/no-dracut-pin.sh` (apt, simulated),

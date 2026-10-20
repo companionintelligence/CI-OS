@@ -501,8 +501,10 @@ Without reimaging, the Ubuntu backend's scripts convert a machine you already ha
 Strix Halo class machine (Ryzen AI Max, gfx1151 or Radeon 8060S, at least about 32 GB of RAM): it installs ROCm and LACT from the Ubuntu
 26.04 archive and the inbox amdgpu driver, and adds `iommu=pt amdgpu.gttsize=<N> ttm.pages_limit=<M>` to the kernel command line
 so the amdgpu driver can address most of system RAM as GPU-visible memory, which is needed for local-LLM/ROCm/Vulkan workloads on
-these unified-memory APUs (a reboot is needed; set the BIOS integrated-graphics memory to its smallest option). Anywhere else it
-changes nothing. The theme
+these unified-memory APUs (a reboot is needed; set the BIOS integrated-graphics memory to its smallest option). On a machine that has
+AMD's out-of-tree DKMS amdgpu driver it adds `amdttm.pages_limit=<M>` too, because that driver uses its own copy of the memory manager,
+which ignores `ttm.pages_limit` (run `backends/ubuntu/lib/strix-halo-boot-params.sh` again after installing or removing that driver).
+Anywhere else it changes nothing. The theme
 steps run in a fixed order: plymouth, grub, dconf, terminal, wallpaper, session, start-icon, about-logo, os-release, names, motd. Palette and
 assets: [`assets/branding/brand-guidelines.md`](assets/branding/brand-guidelines.md). `pull-dev-manual.sh` at the root is a thin
 wrapper around `core/lib/ci-hub.sh` for manual CI-Hub deploys: inputs, ports and the security notes are in the

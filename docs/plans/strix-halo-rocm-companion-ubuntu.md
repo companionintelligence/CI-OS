@@ -15,7 +15,8 @@ Evidence tags: **[V]** verified (read in the cited file, or run), **[R]** record
 * The ISO does not bake ROCm in. It ships a wrapper, `ci-os-install-rocm` (`customize-chroot.sh`, Step 6), and ROCm is installed after the install by `provision.sh` (tier `hardware`, line 1682), by that wrapper, or by
   `ci-os-post-validation.sh` after pairing. [V]
 * The GTT boot parameters (`iommu=pt amdgpu.gttsize=... ttm.pages_limit=...`) that unlock large unified memory are applied by `backends/ubuntu/lib/strix-halo-boot-params.sh` (called from `provision.sh`, line 1695). They exist **only in
-  the Ubuntu edition**; the CachyOS edition has no equivalent. [V]
+  the Ubuntu edition**; the CachyOS edition has no equivalent. [V] On a node that has AMD's DKMS amdgpu driver the script adds `amdttm.pages_limit=...` too (that driver's own copy of TTM ignores
+  `ttm.pages_limit`); neither option below installs that driver, so with the inbox driver the three parameters above are all it writes. [V]
 * The CachyOS edition gets ROCm from Arch's own `extra` repository through the frozen Arch provisioning engine (`backends/arch/provision/provision.sh`, decision D8). It is a third source and is not part of this decision.
 
 ## 2. Option A: the Ubuntu archive's ROCm 7.1 (what the build and the helper do today)
