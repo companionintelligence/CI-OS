@@ -65,6 +65,17 @@
 # appending freshly computed ones, and only rewrites /etc/default/grub + runs
 # update-grub when the resulting line actually changes.
 #
+# THE OTHER PARAMETERS ON THE LINE ARE DATA: they come back exactly as they
+# were, and the line is written by grub_default_with_line below, which hands
+# it to printf as an argument, so no tool reads anything in it as syntax. It
+# used to be written by sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|${new_line}|",
+# where & stands for the matched text, a backslash escapes and | ends the
+# expression. Reproduced with GNU sed 4.9 on 2026-10-19: foo=a&b corrupted the
+# line while the script still exited 0 and ran update-grub; foo=a|b made sed
+# fail; a backslash-n split the line in two; and an escaped \` or \$ lost its
+# backslash, so an escaped backtick became a command that update-grub (it
+# sources this file as root) would run.
+#
 # Can be run standalone or invoked from provision.sh.
 #
 # Usage:
@@ -115,6 +126,27 @@ amdgpu_dkms_present() {
     return 0
   fi
   return 1
+}
+
+# Prints the file $1 with every line that sets GRUB_CMDLINE_LINUX_DEFAULT replaced by the line $2 and every other line as it was,
+# a last line without a newline included. A line reaches printf only as an argument and is read with IFS= and -r, so nothing in
+# it (& | \ $ ` " ' % *) is read as syntax. read drops a NUL byte, which this shell fragment does not have. Returns 1 when a
+# write fails.
+grub_default_with_line() {
+  local line eol
+  while :; do
+    if IFS= read -r line; then
+      eol=$'\n'
+    elif [[ -n "$line" ]]; then
+      eol=""
+    else
+      return 0
+    fi
+    case "$line" in
+      GRUB_CMDLINE_LINUX_DEFAULT=*) printf '%s%s' "$2" "$eol" || return 1 ;;
+      *) printf '%s%s' "$line" "$eol" || return 1 ;;
+    esac
+  done <"$1"
 }
 
 if [[ $(id -u) -ne 0 ]]; then
@@ -193,7 +225,17 @@ fi
 
 cp "$GRUB_DEFAULT_FILE" "${GRUB_DEFAULT_FILE}.bak.$(date +%Y%m%d_%H%M%S)"
 new_line="GRUB_CMDLINE_LINUX_DEFAULT=\"${new_value}\""
-sed -i "s|^GRUB_CMDLINE_LINUX_DEFAULT=.*|${new_line}|" "$GRUB_DEFAULT_FILE"
+
+# Swap the file in one rename, as sed -i did, so a failure leaves the old one as it was: the new content is written to a file
+# beside it that starts as a copy of it (cp -p, so the mode and owner carry over) and is renamed over it.
+grub_tmp="${GRUB_DEFAULT_FILE}.tmp.$$"
+if ! { cp -p -- "$GRUB_DEFAULT_FILE" "$grub_tmp" \
+       && grub_default_with_line "$GRUB_DEFAULT_FILE" "$new_line" >"$grub_tmp" \
+       && mv -f -- "$grub_tmp" "$GRUB_DEFAULT_FILE"; }; then
+  rm -f -- "$grub_tmp"
+  echo "[-] Could not rewrite ${GRUB_DEFAULT_FILE}; the file was left as it was and update-grub was not run." >&2
+  exit 1
+fi
 echo "[+] Updated ${GRUB_DEFAULT_FILE}: ${new_line}"
 
 if command -v update-grub >/dev/null 2>&1; then
