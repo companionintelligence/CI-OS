@@ -1,0 +1,25 @@
+ ! an amd64 image on an arm64 host: the container is arm64 and the image's x86-64 programs run through the Docker VM's Rosetta binfmt (the route that built and verified the amd64 image). A release image comes from an x86-64 host
+
+==> Companion OS 1.0, amd64, from commit 66ff6e8  ->  <scratch>
+
+==> clean checkout of the commit
+  913 files in <tmp>
+
+==> starting the ubuntu:26.04 container (privileged, platform linux/arm64)
+
+==> installing the build dependencies
+
+==> building companion-os-1.0-amd64.iso (about 10 to 15 minutes natively; the log is <scratch>)
+  built in 1142 s
+
+==> verifying the image (verify-iso.sh with the stock ISO and the brand canon required)
+  == Summary: 454 passed, 0 failed
+
+==> copying the image out
+
+  73325b9660078c02403b43068f6a08dfdb1de37b646340616f767aedc43e490c  companion-os-1.0-amd64.iso
+  7086276608 bytes, built from commit 66ff6e8
+
+Next: publish it (a dry run first; docs/guides/release-checklist.md, "Publishing to R2"):
+  backends/ubuntu/iso/scripts/publish-r2.sh --dir <scratch> --version 1.0 --channel dev
+build-in-docker exit 0
