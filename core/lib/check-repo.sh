@@ -234,8 +234,9 @@ echo "── setup portal, Ubuntu 26.04 backend, ISO layer split and model tooli
 # Ubuntu 26.04 port's own suites: the os-release writer's golden files, the ROCm and LACT helpers, the Strix Halo GRUB boot-parameter rewrite
 # (rehearsed on throwaway files; it needs GNU sed and bash 4, so a Mac reports it as "cannot run here"), customize-chroot.sh's base-release guard and
 # step order (it refuses a 24.04 base: ci_os_base_is_supported), the headless package's dependencies, the gnome-shell theme overlay decision and
-# the gresource provenance (these two need the glib tools), the live GRUB menu's modules against the signed GRUB's built-in list, and the
-# untracked-file guard's own test. The heavy parts (Part B of the split test, verify-installer-base.sh, no-dracut-pin.sh, about-logo-svg.sh,
+# the gresource provenance (these two need the glib tools), the live GRUB menu's modules against the signed GRUB's built-in list, the quiet
+# (Ubuntu Pro, Canonical telemetry) and appearance (dark, green) defaults with the real sections 6b and 6c of verify-iso.sh run on fake roots,
+# and the untracked-file guard's own test. The heavy parts (Part B of the split test, verify-installer-base.sh, no-dracut-pin.sh, about-logo-svg.sh,
 # visible-names.sh and the other container tests, the installed-boot boot, the hwsim harness stick/tests/qemu/hotspot-hwsim.sh,
 # `ci-stick models lock --check`) are manual: see their READMEs and backends/ubuntu/iso/README.md "Script tests".
 for suite in \
@@ -255,6 +256,7 @@ for suite in \
   "dock favourites list|bash backends/ubuntu/lib/tests/dock-favorites.sh" \
   "Ubuntu Pro and telemetry quieting|bash backends/ubuntu/lib/tests/quiet-canonical.sh" \
   "GNOME appearance defaults|bash backends/ubuntu/lib/tests/appearance.sh" \
+  "verify-iso.sh sections 6b and 6c, real blocks on fake roots|bash backends/ubuntu/iso/tests/verify-quiet-appearance.sh" \
   "Companion links and welcome|bash backends/ubuntu/lib/tests/start-links.sh" \
   ".deb member names (needs dpkg-deb)|bash backends/ubuntu/lib/tests/deb-members.sh" \
   "first-boot wait-quiet|bash backends/ubuntu/chroot/tests/wait-quiet.sh" \

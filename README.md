@@ -46,7 +46,7 @@ The support policy and the full capability matrix are in [`docs/architecture/sup
 | Build host | Ubuntu 26.04 as root; a privileged container on a Mac | Any host with Docker |
 | Package source | Ubuntu archive at build time, vendor apt repositories with pinned keys | CachyOS and Arch repositories, rolling, on build day and again on install day |
 | Installer | Canonical's installer, plus "Install Companion OS (automatic)" | Calamares, online only |
-| One-click install | Yes: **[V]** on the arm64 image in a virtual machine (dialog, install in 12 min 10 s, power-off, installed boot); **[I]** on amd64 (204 unit tests, not driven on a booted ISO) | No **[N]** |
+| One-click install | Yes: **[V]** on the arm64 image in a virtual machine (dialog, install in 12 min 10 s, power-off, installed boot); **[I]** on amd64 (207 unit tests, not driven on a booted ISO) | No **[N]** |
 | Companion Stick boot | Yes. The stock 26.04.1 ISO boots from a stick under Secure Boot to early systemd **[V]**; a Companion image on a stick **[I]** | No **[N]**: the stick's boot menu is built for casper |
 | Secure Boot | Inherited from the base ISO **[I]** | No **[N]**: unsigned GRUB and kernels |
 | Hotspot setup | `setup-device` package, installed system **[I]** | Payload staged by the installer **[I]** |
