@@ -156,7 +156,7 @@ Use Rufus and choose **DD Image** mode if it asks, or balenaEtcher. Neither was 
 
 This erases **one internal disk** and installs with one question.
 
-1. Boot the stick and choose **Install Companion OS (automatic)**. The live session starts and the dialog opens by itself. From the normal entry, click **Install Companion OS (automatic)**, which is first in the dock and in the app grid (Ubuntu 26.04's live session draws no desktop icons).
+1. Boot the stick and choose **Install Companion OS (automatic)**. The live session starts and the dialog opens by itself. From the normal entry, click **Install Companion OS (automatic)**, which is first in the dock and in the app grid (Ubuntu 26.04's live session draws no desktop icons). Canonical's installer window does not open by itself in either case.
 2. The dialog **names the disk**: model, size, device, and **everything found on it** (each partition and filesystem, any RAID or LUKS signature), lists the other disks that will be left alone, and shows a **one-time password** for the user `companion`. Write the password down. **Enter never confirms: the default is Cancel.**
 3. With more than one internal disk you first pick one from a list; nothing is guessed.
 4. The dialog says which language, keyboard and time zone it will use (English, US and automatic detection unless you change them). To change them press **Language, keyboard, time zone...**, pick a row, search the list by typing, and press **Done**; choosing a language also suggests its keyboard and, for a country with one time zone, that zone. The dialog comes back with your choice and the same password.
@@ -172,7 +172,7 @@ What it refuses: the disk it booted from, the stick, any disk that carries a Com
 
 ### B. Interactive installer
 
-1. Choose **Try or Install Companion OS**. Canonical's installer opens in the live session; if you closed it, start it again from the dock.
+1. Choose **Try or Install Companion OS**, open the application grid and start **Install Companion OS** (Canonical's installer; the dock has only the automatic launcher), or press **Use the normal installer** in the automatic dialog. The live session no longer opens Canonical's window by itself.
 2. Follow Canonical's pages: language, keyboard, network, updates and applications, the type of installation, disk, account (name, computer name, user, password), time zone, review. The page order was seen on the retired 24.04.5 image; the 26.04.1 snap is a newer revision, so the pages may differ (**[N]**, frames pending).
 3. Choose **Erase disk and install** unless you are partitioning by hand (dual boot and manual partitioning are possible here and not in the automatic path). Recommended manual layout: an EFI partition of 512 MB (FAT32), `/` of at least 50 GB, the rest for `/home`, swap if you want hibernation.
 4. Wait for the installation, then restart and remove the stick. The retired baseline took hours under emulation; the time on real hardware is unmeasured.
@@ -303,7 +303,7 @@ A pull that fails for lack of space leaves a partial download; free space and ru
 - **Reinstall.** Boot the stick again and repeat the install; both installers erase the target disk. Back up first.
 - **Boot problems after install.** If the machine does not boot from the disk, check the firmware boot order and that the boot mode (UEFI) matches the install. On the Ubuntu edition try disabling Secure Boot only to find out whether it is the cause.
 - **Updates.** Ubuntu edition: `sudo apt update && sudo apt upgrade`. Plasma edition: `sudo pacman -Syu` (a rolling release: update regularly, and read the pacman output before confirming).
-- **Telemetry.** The Ubuntu edition removes `ubuntu-report`, `popularity-contest`, `apport` and `whoopsie` and blocks the metrics hosts in `/etc/hosts`. Both editions ship no host firewall that blocks the setup portal; the Ubuntu edition has `ufw` installed but disabled.
+- **Telemetry and Ubuntu Pro.** The Ubuntu edition removes `ubuntu-report`, `popularity-contest`, `apport` and `whoopsie`, blocks the metrics, popcon, error-report and motd hosts in `/etc/hosts`, defaults GNOME's error reports and usage statistics to off, and never prompts for Ubuntu Pro: the Pro client's apt news and timers are off in `/etc/ubuntu-advantage/uaclient.conf`, its apt hook, login-text adverts and notification are switched off, the timers that call Canonical (`ua-timer`, `apt-news`, `esm-cache`, `motd-news`) are masked, and `ubuntu-insights` is purged or has its units masked (`backends/ubuntu/lib/quiet-canonical.sh`). `sudo pro attach` still works; to bring a timer back run `sudo systemctl unmask <unit>`, and to bring the apt hook back `sudo dpkg-divert --local --rename --remove /etc/apt/apt.conf.d/20apt-esm-hook.conf`. A machine that is already attached to a subscription keeps its Pro client. Both editions ship no host firewall that blocks the setup portal; the Ubuntu edition has `ufw` installed but disabled.
 
 ## Troubleshooting
 

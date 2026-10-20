@@ -100,7 +100,10 @@ The compiled gresource is committed to source at:
    the rootfs `C` that the next step customizes
 3. Runs `backends/ubuntu/chroot/customize-chroot.sh` on the extracted rootfs to apply:
    - OS identity (Companion OS name, version, first-boot rebrand service)
-   - Telemetry/bloatware removal
+   - Telemetry/bloatware removal, and Ubuntu Pro and Canonical's background callers quieted (Step 2c, `backends/ubuntu/lib/quiet-canonical.sh`: the Pro client's apt news and
+     timers off, its apt hook, login-text adverts and autostart notification switched off, `ua-timer`/`apt-news`/`esm-cache`/`motd-news` and the units of `ubuntu-insights` masked)
+   - **Appearance**: dark with a green accent for every user, a dconf default and a schema override (`backends/ubuntu/lib/appearance.sh`)
+   - **The live installer**: Step 7b removes the user-service link that opened Canonical's installer window by itself in the live session
    - **Branding**: copies the compiled gresource directly into the chroot at
      `/usr/share/gnome-shell/theme/Yaru/gnome-shell-theme.gresource` and
      `/usr/share/gnome-shell/gnome-shell-theme.gresource`
@@ -507,13 +510,13 @@ otherwise shows up only after a one-hour build (or in `verify-iso.sh`, which the
 | `desktop-theme/tests/plymouth-theme.sh` | the rootfs Plymouth step, its diversions | manual, throw-away container (command in its header) |
 | `tests/placeholder-layer-modes.sh` | `make_placeholder_layer`: the empty `minimal.standard.squashfs` keeps the rootfs directory modes (the live layer's modes are checked by `verify-iso.sh` section 3e and `tests/split-live-layer.sh`) | manual, privileged container (`squashfs-tools`, overlayfs) |
 | `tests/verify-logo-surfaces.sh` | the logo checks of `verify-iso.sh` (section 4b): every variant must produce the FAIL line that names its defect, so a check that is switched off cannot hide behind another that fails for the same file; the stock-wordmark checks run against a copy of the section whose sha256 constant is the variant's own file | manual, container with `python3` and a renderer |
-| `tests/verify-installer-base.sh` | `verify-iso.sh` section 3g (every check of "the installer base layer is clean", the live layer's seed), the live menu's `insmod` modules against the signed GRUB on the image (section 5, with a synthetic GRUB image from `tests/lib/make-grub-image.py`) and the Stick boot-slot size limit (section 9) each fail on the defect they are for, and so do the one-click launcher, the diverted Plymouth files (a symlinked stock copy included), the one-session check, the GNOME Shell theme (section 4d), the `/.disk/info` chain (product name, launcher label, the subiquity channel guard), the volume id, and the initrd overlay and its `plymouthd.conf` (those need `unmkinitramfs`) (226 variants on a small synthetic image, 52 of them taken from the split library's own lists; run it against weakened copies of the script to test the test: `VERIFY_ISO_SCRIPT=<copy>`, which has to sit in a tree that looks like the repo, as `weak_copy` in the test builds it) | manual, container with `xorriso squashfs-tools zstd cpio python3`, 1 to 3 minutes |
+| `tests/verify-installer-base.sh` | `verify-iso.sh` section 3g (every check of "the installer base layer is clean", the live layer's seed), the live menu's `insmod` modules against the signed GRUB on the image (section 5, with a synthetic GRUB image from `tests/lib/make-grub-image.py`) and the Stick boot-slot size limit (section 9) each fail on the defect they are for, and so do the one-click launcher, the diverted Plymouth files (a symlinked stock copy included), the one-session check, the GNOME Shell theme (section 4d), the `/.disk/info` chain (product name, launcher label, the subiquity channel guard), the volume id, and the initrd overlay and its `plymouthd.conf` (those need `unmkinitramfs`) (229 variants on a small synthetic image since 2026-10-19, 52 of them taken from the split library's own lists; the 226 older ones ran on 2026-10-18; run it against weakened copies of the script to test the test: `VERIFY_ISO_SCRIPT=<copy>`, which has to sit in a tree that looks like the repo, as `weak_copy` in the test builds it) | manual, container with `xorriso squashfs-tools zstd cpio python3`, 1 to 3 minutes |
 | `tests/split-live-layer.sh` | the split of the merged rootfs into the installer base and the live-only layer (`scripts/lib/split-live-layer.sh`): Part A the helpers on synthetic trees, Part B the whole split on a real merged rootfs and the stock layers (B1 audits the stock live layer: every live-only path is in the table or is kept-package state; then overlay of the layers equals the rootfs, no casper in the base, true `.size`, `.manifest` and `.manifest.full`) | Part A anywhere (bash 3.2 is enough); Part B manual, privileged container with the layers on a volume (command in its header); the STOCK layers merged by `extract_squashfs` stand in for a customized rootfs until a build exists |
 | `tests/installed-boot.sh` | the INSTALLED system boots: a disk built the way an install ends up from the installer base layer, initrds regenerated (initramfs-tools, as curtin does), then booted in QEMU to the greeter | manual, privileged Docker plus QEMU, minutes to tens of minutes; header has the options; `--selftest` (its parts, seconds: the boot watcher against a fake QEMU, the initrd audit, and the in-guest probe against stand-in `loginctl`, `pgrep` and `plymouth`, for GDM 46's `gdm` and GDM 50's `gdm-greeter`) and `--quick` (the static audit of the base layer, about a minute) |
 | `core/lib/tests/*.sh` | `ci_grub_nearest_color`, `ci_divert_file`, `check-untracked-deps.sh` | `untracked-deps.sh`: the fast gate; the others manual |
 
 The Ubuntu 26.04 backend's other suites, outside this directory. `check-repo.sh` runs these on any host (a suite that needs a tool the
-host lacks exits 2 and is reported as "cannot run here", not failed): `backends/ubuntu/lib/tests/{os-release-golden,install-rocm-driver,strix-halo-boot-params,lact-release,shell-theme}.sh`
+host lacks exits 2 and is reported as "cannot run here", not failed): `backends/ubuntu/lib/tests/{os-release-golden,install-rocm-driver,strix-halo-boot-params,lact-release,shell-theme,quiet-canonical,appearance}.sh`
 (`strix-halo-boot-params.sh` rehearses `lib/strix-halo-boot-params.sh` on throwaway GRUB files and needs GNU sed and bash 4, so it exits 2 on a Mac),
 `backends/ubuntu/chroot/tests/customize-chroot-checks.sh` (the refusal of a base that is not Ubuntu 26.04, 24.04 included),
 `backends/ubuntu/headless-package/tests/control-depends.sh`, `core/render/tests/gresource-provenance.sh` and `core/lib/tests/untracked-deps.sh`.
@@ -686,6 +689,7 @@ Run on the **stock** 26.04.1 ISO as a control, the 18 `BASE_FORBIDDEN` rows pass
 holds every `LIVE_REQUIRED` path, and the checks that tell a dracut-based stock base from this image's initramfs-tools one fail, as they should.
 `tests/verify-installer-base.sh` shows every check failing on the defect it is for. Run the section on every built image: a row can be wrong
 about a real base layer in a way the stock layers and a small fixture cannot show (the finalrd row once flagged a file of the kept package `mdadm`).
+Section 6b runs the audit of `backends/ubuntu/lib/quiet-canonical.sh` on the files extracted from the installed layer (the Pro client's settings, hook, login text, masked units, autostart entries, telemetry packages and hosts, GNOME's privacy defaults; 36 checks on a good image), and section 6c reads back the appearance defaults (dark, green accent) from the dconf keyfile, the schema override and the compiled dconf database. Section 3g also fails when the live layer starts Canonical's installer by itself.
 Section 8 checks the image's `md5sum.txt` (see [Disc integrity](#disc-integrity-md5sumtxt-inside-the-image)):
 every entry matches the file in the ISO, no entry names a file that is gone, and every regular file the stock convention
 lists is listed. It is `verify`'s model of casper-md5check, not a boot of the image, and says so in its output.
@@ -716,7 +720,7 @@ VERIFY_BASE_ISO=ubuntu-26.04.1-desktop-amd64.iso backends/ubuntu/iso/scripts/ver
 
 These cannot be changed by remastering the image, and `verify-iso.sh` lists them as known:
 
-- **The installer window.** It is Canonical's `ubuntu-desktop-bootstrap` snap. Its flavour list is fixed
+- **The installer window.** It is Canonical's `ubuntu-desktop-bootstrap` snap (the live session no longer opens it by itself; it is in the application grid and behind the one-click dialog's "Use the normal installer" button). Its flavour list is fixed
   (Ubuntu, Kubuntu, Lubuntu, Xubuntu, Edubuntu), so "Welcome to Ubuntu" is inside the snap. The launcher
   label ("Install Companion OS ...") is ours, via `/.disk/info`. Rebranding the window means shipping a
   modified installer snap.

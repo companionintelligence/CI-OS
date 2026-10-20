@@ -41,6 +41,7 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 | KI-27 | First install of the clean-checkout Ubuntu image (2026-10-18): the first graphical login failed twice while the first boot was still working, boot stayed "not finished" for 30+ minutes, the desktop-icons process was relaunched every 4 s, and the first-run screens and login text still carry Ubuntu branding | defect, gap | High (login) to Low (branding) | owner to assign |
 | KI-28 | The arm64 build of the Ubuntu edition (a supported architecture since 2026-10-19): built, verified (436/0), installed in 12 min and booted natively on an Apple-silicon Mac; the system reads `degraded` on non-Snapdragon hardware, Capture is absent, Secure Boot, real hardware, Stick support and a CI job are missing | gap, decision | Medium | owner to assign |
 | KI-29 | Language, keyboard and time zone in the one-click install, and first-boot progress on the desktop (2026-10-19): [V] on a fresh arm64 install in a virtual machine; no action button, English-only text, no keyboard variants, amd64 and real hardware untried | gap | Low | owner to assign |
+| KI-30 | Streamlined setup (2026-10-19): no Ubuntu Pro prompts, no Canonical telemetry, Canonical's installer window not opened by itself in the live session, dark with a green accent by default; unit-tested, not yet seen on a booted image (green or teal, Yaru GTK 3, the greeter) | decision, gap | Low | owner to assign |
 
 ## KI-01 Model pulls have no disk-space guard
 
@@ -346,7 +347,7 @@ How to read a row: **Severity** is Critical (an unauthenticated party can change
 
 Two small things the image of `4b7597d` showed (both fixed in `ee4a3b4`, above): Ubuntu's Software Updater announces "79 Updates Available" at the first sign-in (the image carries the archive of its build day), and Firefox opens its own "Firefox Privacy Notice" tab next to the Companion getting-started page.
 
-**Decision needed.** (1) Which host the Hub deploy should use. (2) Whether `ubuntu-insights` (it ran at session start; with the first-run skipped there is no consent page, so by its design nothing is uploaded) should be removed. (3) Run the same install on real hardware (KI-17).
+**Decision needed.** (1) Which host the Hub deploy should use. (2) Whether `ubuntu-insights` (it ran at session start; with the first-run skipped there is no consent page, so by its design nothing is uploaded) should be removed (answered in [KI-30](#ki-30-streamlined-setup-no-ubuntu-pro-prompts-no-canonical-telemetry-no-canonical-wizard-in-the-live-session-dark-and-green-by-default): purged when apt removes it alone, otherwise its units are masked). (3) Run the same install on real hardware (KI-17).
 
 ## KI-28 The arm64 build of the Ubuntu edition
 
@@ -392,6 +393,36 @@ German (Germany), the German keyboard and Berlin were chosen in the dialog and t
 | amd64 is untried, as is anything on real hardware | | KI-17 applies |
 
 **Not decided.** Whether the notification text is worth translating, and whether a "Open Hub" button is worth a D-Bus listener.
+
+## KI-30 Streamlined setup: no Ubuntu Pro prompts, no Canonical telemetry, no Canonical wizard in the live session, dark and green by default
+
+**Severity:** Low (nothing blocks; every row is **[I]** until a built image has been installed and looked at). **Owner:** owner to assign.
+
+**What.** The owner's request of 2026-10-19: "Streamline os setup, disable Ubuntu Pro prompting and Canonical telemetry and hide the parts of the Ubuntu wizard, make theme dark and green by default."
+Four changes on one branch (`liam/companion-os-streamline-setup`), each with a check in `verify-iso.sh` and a unit test that runs on a Mac:
+
+| Change | Where | Evidence |
+|---|---|---|
+| Ubuntu Pro and Canonical's background callers go quiet: the Pro client's apt news and timers off in `uaclient.conf`, its apt hook diverted, `88-esm-announce` and the other login-text adverts kept off, `ua-timer`/`apt-news`/`esm-cache`/`motd-news` masked, `ubuntu-insights` purged only when apt removes it alone and otherwise its units masked, every Pro and telemetry autostart entry diverted, two GNOME privacy defaults off, two more hosts blocked | `backends/ubuntu/lib/quiet-canonical.sh`, `customize-chroot.sh` Step 2c, `remove-telemetry.sh`; `verify-iso.sh` 6b | **[V]** `lib/tests/quiet-canonical.sh` (118 checks on fake roots with stub dpkg commands; 18 mutants caught), the real section 6b block run on good and broken fake roots; **[I]** on a real image: the package, unit and file names come from `dpkg -L` and patterns, not from a listing of the 26.04.1 image |
+| Canonical's installer window no longer opens by itself in the live session: the user-service link is removed (Step 7b), the dock pins only the automatic launcher, the helper starts the installer's server unit itself | `customize-chroot.sh`, `dock-favorites.txt`, `ci-os-auto-install`; `verify-iso.sh` 3g, dock | **[V]** unit tests (`customize-chroot-checks.sh` section 14, three helper tests, the dock list test); **[I]** that nothing else opens the window and that the server runs without it |
+| The installed system's first-run pages (welcome, Ubuntu Pro, Location Services, Help improve Ubuntu, Appearance, Ready to go) were already skipped by the `/etc/skel` stamps; the verifier now also reads the first-login unit of the image | `verify-iso.sh` | **[V]** arm64, `ee4a3b4` and later (KI-27); the new check is **[I]** |
+| Dark and green: `color-scheme` `prefer-dark` and `accent-color` `green` for every user, as a dconf default and a schema override | `backends/ubuntu/lib/appearance.sh`, `customize-chroot.sh` Step 3; `verify-iso.sh` 6c | **[V]** `lib/tests/appearance.sh` (20 checks); **[I]** the look on a booted image |
+
+| Item | Note |
+|---|---|
+| **Green or teal** | The brand's phthalo `#0a6358` and sage `#c5e8dc` are not GNOME accents. Green (`#3a944a`) and teal (`#2190a4`) share their hue (CIELAB hue 181 degrees; green 144, teal 220). Euclidean RGB distance says green is nearer (70 against 91), CIELAB distance says teal (dE 26; green 40). The frozen Arch backend and the backends retired on 2026-10-17 (tag `pre-retire-multidistro-2026-10-17`) chose teal and called it "a judgment call". The owner said green. One edit of `CI_OS_ACCENT_COLOR` flips it, and the test keeps any change to those two |
+| **Yaru's GTK 3 theme** | `accent-color` and `color-scheme` are followed by GTK 4 and libadwaita apps and the portal Firefox reads (upstream behaviour, not yet observed on this image **[I]**). Whether Ubuntu 26.04's Yaru GTK 3 theme follows them was not readable offline **[N]**; if a GTK 3 window stays light or orange, `gtk-theme` needs a Yaru name that exists, which this change deliberately does not guess (a missing name makes GTK apps fall back to Adwaita) |
+| **The greeter and the shell theme are unchanged** | The login screen has its own dconf database and the recoloured Yaru shell theme (phthalo and sage, built by `core/render`); neither reads the user's scheme. If the shell stylesheet uses `-st-accent-color` anywhere, those parts take GNOME's green instead of phthalo **[N]** |
+| **`ua-timer` is masked** | The Pro client stays installed and `pro attach` works, but its periodic jobs do not run. A user who attaches later runs `sudo systemctl unmask ua-timer.timer apt-news.service esm-cache.service`. A machine that is attached when `remove-telemetry.sh` runs keeps its client, hook and timers |
+| **`uaclient.conf` is a conffile that is now modified** | An upgrade of `ubuntu-pro-client` that changes the file keeps ours under unattended-upgrades (its dpkg options keep the old file **[I]**) and asks in an interactive `apt upgrade` |
+| **`ubuntu-insights`** | KI-27 asked whether to remove it. It is purged when `apt-get -s purge` removes nothing else and otherwise its units are masked; the build log says which happened (`[+] ubuntu-insights purged and held` or `[WARN] ... is not purged: apt would remove ...`) |
+| **Canonical's wizard itself** | The 13 pages and "Welcome to Ubuntu" are text in a snap and cannot be hidden by remastering. It stays reachable (application grid, "Use the normal installer"), as the advanced path (dual boot, manual partitions) |
+| **The post-install re-skin mixins are unchanged** | `backends/_mixins/gnome-dconf/25-session-gsettings.sh` still sets `com.ubuntu.update-notifier no-show-notifications false` and a `Yaru-*-dark` `gtk-theme` on a machine that runs `apply-ci-os-desktop.sh`; they are shared with the frozen Arch backend |
+| **Welcome page and dark scheme** | The Companion welcome page is `https://docs.ci.computer/docs/getting-started`, a Nextra site whose HTML carries Tailwind `dark:` variants (read with curl on 2026-10-19); whether it follows Firefox's colour scheme is its own theme provider's setting **[N]** |
+
+**What a booted image has to show** (the proof this entry is waiting for). Live session: no Canonical installer window at the desktop; "Install Companion OS (automatic)" first in the dock; from the automatic boot entry its dialog, in front, dark; `gsettings get org.gnome.desktop.interface color-scheme` is `'prefer-dark'` and `accent-color` is `'green'`; Settings > Appearance shows Dark with the green swatch; a GTK 3 window (Firefox's chrome, Software Properties) is dark. Installed system: the same two values for the new user; no first-run window and no Software Updater banner at the first sign-in; `systemctl list-unit-files 'ua-timer*' 'apt-news*' 'esm-cache*' 'motd-news*'` says masked; `ls /etc/xdg/autostart` has no `ubuntu-advantage*`, `ubuntu-report*` or `ubuntu-insights*` entry; `sudo apt update && sudo apt upgrade` prints no Ubuntu Pro, ESM or news line; `pro status` still runs; `systemctl --failed` lists no `motd-news` or Pro unit; `dpkg -l ubuntu-insights` says not installed, or its units are masked; `grep -c . /etc/hosts` shows the six blocked hosts; the build log of Step 2c shows each `[+]` line.
+
+**Decision needed.** (1) Green or teal, once seen on screen. (2) Whether the greeter should follow the scheme. (3) Whether masking `ua-timer` is acceptable for users who attach to Ubuntu Pro later.
 
 ## Also open, kept in their source pages
 
