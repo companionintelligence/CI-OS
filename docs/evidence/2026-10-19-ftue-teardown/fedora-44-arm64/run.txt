@@ -1,0 +1,38 @@
+Fedora Workstation Live 44-1.7 (aarch64), installed with its own installer and photographed from power-on. Evidence label: tested in a virtual machine (QEMU
+11.1.2, HVF, Apple-silicon Mac); not real hardware; one run. 2026-10-19 local time, times below are UTC (2026-10-20), frames about 3 s apart, event times are
+logged when the action returns.
+
+Image     Fedora-Workstation-Live-44-1.7.aarch64.iso, 2,689,781,760 bytes, sha256 162ba3c552a2d241c7c63ec26777af0255ee1b5a135adc0be986ceed999933ef (SHA256SUMS); the
+          signed CHECKSUM file of the same release lists it and gpg reports a good signature of the Fedora (44) key 36F612DC...90A6 (../verify-downloads.txt). Source
+          https://download.fedoraproject.org/pub/fedora/linux/releases/44/Workstation/aarch64/iso/ , downloaded with the owner's approval
+Harness   as for the Ubuntu run: boot-arm64-vm.sh, qmp-drive.py, record-frames.sh at 1.5 s; -smp 6 -m 8192, virtio-gpu 1280x800, the ISO as a USB drive, a new 64 GiB
+          virtual NVMe disk (qcow2 on a RAM disk)
+Host load 24.4 at the start (a one-minute average; other sessions' searches and another virtual machine were running), 5.7 at the install's end
+Frames    275 frames after the removal of byte-identical repeats, not kept
+
+00:49:07  power-on; firmware logo at 00:49:23
+00:49:26  first boot-menu frame (t0): GRUB 2.12, "Start Fedora-Workstation-Live" / "Test this media & start Fedora-Workstation-Live" (the default, highlighted) /
+          "Troubleshooting"; a countdown of about 10 s; no key was pressed, the default entry started itself (it checks the media first)
+00:49:35  "Booting 'Test this media & start Fedora-Workstation-Live'", then a black screen with QEMU's "Display output is not active." (no splash, no text) until 00:50:27
+00:50:27  the first desktop frame (t0 + 1:01): the GNOME overview; 00:51:00 (t0 + 1:34) the "Welcome to Fedora Linux" dialog, "Install Fedora Linux..." / "Not Now".
+          The installer is not open by itself
+00:51:33  Install Fedora Linux... (the first click only closed the overview); the Anaconda web UI at 00:51:48. Four steps in a list on the left: Welcome, Installation
+          method, Storage configuration, Review and install
+          Welcome: language (a search field, "Suggested languages" with English (United States) ticked), keyboard "us" with a change link. No account, no time zone, no
+          network question in the installer. Installation method: destination nvme0n1, "Use entire disk". Storage: "Encrypt my data" (unchecked). Review: the partitions
+00:52:44  Erase data and install clicked; "Installing", four stages with marks: Storage configuration, Software installation (a percentage), System configuration
+          ("Installing boot loader"), Finalization ("Generating initramfs")
+00:56:36  "Successfully installed", button "Exit to live desktop", a QR code and link for feedback (first recorded frame): install 3 min 52 s
+00:58:3x  Exit to live desktop, then Power Off from the system menu (the ISO would be booted again by a restart); the VM was started without the ISO at 00:58:59
+00:59:29  GNOME Initial Setup, first recorded frame (power-on + 31 s; no greeter before it; the desktop behind it at 00:59:25): Welcome (Start Setup) > Privacy (Location Services ON, Automatic Problem Reporting ON by default) >
+          Time Zone (set automatically from the location, a map) > Third-Party Repositories (an Enable button; Next skips) > About You (one full name typed; the user name
+          was derived) > Password (twice) > All done. 7 screens; typed values: the name and the password twice. Start Using Fedora Linux at 01:02:28
+01:02:36  the first session: the GNOME overview with a modal prompt "Welcome to Fedora Linux 44 (Workstation Edition)... check out the tour" (Skip / Take Tour). 01:03:54 Skip.
+          Nothing else opened; no notification, no tab
+01:04:38  installed-facts.txt (5 min after boot): system running, no failed unit, graphical.target after 15.2 s of userspace, firewalld active, 1958 rpm packages, 4.1 GB
+          used, 188 error-level journal lines, abrtd running, time zone America/Los_Angeles, LANG en_US.UTF-8, layout us
+01:09:39  the screen blanked, 5 min 03 s after the last input; moving the pointer showed the lock screen ("Click or press a key to unlock")
+
+What it shows: the Fedora 44 install and first run in this harness. What it does not: a second run, amd64, real hardware, the language count (not measured), a
+slow network, the installer's own time zone choice (it has none), Secure Boot.
+Credentials: the throwaway account password is a random value of this virtual machine; it is in no record here and no frame shows it (the fields show dots).

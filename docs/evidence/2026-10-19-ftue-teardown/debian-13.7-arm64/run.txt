@@ -1,0 +1,41 @@
+Debian GNU/Linux 13.7.0 (trixie) arm64 netinst, installed with the graphical installer and photographed from power-on. Evidence label: tested in a virtual
+machine (QEMU 11.1.2, HVF, Apple-silicon Mac); not real hardware; one run. 2026-10-19 local time, times below are UTC (2026-10-20), frames about 3 s apart, event
+times are logged when the action returns.
+
+Image     debian-13.7.0-arm64-netinst.iso, 735,358,976 bytes, sha256 6e93fa1759bd9d4b0fc11e938987de6967ee7de5297dac1be27c3a75cc17024b (SHA256SUMS); the signed
+          SHA256SUMS of the same directory lists it and gpg reports a good signature of the Debian CD signing key DF9B9C49...BE9B (../verify-downloads.txt). Source
+          https://cdimage.debian.org/debian-cd/current/arm64/iso-cd/ , downloaded with the owner's approval. Debian publishes no arm64 live image (debian-cd/current-live/
+          has amd64 and source only, read 2026-10-19), so this is the installer a Debian user gets on arm64; it downloads its packages from a mirror
+Harness   as for the Ubuntu run: boot-arm64-vm.sh, qmp-drive.py, record-frames.sh at 1.5 s; -smp 6 -m 8192, virtio-gpu 1280x800, the ISO as a USB drive, a new 64 GiB
+          virtual NVMe disk (qcow2 on a RAM disk)
+Host load 23.4 at the start (a one-minute average; other sessions' searches and virtual machines were running)
+Frames    269 frames after the removal of byte-identical repeats, not kept
+
+01:10:44  power-on; firmware logo 01:10:48
+01:10:52  first boot-menu frame (t0): GNU GRUB 2.12-9+deb13u2: "Install" (highlighted, the **text-mode** installer), "Graphical install", "Advanced options ...", "Accessible dark
+          contrast installer menu ...", "Install with speech synthesis"; **no countdown**: it waits for a key. Down, Enter at 01:11:10 (t0 + 18 s): Graphical install
+01:11:15  the first installer page (t0 + 23 s): "Select a language", 78 rows (77 languages and "C - No localization", counted from four scrolled frames with OCR), English preselected
+          The pages, in order, every one at its default unless noted: language > location (a shortlist by language, United States) > keyboard (American English) > network
+          configured by itself > host name ("debian") > domain name (empty) > **root password** (five paragraphs; both fields left empty so that root is locked and the user gets
+          sudo) > full name (typed) > user name (derived: "ftue") > password twice (typed) > **time zone: asked** (Eastern, Central, Mountain, Pacific, Alaska, Hawaii, Arizona, East Indiana,
+          Samoa; the list starts on Eastern; Pacific chosen) > partitioning method (Guided, use entire disk) > disk (the NVMe, the USB medium also listed) > scheme (all files in one
+          partition, "recommended for new users") > overview (RAID, LVM, encrypted volumes, iSCSI, the partitions) > "Write the changes to disks?" (default No). 15 pages
+01:17:28  Yes: the disk is written. The base system comes from the ISO in about 1 min; then **five more questions**: mirror country (United States), mirror (deb.debian.org),
+          proxy (empty), "Participate in the package usage survey?" (default No), software selection
+01:20:36  **Software selection: no desktop environment is ticked by default** (ticked: "SSH server" and "standard system utilities"); a user who only presses Continue gets a system
+          with no desktop. "Debian desktop environment" and "GNOME" were ticked. 1374 packages were fetched (a progress line "Retrieving file 822 of 1374") and installed
+01:23:52  "Installation complete ... Make sure to remove the installation media ... Please choose <Continue> to reboot" (first recorded frame): 6 min 24 s from the disk write,
+          of which about 1 min 20 s were the five questions (answered at once). Continue: the firmware booted the installer again (the medium was attached); the VM was
+          started without the ISO at 01:25:06
+01:25:13  GRUB menu with the Debian wallpaper (a 5 s countdown); 01:25:40 the greeter (power-on + 34 s): the user listed by name, "debian13" under it
+01:26:09  password typed, Enter; the session drawn at 01:26:12 (3 s) and the prompt at 01:26:14 (5 s): the GNOME overview and a modal prompt "Welcome to Debian GNU/Linux 13 (trixie) ... check out the tour"
+          (Skip / Take Tour). No first-run wizard, no notice, no browser. Skip at 01:27:2x; nothing else opened
+01:28:09  installed-facts-2min.txt, and at 01:34:41 installed-facts.txt (9 min after boot): system running, no failed unit, graphical.target after 20.6 s of userspace, **no firewall**
+          (ufw, firewalld, nftables inactive), **SSH listening on all interfaces** (port 22, the default "SSH server" box), 1565 packages, 5.0 GB used, 1 error-level journal line,
+          time zone America/Los_Angeles (chosen), LANG en_US.UTF-8, layout us; `curl` is not installed (wget is), so the facts script used its wget fallback
+01:33:10  the screen blanked, 5 min 02 s after the last input (01:28:08); moving the pointer showed the lock screen: the session had locked with it
+
+What it shows: the Debian 13.7 graphical install and first run on arm64 in this harness. What it does not: the text-mode installer, a live image (none exists for arm64), a second
+run, amd64, real hardware, what the same install does on a slow mirror.
+Credentials: the throwaway account password is a random value of this virtual machine; it is in no record here and no frame shows it (the fields show dots; "Show Password in Clear"
+was never ticked).
