@@ -1,0 +1,49 @@
+== date (UTC)
+2026-10-20T01:34:41Z
+== os-release
+Debian GNU/Linux 13 (trixie)
+kernel 6.12.113+deb13-arm64 aarch64
+== uptime and boot time
+ 18:34:41 up 9 min,  1 user,  load average: 0.21, 0.07, 0.02
+Startup finished in 499ms (kernel) + 20.597s (userspace) = 21.096s 
+graphical.target reached after 20.597s in userspace.
+== system state
+running
+== failed units (system)
+== failed units (user)
+== locale, keyboard, time zone
+LANG=en_US.UTF-8
+System Locale: LANG=en_US.UTF-8
+VC Keymap: (unset)
+X11 Layout: us
+X11 Model: pc105
+Time zone: America/Los_Angeles (PDT, -0700)
+System clock synchronized: yes
+NTP service: active
+RTC in local TZ: no
+== host name and user
+debian
+ftue
+== packages
+dpkg installed: 1565
+rpm installed: 0
+== disk and memory
+/dev/nvme0n1p3   59G  5.0G   51G   9% /
+Mem:            7930        1036        6029          28        1058        6893
+== firewall and mandatory access control
+ufw: inactive
+firewalld: inactive
+nftables: inactive
+apparmor: active
+== listening TCP ports
+0.0.0.0:22 127.0.0.1:631 [::1]:631 [::]:22 
+== journal lines at priority err or worse, this boot
+1
+== xdg autostart entries
+at-spi-dbus-bus.desktop geoclue-demo-agent.desktop gnome-keyring-pkcs11.desktop gnome-keyring-secrets.desktop gnome-keyring-ssh.desktop im-launch.desktop localsearch-3.desktop orca-autostart.desktop org.gnome.Evolution-alarm-notify.desktop org.gnome.SettingsDaemon.A11ySettings.desktop org.gnome.SettingsDaemon.Color.desktop org.gnome.SettingsDaemon.Datetime.desktop org.gnome.SettingsDaemon.DiskUtilityNotify.desktop org.gnome.SettingsDaemon.Housekeeping.desktop org.gnome.SettingsDaemon.Keyboard.desktop org.gnome.SettingsDaemon.MediaKeys.desktop org.gnome.SettingsDaemon.Power.desktop org.gnome.SettingsDaemon.PrintNotifications.desktop org.gnome.SettingsDaemon.Rfkill.desktop org.gnome.SettingsDaemon.ScreensaverProxy.desktop org.gnome.SettingsDaemon.Sharing.desktop org.gnome.SettingsDaemon.Smartcard.desktop org.gnome.SettingsDaemon.Sound.desktop org.gnome.SettingsDaemon.UsbProtection.desktop org.gnome.SettingsDaemon.Wacom.desktop org.gnome.SettingsDaemon.Wwan.desktop org.gnome.SettingsDaemon.XSettings.desktop org.gnome.Software.desktop spice-vdagent.desktop user-dirs-update-gtk.desktop xdg-user-dirs.desktop xdg-user-dirs-kde.desktop 
+== first-run and update helpers running
+gnome-software 
+== snap and flatpak counts
+snaps: 0
+flatpaks: 0
+

@@ -1,0 +1,117 @@
+{
+  "run": "2026-10-19 (local), arm64, QEMU 11.1.2 with HVF; the times are UTC of 2026-10-20",
+  "image": "debian-13.7.0-arm64-netinst.iso (sha256 6e93fa17...024b)",
+  "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware; one run",
+  "frames": [
+    {
+      "file": "01-grub-menu.png",
+      "sha256": "af1597bd3f6b7a6a4c6156581015b01da2d0017b6d7e48772b7621ed869c7e3c",
+      "bytes": 4174,
+      "size": "1280x800",
+      "alt": "The boot menu of the Debian 13.7 arm64 netinst: the text-mode Install is the default",
+      "shows": "Blue text menu, no countdown; Graphical install is the second line",
+      "stage": "boot menu",
+      "taken_approx_utc": "2026-10-20T01:10:58Z"
+    },
+    {
+      "file": "02-installer-language.png",
+      "sha256": "b183f03238298ab1a6d463aef59ae491d02b0a32d74819854166a28eea6f6c53",
+      "bytes": 82251,
+      "size": "1280x800",
+      "alt": "The graphical installer's first page: Select a language, 78 rows",
+      "shows": "There is no live session: this is the first screen",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T01:11:30Z"
+    },
+    {
+      "file": "03-installer-root-password.png",
+      "sha256": "d609643ee52e6d67b7e3985bd1e9b4fc6601c41d384d6163f284d4eb72038611",
+      "bytes": 73470,
+      "size": "1280x800",
+      "alt": "Set up users and passwords: the root password page, five paragraphs and two empty fields",
+      "shows": "Leaving both empty locks root and gives the user sudo",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T01:14:07Z"
+    },
+    {
+      "file": "04-installer-time-zone-asked.png",
+      "sha256": "696ff2499298b70536444fa41f961ad3bb9cec3643f86b34c14db248fea994b2",
+      "bytes": 57851,
+      "size": "1280x800",
+      "alt": "Configure the clock: the time zone is asked from a list that starts on Eastern",
+      "shows": "No detection; the host is in another zone",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T01:15:40Z"
+    },
+    {
+      "file": "05-installer-partition-overview.png",
+      "sha256": "9baaf9258ca76a7abe8ca4ef1d6afd6a7c42b122df5219f942172728fc59bf00",
+      "bytes": 82491,
+      "size": "1280x800",
+      "alt": "Partition disks: the overview of the guided partitioning, RAID, LVM, encrypted volumes and iSCSI above the disk",
+      "shows": "Page 14 of 15 before the disk is written",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T01:17:00Z"
+    },
+    {
+      "file": "06-installer-write-changes.png",
+      "sha256": "a6c7d082ce1521db2abcd7fb5ea8aa8e3aa30bf1bd41747a7b9fe2affbb862be",
+      "bytes": 64668,
+      "size": "1280x800",
+      "alt": "Partition disks: Write the changes to disks, default No",
+      "shows": "The point of no return, after 14 pages",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T01:17:15Z"
+    },
+    {
+      "file": "07-installer-software-selection-default.png",
+      "sha256": "e5f4d68962d2b52e013c55897702231432200693332f29bda0e71dd43c9e82e4",
+      "bytes": 65034,
+      "size": "1280x800",
+      "alt": "Software selection: no desktop environment is ticked by default",
+      "shows": "Only SSH server and standard system utilities are ticked; the frame is the default state",
+      "stage": "install",
+      "taken_approx_utc": "2026-10-20T01:20:36Z"
+    },
+    {
+      "file": "08-installer-progress.png",
+      "sha256": "b1ac1c99c39959dda9cbe88265d74b92285350354d61d63f09a16be7cec5ae76",
+      "bytes": 46425,
+      "size": "1280x800",
+      "alt": "Select and install software: a bar and the current file",
+      "shows": "Retrieving file 822 of 1374; the packages come from a mirror",
+      "stage": "install",
+      "taken_approx_utc": "2026-10-20T01:21:25Z"
+    },
+    {
+      "file": "09-installer-complete.png",
+      "sha256": "08a87cc0e73a633c330ef3f3be5aaf921b0541d5aef04f875ca08abe33820f5a",
+      "bytes": 54215,
+      "size": "1280x800",
+      "alt": "Installation complete: remove the installation media, then Continue",
+      "shows": "First recorded at 01:23:52",
+      "stage": "install",
+      "taken_approx_utc": "2026-10-20T01:24:20Z"
+    },
+    {
+      "file": "10-installed-greeter.png",
+      "sha256": "3b2a65cf69d669ca83eef976045d66b5334ceb6e2cd0d7418b7564b26e88802d",
+      "bytes": 19444,
+      "size": "1280x800",
+      "alt": "The installed system's greeter, 34 s after power-on",
+      "shows": "A Debian 13 banner under the user",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T01:25:52Z"
+    },
+    {
+      "file": "11-first-desktop-tour-prompt.png",
+      "sha256": "fee844136e98865835886ffda451ef4d7a5890af629e954b254fbdd86ac7516b",
+      "bytes": 525065,
+      "size": "1280x800",
+      "alt": "The first session: the overview with a Welcome to Debian GNU/Linux 13 tour prompt, Skip or Take Tour",
+      "shows": "The only thing the first session opens",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T01:26:39Z"
+    }
+  ]
+}

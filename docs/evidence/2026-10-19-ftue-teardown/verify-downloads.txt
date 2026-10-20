@@ -1,0 +1,35 @@
+Download and signature checks for the images of the first-run teardown (2026-10-19, local time; the machine that ran them is the Apple-silicon Mac of the QEMU runs).
+The owner approved two downloads (Fedora 44 Workstation Live aarch64, Debian 13.7.0 arm64 netinst); the Ubuntu ISO was already cached by the repository's test tooling. openSUSE was not approved and was not fetched.
+gpg reports the vendor keys as 'not certified' because this machine's keyring has no web of trust; the fingerprints were compared with the vendors' own pages instead (listed below).
+
+== Ubuntu 26.04.1 desktop arm64 (cached file; signed list fetched from cdimage.ubuntu.com/ubuntu/releases/26.04.1/release/)
+gpg: Signature made Thu Aug 27 14:26:44 2026 PDT
+gpg:                using RSA key 843938DF228D22F7B3742BC0D94AA3F0EFE21092
+gpg: Good signature from "Ubuntu CD Image Automatic Signing Key (2012) <cdimage@ubuntu.com>" [unknown]
+      843938DF228D22F7B3742BC0D94AA3F0EFE21092
+c54d196489d3c867975fb3bbb72ca52ec2e137456e305481f81096304e4d2517 *ubuntu-26.04.1-desktop-arm64.iso
+c54d196489d3c867975fb3bbb72ca52ec2e137456e305481f81096304e4d2517  <home>/.../ubuntu-26.04.1-desktop-arm64.iso
+size 4154798080 bytes
+key fingerprint 843938DF228D22F7B3742BC0D94AA3F0EFE21092 = Ubuntu CD Image Automatic Signing Key (2012), listed at https://ubuntu.com/tutorials/how-to-verify-ubuntu (key fetched from keyserver.ubuntu.com); the repository's earlier records name the same key (docs/architecture/arm64.md)
+
+== Fedora Workstation Live 44-1.7 aarch64 (https://download.fedoraproject.org/pub/fedora/linux/releases/44/Workstation/aarch64/iso/)
+gpg: Signature made Fri Apr 24 08:36:05 2026 PDT
+gpg:                using RSA key 36F612DCF27F7D1A48A835E4DBFCF71C6D9F90A6
+gpg: Good signature from "Fedora (44) <fedora-44-primary@fedoraproject.org>" [unknown]
+      36F612DCF27F7D1A48A835E4DBFCF71C6D9F90A6
+Hash: SHA256
+# Fedora-Workstation-Live-44-1.7.aarch64.iso: 2689781760 bytes
+SHA256 (Fedora-Workstation-Live-44-1.7.aarch64.iso) = 162ba3c552a2d241c7c63ec26777af0255ee1b5a135adc0be986ceed999933ef
+162ba3c552a2d241c7c63ec26777af0255ee1b5a135adc0be986ceed999933ef  Fedora-Workstation-Live-44-1.7.aarch64.iso
+size 2689781760 bytes
+key fingerprint 36F612DCF27F7D1A48A835E4DBFCF71C6D9F90A6 = Fedora (44) primary key, listed under Fedora 44 at https://fedoraproject.org/security (key file https://fedoraproject.org/fedora.gpg)
+
+== Debian 13.7.0 arm64 netinst (https://cdimage.debian.org/debian-cd/current/arm64/iso-cd/)
+gpg: Signature made Sat Sep 12 09:20:49 2026 PDT
+gpg:                using RSA key DF9B9C49EAA9298432589D76DA87E80D6294BE9B
+gpg: Good signature from "Debian CD signing key <debian-cd@lists.debian.org>" [unknown]
+      DF9B9C49EAA9298432589D76DA87E80D6294BE9B
+6e93fa1759bd9d4b0fc11e938987de6967ee7de5297dac1be27c3a75cc17024b  debian-13.7.0-arm64-netinst.iso
+6e93fa1759bd9d4b0fc11e938987de6967ee7de5297dac1be27c3a75cc17024b  debian-13.7.0-arm64-netinst.iso
+size 735358976 bytes
+key fingerprint DF9B9C49EAA9298432589D76DA87E80D6294BE9B = Debian CD signing key (2011), listed at https://www.debian.org/CD/verify (key file https://www.debian.org/CD/key-DA87E80D6294BE9B.txt)

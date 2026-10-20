@@ -1,0 +1,147 @@
+{
+  "run": "2026-10-19 (local), arm64, QEMU 11.1.2 with HVF; the times are UTC of 2026-10-20",
+  "image": "ubuntu-26.04.1-desktop-arm64.iso (stock, sha256 c54d1964...2517)",
+  "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware; one run",
+  "frames": [
+    {
+      "file": "01-grub-menu.png",
+      "sha256": "c632edd4486bb001165fc0fbe0f2a98124fe297e20b2574a3f83182c222292e5",
+      "bytes": 4649,
+      "size": "1280x800",
+      "alt": "The boot menu of the stock Ubuntu 26.04.1 arm64 ISO",
+      "shows": "Plain white-on-black GRUB: Try or Install Ubuntu, Boot from next volume, UEFI Firmware Settings, and a 30 second countdown",
+      "stage": "boot menu",
+      "taken_approx_utc": "2026-10-20T00:15:52Z"
+    },
+    {
+      "file": "02-live-boot-text-log.png",
+      "sha256": "a87bc6445ebed5ac36679e22dd6e72b5e6e7d0343dc5fb830a24177a1fcbfc92",
+      "bytes": 14642,
+      "size": "1280x800",
+      "alt": "The live session's boot log in plain text, about 30 s after Enter",
+      "shows": "systemd lines, cloud-init and snap seeding scroll by; there is no splash (the arm64 menu line carries console=tty0)",
+      "stage": "live boot",
+      "taken_approx_utc": "2026-10-20T00:16:29Z"
+    },
+    {
+      "file": "03-installer-language.png",
+      "sha256": "252b116411727dfd3a420b687309d6d2036dfde1a908f579dfe1fb839effc75b",
+      "bytes": 317292,
+      "size": "1280x800",
+      "alt": "Canonical's installer window, open by itself on the live desktop: Choose your language",
+      "shows": "Page 1 of 13; English preselected; the wallpaper is Ubuntu's",
+      "stage": "live desktop",
+      "taken_approx_utc": "2026-10-20T00:17:10Z"
+    },
+    {
+      "file": "04-installer-try-or-install.png",
+      "sha256": "671a7c31fc1c8b0c9aa55edb73befd7980c2b72d834725f96e4258e9ea1262a1",
+      "bytes": 379905,
+      "size": "1280x800",
+      "alt": "Installer page 5: What do you want to do with Ubuntu, Install Ubuntu or Try Ubuntu",
+      "shows": "The fork between the live session and the install is page 5 of 13",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T00:17:57Z"
+    },
+    {
+      "file": "05-installer-create-account.png",
+      "sha256": "5e6efbdba109b1503d5713ffc6fda667296c13754528ba51083d58424ec2e137",
+      "bytes": 363123,
+      "size": "1280x800",
+      "alt": "Installer page 11: Create your account, a name typed, the computer name and the user name filled in",
+      "shows": "The password fields show dots; the Show button was never pressed",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T00:20:37Z"
+    },
+    {
+      "file": "06-installer-review.png",
+      "sha256": "9aa1c67d6b75854cbe2d29227e7a3173d177272533afa8ca403cd0d129d65469",
+      "bytes": 383378,
+      "size": "1280x800",
+      "alt": "Installer page 13: Review your choices, with the Install button",
+      "shows": "Lists the disk, the applications, encryption and the partitions",
+      "stage": "installer",
+      "taken_approx_utc": "2026-10-20T00:21:14Z"
+    },
+    {
+      "file": "07-installer-progress.png",
+      "sha256": "299f6928373ed5a5dd018d410d950fcb2c8dad444177e78369c6c753fb482e58",
+      "bytes": 383988,
+      "size": "1280x800",
+      "alt": "The install in progress: a slideshow and a segmented bar with Copying files",
+      "shows": "No percentage and no named stages",
+      "stage": "install",
+      "taken_approx_utc": "2026-10-20T00:21:34Z"
+    },
+    {
+      "file": "08-installer-complete.png",
+      "sha256": "d34c7decfcb3c9be5ee86ad363a3f299b5237dc51374985afb411a52079713df",
+      "bytes": 357292,
+      "size": "1280x800",
+      "alt": "Installation complete: Restart now or Continue testing",
+      "shows": "First recorded at 00:31:28, so this frame is 4 minutes after the page appeared; it does not mention the USB stick",
+      "stage": "install",
+      "taken_approx_utc": "2026-10-20T00:35:31Z"
+    },
+    {
+      "file": "09-installed-greeter.png",
+      "sha256": "158b66d1e713b82ffda63b1f91a0b00be23f02def12809bb71b3b96df473ab5a",
+      "bytes": 17552,
+      "size": "1280x800",
+      "alt": "The installed system's greeter, 30 s after power-on",
+      "shows": "The user is listed by the name typed in the installer",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T00:39:25Z"
+    },
+    {
+      "file": "10-first-sign-in-welcome-updater-banner.png",
+      "sha256": "13867116808ad5705713396dd75e094a4c032f4d67d98af41c5b0015d3b7b047",
+      "bytes": 269861,
+      "size": "1280x800",
+      "alt": "First sign-in: a full-screen Welcome to Ubuntu 26.04.1 LTS and a Software Updater banner, 72 Updates Available",
+      "shows": "The first page of the 6-page first-run wizard",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T00:40:16Z"
+    },
+    {
+      "file": "11-first-run-ubuntu-pro.png",
+      "sha256": "17a60eb7245fcb6117e3842bd8cf9b96d0e7b79f9277506c0895c652a619337c",
+      "bytes": 226037,
+      "size": "1280x800",
+      "alt": "First-run wizard: Enable Ubuntu Pro, with Skip for now preselected",
+      "shows": "An upsell page; the default is to skip",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T00:40:33Z"
+    },
+    {
+      "file": "12-first-run-help-improve-ubuntu.png",
+      "sha256": "6d8ea03ca0dc7ea263aaaeb26127650c4f4e2c661d425352988f9a748280a9b7",
+      "bytes": 245197,
+      "size": "1280x800",
+      "alt": "First-run wizard: Help Improve Ubuntu, system data and error reports, both off",
+      "shows": "The telemetry questions, both off by default",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T00:40:58Z"
+    },
+    {
+      "file": "13-first-run-ready-to-go.png",
+      "sha256": "821669e5424100fcc25fae467dc57c3846ac256f4b3c6d26a13f3bc1dc6d7a83",
+      "bytes": 250108,
+      "size": "1280x800",
+      "alt": "First-run wizard: Ready to go, Get started with more applications",
+      "shows": "The last page before the desktop",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T00:41:22Z"
+    },
+    {
+      "file": "14-desktop-after-first-run.png",
+      "sha256": "caca6b85faaa060095844a4800f8dd4d6932a0d839b2a9840513b96e10eefd54",
+      "bytes": 798426,
+      "size": "1280x800",
+      "alt": "The desktop after the wizard: nothing open, no notice",
+      "shows": "The raccoon wallpaper of the stock image",
+      "stage": "first start",
+      "taken_approx_utc": "2026-10-20T00:42:03Z"
+    }
+  ]
+}
