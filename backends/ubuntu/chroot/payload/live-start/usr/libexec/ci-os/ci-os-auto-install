@@ -4,7 +4,8 @@
 The user clicks "Install Companion OS (automatic)". This tool picks the internal disk, shows ONE
 confirmation that names the disk and what is on it, and then drives Canonical's own installer
 (ubuntu-desktop-bootstrap's subiquity server) through its autoinstall path with no further questions:
-English, US keyboard, time zone from geoip, the Default application selection, "Erase disk and install".
+English, US keyboard, the time zone geoip.ubuntu.com gives for the machine's internet address (asked here, once, after the click:
+the installer does not apply a "geoip" it is handed in an autoinstall file), the Default application selection, "Erase disk and install".
 The confirmation has one more button, "Language, keyboard, time zone...", that changes those first three.
 
 It does not replace or modify the installer. It writes an autoinstall file, restarts the installer's
@@ -30,7 +31,7 @@ Safety rules (each one is tested in backends/ubuntu/chroot/tests/test_auto_insta
 Usage:
   ci-os-auto-install                 interactive (zenity), the normal entry point
   ci-os-auto-install --plan          print the chosen disk and the autoinstall file (password hash masked),
-                                     change nothing. Exit 0, or 3 when no safe disk exists
+                                     change nothing (a "geoip" time zone is looked up, as in a real run). Exit 0, or 3 when no safe disk exists
   --locale de_DE.UTF-8 --keyboard de --timezone Europe/Berlin
                                      the starting answers of the dialog (and of --plan); default en_US.UTF-8, us, geoip
   ci-os-auto-install --disks         print the candidate/excluded disk table
@@ -589,6 +590,64 @@ def describe_region(region, data):
     zone_text = "detected automatically" if zone == DEFAULT_ZONE else label_of(data["zones"], zone)
     return (f"{label_of(data['locales'], region['locale'])}, keyboard: {label_of(data['layouts'], region['layout'])}, "
             f"time zone: {zone_text}")
+
+
+# ── the time zone "geoip" ──
+# "Detected automatically" is not something the installer does for this tool. `timezone: geoip` in an autoinstall file reaches the installed system as
+# UTC whatever the network does (read in the snap of the stock 26.04.1 ISO, rev 664; subiquity's main branch had the same code on 2026-10-19): the
+# server loads the file in load_autoinstall_config(), TimeZoneController.deserialize() takes the geoip answer once, at that moment, and the lookup only
+# starts afterwards, when Application.start() starts the network controller. Nothing takes the answer later (the controller does not listen for it),
+# so the model's zone stays empty, make_cloudconfig() returns {} and the new system keeps the image's UTC. A zone that is written out is applied
+# (Berlin was, on 2026-10-19), so this tool asks the service the installer asks, once, after the click, and writes the answer.
+# docs/architecture/one-click-install.md, "The time zone".
+GEOIP_URL = "https://geoip.ubuntu.com/lookup"      # subiquity/server/geoip.py, HTTPGeoIPStrategy
+GEOIP_TIMEOUT = 8                                  # s for the whole request
+GEOIP_MAX_BYTES = 65536                            # the answer is about 1 kB
+GEOIP_ZONE_RE = re.compile(r"<TimeZone>\s*([^<>\s]+)\s*</TimeZone>")
+
+
+def geoip_zone(text):
+    """The zone in the service's answer (an XML document with one <TimeZone> element), or None when there is none this tool would write.
+
+    Not an XML parser: the answer is a handful of lines, and what is taken out of it goes into a file the installer reads."""
+    m = GEOIP_ZONE_RE.search(text or "")
+    zone = m.group(1) if m else None
+    return zone if zone and zone != DEFAULT_ZONE and ZONE_RE.match(zone) else None
+
+
+def fetch_geoip():
+    """The service's answer as text, or None (no network, a timeout, an HTTP error, no curl)."""
+    try:
+        r = sh(["curl", "-fsS", "--max-time", str(GEOIP_TIMEOUT), "--max-filesize", str(GEOIP_MAX_BYTES), GEOIP_URL], errors="replace")
+    except (OSError, ValueError):
+        return None
+    return r.stdout if r.returncode == 0 else None
+
+
+def installer_zones():
+    """The names the installer's server takes as a time zone: it checks a zone against `timedatectl list-timezones` (generate_possible_tzs() in
+    subiquity/server/controllers/timezone.py) and stops the whole install on a name that is not in that list. Empty when the list cannot be read."""
+    try:
+        r = sh(["timedatectl", "list-timezones"])
+    except (OSError, ValueError):
+        return set()
+    return set(r.stdout.split()) if r.returncode == 0 else set()
+
+
+def resolve_timezone(requested):
+    """(the zone for the autoinstall file, how it was found or None).
+
+    A zone the user chose is written as it is, with no lookup. "geoip" is looked up here: the answer is used when the installer will take that name,
+    and "geoip" stays when nothing better is known (no network, no answer, a name the installer does not know). Left like that it is what this tool
+    always wrote, and the installed system stays on UTC."""
+    if requested != DEFAULT_ZONE:
+        return requested, None
+    zone = geoip_zone(fetch_geoip())
+    if zone is None:
+        return DEFAULT_ZONE, "geoip.ubuntu.com gave no time zone; left to the installer, which leaves UTC"
+    if zone not in installer_zones():
+        return DEFAULT_ZONE, f"geoip.ubuntu.com said {zone}, which the installer does not know; left to the installer, which leaves UTC"
+    return zone, f"{zone}, from geoip.ubuntu.com"
 
 
 def build_autoinstall(d, password_hash, *, username="companion", realname="Companion", hostname="companion-os",
@@ -1279,9 +1338,12 @@ def interactive(plan=False, disks_table=False, region=None):
         print("OTHER DISKS: " + (", ".join(o["path"] for o in others) or "none"))
         print("EXCLUDED: " + (", ".join(f"{d['path']} ({d['reason']})" for d in disks if d["status"] == "excluded") or "none"))
         print("LANGUAGE, KEYBOARD, TIME ZONE: " + describe_region(region, load_region_data()))
+        zone, how = resolve_timezone(region["timezone"])
+        if how:
+            print("TIME ZONE LOOKUP: " + how)
         print("--- autoinstall.yaml (password hash masked) ---")
         print(dump_yaml(build_autoinstall(target, "<hash>", locale=region["locale"], layout=region["layout"],
-                                          timezone=region["timezone"]), mask_hash=True))
+                                          timezone=zone), mask_hash=True))
         return 0
 
     if not shutil.which("zenity"):
@@ -1308,8 +1370,12 @@ def interactive(plan=False, disks_table=False, region=None):
     if not known2 or not again:
         error_dialog("The disks changed while you were deciding. Nothing was changed. Start the automatic install again.")
         return 3
-    cfg = build_autoinstall(target, hash_password(password), locale=region["locale"], layout=region["layout"],
-                            timezone=region["timezone"])
+    # The one lookup, after the click and not before it: whoever cancels, or opens the normal installer, sends nothing to anybody, and a network that
+    # was connected while the dialog was open is used. A zone chosen by hand is not looked up.
+    zone, how = resolve_timezone(region["timezone"])
+    if how:
+        print(f"ci-os-auto-install: time zone: {how}", file=sys.stderr)
+    cfg = build_autoinstall(target, hash_password(password), locale=region["locale"], layout=region["layout"], timezone=zone)
     return run_install(target, dump_yaml(cfg), password)
 
 

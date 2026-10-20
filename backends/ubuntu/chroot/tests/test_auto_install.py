@@ -15,11 +15,13 @@ import json
 import os
 import re
 import shutil
+import socket
 import socketserver
 import stat
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 import urllib.parse
 from contextlib import redirect_stdout
@@ -33,6 +35,12 @@ _loader = importlib.machinery.SourceFileLoader("ci_os_auto_install", HELPER)
 _spec = importlib.util.spec_from_loader("ci_os_auto_install", _loader)
 ai = importlib.util.module_from_spec(_spec)
 _loader.exec_module(ai)
+
+# No test reaches the internet or asks this machine for its time zones: the one lookup the helper makes (geoip.ubuntu.com) answers "nothing" and the
+# installer's zone list is empty unless a test says otherwise. GeoipFetchTests puts the real fetch back, against a server on this machine.
+REAL_FETCH_GEOIP, REAL_INSTALLER_ZONES = ai.fetch_geoip, ai.installer_zones
+ai.fetch_geoip = lambda: None
+ai.installer_zones = lambda: set()
 
 GB = 1000 ** 3
 
@@ -338,6 +346,35 @@ class PlanCliTests(unittest.TestCase):
         self.assertIn("HAS DATA: True", out)
         self.assertIn("/dev/sda (the disk this session started from)", out)
         self.assertNotIn("$6$", out)
+
+    def test_plan_shows_the_zone_the_service_names_and_how_it_was_found(self):
+        buf = io.StringIO()
+        with Env([stick(), nvme()], "/dev/sda3"), redirect_stdout(buf), mock.patch.object(ai, "fetch_geoip", return_value=GEOIP_ANSWER), \
+                mock.patch.object(ai, "installer_zones", return_value=INSTALLER_ZONES):
+            rc = ai.main(["--plan"])
+        out = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("time zone: detected automatically", out)                  # what the dialog says
+        self.assertIn("TIME ZONE LOOKUP: Europe/Berlin, from geoip.ubuntu.com", out)
+        self.assertIn("timezone: Europe/Berlin", out)                            # what the file says
+        self.assertNotIn("timezone: geoip", out)
+
+    def test_plan_says_when_the_service_gave_nothing_and_keeps_geoip(self):
+        buf = io.StringIO()
+        with Env([stick(), nvme()], "/dev/sda3"), redirect_stdout(buf):
+            rc = ai.main(["--plan"])                                             # the module's guard: no answer
+        out = buf.getvalue()
+        self.assertEqual(rc, 0)
+        self.assertIn("TIME ZONE LOOKUP: geoip.ubuntu.com gave no time zone", out)
+        self.assertIn("timezone: geoip", out)
+
+    def test_plan_with_a_zone_given_does_no_lookup(self):
+        buf = io.StringIO()
+        with Env([stick(), nvme()], "/dev/sda3"), redirect_stdout(buf), RegionFiles(), mock.patch.object(ai, "fetch_geoip") as fetch:
+            rc = ai.main(["--plan", "--timezone", "Europe/Paris"])
+        fetch.assert_not_called()
+        self.assertNotIn("TIME ZONE LOOKUP", buf.getvalue())
+        self.assertIn("timezone: Europe/Paris", buf.getvalue())
 
     def test_plan_refuses_when_medium_unknown(self):
         rc, out = self.run_plan([stick(), nvme()], None)
@@ -699,6 +736,31 @@ bad line without tabs
 """
 LOCALE_A = "C\nC.utf8\nde_DE.utf8\nde_AT.utf8\nen_AG\nen_AG.utf8\nen_US.utf8\nes_MX.utf8\nPOSIX\nzh_TW.utf8\nast_ES.utf8\n"
 
+# What geoip.ubuntu.com answers: the shape of the dry-run answer in the installer's own source (subiquity/server/geoip.py, DryRunGeoIPStrategy). The address
+# is a documentation address (RFC 5737) and the place is the test's.
+GEOIP_ANSWER = """<?xml version="1.0" encoding="UTF-8"?>
+  <Response>
+    <Ip>203.0.113.7</Ip>
+    <Status>OK</Status>
+    <CountryCode>DE</CountryCode>
+    <CountryCode3>Unknown</CountryCode3>
+    <CountryName>Germany</CountryName>
+    <RegionCode>BE</RegionCode>
+    <RegionName>Berlin</RegionName>
+    <City>Berlin</City>
+    <ZipPostalCode>10115</ZipPostalCode>
+    <Latitude>52.52</Latitude>
+    <Longitude>13.40</Longitude>
+    <AreaCode>None</AreaCode>
+    <TimeZone>Europe/Berlin</TimeZone>
+  </Response>
+"""
+# The real service answers on ONE line, with no break between the elements (the elements are the same). Checked against the live service on 2026-10-19.
+GEOIP_ANSWER_COMPACT = "".join(line.strip() for line in GEOIP_ANSWER.splitlines())
+# The names `timedatectl list-timezones` prints (the installer takes exactly these): a few of every shape, "Japan" being a link whose name has no slash.
+INSTALLER_ZONES = {"Europe/Berlin", "Europe/Paris", "America/New_York", "America/Los_Angeles", "America/Argentina/Buenos_Aires",
+                   "America/Port-au-Prince", "Etc/GMT+5", "Asia/Kolkata", "UTC", "Japan"}
+
 
 class RegionFiles:
     """Fixture files and `locale -a` in place of the live system's."""
@@ -999,14 +1061,21 @@ class RegionDialogTests(unittest.TestCase):
 class RegionFlowTests(unittest.TestCase):
     """interactive() with the region menu in the loop."""
 
-    def run_flow(self, answers, region_after=None):
+    def run_flow(self, answers, region_after=None, answer=None, zones=()):
+        """`answer` is what the time zone service says (None: nothing), `zones` the names the installer takes. self.lookups holds, for each
+        lookup made, how many times the confirmation had been shown by then."""
         devs = [stick(), nvme()]
         answers = list(answers)
         seen, runs = [], []
+        self.lookups = []
 
         def confirm(target, password, others, text=ai.DEFAULT_REGION_TEXT):
             seen.append((password, text))
             return answers.pop(0)
+
+        def lookup():
+            self.lookups.append(len(seen))
+            return answer
         with Env(devs, "/dev/sda3"), RegionFiles(), \
                 mock.patch.object(ai, "is_live", return_value=True), mock.patch.object(ai, "take_lock", return_value=True), \
                 mock.patch.object(ai.shutil, "which", return_value="/usr/bin/zenity"), \
@@ -1014,6 +1083,7 @@ class RegionFlowTests(unittest.TestCase):
                 mock.patch.object(ai, "choose_disk", side_effect=lambda c, d: d), \
                 mock.patch.object(ai, "confirm_dialog", side_effect=confirm), \
                 mock.patch.object(ai, "choose_region", side_effect=lambda r, d: region_after or r), \
+                mock.patch.object(ai, "fetch_geoip", side_effect=lookup), mock.patch.object(ai, "installer_zones", return_value=set(zones)), \
                 mock.patch.object(ai, "error_dialog"), mock.patch.object(ai, "normal_installer", return_value=0), \
                 mock.patch.object(ai, "run_install", side_effect=lambda *a: runs.append(a) or 0):
             rc = ai.interactive()
@@ -1024,13 +1094,44 @@ class RegionFlowTests(unittest.TestCase):
         r = ai.change_region(ai.new_region(), "locale", "de_DE.UTF-8", d)
         return ai.change_region(r, "timezone", "Europe/Berlin", d)
 
-    def test_without_a_change_the_install_is_english_us_geoip(self):
-        rc, seen, runs = self.run_flow(["install"])
+    def test_without_a_change_the_install_is_english_us_and_the_zone_the_service_names(self):
+        # The 2026-10-19 finding: "timezone: geoip" in the file left every installed system on UTC, because the installer does not apply it.
+        # What is written now is the zone the service named, looked up once, after the click.
+        rc, seen, runs = self.run_flow(["install"], answer=GEOIP_ANSWER, zones=INSTALLER_ZONES)
         self.assertEqual(len(seen), 1)
         self.assertEqual(seen[0][1], ai.DEFAULT_REGION_TEXT)
+        self.assertEqual(self.lookups, [1])
         self.assertIn("locale: en_US.UTF-8", runs[0][1])
         self.assertIn("layout: us", runs[0][1])
-        self.assertIn("timezone: geoip", runs[0][1])
+        self.assertIn("timezone: Europe/Berlin", runs[0][1])
+        self.assertNotIn("geoip", runs[0][1])
+
+    def test_without_a_change_and_without_an_answer_the_file_keeps_geoip(self):
+        # the documented fallback: no network, no answer, a name the installer does not know. "geoip" is what the tool always wrote (UTC after the install)
+        for answer, zones in ((None, INSTALLER_ZONES), (GEOIP_ANSWER, ()), (GEOIP_ANSWER, {"Europe/Paris"}), ("<html>log in first</html>", INSTALLER_ZONES)):
+            rc, seen, runs = self.run_flow(["install"], answer=answer, zones=zones)
+            self.assertEqual((rc, len(runs)), (0, 1), (answer, zones))
+            self.assertEqual(self.lookups, [1])
+            self.assertIn("timezone: geoip", runs[0][1], (answer, zones))
+
+    def test_a_zone_chosen_in_the_menu_is_written_as_it_is_and_never_looked_up(self):
+        # the manual choice is what reached the installed system on 2026-10-19 (Berlin); the service must not overrule it
+        rc, seen, runs = self.run_flow(["region", "install"], region_after=self.german(), answer="<TimeZone>Asia/Kolkata</TimeZone>",
+                                       zones=INSTALLER_ZONES)
+        self.assertEqual(self.lookups, [])
+        self.assertIn("timezone: Europe/Berlin", runs[0][1])
+        self.assertNotIn("Kolkata", runs[0][1])
+
+    def test_nothing_is_looked_up_for_whoever_cancels_or_opens_the_normal_installer(self):
+        for last in ("cancel", "normal"):
+            self.run_flow([last], answer=GEOIP_ANSWER, zones=INSTALLER_ZONES)
+            self.assertEqual(self.lookups, [], last)
+        self.run_flow(["region", "cancel"], region_after=self.german(), answer=GEOIP_ANSWER, zones=INSTALLER_ZONES)
+        self.assertEqual(self.lookups, [])
+
+    def test_the_lookup_comes_after_the_last_time_the_dialog_was_shown(self):
+        self.run_flow(["region", "region", "install"], answer=GEOIP_ANSWER, zones=INSTALLER_ZONES)
+        self.assertEqual(self.lookups, [3])
 
     def test_the_region_button_asks_again_with_the_same_password_and_installs_the_new_answers(self):
         rc, seen, runs = self.run_flow(["region", "install"], region_after=self.german())
@@ -1072,6 +1173,209 @@ class RegionFlowTests(unittest.TestCase):
                 self.assertEqual(ai.main(argv), 2, argv)
             inter.assert_not_called()
             self.assertIn("ci-os-auto-install:", err.getvalue())
+
+
+class GeoipAnswerTests(unittest.TestCase):
+    """geoip_zone(): what is taken out of the time zone service's answer."""
+
+    def test_the_zone_of_a_real_shaped_answer(self):
+        self.assertEqual(ai.geoip_zone(GEOIP_ANSWER), "Europe/Berlin")
+        self.assertEqual(ai.geoip_zone(GEOIP_ANSWER_COMPACT), "Europe/Berlin")
+        self.assertNotIn("\n", GEOIP_ANSWER_COMPACT)
+
+    def test_names_of_every_shape_the_helper_writes(self):
+        for zone in ("America/Argentina/Buenos_Aires", "Etc/GMT+5", "America/Port-au-Prince", "Asia/Kolkata", "UTC"):
+            self.assertEqual(ai.geoip_zone(f"<Response><TimeZone>{zone}</TimeZone></Response>"), zone)
+
+    def test_white_space_around_the_zone_is_ignored(self):
+        self.assertEqual(ai.geoip_zone("<TimeZone>\n  Europe/Paris \n</TimeZone>"), "Europe/Paris")
+
+    def test_an_answer_with_no_zone_is_no_zone(self):
+        for text in (None, "", "   ", "<Response></Response>", "<Response><TimeZone></TimeZone></Response>", "<Response><TimeZone>  </TimeZone></Response>",
+                     "<html><body>Please sign in to the hotel Wi-Fi.</body></html>", "Europe/Berlin", GEOIP_ANSWER.replace("TimeZone", "Zone")):
+            self.assertIsNone(ai.geoip_zone(text), text)
+
+    def test_a_name_the_helper_would_not_write_into_a_file_is_no_zone(self):
+        # the zone goes into a YAML file that a root service reads: only the shape of a zone name gets through
+        for bad in ("geoip", "Mars/Olympus;rm", "../../etc/passwd", "Europe/Berlin'", "europe/berlin", "Europe", "A/B/C/D", "Europe/Berlin\ninjected:yes",
+                    "Europe/Berlin<!--", "$(id)"):
+            self.assertIsNone(ai.geoip_zone(f"<Response><TimeZone>{bad}</TimeZone></Response>"), bad)
+
+    def test_the_first_zone_wins(self):
+        self.assertEqual(ai.geoip_zone("<TimeZone>Europe/Paris</TimeZone><TimeZone>Asia/Kolkata</TimeZone>"), "Europe/Paris")
+
+
+class ResolveTimezoneTests(unittest.TestCase):
+    """resolve_timezone(): what is written into the autoinstall file for the answer the dialog holds."""
+
+    def resolve(self, requested, answer=GEOIP_ANSWER, zones=INSTALLER_ZONES):
+        with mock.patch.object(ai, "fetch_geoip", return_value=answer) as fetch, mock.patch.object(ai, "installer_zones", return_value=set(zones)) as listing:
+            return ai.resolve_timezone(requested), fetch, listing
+
+    def test_geoip_becomes_the_zone_the_service_names(self):
+        (zone, how), fetch, _ = self.resolve("geoip")
+        self.assertEqual(zone, "Europe/Berlin")
+        self.assertIn("Europe/Berlin", how)
+        self.assertIn("geoip.ubuntu.com", how)
+        fetch.assert_called_once_with()
+
+    def test_a_zone_chosen_by_hand_is_written_as_it_is_with_no_lookup_at_all(self):
+        for chosen in ("Europe/Paris", "UTC", "America/Argentina/Buenos_Aires"):
+            (zone, how), fetch, listing = self.resolve(chosen)
+            self.assertEqual((zone, how), (chosen, None))
+            fetch.assert_not_called()
+            listing.assert_not_called()
+
+    def test_no_answer_leaves_geoip(self):
+        for answer in (None, "", "<html>sign in</html>", "<TimeZone></TimeZone>"):
+            (zone, how), fetch, _ = self.resolve("geoip", answer=answer)
+            self.assertEqual(zone, "geoip", answer)
+            self.assertIn("gave no time zone", how)
+            self.assertIn("UTC", how)
+
+    def test_a_zone_the_installer_would_refuse_leaves_geoip(self):
+        # an unknown name in the file stops the whole install (UnknownTimezoneError -> AutoinstallError), so it never gets in
+        (zone, how), _, _ = self.resolve("geoip", answer="<TimeZone>Europe/Atlantis</TimeZone>")
+        self.assertEqual(zone, "geoip")
+        self.assertIn("Europe/Atlantis", how)
+        self.assertIn("does not know", how)
+
+    def test_an_unreadable_zone_list_leaves_geoip(self):
+        (zone, how), _, listing = self.resolve("geoip", zones=())
+        self.assertEqual(zone, "geoip")
+        listing.assert_called_once_with()
+
+    def test_a_listed_name_the_helper_would_not_write_leaves_geoip(self):
+        # "Japan" is a zone the installer takes, but check_region() would refuse it and the whole dialog would fail
+        (zone, how), _, _ = self.resolve("geoip", answer="<TimeZone>Japan</TimeZone>")
+        self.assertEqual(zone, "geoip")
+
+    def test_whatever_is_returned_builds_a_valid_autoinstall_file(self):
+        disks, _ = classify([stick(), nvme()], "/dev/sda3")
+        target = by_path(disks)["/dev/nvme0n1"]
+        for name in sorted(INSTALLER_ZONES) + ["Europe/Atlantis", "Mars/Olympus;rm"]:
+            (zone, _), _, _ = self.resolve("geoip", answer=f"<TimeZone>{name}</TimeZone>")
+            cfg = ai.build_autoinstall(target, "$6$x$y", timezone=zone, extra_groups=[])["autoinstall"]
+            self.assertEqual(cfg["timezone"], name if name in INSTALLER_ZONES and name != "Japan" else "geoip", name)
+
+
+class _GeoipHandler(http.server.BaseHTTPRequestHandler):
+    """A stand-in for geoip.ubuntu.com on this machine."""
+    protocol_version = "HTTP/1.0"
+
+    def log_message(self, *args):
+        pass
+
+    def do_GET(self):
+        self.server.seen.append(self.path)
+        if self.path == "/lookup":
+            body = GEOIP_ANSWER_COMPACT.encode()
+        elif self.path == "/slow":
+            time.sleep(4)
+            body = GEOIP_ANSWER_COMPACT.encode()
+        elif self.path == "/huge":
+            try:                                       # 10 MiB in full: only the size limit stops curl, which refuses it from the header
+                self.send_response(200)
+                self.send_header("Content-Length", str(10 * 1024 * 1024))
+                self.end_headers()
+                for _ in range(160):
+                    self.wfile.write(b"x" * 65536)
+            except OSError:
+                pass
+            return
+        elif self.path == "/binary":
+            body = b"\xff\xfe<TimeZone>Europe/Berlin</TimeZone>\xff"
+        else:
+            self.send_response(404 if self.path != "/error" else 500)
+            self.send_header("Content-Length", "9")
+            self.end_headers()
+            self.wfile.write(b"not found")
+            return
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+
+@unittest.skipUnless(shutil.which("curl"), "curl is not installed")
+class GeoipFetchTests(unittest.TestCase):
+    """fetch_geoip() with the real curl, against a service on this machine (never the real one)."""
+
+    def setUp(self):
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), _GeoipHandler)
+        self.server.daemon_threads = True
+        self.server.seen = []
+        thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.base = f"http://127.0.0.1:{self.server.server_address[1]}"
+
+    def fetch(self, path, timeout=ai.GEOIP_TIMEOUT):
+        with mock.patch.object(ai, "GEOIP_URL", self.base + path), mock.patch.object(ai, "GEOIP_TIMEOUT", timeout):
+            return REAL_FETCH_GEOIP()
+
+    def test_the_answer_is_returned_and_parses(self):
+        text = self.fetch("/lookup")
+        self.assertEqual(ai.geoip_zone(text), "Europe/Berlin")
+        self.assertEqual(self.server.seen, ["/lookup"])
+
+    def test_an_http_error_is_no_answer(self):
+        self.assertIsNone(self.fetch("/missing"))
+        self.assertIsNone(self.fetch("/error"))
+
+    def test_a_server_that_is_not_there_is_no_answer(self):
+        with socket.socket() as s:
+            s.bind(("127.0.0.1", 0))
+            port = s.getsockname()[1]
+        with mock.patch.object(ai, "GEOIP_URL", f"http://127.0.0.1:{port}/lookup"):
+            self.assertIsNone(REAL_FETCH_GEOIP())
+
+    def test_a_server_that_does_not_answer_is_given_up_on_at_the_time_limit(self):
+        t0 = time.monotonic()
+        self.assertIsNone(self.fetch("/slow", timeout=1))
+        self.assertLess(time.monotonic() - t0, 3.5, "the lookup waited for the server instead of giving up")
+
+    def test_an_answer_that_announces_more_than_the_limit_is_refused(self):
+        self.assertIsNone(self.fetch("/huge"))
+
+    def test_bytes_that_are_not_text_do_not_stop_the_tool(self):
+        self.assertEqual(ai.geoip_zone(self.fetch("/binary")), "Europe/Berlin")
+
+    def test_curl_is_asked_for_the_installers_service_with_a_time_limit_and_without_following_errors_silently(self):
+        seen = []
+        with mock.patch.object(ai, "sh", lambda cmd, **kw: seen.append(cmd) or subprocess.CompletedProcess(cmd, 0, GEOIP_ANSWER, "")):
+            self.assertEqual(REAL_FETCH_GEOIP(), GEOIP_ANSWER)
+        cmd = seen[0]
+        self.assertEqual(cmd[0], "curl")
+        self.assertEqual(cmd[-1], "https://geoip.ubuntu.com/lookup")
+        self.assertIn("-fsS", cmd)                                      # an HTTP error is a failure (-f), and it is not silent in the journal (-S)
+        self.assertEqual(cmd[cmd.index("--max-time") + 1], str(ai.GEOIP_TIMEOUT))
+        self.assertEqual(cmd[cmd.index("--max-filesize") + 1], str(ai.GEOIP_MAX_BYTES))
+        self.assertLessEqual(ai.GEOIP_TIMEOUT, 10)
+
+    def test_a_missing_curl_or_a_failed_run_is_no_answer(self):
+        with mock.patch.object(ai, "sh", side_effect=FileNotFoundError("curl")):
+            self.assertIsNone(REAL_FETCH_GEOIP())
+        with mock.patch.object(ai, "sh", return_value=subprocess.CompletedProcess(["curl"], 28, "partial", "timed out")):
+            self.assertIsNone(REAL_FETCH_GEOIP())
+
+
+class InstallerZonesTests(unittest.TestCase):
+    def listing(self, out, rc=0):
+        with mock.patch.object(ai, "sh", return_value=subprocess.CompletedProcess(["timedatectl"], rc, out, "")) as run:
+            return REAL_INSTALLER_ZONES(), run
+
+    def test_the_names_timedatectl_lists(self):
+        zones, run = self.listing("Africa/Abidjan\nEurope/Berlin\nUTC\n")
+        self.assertEqual(zones, {"Africa/Abidjan", "Europe/Berlin", "UTC"})
+        self.assertEqual(run.call_args[0][0], ["timedatectl", "list-timezones"])
+
+    def test_a_failed_or_missing_timedatectl_is_an_empty_list(self):
+        self.assertEqual(self.listing("", rc=1)[0], set())
+        self.assertEqual(self.listing("Europe/Berlin\n", rc=1)[0], set())
+        with mock.patch.object(ai, "sh", side_effect=FileNotFoundError("timedatectl")):
+            self.assertEqual(REAL_INSTALLER_ZONES(), set())
 
 
 class FakePopen:
@@ -2322,7 +2626,8 @@ class SourceRulesTests(unittest.TestCase):
 
     # Long options in the helper that belong to something other than zenity: its own command line (argparse), curl, blockdev,
     # curtin in-target.
-    NOT_ZENITY = {"--plan", "--disks", "--live-setup", "--locale", "--keyboard", "--timezone", "--max-time", "--unix-socket", "--getsize64", "--target"}
+    NOT_ZENITY = {"--plan", "--disks", "--live-setup", "--locale", "--keyboard", "--timezone", "--max-time", "--max-filesize", "--unix-socket", "--getsize64",
+                  "--target"}
 
     def test_every_zenity_option_exists_in_the_zenity_of_the_image(self):
         # zenity 4.0.1 rejected --class and --name: every dialog, including the confirmation, failed. The list is
@@ -2362,6 +2667,20 @@ class SourceRulesTests(unittest.TestCase):
         self.assertEqual([a.value for a in call.args if isinstance(a, ast.Constant)], ["POST", "/meta/confirm"])
         self.assertEqual(len(call.args), 2, "a third positional argument is a request body")
         self.assertEqual([k.arg for k in call.keywords], ["query"])
+
+    def test_the_time_zone_lookup_is_made_in_one_place_and_only_to_the_installers_own_service(self):
+        # subiquity/server/geoip.py (HTTPGeoIPStrategy) asks this URL; the helper asks the same one, over https, from fetch_geoip() only, which only
+        # resolve_timezone() calls; resolve_timezone() is called after the dialog (flow tests) and by --plan
+        self.assertEqual(ai.GEOIP_URL, "https://geoip.ubuntu.com/lookup")
+        tree = ast.parse(self.src)
+        callers = {}
+        for fn in (n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)):
+            for node in ast.walk(fn):
+                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id in ("fetch_geoip", "resolve_timezone"):
+                    callers.setdefault(node.func.id, []).append(fn.name)
+        self.assertEqual(callers["fetch_geoip"], ["resolve_timezone"])
+        self.assertEqual(sorted(callers["resolve_timezone"]), ["interactive", "interactive"])
+        self.assertEqual(len([n for n in ast.walk(tree) if isinstance(n, ast.Name) and n.id == "GEOIP_URL" and isinstance(n.ctx, ast.Load)]), 1)
 
     def test_the_run_dir_is_made_with_sudo_only(self):
         self.assertNotIn("os.makedirs(RUN_DIR", self.src)                  # /run is root's; the unprivileged user cannot
