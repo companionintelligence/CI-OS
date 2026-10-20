@@ -123,7 +123,7 @@ mkdir -p output && docker cp ci-os-ubuild:/vol/out/. ./output/
 docker rm -f ci-os-ubuild && docker volume rm ci-os-ubuild-vol
 ```
 
-The same commands as one script: `backends/ubuntu/iso/scripts/build-in-docker.sh --base-iso "$ISO"` (it refuses a dirty tree and an unpinned base ISO). The commands, with the reasons for each step, are in [`docs/guides/building-on-a-mac.md`](docs/guides/building-on-a-mac.md#recipe);
+The same commands as one script: `backends/ubuntu/iso/scripts/build-in-docker.sh --base-iso "$ISO"` (add `--arch amd64` and the amd64 ISO for the x86-64 image; it refuses a dirty tree and an unpinned base ISO). The commands, with the reasons for each step, are in [`docs/guides/building-on-a-mac.md`](docs/guides/building-on-a-mac.md#recipe);
 `CLAUDE.md` carries the same block, and the three are changed together. Never run systemd as PID 1 in that container, in any privileged
 container or with `CAP_SYS_ADMIN` (a privileged one wipes the Docker VM's Rosetta registrations, and the capability alone lets a container
 mount the shared `binfmt_misc` itself; restart Docker Desktop to recover; the reference implementation of a test that must boot systemd is

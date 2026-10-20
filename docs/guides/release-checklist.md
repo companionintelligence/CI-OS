@@ -194,11 +194,11 @@ Keys: `os/<version>/<arch>/companion-os-<version>-<arch>.iso`, `os/<version>/{SH
 
 ### The two routes, one publisher
 
-**On hardware we own (preferred: no billed minutes).** Build each architecture natively (an arm64 image on an Apple-silicon Mac, an amd64 image on an x86-64 Linux host; [Building on a Mac](building-on-a-mac.md)), gather the images, sign, publish, verify:
+**On hardware we own (preferred: no billed minutes).** Build each architecture (the arm64 image natively on an Apple-silicon Mac; the amd64 image on an x86-64 Linux host, which is where a release image should come from, or on the Mac in its arm64 container through Rosetta, as the recipe does; [Building on a Mac](building-on-a-mac.md)), gather the images, sign, publish, verify:
 
 ```bash
 backends/ubuntu/iso/scripts/build-in-docker.sh --base-iso ~/Downloads/ubuntu-26.04.1-desktop-arm64.iso --version 1.0 --output-dir ./release
-# on the amd64 host the same with the amd64 ISO; copy both images into one directory, then:
+# the same with --arch amd64 and the amd64 ISO (on an x86-64 host, or here); copy both images into one directory, then:
 cd release && cat SHA256SUMS.amd64 SHA256SUMS.arm64 > SHA256SUMS
 gpg --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS            # the release key; production requires this
 cd ..

@@ -11,23 +11,25 @@
 # step of which the workflow also runs (a test keeps the two in step: the pins and the package list).
 #
 # What it does, in order (each step stops the run when it fails):
-#   1. refuses to start from a dirty tree (a build comes from a commit), a base ISO whose sha256 is not the pinned one, an architecture the host
-#      would have to emulate, a missing Docker;
+#   1. refuses to start from a dirty tree (a build comes from a commit), a base ISO whose sha256 is not the pinned one, an arm64 image on an
+#      x86-64 host (qemu-user, never tried), a missing Docker;
 #   2. takes a clean checkout of the commit with `git archive` (nothing untracked, nothing from your working tree can leak in);
-#   3. starts a privileged ubuntu:26.04 container of the architecture's own platform (the chroot of an arm64 image runs natively on Apple
-#      silicon, with no emulation), with loop devices, the build dependencies, the checkout and the base ISO (read-only);
+#   3. starts a privileged ubuntu:26.04 container of THIS HOST'S OWN platform, which runs natively and builds an image of either architecture,
+#      with loop devices, the build dependencies, the checkout and the base ISO (read-only). An amd64 image on an Apple-silicon Mac is built
+#      this way: the image's x86-64 programs run in a chroot through the Docker VM's Rosetta binfmt, the route that built and verified the first
+#      amd64 image (772 s; an amd64 container is the less predictable one: docs/guides/building-on-a-mac.md, "Why arm64");
 #   4. runs build-iso.sh, then verify-iso.sh with VERIFY_BASE_ISO and VERIFY_REQUIRE_CANON=1, as CI does;
 #   5. copies the image, SHA256SUMS, MD5SUMS and the two logs to --output-dir, writes SHA256SUMS.<arch>, removes the container and the volume.
 #
 # Options:
 #   --base-iso FILE        the stock Ubuntu 26.04.1 desktop ISO of the architecture (required); its sha256 must be the pinned one
-#   --arch amd64|arm64     default: this machine's own (a mismatch needs --allow-emulated)
+#   --arch amd64|arm64     the image to build; default: this machine's own architecture
 #   --version V            default 1.0
 #   --output-dir DIR       default ./output
 #   --commit REF           default HEAD
 #   --allow-dirty          build the commit even though the working tree has changes (they are NOT in the image)
-#   --allow-emulated       build an architecture this host does not run natively (slow; an amd64 container once failed with a tar ENOSYS under
-#                          Rosetta on an Apple-silicon Mac, so do not build the release image that way)
+#   --allow-emulated       build an arm64 image on an x86-64 host, through qemu-user binfmt (never tried, slow; not for the release image).
+#                          An amd64 image on an arm64 host does not need it: that is the Rosetta route above
 #   --cache-volume NAME    a Docker volume that keeps the downloaded tier B tools between builds (default ci-os-build-cache-<arch>)
 #   --no-verify            skip verify-iso.sh (not for an image that will be published)
 #   --keep                 leave the container and the work volume in place afterwards, for debugging
@@ -41,7 +43,7 @@
 # Needs: Docker, git, tar, shasum or sha256sum, and about 40 GiB free where Docker keeps its data (a build uses about 25 GiB; Time Machine local
 # snapshots pin freed space on a Mac: `tmutil thinlocalsnapshots / <bytes> 4`).
 # Exit status: 0 built and verified, 1 the build or the verify failed, 2 bad usage or a missing tool, 3 refused (dirty tree, wrong base ISO,
-# emulation), 4 the container could not be set up.
+# an untried cross-architecture build), 4 the container could not be set up.
 #
 # © Companion Intelligence, Lifescope Inc
 #=============================================================================
@@ -95,10 +97,22 @@ case "$(uname -m)" in
 esac
 [ -n "$ARCH" ] || ARCH="$HOST_ARCH"
 case "$ARCH" in amd64|arm64) ;; *) fail 2 "--arch is amd64 or arm64 (this host reads as '$HOST_ARCH')" ;; esac
-if [ "$ARCH" != "$HOST_ARCH" ] && [ "$ALLOW_EMULATED" != 1 ]; then
-  fail 3 "this host is $HOST_ARCH and the image is $ARCH: the chroot would run under emulation (slow, and the amd64 chroot failed once under Rosetta). Build it on an $ARCH host, or pass --allow-emulated for a try that is not the release image (docs/guides/building-on-a-mac.md)"
+# The container is always this host's own platform, so it runs natively and builds an image of either architecture. What differs is where the image's
+# customisation steps run: for a foreign architecture they run in a chroot of the ISO's root filesystem through the Docker VM's binfmt handlers.
+#   amd64 image on an arm64 host (an Apple-silicon Mac): Rosetta. [V] the route that built and verified the amd64 image, 772 s. Allowed.
+#   arm64 image on an amd64 host: qemu-user binfmt. Never tried. Needs --allow-emulated.
+PLATFORM="linux/$HOST_ARCH"
+CROSS=0
+if [ "$ARCH" != "$HOST_ARCH" ]; then
+  CROSS=1
+  if [ "$HOST_ARCH" = arm64 ] && [ "$ARCH" = amd64 ]; then
+    warn "an amd64 image on an arm64 host: the container is arm64 and the image's x86-64 programs run through the Docker VM's Rosetta binfmt (the route that built and verified the amd64 image). A release image comes from an x86-64 host"
+  elif [ "$ALLOW_EMULATED" != 1 ]; then
+    fail 3 "this host is $HOST_ARCH and the image is $ARCH: the chroot would run through qemu-user binfmt, which was never tried here. Build it on an $ARCH host, or pass --allow-emulated for a try that is not the release image (docs/guides/building-on-a-mac.md)"
+  else
+    warn "an $ARCH image on a $HOST_ARCH host through qemu-user binfmt (--allow-emulated): never tried, not for the release image"
+  fi
 fi
-[ "$ARCH" = "$HOST_ARCH" ] || warn "emulated build ($ARCH image on a $HOST_ARCH host): not for the release image"
 
 if [ "$DRY" != 1 ]; then
   command -v docker >/dev/null 2>&1 || fail 2 "docker is not installed (or not on PATH)"
@@ -178,9 +192,9 @@ say "clean checkout of the commit"
 git -C "$REPO" archive "$SHA" | tar -x -C "$TREE" || fail 2 "git archive failed"
 echo "  $(find "$TREE" -type f | wc -l | tr -d ' ') files in $TREE"
 
-say "starting the $BUILD_IMAGE container (privileged, platform linux/$ARCH)"
+say "starting the $BUILD_IMAGE container (privileged, platform $PLATFORM)"
 setup_step "creating the work volume" volume create "$VOL"
-setup_step "starting the container" run -d --name "$CNAME" --privileged --platform "linux/$ARCH" \
+setup_step "starting the container" run -d --name "$CNAME" --privileged --platform "$PLATFORM" \
   -v "$VOL":/vol -v "$CACHE_VOL":/vol/cache -v "$TREE":/src:ro -v "$BASE_ISO":/base/ubuntu-base.iso:ro \
   -w /vol -e DEBIAN_FRONTEND=noninteractive "$BUILD_IMAGE" sleep infinity
 # a container's /dev holds only the loop nodes that existed at start, and `mount -o loop` takes the first free one
@@ -202,6 +216,9 @@ else
 fi
 if [ "$build_rc" -ne 0 ]; then
   tail -n 40 "$LOG" >&2
+  if [ "$CROSS" = 1 ]; then
+    warn "a $ARCH image on a $HOST_ARCH host needs the Docker VM's binfmt handler for $ARCH programs. If the log says 'Exec format error', enable Rosetta (Docker Desktop: Use Rosetta for x86_64/amd64 emulation) or restart Docker Desktop, then run this again"
+  fi
   fail 1 "the build failed (exit $build_rc) after $(( $(date +%s) - t0 )) s; the whole log is $LOG"
 fi
 echo "  built in $(( $(date +%s) - t0 )) s"
