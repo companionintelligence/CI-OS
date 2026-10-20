@@ -1598,7 +1598,7 @@ class RunInstallTests(unittest.TestCase):
         self.zenity_calls = []
 
     def go(self, plans=None, before=("WAITING",), in_the_way=False, disks_ok=True, sudo_ok=True, target_mounted=False, curtin=False,
-           **server_kw):
+           start_rc=0, **server_kw):
         """`target_mounted`: True/False, or a list of the successive answers of target_in_use() (the last one repeats)."""
         self.server = FakeServer(before=before, plans=plans, **server_kw)
         self.clock = FakeClock()
@@ -1617,6 +1617,8 @@ class RunInstallTests(unittest.TestCase):
 
         def fake_sh(cmd, **kw):
             self.log.append(("sh", cmd))
+            if cmd[:5] == ["sudo", "-n", "systemctl", "start", ai.SERVER_UNIT]:
+                return subprocess.CompletedProcess(cmd, start_rc, "", "")
             return subprocess.CompletedProcess(cmd, 0 if sudo_ok or cmd[-1] != "true" else 1, "", "")
 
         def fake_remove():
@@ -1735,6 +1737,30 @@ class RunInstallTests(unittest.TestCase):
             self.assertEqual(self.go(before=(idle,)), 0, idle)
             self.assertTrue(self.wrote(), idle)
             self.assertEqual(self.errors, [], idle)
+
+    START = ("sh", ["sudo", "-n", "systemctl", "start", "snap.ubuntu-desktop-bootstrap.subiquity-server.service"])
+
+    def test_the_installer_server_is_started_before_it_is_waited_for(self):
+        # The live session no longer opens the stock installer window (customize-chroot.sh Step 7b); the helper asks systemd for the server itself.
+        self.assertEqual(self.go(), 0)
+        self.assertEqual(self.START[1][-1], ai.SERVER_UNIT)
+        self.assertEqual(self.log.count(self.START), 1)
+        kinds = [c[0] if c[0] != "run" else ("tee" if "tee" in c[1] else "run") for c in self.log]
+        self.assertLess(self.log.index(self.START), kinds.index("tee"), "the server is started before anything is written")
+        self.assertLess(self.log.index(("sh", ["sudo", "-n", "true"])), self.log.index(self.START), "and after the check that sudo works")
+        self.assertEqual(self.restarts(), 1, "starting it is not a restart: the one restart still loads the autoinstall file")
+
+    def test_a_server_that_cannot_be_started_yet_is_waited_for_not_an_error(self):
+        # snapd is still seeding the installer snap: the unit does not exist, systemctl answers non-zero, and the run goes on to wait_ready()
+        self.assertEqual(self.go(start_rc=5, before=("STARTING_UP", "STARTING_UP", "WAITING")), 0)
+        self.assertEqual(self.log.count(self.START), 1)
+        self.assertEqual(self.errors, [])
+
+    def test_the_server_is_not_started_when_the_run_is_refused_first(self):
+        for kw in ({"in_the_way": True}, {"sudo_ok": False}):
+            self.log = []
+            self.assertEqual(self.go(**kw), 5, kw)
+            self.assertNotIn(self.START, self.log, kw)
 
     def test_installer_not_ready_writes_nothing(self):
         self.assertEqual(self.go(before=(None,)), 5)

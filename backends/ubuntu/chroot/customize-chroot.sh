@@ -792,8 +792,41 @@ echo "[+] AMD GPU support configured$([[ "$CI_ARCH" == amd64 ]] && echo " (ROCm 
 # step used to write under /usr/share/desktop-provision were never read by it.
 # What the image CAN control is the launcher label ("Install Companion OS ..."), which casper derives from
 # /.disk/info at boot: see brand_boot_media in backends/ubuntu/iso/scripts/build-iso.sh. Rebranding the
-# installer window itself would mean shipping a modified installer snap.
+# installer window itself would mean shipping a modified installer snap. What it can also control is whether the window opens
+# by itself: Step 7b.
 echo "[*] Step 7: Installer: nothing to configure (launcher label comes from /.disk/info)"
+
+#=============================================================================
+# 7b. The live session does not open Canonical's installer window by itself
+#=============================================================================
+echo "[*] Step 7b: Canonical's installer window no longer opens by itself in the live session..."
+
+# The stock live layer starts Canonical's installer at every graphical session of the live user: ubuntu-desktop-installer.service, enabled by
+# a user-level wants link (etc/systemd/user/graphical-session.target.wants/ubuntu-desktop-installer.service on 26.04.1; the split table in
+# scripts/lib/split-live-layer.sh lists both paths). Its window, Canonical's 13-page wizard, opened in front of Companion's one-click dialog
+# (the dialog the boot menu's automatic entry opens) and was what a person saw first from the plain entry. The link goes. The unit file stays: it
+# is live-only, the layer split requires it in the live layer (verify-iso.sh section 3g), and `systemctl --user start ubuntu-desktop-installer`
+# still opens the stock window. The installer stays reachable without it: "Install Companion OS" in the application grid starts the stock
+# installer, and the one-click dialog has a "Use the normal installer" button. What the person sees instead is the desktop with
+# "Install Companion OS (automatic)" first in the dock (ci-os-auto-install --live-setup), or, from the automatic boot entry, its dialog.
+# The unit file is looked for in the usual three directories; a link of either kind (wants or requires) is removed. The split needs no change:
+# the link is in the table's `rm` rows and is absent from C now, so it is in neither the base layer nor the live layer.
+# live-installer-autostart begin
+_installer_unlinked=""
+for _dir in etc/systemd/user usr/lib/systemd/user lib/systemd/user; do
+    for _link in "$CHROOT_PATH/$_dir"/*.wants/ubuntu-desktop-installer.service "$CHROOT_PATH/$_dir"/*.requires/ubuntu-desktop-installer.service; do
+        if [[ -L "$_link" || -e "$_link" ]]; then
+            rm -f "$_link"
+            _installer_unlinked="$_installer_unlinked ${_link#"$CHROOT_PATH"/}"
+        fi
+    done
+done
+if [[ -n "$_installer_unlinked" ]]; then
+    echo "[+] Canonical's installer no longer starts with the live session (removed:$_installer_unlinked)"
+else
+    echo "[i] Step 7b: no link starts ubuntu-desktop-installer.service in this image (nothing to remove)"
+fi
+# live-installer-autostart end
 
 #=============================================================================
 # 8. Create CI-OS MOTD

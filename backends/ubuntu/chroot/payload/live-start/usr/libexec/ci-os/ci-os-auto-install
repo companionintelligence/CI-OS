@@ -1044,6 +1044,11 @@ def run_install(d, cfg_yaml, password):
         error_dialog("An autoinstall file that is not Companion OS's own is already in place (a /autoinstall.yaml, or one named on the "
                      "kernel command line). Nothing was changed.")
         return 5
+    # Make sure the installer's server is started. It is a snap service and normally runs in a live session; the stock installer window used to be
+    # open by this time, and the live session no longer opens it by itself (customize-chroot.sh Step 7b). `start` does nothing when the unit already
+    # runs, and a unit that does not exist yet (snapd is still seeding the installer snap) answers non-zero, which wait_ready() below turns into its own
+    # bounded wait and message. restart_server() restarts this very unit later.
+    sh(["sudo", "-n", "systemctl", "start", SERVER_UNIT])
     state = wait_ready()
     if state is None:
         error_dialog("The installer is not ready. Wait a minute and try again, or use the normal installer.")

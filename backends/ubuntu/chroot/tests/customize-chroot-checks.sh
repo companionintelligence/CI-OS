@@ -402,5 +402,49 @@ expect "the library reaches the image's bootstrap tree with the other backends/u
     grep -q -F 'for lib_script in "$REPO_ROOT/backends/ubuntu/lib/"*.sh' "$SCRIPT"
 
 echo
+echo "== 14. Canonical's installer window does not open by itself in the live session (Step 7b)"
+# The stock live layer enables ubuntu-desktop-installer.service with a user-level wants link; the window opened in front of the Companion dialog.
+# The block of Step 7b is cut out of the script and RUN against fake chroots: the link goes, the unit file and every other link stay.
+LI_BLOCK="$WORK/li-block.sh"
+body_of 'live-installer-autostart begin' 'live-installer-autostart end' > "$LI_BLOCK"
+expect "the Step 7b block is found (and is not empty)" test "$(wc -l < "$LI_BLOCK" | tr -d ' ')" -gt 8
+before "Step 7b comes after Step 7 and before the MOTD of Step 8" 'Step 7: Installer: nothing to configure' 'Step 7b: Canonical.s installer window'
+before "  and the MOTD of Step 8 comes after it" 'Step 7b: Canonical.s installer window' 'Step 8: Creating Companion OS MOTD'
+li_root() { # li_root <name> <layout>: a fake chroot; layout "stock" has the live layer's link, "none" has only the unit file, "alt" has a requires link in the vendor directory
+    LIR="$WORK/li-$1"; rm -rf "$LIR"
+    mkdir -p "$LIR/usr/lib/systemd/user" "$LIR/etc/systemd/user/graphical-session.target.wants"
+    printf '[Unit]\nDescription=installer\n' > "$LIR/usr/lib/systemd/user/ubuntu-desktop-installer.service"
+    printf '[Unit]\nDescription=other\n' > "$LIR/usr/lib/systemd/user/gnome-other.service"
+    ln -s /usr/lib/systemd/user/gnome-other.service "$LIR/etc/systemd/user/graphical-session.target.wants/gnome-other.service"
+    case "$2" in
+        stock) ln -s /usr/lib/systemd/user/ubuntu-desktop-installer.service "$LIR/etc/systemd/user/graphical-session.target.wants/ubuntu-desktop-installer.service" ;;
+        alt) mkdir -p "$LIR/usr/lib/systemd/user/default.target.requires" "$LIR/usr/lib/systemd/user/default.target.wants"
+             ln -s ../ubuntu-desktop-installer.service "$LIR/usr/lib/systemd/user/default.target.requires/ubuntu-desktop-installer.service"
+             ln -s ../ubuntu-desktop-installer.service "$LIR/usr/lib/systemd/user/default.target.wants/ubuntu-desktop-installer.service" ;;
+    esac
+}
+li_run() { LI_OUT="$(CHROOT_PATH="$LIR" bash -c 'set -euo pipefail; . "$1"' _ "$LI_BLOCK" 2>&1)"; LI_RC=$?; }
+li_links() { (cd "$LIR" && find . -name ubuntu-desktop-installer.service -not -path './usr/lib/systemd/user/ubuntu-desktop-installer.service' | LC_ALL=C sort | tr '\n' ' '); }
+li_root stock stock
+eq_() { if [[ "$2" == "$3" ]]; then pass "$1"; else fail "$1 (got '$2', want '$3')"; fi; }
+eq_ "the live layer's link exists before the block runs" "$(li_links)" "./etc/systemd/user/graphical-session.target.wants/ubuntu-desktop-installer.service "
+li_run
+eq_ "the block exits 0 under set -euo pipefail" "$LI_RC" "0"
+eq_ "  the link that starts the installer with the session is gone" "$(li_links)" ""
+expect "  the unit file stays (live-only; the layer split and verify-iso.sh require it in the live layer)" test -f "$LIR/usr/lib/systemd/user/ubuntu-desktop-installer.service"
+expect "  every other link of that directory stays" test -L "$LIR/etc/systemd/user/graphical-session.target.wants/gnome-other.service"
+expect "  and the build log says what was removed" bash -c 'printf "%s\n" "$1" | grep -q "removed: etc/systemd/user/graphical-session.target.wants/ubuntu-desktop-installer.service"' _ "$LI_OUT"
+li_run
+eq_ "a second run is a no-op that exits 0 (a rebuild without --clean extracts the stock layers again, and the block runs again)" "$LI_RC" "0"
+expect "  and says there was nothing to remove" bash -c 'printf "%s\n" "$1" | grep -q "nothing to remove"' _ "$LI_OUT"
+li_root none none; li_run
+eq_ "an image without any such link: exit 0, nothing removed" "$LI_RC|$(li_links)" "0|"
+li_root alt alt; li_run
+eq_ "a wants and a requires link in the vendor directory are removed too" "$LI_RC|$(li_links)" "0|"
+expect "  without touching the unit file" test -f "$LIR/usr/lib/systemd/user/ubuntu-desktop-installer.service"
+expect "the block never removes anything but a link inside a .wants or .requires directory of the user units" \
+    bash -c 'grep -v "^ *#" "$1" | grep "rm " | grep -q -F "rm -f \"\$_link\"" && [ "$(grep -v "^ *#" "$1" | grep -c "rm ")" = 1 ]' _ "$LI_BLOCK"
+
+echo
 echo "$PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

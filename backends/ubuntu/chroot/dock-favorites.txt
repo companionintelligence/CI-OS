@@ -3,13 +3,13 @@
 # A user's own choices (a pin or unpin in the dock) still win over this default.
 #
 # GNOME hides a favourite whose application is not installed, so a line for something absent is harmless.
-# The live session adds "Install Companion OS (automatic)" in front of this list at login (ci-os-auto-install --live-setup).
+# The live session adds "Install Companion OS (automatic)" in front of this list at login (ci-os-auto-install --live-setup). It is the only
+# installer in the dock: Canonical's own (ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop, labelled "Install Companion OS" by casper
+# at boot) was the first line of this list and is not any more. It stays in the application grid and behind the "Use the normal installer"
+# button of the one-click dialog, which is where a person who wants Canonical's wizard (dual boot, manual partitions) finds it.
 #
 # Removed from Ubuntu's default dock: Firefox, Thunderbird, LibreOffice Writer, Rhythmbox, App Center, Help.
 # Also left out on purpose: Resources (the resource monitor). The apps are still installed and in the application grid.
-
-# Live session only: Canonical's installer. An installed system has no installer snap, so GNOME hides this line there.
-ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop
 
 # Companion apps. Companion Hub comes from the companion-hub .deb (its desktop file really has a space in its name).
 # Companion Docs is a link (start-links.txt): the live session has no desktop icons, so this is where its user finds the docs.

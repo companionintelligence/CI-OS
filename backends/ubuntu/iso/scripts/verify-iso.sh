@@ -194,7 +194,7 @@ R="$WORK/root"; mkdir -p "$R"
 unsquashfs -no-xattrs -q -f -d "$R" "$SQ" \
     etc/os-release usr/lib/os-release etc/os-release.ubuntu-base etc/lsb-release etc/issue etc/issue.net etc/hostname \
     etc/casper.conf etc/default/grub var/lib/dpkg/status var/lib/snapd/seed/seed.yaml var/lib/snapd/state.json etc/cloud/cloud.cfg \
-    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service etc/firefox \
+    etc/dconf/profile/user etc/dconf/db/local.d etc/dconf/db/local etc/skel etc/legal var/lib/dpkg/statoverride usr/share/applications usr/lib/systemd/user/gnome-initial-setup-upgrade-login.service usr/lib/systemd/user/gnome-initial-setup-first-login.service etc/firefox \
     usr/share/glib-2.0/schemas \
     usr/share/gnome-background-properties \
     etc/update-motd.d etc/systemd/system etc/sudoers.d etc/netplan \
@@ -879,6 +879,13 @@ else
     done
     if [[ -z "$live_missing" ]]; then pass "live layer holds what the base had taken out: casper's files, casper-md5check and its enable link, the installer's pieces"
     else fail "live layer lacks:$live_missing"; fi
+    # Canonical's installer window must not open by itself in the live session: it would open in front of the Companion one-click dialog and show
+    # Canonical's 13-page wizard first. The stock live layer enables ubuntu-desktop-installer.service with a user-level wants link (and the unit file,
+    # required above, stays so that `systemctl --user start ubuntu-desktop-installer` still works); customize-chroot.sh Step 7b removes the link. Any
+    # wants or requires link of that unit, or an autostart entry that names the installer, in the live layer starts the window again.
+    hits="$(grep -E '^/(etc|usr/lib|lib)/systemd/user/[^/]+\.(wants|requires)/ubuntu-desktop-installer\.service$|^/etc/xdg/autostart/.*(ubuntu-desktop-(installer|bootstrap)|subiquity)' "$LIVE_PATHS" | head -n 3 | tr '\n' ' ')"
+    if [[ -z "$hits" ]]; then pass "live layer does not start Canonical's installer by itself (no wants link for ubuntu-desktop-installer.service, no autostart entry for it)"
+    else fail "live layer starts Canonical's installer window by itself (it opens in front of the Companion dialog): ${hits% }"; fi
     if [[ -s "$LR/var/lib/snapd/seed/seed.yaml" ]] && grep -q 'ubuntu-desktop-bootstrap' "$LR/var/lib/snapd/seed/seed.yaml"; then pass "live layer's snapd seed.yaml still names the installer snap"
     else fail "live layer's snapd seed.yaml does not name the installer snap (the live session cannot seed it)"; fi
     # Ubuntu 26.04.1's live layer carries the snapd seed of its TPM full-disk-encryption variant (seed/systems/enhanced-secureboot-desktop, and in
@@ -1671,7 +1678,9 @@ if [[ -f "$DOCK_DIR/dock-favorites.txt" && -f "$DOCK_LIB" ]]; then
     for _d in 'Companion Hub.desktop' 'companion-capture.desktop' 'companion-docs.desktop' 'org.gnome.Ptyxis.desktop'; do
         check "dock default is compiled into the local dconf db: $_d" grep -aqF "$_d" "$R/etc/dconf/db/local"
     done
-    for _d in firefox_firefox.desktop thunderbird_thunderbird.desktop libreoffice-writer.desktop snap-store_snap-store.desktop org.gnome.Yelp.desktop org.gnome.Rhythmbox3.desktop net.nokyan.Resources.desktop; do
+    # Canonical's installer is not in the dock: "Install Companion OS (automatic)" is the only installer there (the live-session hook pins it first);
+    # the stock one is in the application grid and behind the dialog's "Use the normal installer" button.
+    for _d in ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop firefox_firefox.desktop thunderbird_thunderbird.desktop libreoffice-writer.desktop snap-store_snap-store.desktop org.gnome.Yelp.desktop org.gnome.Rhythmbox3.desktop net.nokyan.Resources.desktop; do
         check "dock default does not pin $_d" bash -c "! grep -qF '$_d' '$DOCK_FILE'"
     done
 else
@@ -1716,6 +1725,20 @@ if [[ -f "$_gis_unit" ]]; then
     check "first-run: /etc/skel/.config/${_gis_stamp:-<none>} exists (no 'Welcome to Companion OS' page after the first sign-in)" test -n "$_gis_stamp" -a -e "$R/etc/skel/.config/$_gis_stamp"
 else
     note "gnome-initial-setup-upgrade-login.service is not in this image: no upgrade-welcome stamp is needed"
+fi
+
+# The first-login unit is the one that shows Canonical's wizard (welcome, Ubuntu Pro, Location Services, Help improve Ubuntu, Appearance, Ready to go): it
+# is skipped by the stamp its own ConditionPathExists=! names. The stamp is written into /etc/skel by customize-chroot.sh as a literal; reading the name from
+# the unit in the image makes a base that renames it fail here instead of at the first sign-in.
+_gis_first="$R/usr/lib/systemd/user/gnome-initial-setup-first-login.service"
+if [[ -f "$_gis_first" ]]; then
+    _gis_first_stamps="$(sed -n 's|^ConditionPathExists=!%E/\(.*\)$|\1|p' "$_gis_first" | tr '\n' ' ')"
+    check "first-run: gnome-initial-setup-first-login.service is skipped by a stamp (${_gis_first_stamps% })" test -n "$_gis_first_stamps"
+    _gis_first_missing=""
+    for _s in $_gis_first_stamps; do [[ -e "$R/etc/skel/.config/$_s" ]] || _gis_first_missing="$_gis_first_missing $_s"; done
+    check "first-run: /etc/skel/.config holds every stamp that unit names (so Canonical's Ubuntu Pro, location and usage pages are not shown)${_gis_first_missing:+ - missing:$_gis_first_missing}" test -z "$_gis_first_missing" -a -n "$_gis_first_stamps"
+else
+    note "gnome-initial-setup-first-login.service is not in this image: no first-run wizard to skip"
 fi
 
 # The rest of a quiet first sign-in (found on the first installed arm64 image, 2026-10-19): Firefox opens no "Firefox Privacy Notice" tab
