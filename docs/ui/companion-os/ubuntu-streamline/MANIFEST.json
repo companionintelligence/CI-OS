@@ -2,9 +2,10 @@
   "run": "2026-10-19 (local), arm64, QEMU 11.1.2 with HVF; the times are UTC of 2026-10-20",
   "images": {
     "cf68024": "companion-os-1.0-arm64.iso built from cf68024 (sha256 ee5f850d...76e9)",
-    "5ff5224": "companion-os-1.0-arm64.iso built from 5ff5224 (sha256 217c1144...3f07)"
+    "5ff5224": "companion-os-1.0-arm64.iso built from 5ff5224 (sha256 217c1144...3f07)",
+    "0ea3ee8": "companion-os-1.0-arm64.iso built from 0ea3ee8 (sha256 3936d54d...adbc)"
   },
-  "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware; one run of each image",
+  "evidence_label": "Tested in a virtual machine (QEMU, HVF, Apple silicon); not real hardware; one run of each image (frames 14 to 17: one boot of 0ea3ee8 through each boot entry)",
   "frames": [
     {
       "file": "01-live-session-before-fix-dialog-no-dock.png",
@@ -148,6 +149,50 @@
       "shows": "No Canonical window and no dialog open by themselves from this entry either (on main Canonical's 13-page window opened); the automatic launcher is first in the dock",
       "stage": "live session",
       "taken_approx_utc": "2026-10-20T04:42:46Z"
+    },
+    {
+      "file": "14-live-desktop-only-our-launcher.png",
+      "sha256": "652ad9f144cab76a713578754cc7fece5ac1877a4a6df0ffdae6ba03fa936a54",
+      "bytes": 1330742,
+      "size": "1280x800",
+      "image": "0ea3ee8",
+      "alt": "The live session of the image of 0ea3ee8 with the dialog cancelled: the dock, the five Companion links, Home and one installer icon, ours (Install Companion OS...)",
+      "shows": "Canonical's launcher, the second installer icon with the Ubuntu mark that sat below ours in frames 02 and 03, is gone; the dock is as before (compare-live-desktop-launcher.png)",
+      "stage": "live session",
+      "taken_approx_utc": "2026-10-20T05:51:46Z"
+    },
+    {
+      "file": "15-appgrid-both-installers.png",
+      "sha256": "89f221face17a1d50cac6c981128169921199c1856356fb4f98c0fd493f28688",
+      "bytes": 44037,
+      "size": "1280x800",
+      "image": "0ea3ee8",
+      "alt": "The application grid searched for Install on the image of 0ea3ee8: two results, ours and Canonical's (the Ubuntu mark)",
+      "shows": "Canonical's installer is still installed and still listed; its label is cut off here as Install REL... (the exported file's Name is Install RELEASE, see live-facts.txt); only its copy on the live desktop was removed",
+      "stage": "live session",
+      "taken_approx_utc": "2026-10-20T05:54:27Z"
+    },
+    {
+      "file": "16-normal-installer-from-dialog-button.png",
+      "sha256": "71cd15b4e43f237f3f0ed2e5880a10c687d5ba2b340e216b1d4686065595bf5d",
+      "bytes": 444957,
+      "size": "1280x800",
+      "image": "0ea3ee8",
+      "alt": "Canonical's installer window, opened by the dialog's Use the normal installer button on the image of 0ea3ee8: Welcome to Ubuntu, Choose your language, dark, with a green page dot",
+      "shows": "The button still reaches it with its desktop icon gone (it starts it by desktop id); 15 s after the click. The dialog it was opened from showed a one-time password and no frame of that dialog is kept",
+      "stage": "live session",
+      "taken_approx_utc": "2026-10-20T05:55:28Z"
+    },
+    {
+      "file": "17-plain-entry-desktop-only-our-launcher.png",
+      "sha256": "2795cf10e3e1ce378aaa474f8e4dc350da8c6561c977223bf947939fd494c3af",
+      "bytes": 1331120,
+      "size": "1280x800",
+      "image": "0ea3ee8",
+      "alt": "The live session of the image of 0ea3ee8 after the boot menu's default entry, Try or Install Companion OS: the dock, the Companion links, Home and one installer icon, ours; no window",
+      "shows": "The same desktop as the automatic entry shows once its dialog is closed; nothing opens by itself",
+      "stage": "live session",
+      "taken_approx_utc": "2026-10-20T06:00:12Z"
     }
   ],
   "comparisons": [
@@ -171,6 +216,16 @@
         "main 06 and 08 of the teardown set, 06 and 09 here"
       ],
       "note": "a composite of four frames reduced to 632 pixels wide, with captions; not a capture"
+    },
+    {
+      "file": "compare-live-desktop-launcher.png",
+      "bytes": 350042,
+      "sha256": "15ce0ed4370860a4b6453edd4c3f1f3992b93bacacc712e9b854c068e8d51aab",
+      "made_from": [
+        "03",
+        "14"
+      ],
+      "note": "a composite of two frames reduced to 632 pixels wide, with captions; not a capture"
     }
   ]
 }

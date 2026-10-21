@@ -37,8 +37,9 @@ Usage:
   ci-os-auto-install --live-setup    desktop-session autostart hook: in a live session only, put the live session back
                                      to a normal desktop (the live layer starts it with no dock and no desktop icons, and
                                      Canonical's installer unit, which undoes that when its window closes, is not started
-                                     here), then put the launcher on the desktop, in the app grid and first in the dock;
-                                     with ci.autoinstall=1 on the kernel command line (the boot menu's automatic entry)
+                                     here), take Canonical's own installer launcher off the desktop (casper copies it there
+                                     at every boot), then put this launcher on the desktop, in the app grid and first in the
+                                     dock; with ci.autoinstall=1 on the kernel command line (the boot menu's automatic entry)
                                      it also starts the install dialog
 Environment (tests only): CI_OS_AI_LSBLK_JSON, CI_OS_AI_CDROM_SOURCE, CI_OS_AI_LOOP_BACKING ("<device> <fstype>"),
 CI_OS_AI_CMDLINE read fixtures instead of the system.
@@ -82,6 +83,13 @@ RESTORE_SESSION = (
     ("gsettings", "set", "org.gnome.shell.extensions.dash-to-dock", "intellihide", "true"),
     ("gnome-extensions", "enable", "ding@rastersoft.com"),
 )
+# Canonical's own installer launcher. casper copies snapd's ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop into the live user's ~/Desktop at every boot
+# (initramfs script casper-bottom/25adduser: the first existing of ubiquity.desktop, the Calamares launchers and that snap launcher, with the release name from
+# /.disk/info, which is why it reads "Install Companion OS" and has the Ubuntu mark), long before a session starts, so the image build cannot leave it out.
+# live_setup() takes that copy off the desktop (hide_stock_launcher): the owner's decision of 2026-10-19 is that ours is the only installer icon there. Canonical's
+# installer stays in the application grid and behind the dialog's "Use the normal installer" button. A copy that was renamed is found by what it runs.
+STOCK_LAUNCHER_FILES = ("ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop", "ubiquity.desktop")
+STOCK_LAUNCHER_EXEC = re.compile(r"^Exec=.*(ubuntu-desktop-bootstrap|ubuntu_bootstrap|ubiquity)", re.MULTILINE)
 STICK_LABELS = ("CI-EFI", "CI-SHARED", "CI-BOOT-A", "CI-BOOT-B", "CI-CACHE", "CI-PERSIST", "writable", "casper-rw")
 # Mount points that mean "this session is running from / through this disk".
 MEDIUM_MOUNTS = ("/cdrom", "/isodevice", "/rofs", "/run/ci-os", "/run/live")
@@ -1183,6 +1191,34 @@ def restore_normal_session():
     return ok
 
 
+def hide_stock_launcher(desktop=None):
+    """Take Canonical's own installer launcher off the live desktop and leave everything else there, ours included (see STOCK_LAUNCHER_FILES).
+
+    A launcher is Canonical's when it has one of the known names or an Exec line that runs the installer; it is removed, not hidden by a flag, because the
+    desktop-icons extension draws every file it finds. Returns the names removed. A file that cannot be read or removed is only logged."""
+    folder = desktop or os.path.join(os.path.expanduser("~"), "Desktop")
+    removed = []
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return removed
+    for name in names:
+        path = os.path.join(folder, name)
+        if name == LAUNCHER_ID or not name.endswith(".desktop") or not os.path.isfile(path):
+            continue
+        try:
+            stock = name in STOCK_LAUNCHER_FILES
+            if not stock:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    stock = STOCK_LAUNCHER_EXEC.search(fh.read(65536)) is not None
+            if stock:
+                os.remove(path)
+                removed.append(name)
+        except OSError as exc:
+            print(f"ci-os-auto-install: could not take {name} off the desktop: {exc}", file=sys.stderr)
+    return removed
+
+
 def live_setup():
     """Autostart hook. Does nothing outside a live session, so the installed system is untouched."""
     if not is_live():
@@ -1198,6 +1234,7 @@ def live_setup():
             sh(["gio", "set", dst, "metadata::trusted", "true"])
         except OSError as exc:
             print(f"ci-os-auto-install: could not place the launcher in {folder}: {exc}", file=sys.stderr)
+    hide_stock_launcher(os.path.join(home, "Desktop"))      # before the icons come back: the desktop-icons extension never draws Canonical's copy
     restore_normal_session()
     pin_to_dock()
     if "ci.autoinstall=1" in read_cmdline().split():

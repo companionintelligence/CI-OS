@@ -2155,6 +2155,126 @@ class RestoreSessionTests(unittest.TestCase):
             self.assertEqual(order.mock_calls, [])
 
 
+class HideStockLauncherTests(unittest.TestCase):
+    """casper copies Canonical's installer launcher into the live user's ~/Desktop at every boot (casper-bottom/25adduser, read from the 26.04.1 live layer);
+    the owner decided on 2026-10-19 that ours is the only installer icon on the live desktop. Canonical's installer stays in the application grid and behind the
+    dialog's button."""
+
+    STOCK = ("[Desktop Entry]\nName=Install Companion OS\n"
+             "Exec=env BAMF_DESKTOP_FILE_HINT=/var/lib/snapd/desktop/applications/ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop /snap/bin/ubuntu-desktop-bootstrap %U\n"
+             "Icon=/snap/ubuntu-desktop-bootstrap/current/meta/gui/icon.png\nType=Application\n")
+    OURS = "[Desktop Entry]\nName=Install Companion OS (automatic)\nExec=/usr/libexec/ci-os/ci-os-auto-install\nType=Application\n"
+    OTHER = "[Desktop Entry]\nName=Companion Docs\nExec=xdg-open https://docs.ci.computer\nType=Application\n"
+
+    def desktop(self, td, files):
+        folder = os.path.join(td, "Desktop")
+        os.makedirs(folder)
+        for name, text in files.items():
+            write_text(os.path.join(folder, name), text)
+        return folder
+
+    def test_the_stock_launcher_goes_and_ours_and_the_others_stay(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self.desktop(td, {"ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop": self.STOCK, "ci-os-auto-install.desktop": self.OURS,
+                                       "companion-docs.desktop": self.OTHER, "notes.txt": "x"})
+            removed = ai.hide_stock_launcher(folder)
+            self.assertEqual(removed, ["ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop"])
+            self.assertEqual(sorted(os.listdir(folder)), ["ci-os-auto-install.desktop", "companion-docs.desktop", "notes.txt"])
+
+    def test_the_known_name_goes_whatever_the_file_says(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self.desktop(td, {"ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop": "", "ci-os-auto-install.desktop": self.OURS})
+            self.assertEqual(ai.hide_stock_launcher(folder), ["ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop"])
+
+    def test_a_copy_under_another_name_is_found_by_what_it_runs(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self.desktop(td, {"install.desktop": self.STOCK, "ci-os-auto-install.desktop": self.OURS})
+            self.assertEqual(ai.hide_stock_launcher(folder), ["install.desktop"])
+            self.assertEqual(os.listdir(folder), ["ci-os-auto-install.desktop"])
+
+    def test_the_old_ubiquity_launcher_goes_too(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self.desktop(td, {"ubiquity.desktop": "[Desktop Entry]\nExec=ubiquity gtk_ui\n", "other-ubiquity-copy.desktop": "[Desktop Entry]\nExec=sh -c 'ubiquity --desktop'\n"})
+            self.assertEqual(ai.hide_stock_launcher(folder), ["other-ubiquity-copy.desktop", "ubiquity.desktop"])
+
+    def test_a_launcher_that_only_names_the_installer_in_its_text_stays(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self.desktop(td, {"notes.desktop": "[Desktop Entry]\nName=ubuntu-desktop-bootstrap notes\nComment=ubiquity\nExec=gedit\n"})
+            self.assertEqual(ai.hide_stock_launcher(folder), [])
+            self.assertEqual(os.listdir(folder), ["notes.desktop"])
+
+    def test_ours_stays_even_if_its_command_were_to_name_the_stock_installer(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self.desktop(td, {"ci-os-auto-install.desktop": "[Desktop Entry]\nExec=/usr/libexec/ci-os/ubuntu-desktop-bootstrap-wrapper\n"})
+            self.assertEqual(ai.hide_stock_launcher(folder), [])
+            self.assertEqual(os.listdir(folder), ["ci-os-auto-install.desktop"])
+
+    def test_a_directory_with_a_launcher_name_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self.desktop(td, {})
+            os.makedirs(os.path.join(folder, "ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop"))
+            with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+                self.assertEqual(ai.hide_stock_launcher(folder), [])
+            self.assertEqual(len(os.listdir(folder)), 1)
+            self.assertEqual(err.getvalue(), "")          # skipped quietly, not tried and failed
+
+    def test_a_missing_desktop_is_not_an_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(ai.hide_stock_launcher(os.path.join(td, "no-such-folder")), [])
+
+    def test_a_file_that_cannot_be_removed_is_logged_and_the_others_still_go(self):
+        with tempfile.TemporaryDirectory() as td:
+            folder = self.desktop(td, {"a-stock.desktop": self.STOCK, "b-stock.desktop": self.STOCK})
+            real = os.remove
+
+            def flaky(path):
+                if path.endswith("a-stock.desktop"):
+                    raise PermissionError("read-only")
+                real(path)
+            with mock.patch.object(ai.os, "remove", side_effect=flaky), mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+                removed = ai.hide_stock_launcher(folder)
+            self.assertEqual(removed, ["b-stock.desktop"])
+            self.assertIn("could not take a-stock.desktop off the desktop", err.getvalue())
+            self.assertEqual(sorted(os.listdir(folder)), ["a-stock.desktop"])
+
+    def test_live_setup_hides_it_before_the_icons_come_back_and_only_in_a_live_session(self):
+        with tempfile.TemporaryDirectory() as td:
+            launcher = os.path.join(td, "launcher.desktop")
+            write_text(launcher, self.OURS)
+            home = os.path.join(td, "home")
+            stock = os.path.join(home, "Desktop", "ubuntu-desktop-bootstrap_ubuntu-desktop-bootstrap.desktop")
+            order = mock.Mock()
+
+            def setup_home():
+                shutil.rmtree(home, ignore_errors=True)
+                os.makedirs(os.path.dirname(stock))
+                write_text(stock, self.STOCK)
+            real_hide = ai.hide_stock_launcher
+
+            def hide(*a, **kw):
+                order.hide()
+                return real_hide(*a, **kw)
+            setup_home()
+            with mock.patch.dict(os.environ, {"HOME": home, "CI_OS_AI_CMDLINE": "boot=casper quiet"}), \
+                    mock.patch.object(ai, "LAUNCHER_SRC", launcher), \
+                    mock.patch.object(ai.os.path, "exists", side_effect=lambda p: p == "/cdrom/casper/vmlinuz" or os.path.lexists(p)), \
+                    mock.patch.object(ai, "sh"), mock.patch.object(ai, "hide_stock_launcher", hide), \
+                    mock.patch.object(ai, "restore_normal_session", order.restore), mock.patch.object(ai, "pin_to_dock", order.pin):
+                self.assertEqual(ai.live_setup(), 0)
+            self.assertEqual(order.mock_calls, [mock.call.hide(), mock.call.restore(), mock.call.pin()])
+            self.assertFalse(os.path.exists(stock))
+            self.assertTrue(os.path.exists(os.path.join(home, "Desktop", "ci-os-auto-install.desktop")))
+            order.reset_mock()
+            setup_home()
+            with mock.patch.dict(os.environ, {"HOME": home, "CI_OS_AI_CMDLINE": "root=/dev/nvme0n1p2 ro quiet"}), \
+                    mock.patch.object(ai, "LAUNCHER_SRC", launcher), \
+                    mock.patch.object(ai.os.path, "exists", side_effect=lambda p: False if p == "/cdrom/casper/vmlinuz" else os.path.lexists(p)), \
+                    mock.patch.object(ai, "hide_stock_launcher", hide):
+                self.assertEqual(ai.live_setup(), 0)
+            self.assertEqual(order.mock_calls, [])
+            self.assertTrue(os.path.exists(stock))          # an installed system is left as it is
+
+
 class LockTests(unittest.TestCase):
     def test_second_instance_is_refused(self):
         with tempfile.TemporaryDirectory() as td, mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": td}):

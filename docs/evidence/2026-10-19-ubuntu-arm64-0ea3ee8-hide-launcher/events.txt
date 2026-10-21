@@ -1,0 +1,41 @@
+# Boot 1: the automatic entry (events of the run companion-hide). Times are UTC of 2026-10-20. One-time passwords seen on the screen are not recorded anywhere here.
+2026-10-20T05:49:19Z run start: companion-os-1.0-arm64.iso built from 0ea3ee8 (sha256 3936d54d...adbc, 5,590,548,480 bytes, build 1516 s, verify-iso.sh 493 passed 0 failed), a live boot to look at the desktop; target disk on the SSD
+2026-10-20T05:49:19Z recorder started (1.5 s)
+2026-10-20T05:49:22Z VM start (power on): companion-os-1.0-arm64.iso
+2026-10-20T05:49:50Z GRUB menu on screen; choosing the automatic entry with Down, Enter
+2026-10-20T05:49:50Z key down 
+2026-10-20T05:49:50Z key ret Install Companion OS automatic
+2026-10-20T05:51:41Z the live session of 0ea3ee8: the dark one-click dialog in front, the dock and the icons behind it, one installer icon on the desktop (ours); no Canonical window; cancelling the dialog to look at the desktop
+2026-10-20T05:51:41Z click 672 686 Cancel
+2026-10-20T05:51:56Z the desktop after the dialog was cancelled: ONE installer icon, ours (Install Companion OS...), the Companion links and Home; Canonical's launcher is gone (frame 055146-desk1); now the facts from a terminal
+2026-10-20T05:51:56Z key ctrl+alt+t terminal for the live facts
+2026-10-20T05:52:12Z type: (curl -s 10.0.2.2:8800/live3.sh || wget -qO- 10.0.2.2:8800/live3.sh) | sh -s ch-live
+2026-10-20T05:52:12Z key ret live facts script
+2026-10-20T05:54:01Z live facts posted (ch-live): ~/Desktop holds ours and the five Companion links, no file that names the stock installer; snapd's launcher is still exported (app grid); dock favourites start with ours
+2026-10-20T05:54:09Z click 975 195 close the terminal
+2026-10-20T05:54:11Z click 33 766 Show Applications (the grid button at the bottom of the dock)
+2026-10-20T05:54:22Z application grid open; typing Install in the search
+2026-10-20T05:54:23Z type: Install
+2026-10-20T05:54:48Z application grid, search Install: two entries, ours (Install Companion OS, automatic) and Canonical's (Ubuntu mark, label cut off as Install REL...; the file says Name=Install RELEASE). Frame saved as 15.
+2026-10-20T05:54:48Z key esc close the overview
+2026-10-20T05:54:51Z click 33 64 first dock icon: the one-click launcher (to reach the dialog's Use the normal installer button)
+2026-10-20T05:55:13Z dialog reopened from the dock launcher (shows a one-time password: this frame is not for publication); clicking Use the normal installer
+2026-10-20T05:55:13Z click 672 517 Use the normal installer
+2026-10-20T05:55:52Z Use the normal installer: Canonical's Welcome to Ubuntu window (page dots, the first one green, dark; 17 dots were counted in the saved frame afterwards, the note written at the time said 16) opened over the desktop 15 s after the click. Frame saved as 16.
+2026-10-20T05:56:14Z automatic-entry run finished: stopping the recorder and the VM; next a second boot of the same ISO through the plain entry (Try or Install Companion OS) to see the desktop there
+2026-10-20T05:56:14Z recorder stop requested
+2026-10-20T05:56:15Z VM stopped
+
+# Boot 2: the plain entry, Try or Install Companion OS (events of the run companion-hide-plain).
+2026-10-20T05:56:23Z run start: the same ISO (companion-os-1.0-arm64.iso, 0ea3ee8, sha256 3936d54d...adbc), plain boot entry this time; a throwaway disk on the SSD (the run is only to look at the live desktop)
+2026-10-20T05:56:24Z VM start (power on): companion-os-1.0-arm64.iso
+2026-10-20T05:56:25Z recorder started (1.5 s)
+2026-10-20T05:56:41Z GRUB menu on screen (default entry Try or Install Companion OS, a 30 s countdown); pressing Enter on the default
+2026-10-20T05:56:41Z key ret the default entry Try or Install Companion OS
+2026-10-20T06:00:25Z plain entry: the live desktop 3 min after the menu (frame 060012-plain-desk1, saved as 17): the dock, five Companion icons, Home and ONE installer icon (ours); no window; Canonical's launcher is gone here too. Now the facts from a terminal.
+2026-10-20T06:00:25Z key ctrl+alt+t terminal for the plain-entry facts
+2026-10-20T06:00:42Z type: (curl -s 10.0.2.2:8800/live3.sh || wget -qO- 10.0.2.2:8800/live3.sh) | sh -s ch-plain
+2026-10-20T06:01:09Z key ret live facts script, plain entry
+2026-10-20T06:01:35Z plain-entry facts posted (ch-plain): the same as the automatic entry's: no file in ~/Desktop that names the stock installer; dock-fixed and intellihide true, disabled-extensions empty, ding running; stopping this VM and the recorder
+2026-10-20T06:01:35Z recorder stop requested
+2026-10-20T06:01:36Z VM stopped
