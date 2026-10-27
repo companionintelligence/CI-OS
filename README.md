@@ -1,5 +1,17 @@
-## Companion OS
-### The Companion Intelligence appliance operating system, for Ubuntu 26.04 LTS and CachyOS
+<h1 align="center">Companion OS</h1>
+
+<p align="center"><strong>The Companion Intelligence appliance operating system, for Ubuntu 26.04 LTS and CachyOS</strong></p>
+
+[![release](https://img.shields.io/badge/release-not%20published-757575?style=flat-square)](https://github.com/companionintelligence/CI-OS/releases)
+[![platform](https://img.shields.io/badge/platform-Ubuntu%20amd64%2Farm64%20%C2%B7%20Plasma%20x86_64-0a6358?style=flat-square)](https://github.com/companionintelligence/CI-OS)
+[![License](https://img.shields.io/badge/license-PolyForm%20NC%201.0-0a6358?style=flat-square)](LICENSE.md)
+[![Discord](https://img.shields.io/badge/chat-Discord-5865F2?style=flat-square&logo=discord&logoColor=white)](https://discord.com/invite/yQp9hwpzAa)
+
+<p align="center"><a href="#documentation">Documentation</a> · <a href="#install">Get started</a> · <a href="https://docs.ci.computer/docs/reference/open-source-systems">Systems map</a></p>
+
+<p align="center">
+  <a href="#get-an-iso"><img src="https://img.shields.io/badge/Build%20an%20ISO-Build%20an%20ISO-0a6358?style=for-the-badge&logo=linux&logoColor=white" alt="Build an ISO" height="30"></a>
+</p>
 
 ![Companion OS logo](assets/logos/2024_CI__LogoMark_Color_med.svg)
 
@@ -9,6 +21,14 @@ Companion OS uses the [PolyForm Noncommercial License 1.0.0](LICENSE.md). See th
 ---
 
 ## What Companion OS is
+
+| Feature | What it provides |
+|---|---|
+| **Two installable editions** | Build Ubuntu GNOME images for amd64/arm64 and a Plasma/CachyOS x86_64 edition. |
+| **First-run provisioning** | Install Docker, local inference and Hub above the base OS. |
+| **Companion Stick** | Stage a bootable installer and optional payloads on removable media. |
+| **Image verification** | Record build and boot evidence separately from physical-hardware support. |
+
 
 1. Companion OS is the operating system of the Companion Intelligence appliance: a private, local-first AI memory box that runs on an ordinary x86-64 PC (the Ubuntu edition also builds for arm64, see [`docs/architecture/arm64.md`](docs/architecture/arm64.md)).
 2. It comes in two editions, both live-and-installer ISOs: one on **Ubuntu 26.04.1 LTS** (GNOME) and a **Plasma edition based on CachyOS**.
@@ -173,6 +193,43 @@ The records of the 772 s build (build record, exit status, verifier log) and of 
 `docs/architecture/cachyos-backend.md`.
 
 ---
+
+### Measured ISO sizes
+
+These are the image sizes recorded in the table above. The Ubuntu image is close to the 8 GiB Stick slot limit; verify-iso.sh enforces that limit.
+
+```mermaid
+xychart-beta
+    title "Recorded ISO size (GiB)"
+    x-axis ["Ubuntu 26.04.1", "Plasma"]
+    y-axis "GiB" 0 --> 8
+    bar [6.59, 3.0]
+```
+
+## Screenshots
+
+<table>
+  <tr>
+    <td valign="top"><img src="docs/ui/companion-os/ubuntu/arm64-09-installed-desktop.png" alt="Ubuntu edition after first-run setup" width="360"><p align="center">Ubuntu desktop after installation</p></td>
+    <td valign="top"><img src="docs/ui/companion-os/plasma/23-installed-first-desktop.png" alt="Plasma edition after installation" width="360"><p align="center">Plasma desktop after installation</p></td>
+    <td valign="top"><img src="docs/ui/companion-os/ubuntu/arm64-10-hub-pairing.png" alt="Companion Hub pairing from Ubuntu first boot" width="360"><p align="center">First-boot Hub pairing</p></td>
+  </tr>
+</table>
+
+
+## How it fits together
+
+The repository builds and verifies bootable images, optionally stages an image and payloads on a Companion Stick, then the installer lays down the OS before first-boot provisioning installs Hub and local services.
+
+```mermaid
+flowchart LR
+  Source[OS recipes and assets] --> Build[Image build]
+  Build --> Verify[Checksums and image verification]
+  Verify --> ISO[Ubuntu or Plasma ISO]
+  ISO --> Install[USB or VM installer]
+  Install --> FirstBoot[First-run provisioning]
+  FirstBoot --> Hub[Companion Hub and local services]
+```
 
 ## Flash the USB installer
 
@@ -672,6 +729,21 @@ The index of every document is [`docs/README.md`](docs/README.md). Start here:
   [Ubuntu ISO layers](docs/architecture/ubuntu-iso-layers.md), [CachyOS backend](docs/architecture/cachyos-backend.md).
 * Stick and models: [`stick/README.md`](stick/README.md), [Companion Stick](docs/architecture/companion-stick.md),
   [Models tooling](docs/architecture/models-tooling.md).
+
+<!-- companion-hub-readme-deep-review -->
+
+## Build and install path
+
+```mermaid
+flowchart LR
+  Source[Edition configuration] --> Build[Image build workflow]
+  Build --> ISO[Published ISO artifact]
+  ISO --> Verify[Checksum and image verification]
+  Verify --> USB[Flash installer USB]
+  USB --> Install[Install selected edition]
+```
+
+The Ubuntu and Plasma/CachyOS editions have different bases and verification details; use the edition-specific instructions above and verify the downloaded image before writing it to removable media. The measured build and image-size notes in this README are environment-specific observations, not performance guarantees.
 
 ## Support
 
