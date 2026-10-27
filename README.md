@@ -676,6 +676,21 @@ The index of every document is [`docs/README.md`](docs/README.md). Start here:
 * Stick and models: [`stick/README.md`](stick/README.md), [Companion Stick](docs/architecture/companion-stick.md),
   [Models tooling](docs/architecture/models-tooling.md).
 
+<!-- companion-hub-readme-deep-review -->
+
+## Build and install path
+
+```mermaid
+flowchart LR
+  Source[Edition configuration] --> Build[Image build workflow]
+  Build --> ISO[Published ISO artifact]
+  ISO --> Verify[Checksum and image verification]
+  Verify --> USB[Flash installer USB]
+  USB --> Install[Install selected edition]
+```
+
+The Ubuntu and Plasma/CachyOS editions have different bases and verification details; use the edition-specific instructions above and verify the downloaded image before writing it to removable media. The measured build and image-size notes in this README are environment-specific observations, not performance guarantees.
+
 ## Support
 
 * **Issues**: https://github.com/companionintelligence/CI-OS/issues
