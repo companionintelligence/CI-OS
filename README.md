@@ -177,6 +177,19 @@ The records of the 772 s build (build record, exit status, verifier log) and of 
 
 ---
 
+### Measured ISO sizes
+
+These are the image sizes recorded in the table above. The Ubuntu image is close to the 8 GiB Stick slot limit; verify-iso.sh enforces that limit.
+
+```mermaid
+xychart-beta
+    title "Recorded ISO size (GiB)"
+    x-axis ["Ubuntu 26.04.1", "Plasma"]
+    y-axis "GiB" 0 --> 8
+    bar [6.59, 3.0]
+```
+
+
 ## Flash the USB installer
 
 Every Companion OS image is a hybrid ISO: write it byte for byte to a USB stick and a UEFI machine boots the stick. Nothing is
