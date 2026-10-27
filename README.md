@@ -2,7 +2,7 @@
 
 <p align="center"><strong>The Companion Intelligence appliance operating system, for Ubuntu 26.04 LTS and CachyOS</strong></p>
 
-<p align="center"><a href="#documentation">Documentation</a> · <a href="#install">Get started</a></p>
+<p align="center"><a href="#documentation">Documentation</a> · <a href="#install">Get started</a> · <a href="https://docs.ci.computer/docs/reference/open-source-systems">Systems map</a></p>
 
 ![Companion OS logo](assets/logos/2024_CI__LogoMark_Color_med.svg)
 
