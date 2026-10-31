@@ -53,7 +53,7 @@ is never edited by hand) and `video/assets/audio/` (recorded by the kit; `render
 |---|---|
 | `core/manifest/` | `ecosystem.yaml` (single source of truth for what gets installed), `role-map/{apt,pacman}.yaml`, `model-packs.yaml` and its lock, `tier-b-pins.env` |
 | `core/render/` | tokens + assets to portable artefacts (GRUB background, Plymouth inputs, MOTD, mark PNGs, GNOME Shell gresource) |
-| `core/lib/` | portable bash: `theme-lib.sh`, `gpu-detect.sh` (hardware rule, model-fit gate), `ci-os-models.sh`, `ci-hub.sh`, `check-repo.sh`, `check-untracked-deps.sh`, `retired-names.allow` |
+| `core/lib/` | portable bash: `theme-lib.sh`, `gpu-detect.sh` (hardware rule, model-fit gate), `ci-os-models.sh`, `ci-hub.sh`, `check-repo.sh`, `check-untracked-deps.sh`, `retired-names.allow`, `check-guards.sh` and `guards.allow` (workflow and secret guards) |
 | `core/headless/` | the setup-portal payload (`payload/`, shared by both editions), the tested `ci_setup/` library (not wired into any service), tests |
 | `backends/ubuntu/` | `iso/` (build, verify, tests), `chroot/` (customisation, one-click installer, payloads), `provision/`, `desktop-theme/`, `lib/`, `packages/`, `headless-package/` |
 | `backends/cachyos/` | `iso/` (host entry point, in-container engine, overlay, verifier, tests), `installer/` (Calamares overlay), `provision/` (first-boot wrapper, stager), `upstream.lock`, `compat-libs.lock` |
@@ -159,9 +159,13 @@ and `docs/guides/testing-in-qemu.md`.
 file; no `((VAR++))` under `set -e`; **no retired product name** ("CI OS", "Companion Ubuntu", ...) in `backends/`, `core/`,
 `.github/`; **no retired distro name** outside `core/lib/retired-names.allow` (and a stale allow-list entry fails); no block-letter
 banner art; `py_compile`; `yamllint`; shebang files are executable; no committed build artefacts; **no tracked file that names an
-untracked one** (`core/lib/check-untracked-deps.sh`: `git add -N <path>` is enough for `git commit -a` to take a new file); the
+untracked one** (`core/lib/check-untracked-deps.sh`: `git add -N <path>` is enough for `git commit -a` to take a new file);
+**the workflow and secret guards** (`core/lib/check-guards.sh`: every `uses:` pinned to a full commit sha or a digest, no
+`pull_request_target` or `workflow_run` trigger, also not inside the gated block, no `secrets: inherit`, a `permissions:` block in every
+workflow, `persist-credentials: false` on every checkout, no private-key block in a tracked text file; exceptions in
+`core/lib/guards.allow` with a reason, and a stale entry fails); the
 one-click installer's unit tests; the `md5sum.txt` tests; the CachyOS no-Docker suites; and the setup-portal, `ci_setup`,
-layer-split Part A, installed-boot self-test, model-adapter and Ubuntu 26.04 backend suites. The heavy suites (container, QEMU,
+layer-split Part A, installed-boot self-test, model-adapter, Ubuntu 26.04 backend and guard suites. The heavy suites (container, QEMU,
 network) are manual; the tables are in `backends/ubuntu/iso/README.md` ("Script tests") and `backends/cachyos/README.md` ("Tests").
 Touching `docs/architecture/headless-setup.md`: run `bash core/headless/tests/ci_setup/run.sh --quick` (a test reads that file).
 Touching brand assets or the setup portal's logo or font: also `core/lib/check-brand-mirrors.sh` and `core/lib/vendor-brand.sh --check`.
@@ -173,7 +177,10 @@ PR conventions for agents (validation, layout, what not to commit, stale branche
 - **Multi-agent safety.** Multiple AI agents work these repos in parallel. Never use `git reset --hard`, `git clean -f`, force-push,
   or any destructive git command without explicit confirmation from the user. Never use a bare `git stash`.
 - **Never commit** build outputs (`*.deb`, `*.iso`, `*.rpm`, `.pkgroot/`, `stick/target/`), secrets, device keys or tunnel tokens
-  (templates only), or WIP commits on a branch meant for review. Commit `stick/Cargo.lock`.
+  (templates only), a private-key block of any kind (a test assembles its header at run time), an action called by tag or branch (pin
+  the full commit sha with the release in a trailing comment), a build image by tag alone (pin its digest), or WIP commits on a branch
+  meant for review. Commit `stick/Cargo.lock`. A pin bump is its own commit: `docs/guides/release-checklist.md`, "Pinned inputs and how
+  to refresh them".
 - **Credentials.** The repository review of 2026-10-12 found credentials that are still to be rotated. Never copy a credential
   value into a document, a log excerpt, a commit message or a test.
 - **Publishing.** Images go to Cloudflare R2 (the shared `dl-dev` and `dl-prod` buckets), never to a GitHub release asset (the limit is 2 GiB).

@@ -588,7 +588,7 @@ change is in [Running the tests](docs/guides/running-the-tests.md); the per-suit
 
 | Layer | Command | Needs | Time | What it proves |
 |---|---|---|---|---|
-| 1. The gate | `./core/lib/check-repo.sh` | `git`, `shellcheck`, `python3` with PyYAML, `yamllint` (macOS: `brew install shellcheck yamllint`; a bare Debian or Ubuntu container also wants `libarchive-tools`, `libglib2.0-bin` and `curl`, or four suites print `!` and do not run) | about 6 minutes on a quiet laptop, 25 to 40 on a Mac that is also running builds and VMs | Syntax and lint of every shell, Python and YAML file, the retired-name and block-art guards, and about 40 host-side suites of both editions |
+| 1. The gate | `./core/lib/check-repo.sh` | `git`, `shellcheck`, `python3` with PyYAML, `yamllint` (macOS: `brew install shellcheck yamllint`; a bare Debian or Ubuntu container also wants `libarchive-tools`, `libglib2.0-bin` and `curl`, or four suites print `!` and do not run) | about 6 minutes on a quiet laptop, 25 to 40 on a Mac that is also running builds and VMs | Syntax and lint of every shell, Python and YAML file, the retired-name and block-art guards, the workflow and secret guards (pinned actions, no dangerous trigger, no blanket secrets, explicit permissions, no token left in a checkout, no private key in the tree), and about 40 host-side suites of both editions |
 | 2. One behaviour | `bash <suite>` from [Running the tests](docs/guides/running-the-tests.md), for example `backends/ubuntu/chroot/tests/customize-chroot-checks.sh` (159 checks) | `bash` | seconds | One script, one rule: the dock list (40), the Companion links and welcome page (70), the first-boot load gate (11), the headless Hub start (20), the download-progress filter (21), the one-click installer (121 unit tests) |
 | 3. A built image, read | `VERIFY_BASE_ISO=<stock ISO> VERIFY_REQUIRE_CANON=1 backends/ubuntu/iso/scripts/verify-iso.sh <ISO>` | `xorriso`, `squashfs-tools`, `zstd`, `cpio`, `python3` | 35 to 90 s | The finished ISO against the stock one and against what the build meant to do: 444 checks on amd64, 436 on arm64 (the architecture is read from the volume id) |
 | 4. A built image, run | `backends/ubuntu/iso/tests/boot-arm64-vm.sh`, `installed-boot.sh`, `stick/tests/qemu/run.sh` | QEMU, firmware, a container for some | 2 to 20 min (arm64 with hardware acceleration); hours for x86-64 under emulation | The live desktop, the one-click install, the installed boot and the first-boot job, as a person would see them |
@@ -660,7 +660,7 @@ captured from an image (`backends/ubuntu/chroot/tests/fixtures/`). A claim about
 ├── core/                 distro-portable: no package-manager assumptions
 │   ├── manifest/         ecosystem.yaml, role-map/{apt,pacman}.yaml, model-packs.yaml + lock, tier-b-pins.env, licenses.yaml
 │   ├── render/           tokens + assets -> GRUB background, MOTD, mark PNGs, GNOME Shell gresource; inputs/, tests/
-│   ├── lib/              theme-lib.sh, gpu-detect.sh, ci-os-models.sh, ci-hub.sh, vendor-brand.sh, check-repo.sh, retired-names.allow, tests/
+│   ├── lib/              theme-lib.sh, gpu-detect.sh, ci-os-models.sh, ci-hub.sh, vendor-brand.sh, check-repo.sh, retired-names.allow, check-guards.sh, guards.allow, tests/
 │   └── headless/         payload/ (setup backend, portal, hostapd/dnsmasq/nginx, units), ci_setup/ (tested library), tests/
 ├── backends/
 │   ├── ubuntu/           Companion OS on Ubuntu 26.04.1: apt/dpkg + Bash

@@ -137,6 +137,7 @@ They change how patiently and in what pieces `fetch` talks to the registry and n
 | Variable | What it does | Read by |
 |---|---|---|
 | `SKIP_CACHYOS_TESTS=1` | skip the CachyOS block of the gate | `core/lib/check-repo.sh` |
+| `CI_GUARDS_SCRIPT=<copy>`, `CI_GUARDS_CASES` | run the cases of the guard test against another copy of `check-guards.sh` (its planted defects do); run only the cases named, one per line | `core/lib/tests/guards.sh` |
 | `CACHYOS_UPSTREAM_ARCHISO`, `CACHYOS_TEST_FETCH=1` | let `overlay-brand.sh` check the patches against the pinned upstream (a checkout's `archiso/`, or fetch the pin) | `backends/cachyos/iso/tests/overlay-brand.sh` |
 | `CI_OS_REAL_CALAMARES_ROOT=<dir>` | run the installer guards on the real files of an unpacked installer too | `installer-config.sh` |
 | `CI_TEST_STOCK_ISO`, `CI_TEST_STOCK_INITRD` | run `md5sum-txt.sh` against the real stock ISO and `boot-media-plymouth.sh` against the real stock initrd | the Ubuntu ISO tests |

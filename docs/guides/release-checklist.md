@@ -67,6 +67,8 @@ echo '601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f  ubuntu-2
 
 Take the `.1` file; the 26.04 directory also lists the GA 26.04.0 ISO. A change of the base (26.04.2) is not a one-line bump: follow [Changing the base ISO](iso-build-guide.md#changing-the-base-iso) in the ISO build guide (layer-split table, md5sum convention, signed GRUB module list, initrd shape).
 
+The other inputs of the build and of the workflows (the build image, the actions, the compilers) are pinned as well: [Pinned inputs and how to refresh them](#pinned-inputs-and-how-to-refresh-them).
+
 Plasma: read `REPO_COMMIT`, `UPSTREAM_SHA`, `COMPAT_REVIEW_BY` and `COMPAT_REVIEW_OVERDUE` in the `.build-info`. `COMPAT_REVIEW_OVERDUE=1` means the compatibility libraries (`backends/cachyos/compat-libs.lock`, review by 2026-12-01) were not reviewed in time; build releases with `CI_OS_COMPAT_REVIEW=error`.
 
 ### 4. Static verifier passes
@@ -224,6 +226,61 @@ Names only; nothing here was done, and no secret value belongs in a document, a 
 4. Decide who holds the release key (KI-12), create it, put `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` into the `production` environment and publish the public key.
 5. Confirm the prefix `os/` on the shared buckets, or change it with `--prefix`.
 6. Rehearse on `dev` with a throw-away version (for example `0.0-test1`): run the workflow or the commands above, then `verify-published.sh --full` from another machine, and delete the test objects in the Cloudflare dashboard. Record the run in `docs/evidence/`.
+
+## Pinned inputs and how to refresh them
+
+A tag or a branch can be moved to other code at any time, so every input that a workflow or the image build fetches by name is pinned to
+what was reviewed: an action to the full commit sha of a release, an image to the digest of its image index, a compiler to an exact
+version. `core/lib/check-guards.sh`, part of `check-repo.sh`, refuses an action reference that is not pinned that way **[V]** (its test is
+`core/lib/tests/guards.sh`). The values below were read from GitHub, the Rust release channel and the registry on 2026-10-31 **[V]**; no
+workflow has run with them yet, because all four are manual-only **[I]**.
+
+| Input | Where | Pinned to | Release |
+|---|---|---|---|
+| `actions/checkout` | all four workflows | `11d5960a326750d5838078e36cf38b85af677262` | v4.4.0 |
+| `actions/upload-artifact` | `build-companion-os-iso.yml`, `pr-checks.yml`, `stick-real-iso.yml` | `ea165f8d65b6e75b540449e92b4886f43607fa02` | v4.6.2 |
+| `actions/download-artifact` | `build-companion-os-iso.yml`, `stick-real-iso.yml` | `d3f86a106a0bac45b974a628896c90dbdf5c8093` | v4.3.0 |
+| `actions/setup-node` | `style-canon-lint.yml` | `49933ea5288caeca8642d1e84afbd3f7d6820020` | v4.4.0 |
+| `softprops/action-gh-release` | `build-companion-os-iso.yml`, the draft release | `3bb12739c298aeb8a4eeaf626c5b8d85266b0e65` | v2.6.2 |
+| `Swatinem/rust-cache` | `pr-checks.yml` | `d1527c8f67ef9af357290475d4af4b0fab8f12e0` | v2.9.3 |
+| `dtolnay/rust-toolchain` | `pr-checks.yml`, `stick-real-iso.yml` | `683b588c487a69d01f6c6ddf40f036ff682cc2c8` | v1 (the action has no release tags; its commit of 2026-10-16) |
+| Rust | the `toolchain:` input of those steps | `1.99.1` | the stable release of 2026-10-13 |
+| Rust, MSRV | the MSRV step of `pr-checks.yml` | `1.75.0` | `rust-version = "1.75"` in `stick/Cargo.toml` |
+| The build image `ubuntu:26.04` | `BUILD_IMAGE` in `build-companion-os-iso.yml` and in `build-in-docker.sh`, the `stick-qemu` job of `pr-checks.yml`, the recipe in `CLAUDE.md`, `README.md` and [Building on a Mac](building-on-a-mac.md#recipe) | `sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c`, the image index (amd64 `sha256:157dc3d6...`, arm64 `sha256:86eb1bc1...`) | the image built on 2026-10-25 (its `org.opencontainers.image.created` label) |
+| `rhysd/actionlint` | the command in [Running the tests](running-the-tests.md) | `sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667` | 1.7.12 |
+
+What a pin does not do. The image digest fixes the starting userland of the build container and nothing more: the container then runs
+`apt-get update` and installs from the live Ubuntu archive, so the packages of a build are what the archive serves that day. A pinned
+compiler can show new `clippy` warnings on the day it is bumped, warnings that a floating one would have shown on a day of its own.
+
+### Refresh a pin
+
+The commands only read; they need `gh`, `git`, `curl` and `python3` (`docker` only for the last line of the first block).
+
+```bash
+sha="$(gh api -X GET repos/actions/checkout/commits/v4 --jq .sha)"; echo "$sha"      # the commit the major tag names today (an annotated tag is followed to its commit)
+git ls-remote --tags https://github.com/actions/checkout | grep "$sha"               # the release tags on that commit: they give the trailing comment
+gh api -X GET repos/dtolnay/rust-toolchain/commits/v1 --jq .sha                      # the toolchain action
+curl -fsSL https://static.rust-lang.org/dist/channel-rust-stable.toml | grep -m1 -A1 '^\[pkg.rustc\]'      # the current stable Rust
+docker buildx imagetools inspect ubuntu:26.04 | sed -n '1,5p'                        # the image index digest, with Docker
+```
+
+Without Docker, the same digest from the registry:
+
+```bash
+TOKEN="$(curl -fsS 'https://auth.docker.io/token?service=registry.docker.io&scope=repository:library/ubuntu:pull' | python3 -c 'import json, sys; print(json.load(sys.stdin)["token"])')"
+curl -fsSI -H "Authorization: Bearer $TOKEN" -H 'Accept: application/vnd.oci.image.index.v1+json' https://registry-1.docker.io/v2/library/ubuntu/manifests/26.04 | grep -i docker-content-digest
+```
+
+The rules:
+
+- **A bump is its own commit**, with the old and the new release in its message (for example `pins: actions/checkout v4.4.0 to v4.5.0`),
+  so that one commit reviews it and one commit reverts it.
+- **A new major version is not a pin refresh**: it is new code, reviewed as a change of its own.
+- **The sha of an annotated tag is not a commit.** `git ls-remote` prints the tag object on the tag line and the commit on the `^{}`
+  line; pin the commit, which is what the `commits/<tag>` call returns.
+- Keep the trailing comment that names the release (`# v4.4.0`), and change every place of a row at once:
+  `backends/ubuntu/iso/tests/build-in-docker.sh` fails when the workflow's `BUILD_IMAGE` and the script's differ.
 
 ## Stick bundle release
 
