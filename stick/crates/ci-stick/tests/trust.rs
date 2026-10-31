@@ -142,6 +142,13 @@ fn with(far: &[&'static str], more: &[&'static str]) -> Vec<&'static str> {
     far.iter().chain(more).copied().collect()
 }
 
+fn warning_codes(report: &serde_json::Value) -> Vec<&str> {
+    report["warnings"]
+        .as_array()
+        .map(|w| w.iter().filter_map(|x| x["code"].as_str()).collect())
+        .unwrap_or_default()
+}
+
 #[test]
 fn a_bundle_rebuilt_at_a_lower_sequence_is_refused() {
     let fx = Fixture::new();
@@ -194,6 +201,12 @@ fn a_bundle_rebuilt_at_a_lower_sequence_is_refused() {
     assert_eq!(
         j["artifacts_total"], 0,
         "refused before any artifact was hashed"
+    );
+    // The refusal says where the floor is kept and how to look at it.
+    let why = j["errors"][0]["message"].as_str().unwrap_or_default();
+    assert!(
+        why.contains("ci-stick trust show") && why.contains("floors.json"),
+        "{why}"
     );
     assert!(fx.floors().contains("\"sequence\": 2"), "{}", fx.floors());
 
@@ -360,7 +373,12 @@ fn an_unwritable_state_directory_warns_in_a_development_flow() {
         &["verify", p(&fx.stage), "--pubkey", p(&fx.public), "--json"],
     );
     assert_eq!(code(&o), 0, "{}", stderr(&o));
-    assert_eq!(stdout_json(&o)["warnings"][0]["code"], "floor-not-checked");
+    // Both the floor and the revocation list of that directory were out of reach, and both
+    // are said.
+    let j = stdout_json(&o);
+    let codes = warning_codes(&j);
+    assert!(codes.contains(&"floor-not-checked"), "{codes:?}");
+    assert!(codes.contains(&"revoked-list-not-read"), "{codes:?}");
 }
 
 #[test]
@@ -580,4 +598,163 @@ fn lock_refuses_a_zero_sequence_and_a_zero_day_window() {
         assert_eq!(code(&fx.run(&args)), 2, "{bad:?}");
     }
     assert!(!fx.stage.join("bundle.json").exists());
+}
+
+#[test]
+fn doctor_says_that_no_release_key_is_pinned_with_or_without_a_key() {
+    let fx = Fixture::new();
+    assert_eq!(code(&fx.release(&with(&FAR, &["--sequence", "1"]))), 0);
+    for with_key in [false, true] {
+        let mut args = vec!["doctor", "--bundle", p(&fx.stage), "--json"];
+        if with_key {
+            args.extend(["--pubkey", p(&fx.public)]);
+        }
+        let o = fx.run(&args);
+        assert!(
+            stderr(&o).contains("no release key is pinned in this build (KI-23)"),
+            "with a key: {with_key}\n{}",
+            stderr(&o)
+        );
+    }
+}
+
+#[test]
+fn an_expired_bundle_is_refused_even_when_there_is_nowhere_to_keep_a_floor() {
+    let fx = Fixture::new();
+    fx.lock(&[
+        "--sequence",
+        "1",
+        "--created-at",
+        "2020-01-01T00:00:00Z",
+        "--valid-days",
+        "30",
+    ]);
+    fx.sign();
+    // Expiry reads the clock and the bundle only: with no flag, no variable and no HOME it
+    // must still hold, and the missing floor is a warning on top of it.
+    let o = Command::new(env!("CARGO_BIN_EXE_ci-stick"))
+        .args(["verify", p(&fx.stage), "--pubkey", p(&fx.public), "--json"])
+        .env_remove("CI_STICK_STATE_DIR")
+        .env_remove("XDG_STATE_HOME")
+        .env_remove("HOME")
+        .env_remove("LOCALAPPDATA")
+        .output()
+        .expect("run");
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    let j = stdout_json(&o);
+    assert_eq!(j["errors"][0]["code"], "bundle-expired");
+    assert!(warning_codes(&j).contains(&"floor-not-checked"), "{j}");
+}
+
+/// Make `path` unreadable for the duration of a closure and put its mode back afterwards, also
+/// when an assertion in the caller fails later. Returns `None` when the permission changes
+/// nothing (a superuser), so the caller has nothing to prove.
+#[cfg(unix)]
+fn while_unreadable<T>(path: &Path, run: impl FnOnce() -> T) -> Option<T> {
+    use std::os::unix::fs::PermissionsExt as _;
+    let original = fs::metadata(path).expect("stat").permissions();
+    fs::set_permissions(path, fs::Permissions::from_mode(0o000)).expect("chmod");
+    // A directory that cannot be searched hides what is in it; a file that cannot be read
+    // cannot be read. Either way, probe the way ci-stick will.
+    let still_reachable = if path.is_dir() {
+        fs::read_dir(path).is_ok()
+    } else {
+        fs::read(path).is_ok()
+    };
+    let out = (!still_reachable).then(run);
+    fs::set_permissions(path, original).expect("restore");
+    out
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_floor_or_revocation_file_stops_the_command() {
+    let fx = Fixture::new();
+    assert_eq!(code(&fx.release(&with(&FAR, &["--sequence", "2"]))), 0);
+    let revoked = fx.state.join("revoked.txt");
+    fs::write(&revoked, "# nothing is revoked yet\n").expect("write");
+    for name in ["floors.json", "revoked.txt"] {
+        let file = fx.state.join(name);
+        let before = fs::read(&file).expect("read");
+        let Some(o) = while_unreadable(&file, || fx.verify()) else {
+            continue; // a superuser reads anything
+        };
+        assert_eq!(code(&o), 2, "{name}: {}", stderr(&o));
+        assert!(
+            stderr(&o).contains(name) && stderr(&o).contains("cannot be read"),
+            "{name}: {}",
+            stderr(&o)
+        );
+        assert_eq!(fs::read(&file).expect("read"), before, "{name}: untouched");
+    }
+    // Readable again: the same bundle verifies.
+    assert_eq!(code(&fx.verify()), 0);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_revocation_list_that_cannot_be_looked_at_is_not_dropped_in_silence() {
+    let fx = Fixture::new();
+    // The state directory sits below a directory that can be made unsearchable.
+    let locked = fx.state.parent().expect("parent").join("locked");
+    let state = locked.join("state");
+    fs::create_dir_all(&state).expect("mkdir");
+    fx.lock(&with(&FAR, &["--sequence", "1"]));
+    fx.sign();
+    fs::write(state.join("revoked.txt"), format!("{}\n", fx.fingerprint())).expect("write");
+    let verify = || {
+        fx.run_in(
+            &state,
+            &["verify", p(&fx.stage), "--pubkey", p(&fx.public), "--json"],
+        )
+    };
+
+    // Control: the list can be read, and the key is revoked.
+    let o = verify();
+    assert_eq!(code(&o), 1, "{}", stderr(&o));
+    assert_eq!(
+        stdout_json(&o)["errors"][0]["code"],
+        "signature-key-revoked"
+    );
+
+    let Some((dev_flow, device_flow, show)) = while_unreadable(&locked, || {
+        (
+            verify(),
+            // A write to a physical stick needs the revocations: refused before the device
+            // is even looked at (/dev/null is no stick; the refusal must come first).
+            fx.run_in(
+                &state,
+                &[
+                    "flash",
+                    p(&fx.stage),
+                    "--pubkey",
+                    p(&fx.public),
+                    "--device",
+                    "/dev/null",
+                    "--dry-run",
+                ],
+            ),
+            fx.run_in(&state, &["trust", "show"]),
+        )
+    }) else {
+        return; // a superuser can look anywhere
+    };
+
+    // A development flow carries on, and says that the revocations did not apply.
+    assert_eq!(code(&dev_flow), 0, "{}", stderr(&dev_flow));
+    let j = stdout_json(&dev_flow);
+    let codes = warning_codes(&j);
+    assert!(codes.contains(&"revoked-list-not-read"), "{codes:?}");
+
+    // A device flow refuses, naming the directory it could not look at.
+    assert_eq!(code(&device_flow), 2, "{}", stderr(&device_flow));
+    let why = stderr(&device_flow);
+    assert!(
+        why.contains("revocations") && why.contains(p(&state)),
+        "{why}"
+    );
+
+    // And `trust show` says so as well.
+    assert_eq!(code(&show), 2);
+    assert!(stderr(&show).contains(p(&state)), "{}", stderr(&show));
 }

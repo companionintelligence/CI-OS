@@ -20,9 +20,9 @@ use ci_stick::packs::{self, PackCatalog};
 use ci_stick::progress::Progress;
 use ci_stick::size::{fmt_binary, parse_size};
 use ci_stick::slot::{self, SlotTarget};
-use ci_stick::state::{self, Floor, FloorStore, Os, StateEnv, StateError};
+use ci_stick::state::{self, Floor, FloorStore, Os, StateEnv};
 use ci_stick::trust::TrustAnchors;
-use ci_stick::verify::{FloorMode, Freshness, PolicyRequest, SignaturePolicy};
+use ci_stick::verify::{KeyArgs, Purpose, Setup, Trust};
 use ci_stick::{devices, doctor, host, layout, lock, signing, timefmt, verify};
 
 const EXIT_FAILED: u8 = 1;
@@ -42,7 +42,8 @@ const EXIT_USAGE: u8 = 2;
 )]
 struct Cli {
     /// Directory for the sequence floors and the optional revoked.txt (default: $CI_STICK_STATE_DIR,
-    /// else the platform's per-user state directory; see `ci-stick trust show`).
+    /// else the platform's per-user state directory; see `ci-stick trust show`). Name it
+    /// explicitly under sudo: the variable is usually not passed on.
     #[arg(long, global = true, value_name = "DIR")]
     state_dir: Option<PathBuf>,
     #[command(subcommand)]
@@ -53,7 +54,11 @@ struct Cli {
 enum Command {
     /// Hash a staging directory and write/update its bundle.json.
     Lock(LockArgs),
-    /// Verify a bundle's signature and every artifact's size and SHA-256.
+    /// Verify a bundle: signature, expiry and sequence floor, then every artifact's size and SHA-256.
+    ///
+    /// Verifying is accepting: a bundle that passes raises this machine's floor for its id, and
+    /// an older release is refused afterwards. For a candidate you do not mean to accept, point
+    /// --state-dir at a throw-away directory. `ci-stick trust show` lists the floors.
     Verify(VerifyArgs),
     /// Partition layout planning.
     #[command(subcommand)]
@@ -118,7 +123,8 @@ struct FlashArgs {
     /// development GRUB (the stick then boots only with Secure Boot disabled).
     #[arg(long)]
     allow_unsigned_bootloader: bool,
-    /// Print the plan and write nothing.
+    /// Print the plan and write nothing to the target. A --device dry run also makes sure the
+    /// state directory can hold the sequence floor, and never records one.
     #[arg(long)]
     dry_run: bool,
     /// Device writes: must equal the device node shown in the plan (e.g. /dev/sdb).
@@ -394,64 +400,14 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
     }
 }
 
-/// The build's trust anchors plus what this machine's state directory adds to them.
-struct Trust {
-    /// Compiled-in lists plus the fingerprints in the state directory's `revoked.txt`.
-    anchors: TrustAnchors,
-    /// The floor store, or why there is none.
-    store: Result<FloorStore, String>,
-}
-
+/// Load the build's trust anchors plus what this machine's state directory adds to them.
 fn load_trust(state_dir_flag: Option<&Path>) -> anyhow::Result<Trust> {
     // Malformed lists in this build: refuse to verify anything.
     let builtin = TrustAnchors::builtin()?;
-    let resolved =
-        state::resolve_state_dir(Os::current(), &StateEnv::from_process(), state_dir_flag);
-    Ok(match resolved {
-        Ok((dir, _source)) => {
-            let store = FloorStore::new(dir);
-            let extra = match store.extra_revoked() {
-                Ok(v) => v,
-                // A revoked.txt that cannot be read must not silently stop revoking.
-                Err(e @ StateError::Damaged(_)) => return Err(e.into()),
-                // An unusable directory is reported where the floors are needed.
-                Err(_) => Vec::new(),
-            };
-            Trust {
-                anchors: builtin.with_revoked(extra),
-                store: Ok(store),
-            }
-        }
-        Err(e) => Trust {
-            anchors: builtin,
-            store: Err(e.to_string()),
-        },
-    })
-}
-
-impl Trust {
-    /// `required`: an unusable state directory refuses (pinned and `--device` flows) instead of
-    /// warning. `record`: raise the floor after a fully successful verification.
-    fn freshness(&self, required: bool, record: bool) -> anyhow::Result<Freshness> {
-        let now = timefmt::unix_now()
-            .context("the system clock reads a time before 1970, so an expiry cannot be checked")?;
-        let floors = match &self.store {
-            Ok(store) => FloorMode::Store {
-                store: store.clone(),
-                required,
-                record,
-            },
-            Err(reason) => FloorMode::Unavailable {
-                reason: reason.clone(),
-                required,
-            },
-        };
-        Ok(Freshness {
-            now,
-            revoked: self.anchors.revoked().map(str::to_string).collect(),
-            floors,
-        })
-    }
+    Trust::load(
+        builtin,
+        state::resolve_state_dir(Os::current(), &StateEnv::from_process(), state_dir_flag),
+    )
 }
 
 fn print_notes(notes: &[String]) {
@@ -460,24 +416,25 @@ fn print_notes(notes: &[String]) {
     }
 }
 
-fn signature_policy(
+/// The policy and the freshness context for one command. Every decision about keys, revocations
+/// and floors is made in [`Trust::setup`]; this only supplies the command line and the clock.
+fn setup(
     trust: &Trust,
+    purpose: Purpose,
     pubkey: Option<&str>,
     development_key: bool,
     allow_unsigned: bool,
-    device: bool,
-) -> anyhow::Result<SignaturePolicy> {
-    let chosen = verify::choose_policy(
-        &trust.anchors,
-        PolicyRequest {
-            pubkey: pubkey.map(signing::parse_public_key).transpose()?,
-            development_key,
-            allow_unsigned,
-            device,
-        },
-    )?;
+) -> anyhow::Result<Setup> {
+    let now = timefmt::unix_now()
+        .context("the system clock reads a time before 1970, so an expiry cannot be checked")?;
+    let keys = KeyArgs {
+        pubkey: pubkey.map(signing::parse_public_key).transpose()?,
+        development_key,
+        allow_unsigned,
+    };
+    let chosen = trust.setup(purpose, keys, now)?;
     print_notes(&chosen.notes);
-    Ok(chosen.policy)
+    Ok(chosen)
 }
 
 fn cmd_flash(a: FlashArgs, state_dir: Option<&Path>) -> anyhow::Result<ExitCode> {
@@ -499,20 +456,19 @@ fn cmd_flash(a: FlashArgs, state_dir: Option<&Path>) -> anyhow::Result<ExitCode>
         );
     }
     let trust = load_trust(state_dir)?;
-    let policy = signature_policy(
+    // A device or a pinned key makes the floor mandatory: no state directory, no write. The
+    // floor itself is recorded by `flash` after the stick was written, never by a dry run.
+    let chosen = setup(
         &trust,
+        target.purpose(),
         a.pubkey.as_deref(),
         a.development_key,
         a.allow_unsigned,
-        target.is_device(),
     )?;
-    // A device or a pinned key makes the floor mandatory: no state directory, no write. The
-    // floor itself is recorded by `flash` after the stick was written, never by a dry run.
-    let required = target.is_device() || matches!(policy, SignaturePolicy::Pinned(_));
     let req = FlashRequest {
         bundle_root: a.root,
-        freshness: trust.freshness(required, false)?,
-        policy,
+        freshness: chosen.freshness,
+        policy: chosen.policy,
         target,
         boot_image: a.boot_image,
         slot_b_from: a.slot_b_from,
@@ -709,16 +665,14 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
 
 fn cmd_verify(a: VerifyArgs, state_dir: Option<&Path>) -> anyhow::Result<ExitCode> {
     let trust = load_trust(state_dir)?;
-    let policy = signature_policy(
+    // Verifying is accepting: the floor moves up once the whole bundle checked out.
+    let chosen = setup(
         &trust,
+        Purpose::Verify,
         a.pubkey.as_deref(),
         a.development_key,
         a.allow_unsigned,
-        false,
     )?;
-    // Verifying is accepting: the floor moves up once the whole bundle checked out.
-    let required = matches!(policy, SignaturePolicy::Pinned(_));
-    let fresh = trust.freshness(required, true)?;
     let mut progress = if a.json {
         Progress::disabled()
     } else {
@@ -726,8 +680,8 @@ fn cmd_verify(a: VerifyArgs, state_dir: Option<&Path>) -> anyhow::Result<ExitCod
     };
     let report = verify::verify_at(
         &a.root,
-        &policy,
-        &fresh,
+        &chosen.policy,
+        &chosen.freshness,
         verify::HashMode::Full,
         &mut progress,
     )?;
@@ -782,15 +736,15 @@ fn cmd_doctor(a: DoctorArgs, state_dir: Option<&Path>) -> anyhow::Result<ExitCod
     let bundle = match &a.bundle {
         Some(root) => {
             let trust = load_trust(state_dir)?;
-            // Diagnostics: report only. With no pinned key and no --pubkey nothing is trusted.
-            let policy = if a.pubkey.is_none() && !trust.anchors.has_pinned_keys() {
-                SignaturePolicy::NotChecked
-            } else {
-                signature_policy(&trust, a.pubkey.as_deref(), a.development_key, false, false)?
-            };
             // Read-only: the floors are looked at, never raised, and a missing state
             // directory does not make a diagnostic fail.
-            let fresh = trust.freshness(false, false)?;
+            let chosen = setup(
+                &trust,
+                Purpose::Doctor,
+                a.pubkey.as_deref(),
+                a.development_key,
+                false,
+            )?;
             let mode = if a.full {
                 verify::HashMode::Full
             } else {
@@ -803,8 +757,8 @@ fn cmd_doctor(a: DoctorArgs, state_dir: Option<&Path>) -> anyhow::Result<ExitCod
             };
             Some(verify::verify_at(
                 root,
-                &policy,
-                &fresh,
+                &chosen.policy,
+                &chosen.freshness,
                 mode,
                 &mut progress,
             )?)
@@ -889,10 +843,7 @@ fn cmd_trust_show(json: bool, state_dir: Option<&Path>) -> anyhow::Result<ExitCo
             "State directory       {dir} ({})\n",
             show.state_dir_source.unwrap_or("default location")
         )),
-        (None, Some(e)) => text.push_str(&format!(
-            "State directory       none: {e}\n                      (set {} or pass --state-dir)\n",
-            state::STATE_DIR_ENV
-        )),
+        (None, Some(e)) => text.push_str(&format!("State directory       none: {e}\n")),
         (None, None) => {}
     }
     if show.floors.is_empty() {
