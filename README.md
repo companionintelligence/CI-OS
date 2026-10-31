@@ -684,7 +684,7 @@ captured from an image (`backends/ubuntu/chroot/tests/fixtures/`). A claim about
 ├── assets/               logos, wallpaper, branding/brand-guidelines.md, GNOME Shell theme assets
 ├── docs/                 README.md (index), architecture/, guides/, evidence/ (text records behind the verified rows), plans/, ui/, CI.md
 ├── pull-dev-manual.sh    thin wrapper around core/lib/ci-hub.sh
-└── LICENSE.md, License-FAQ.md, NOTICE.md, THIRD_PARTY.md, CREDITS.md
+└── LICENSE.md, License-FAQ.md, NOTICE.md, THIRD_PARTY.md, CREDITS.md, SECURITY.md
 ```
 
 ---
@@ -750,6 +750,7 @@ The Ubuntu and Plasma/CachyOS editions have different bases and verification det
 ## Support
 
 * **Issues**: https://github.com/companionintelligence/CI-OS/issues
+* **Security**: report a vulnerability privately, never in a public issue: [`SECURITY.md`](SECURITY.md)
 * **Website**: https://ci.computer
 
 © Companion Intelligence, Lifescope Inc
