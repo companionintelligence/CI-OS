@@ -1,8 +1,8 @@
 name: PR checks
 
-# Cheap, always-on gate (~30s, no secrets): syntax + shellcheck errors + py_compile + yamllint
-# + no committed build artifacts. The heavier workflows stay manual (ci-local:gated); this one
-# is deliberately not gated so every PR gets a signal. Same script runs locally:
+# Manual only: start it with `gh workflow run pr-checks.yml` (docs/CI.md has the whole command). Hosted minutes are billed, so the push and
+# pull request triggers are gated in the block below, like those of the other workflows. No secrets. The check-repo job runs the script that
+# is meant to be run locally, before a push:
 #   ./core/lib/check-repo.sh
 # >>> ci-local:gated original triggers below, restore with `ci-local restore`
 # on:

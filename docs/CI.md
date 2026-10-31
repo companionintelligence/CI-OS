@@ -41,7 +41,7 @@ gh workflow run pr-checks.yml --repo companionintelligence/CI-OS --ref main
 **Companion Stick real-ISO smoke test** — `stick-real-iso.yml`
 
 ```bash
-gh workflow run stick-real-iso.yml --repo companionintelligence/CI-OS --ref main -f ubuntu_release_dir=26.04 -f ci_os_run_id=<value> -f ci_os_artifact=ci-os-iso
+gh workflow run stick-real-iso.yml --repo companionintelligence/CI-OS --ref main -f ubuntu_release_dir=26.04 -f ci_os_run_id=<value> -f ci_os_artifact=companion-os-amd64
 ```
 
 Required inputs: `ubuntu_release_dir` (releases.ubuntu.com directory holding the desktop ISO + SHA256SUMS)

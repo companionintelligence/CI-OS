@@ -17,9 +17,9 @@ on:
         required: false
         default: ''
       ci_os_artifact:
-        description: 'Artifact name in that run (with ci_os_run_id)'
+        description: 'Artifact name in that run, one per architecture (with ci_os_run_id); this test boots x86-64, so companion-os-amd64'
         required: false
-        default: 'ci-os-iso'
+        default: 'companion-os-amd64'
 
 permissions:
   contents: read
