@@ -167,6 +167,22 @@ else
 fi
 rm -f "$untracked_out"
 
+echo "── workflow and secret guards (core/lib/check-guards.sh)"
+# Every uses: of the workflows and composite actions pinned to a full commit sha or a digest; no pull_request_target or workflow_run trigger,
+# also not inside the ci-local gated block (restoring the triggers must not bring one in); no secrets: inherit; a permissions: block in every
+# workflow; persist-credentials: false on every actions/checkout step; no private-key block in a tracked text file. The workflows are
+# manual-only, so this is where the guard runs on a push. Exceptions: core/lib/guards.allow (rule, path or glob, reason; a stale entry
+# fails). Any line it prints fails the gate, "cannot run" included: it needs only git and awk. Its test is in the suite list below.
+guards_out="$(mktemp)"; guards_rc=0
+bash core/lib/check-guards.sh > "$guards_out" 2>&1 || guards_rc=$?
+if [ "$guards_rc" -eq 0 ] && [ ! -s "$guards_out" ]; then
+  echo "  none"
+else
+  [ "$guards_rc" -eq 2 ] && echo "✖ the guard could not run (exit 2):"
+  cat "$guards_out"; rc=1
+fi
+rm -f "$guards_out"
+
 echo "── one-click installer unit tests (backends/ubuntu/chroot/tests/test_auto_install.py)"
 # Disk selection and the autoinstall file of ci-os-auto-install, on fixtures: no root, no disk, no VM. It is the rule that the
 # boot medium is never offered as a target, so it runs on every push. python3-yaml is already needed by yamllint.
@@ -239,7 +255,7 @@ echo "── setup portal, Ubuntu 26.04 backend, ISO layer split and model tooli
 # step order (it refuses a 24.04 base: ci_os_base_is_supported), the headless package's dependencies, the gnome-shell theme overlay decision and
 # the gresource provenance (these two need the glib tools), the live GRUB menu's modules against the signed GRUB's built-in list, the quiet
 # (Ubuntu Pro, Canonical telemetry) and appearance (dark, green) defaults with the real sections 6b and 6c of verify-iso.sh run on fake roots,
-# and the untracked-file guard's own test. The heavy parts (Part B of the split test, verify-installer-base.sh, no-dracut-pin.sh, about-logo-svg.sh,
+# the untracked-file guard's own test, and the workflow and secret guards' own test (four planted defects). The heavy parts (Part B of the split test, verify-installer-base.sh, no-dracut-pin.sh, about-logo-svg.sh,
 # visible-names.sh and the other container tests, the installed-boot boot, the hwsim harness stick/tests/qemu/hotspot-hwsim.sh,
 # `ci-stick models lock --check`) are manual: see their READMEs and backends/ubuntu/iso/README.md "Script tests".
 for suite in \
@@ -278,7 +294,8 @@ for suite in \
   "ollama pull progress filter|bash backends/ubuntu/chroot/tests/pull-progress-filter.sh" \
   "gresource provenance|bash core/render/tests/gresource-provenance.sh" \
   "live GRUB menu modules|bash backends/ubuntu/iso/tests/grub-live-menu-modules.sh" \
-  "untracked-file guard|bash core/lib/tests/untracked-deps.sh"; do
+  "untracked-file guard|bash core/lib/tests/untracked-deps.sh" \
+  "workflow and secret guards|bash core/lib/tests/guards.sh"; do
   sname="${suite%%|*}"; scmd="${suite#*|}"
   sfile="$(printf '%s' "$scmd" | sed -n 's/.*\(core\/[^ ]*\.sh\|backends\/[^ ]*\.sh\).*/\1/p')"
   if [ -n "$sfile" ] && [ ! -f "$sfile" ]; then echo "✖ missing: $sfile ($sname)"; rc=1; continue; fi
