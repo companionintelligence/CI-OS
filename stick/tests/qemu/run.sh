@@ -33,6 +33,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 STICK="$(cd "$HERE/../.." && pwd)"
 WORK="${CI_STICK_QEMU_WORK:-$(mktemp -d "${TMPDIR:-/tmp}/ci-stick-qemu.XXXXXX")}"
 mkdir -p "$WORK"
+# Absolute, so that CI_STICK_STATE_DIR (below) is too: ci-stick refuses a relative one.
+WORK="$(cd "$WORK" && pwd)"
 
 declare -a RESULTS=()
 FAILED=0
