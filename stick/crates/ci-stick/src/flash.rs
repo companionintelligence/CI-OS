@@ -4,7 +4,8 @@
 //! Order of operations, each step refusing before anything is written if it fails:
 //!
 //! 1. **Verify** the bundle with [`crate::verify`] (signature required unless
-//!    `--allow-unsigned`, which is only accepted for `--image` targets).
+//!    `--allow-unsigned`, which is only accepted for `--image` targets; a schema 2 bundle must
+//!    also be unexpired and not below the sequence floor).
 //! 2. **Plan**: resolve the target, compute the layout for its size, pick the boot image
 //!    and the boot chain from the manifest ([`BootChain`]: shim → Canonical GRUB, or the
 //!    unsigned development GRUB), apply the bootloader policy (an unsigned chain on a
@@ -23,6 +24,9 @@
 //! 6. **Read back** after `fsync`: the GPT must parse, pass both CRCs and match the plan;
 //!    each slot's bytes must hash to the manifest digest; each filesystem's data extents
 //!    must compare equal.
+//! 7. **Record the sequence floor** of the bundle that was just written. Only a completed,
+//!    read-back write moves it: a refused bundle, `--dry-run` and a failed write leave it
+//!    where it was.
 
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
@@ -41,9 +45,10 @@ use crate::manifest::{Artifact, ArtifactKind, BootChain, BootloaderRole, Bundle,
 use crate::progress::Progress;
 use crate::size::{fmt_binary, fmt_decimal, MIB};
 use crate::sparse;
+use crate::state::FloorUpdate;
 use crate::target::{self, DeviceTarget, Identity};
 use crate::tools;
-use crate::verify::{self, SignaturePolicy, SignatureStatus, VerifyReport};
+use crate::verify::{self, FloorMode, Freshness, SignaturePolicy, SignatureStatus, VerifyReport};
 
 /// Filesystem label casper looks for to find its persistence partition.
 pub const PERSIST_FS_LABEL: &str = "writable";
@@ -84,6 +89,9 @@ pub struct FlashRequest {
     /// `--allow-unsigned-bootloader`: accept the development (unsigned) boot chain for a
     /// `--device` write. Image targets never need it.
     pub allow_unsigned_bootloader: bool,
+    /// The clock, the revoked keys and the sequence floors the verification works with. A
+    /// device write needs the floors to be required.
+    pub freshness: Freshness,
 }
 
 /// What the bootloader policy decided for a (chain, target) pair.
@@ -133,6 +141,25 @@ pub const UNSIGNED_DEVICE_WARNING: &str = "\
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 ";
 
+/// Printed in the plan when a schema 1 bundle (no sequence, no expiry) goes onto a real stick
+/// because this build has no pinned release key to refuse it.
+pub const UNPROTECTED_DEVICE_WARNING: &str = "WARNING: no release key is pinned in this build and \
+    this bundle has no sequence or expiry: nothing protects against an old bundle.";
+
+/// The plan note for a schema 1 bundle (no sequence, no expiry) going onto a real stick. A
+/// build that pins a key refuses such a bundle in `verify`, so this appears only while no key
+/// is pinned; an image file is a development flow and gets no note.
+fn unprotected_note(
+    device: bool,
+    policy: &SignaturePolicy,
+    signature: &SignatureStatus,
+) -> Option<&'static str> {
+    (device
+        && !matches!(policy, SignaturePolicy::Pinned(_))
+        && matches!(signature, SignatureStatus::Valid { sequence: None, .. }))
+    .then_some(UNPROTECTED_DEVICE_WARNING)
+}
+
 /// Request-level rules that don't need to look at anything.
 pub fn validate_request(r: &FlashRequest) -> anyhow::Result<()> {
     if r.target.is_device() {
@@ -150,6 +177,9 @@ pub fn validate_request(r: &FlashRequest) -> anyhow::Result<()> {
                 "--slot-b-from writes unsigned content into a boot slot and is only accepted \
                  with --image (tests and development)"
             );
+        }
+        if !r.freshness.floors_required() {
+            bail!("internal: a device write must require the sequence floor (see Freshness)");
         }
     } else if r.confirm.is_some() || r.expect_serial.is_some() {
         bail!("--confirm/--expect-serial apply to --device targets only");
@@ -230,6 +260,9 @@ pub struct FlashPlan {
     pub notes: Vec<String>,
     #[serde(skip)]
     device: Option<DeviceTarget>,
+    /// The floor to record once the write completed (schema 2 bundles only).
+    #[serde(skip)]
+    floor_update: Option<FloorUpdate>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -292,9 +325,10 @@ pub fn plan(
     progress: &mut Progress,
 ) -> anyhow::Result<Result<FlashPlan, VerifyReport>> {
     validate_request(req)?;
-    let report = verify::verify(
+    let report = verify::verify_at(
         &req.bundle_root,
         &req.policy,
+        &req.freshness,
         verify::HashMode::Full,
         progress,
     )?;
@@ -512,6 +546,10 @@ pub fn plan(
             "UNSIGNED bundle accepted with --allow-unsigned (development image only).".into(),
         );
     }
+    if let Some(warning) = unprotected_note(req.target.is_device(), &req.policy, &report.signature)
+    {
+        notes.push(warning.to_string());
+    }
 
     Ok(Ok(FlashPlan {
         bundle_id: bundle.id,
@@ -530,6 +568,7 @@ pub fn plan(
         grubenv: env.vars().to_vec(),
         notes,
         device,
+        floor_update: report.floor_update,
     }))
 }
 
@@ -584,9 +623,14 @@ pub fn render_plan(p: &FlashPlan, dry_run: bool) -> String {
         "Companion Stick flash plan\n\n"
     });
     let sig = match &p.signature {
-        SignatureStatus::Valid { key_fingerprint } => {
-            format!("signature valid (key {key_fingerprint})")
-        }
+        SignatureStatus::Valid {
+            key_fingerprint,
+            sequence: Some(n),
+            expires_at: Some(until),
+        } => format!("signature valid (key {key_fingerprint}), sequence {n}, expires {until}"),
+        SignatureStatus::Valid {
+            key_fingerprint, ..
+        } => format!("signature valid (key {key_fingerprint})"),
         SignatureStatus::UnsignedAllowed => "UNSIGNED (--allow-unsigned)".into(),
         other => format!("{other:?}"),
     };
@@ -1052,6 +1096,33 @@ pub fn execute(p: &FlashPlan, req: &FlashRequest) -> anyhow::Result<WriteReport>
     Ok(report)
 }
 
+/// Record the floor of the bundle that was just written (a schema 2 bundle, with floors on).
+///
+/// Failing here does not undo the write, so the message says that. A required floor (device
+/// and pinned flows) makes it an error; a development image flow only warns.
+fn commit_floor(p: &FlashPlan, req: &FlashRequest) -> anyhow::Result<()> {
+    let (
+        Some(update),
+        FloorMode::Store {
+            store, required, ..
+        },
+    ) = (&p.floor_update, &req.freshness.floors)
+    else {
+        return Ok(());
+    };
+    match store.record(update) {
+        Ok(_) => Ok(()),
+        Err(e) if *required => Err(anyhow::Error::new(e)
+            .context("the stick was written, but the sequence floor could not be recorded")),
+        Err(e) => {
+            eprintln!(
+                "warning: the stick was written, but the sequence floor was not recorded: {e}"
+            );
+            Ok(())
+        }
+    }
+}
+
 /// Plan, and unless it is a dry run, write.
 pub fn flash(req: &FlashRequest, progress: &mut Progress) -> anyhow::Result<FlashOutcome> {
     let p = match plan(req, progress)? {
@@ -1063,6 +1134,7 @@ pub fn flash(req: &FlashRequest, progress: &mut Progress) -> anyhow::Result<Flas
     }
     eprint!("{}", render_plan(&p, false));
     let report = execute(&p, req)?;
+    commit_floor(&p, req)?;
     Ok(FlashOutcome::Written(Box::new(p), report))
 }
 
@@ -1083,6 +1155,7 @@ mod tests {
             expect_serial: None,
             work_dir: None,
             allow_unsigned_bootloader: false,
+            freshness: Freshness::without_floors(0),
         }
     }
 
@@ -1164,6 +1237,7 @@ mod tests {
             grubenv: env.vars().to_vec(),
             notes: vec![],
             device: None,
+            floor_update: None,
         }
     }
 
@@ -1247,5 +1321,167 @@ mod tests {
         r.confirm = None;
         r.extra_cmdline = Some("a;b".into());
         assert!(validate_request(&r).is_err());
+    }
+
+    fn key() -> SignaturePolicy {
+        SignaturePolicy::Require(
+            crate::signing::generate_signing_key()
+                .unwrap()
+                .verifying_key(),
+        )
+    }
+
+    #[test]
+    fn a_device_write_needs_required_floors() {
+        let dev = || TargetSpec::Device {
+            path: "/dev/sdz".into(),
+        };
+        let img = TargetSpec::Image {
+            path: "/tmp/x.img".into(),
+            size_bytes: 64_000_000_000,
+        };
+        let with = |target: TargetSpec, floors: FloorMode| {
+            let mut r = req(target, key());
+            r.freshness.floors = floors;
+            validate_request(&r)
+        };
+        // No floors at all, or floors that are only advisory: refused for a device.
+        let e = with(dev(), FloorMode::Off).unwrap_err();
+        assert!(format!("{e}").contains("sequence floor"), "{e}");
+        for floors in [
+            FloorMode::Unavailable {
+                reason: "x".into(),
+                required: false,
+            },
+            FloorMode::Store {
+                store: crate::state::FloorStore::new("/nonexistent/state".into()),
+                required: false,
+                record: false,
+            },
+        ] {
+            assert!(with(dev(), floors).is_err());
+        }
+        // Required floors, unavailable or not, are accepted; an image never needs them.
+        with(
+            dev(),
+            FloorMode::Unavailable {
+                reason: "x".into(),
+                required: true,
+            },
+        )
+        .unwrap();
+        with(
+            dev(),
+            FloorMode::Store {
+                store: crate::state::FloorStore::new("/nonexistent/state".into()),
+                required: true,
+                record: false,
+            },
+        )
+        .unwrap();
+        with(img, FloorMode::Off).unwrap();
+    }
+
+    fn written_plan(sequence: Option<u64>) -> FlashPlan {
+        let mut p = fake_plan(BootChain::Secure, false);
+        p.floor_update = sequence.map(|n| FloorUpdate {
+            bundle_id: "flash-test".into(),
+            floor: crate::state::Floor {
+                sequence: n,
+                bundle_sha256: "ab".repeat(32),
+                signer: "0123456789abcdef".into(),
+            },
+        });
+        p
+    }
+
+    fn with_store(dir: &Path, required: bool) -> FlashRequest {
+        let mut r = req(
+            TargetSpec::Image {
+                path: "/tmp/x.img".into(),
+                size_bytes: 64_000_000_000,
+            },
+            key(),
+        );
+        r.freshness.floors = FloorMode::Store {
+            store: crate::state::FloorStore::new(dir.to_path_buf()),
+            required,
+            record: false,
+        };
+        r
+    }
+
+    #[test]
+    fn the_floor_is_recorded_only_for_a_schema_2_plan_and_only_by_commit() {
+        let t = tempfile::tempdir().unwrap();
+        let dir = t.path().join("state");
+        let r = with_store(&dir, true);
+
+        // A plan without a floor (schema 1) records nothing and does not even create the directory.
+        commit_floor(&written_plan(None), &r).unwrap();
+        assert!(!dir.exists());
+        // Planning alone (what --dry-run does) never writes: only commit_floor does.
+        let p = written_plan(Some(4));
+        assert!(!dir.exists());
+        commit_floor(&p, &r).unwrap();
+        let store = crate::state::FloorStore::new(dir.clone());
+        assert_eq!(store.floor("flash-test").unwrap().unwrap().sequence, 4);
+        // Floors that are off record nothing.
+        let off = req(
+            TargetSpec::Image {
+                path: "/tmp/x.img".into(),
+                size_bytes: 64_000_000_000,
+            },
+            key(),
+        );
+        let t2 = tempfile::tempdir().unwrap();
+        commit_floor(&written_plan(Some(9)), &off).unwrap();
+        assert_eq!(fs::read_dir(t2.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn a_floor_that_cannot_be_recorded_after_the_write_is_said_aloud() {
+        let t = tempfile::tempdir().unwrap();
+        let blocker = t.path().join("blocker");
+        fs::write(&blocker, b"x").unwrap();
+        let p = written_plan(Some(2));
+        let e = commit_floor(&p, &with_store(&blocker.join("state"), true)).unwrap_err();
+        assert!(format!("{e:#}").contains("the stick was written"), "{e:#}");
+        // A development image flow only warns.
+        commit_floor(&p, &with_store(&blocker.join("state"), false)).unwrap();
+    }
+
+    #[test]
+    fn only_a_schema_1_bundle_on_a_device_is_flagged_in_the_plan() {
+        let valid = |sequence: Option<u64>| SignatureStatus::Valid {
+            key_fingerprint: "0123456789abcdef".into(),
+            sequence,
+            expires_at: sequence.map(|_| "2099-01-01T00:00:00Z".to_string()),
+        };
+        let dev_key = key();
+        assert_eq!(
+            unprotected_note(true, &dev_key, &valid(None)),
+            Some(UNPROTECTED_DEVICE_WARNING)
+        );
+        assert_eq!(
+            unprotected_note(true, &dev_key, &valid(Some(3))),
+            None,
+            "a schema 2 bundle is protected"
+        );
+        assert_eq!(
+            unprotected_note(false, &dev_key, &valid(None)),
+            None,
+            "an image file is a development flow"
+        );
+        assert_eq!(
+            unprotected_note(true, &dev_key, &SignatureStatus::UnsignedAllowed),
+            None
+        );
+        assert!(UNPROTECTED_DEVICE_WARNING.contains("no release key is pinned in this build"));
+        assert!(UNPROTECTED_DEVICE_WARNING.contains("nothing protects against an old bundle"));
+        // And the plan prints it.
+        let mut p = fake_plan(BootChain::Secure, false);
+        p.notes.push(UNPROTECTED_DEVICE_WARNING.to_string());
+        assert!(render_plan(&p, true).contains("nothing protects against an old bundle"));
     }
 }
