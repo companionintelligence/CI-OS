@@ -6,12 +6,13 @@ Each check returns normally or raises ``AssertionError``; nothing is skipped sil
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 from typing import Any, Callable, Dict, List, Tuple
 
-from . import apcfg, auth, captive, fw, jobs, policy, qr, regdom, runners, validators, wifi_qr
-from .clock import ManualClock
+from . import apcfg, auth, captive, fw, jobs, policy, qr, regdom, replay, runners, statement, validators, wifi_qr
+from .clock import ManualClock, ManualWallClock
 from .errors import ValidationError
 from .parsers import ipjson, iw, nmcli, rfkill, supplicant
 
@@ -230,11 +231,77 @@ def check_read_only() -> None:
         raise AssertionError("not refused: " + " ".join(argv))
 
 
+# ------------------------------------------------------------------------------------------------ statements, replay
+# One case of tests/ci_setup/fixtures/statements/vectors.json ("typical"), embedded so that the check needs no test files;
+# test_statement.py compares the two.
+_STATEMENT_CASE = {
+    "fields": {"v": 1, "type": "wifi.join", "request_id": "00112233445566778899aabbccddeeff", "scope": "device-key-thumbprint-0001",
+               "target": "wifi:home-network", "expires_at": 1790000300,
+               "params_hash": "8659fc46e134565d176f321e218f2fba242873daca505a3c55fd6a0ff75a255d"},
+    "params": {"ssid": "Home Net", "security": "wpa2"},
+    "canonical": ('{"expires_at":1790000300,"params_hash":"8659fc46e134565d176f321e218f2fba242873daca505a3c55fd6a0ff75a255d",'
+                  '"request_id":"00112233445566778899aabbccddeeff","scope":"device-key-thumbprint-0001",'
+                  '"target":"wifi:home-network","type":"wifi.join","v":1}'),
+    "signing_sha256": "c2640810c67c98e93a37864446dfb3d1c4f57880fe4636f6d5f8d27d8ce284af",
+}
+
+
+class _KnownAnswerVerifier:
+    """A stand-in for the signature scheme, for this self-test only: it says yes to exactly one (namespace, message, signature)
+    triple. It is not a signature scheme and says nothing about who signed."""
+
+    def __init__(self, triple: Tuple[str, bytes, bytes]) -> None:
+        self._triple = triple
+
+    def verify(self, namespace: str, message: bytes, signature: bytes) -> bool:
+        return (namespace, bytes(message), bytes(signature)) == self._triple
+
+
+def _refusal(fn: Callable[[], Any]) -> str:
+    """The code of the refusal ``fn`` raises, or ``accepted``."""
+    try:
+        fn()
+    except (statement.StatementError, replay.ReplayError) as exc:
+        return exc.code
+    return "accepted"
+
+
+def check_statements() -> None:
+    case = _STATEMENT_CASE
+    fields, params = case["fields"], case["params"]
+    canonical = statement.canonical_statement(fields)
+    _expect(canonical == case["canonical"].encode("ascii"), "canonical bytes of a statement")
+    _expect(hashlib.sha256(statement.SIGNING_PREFIX + canonical).hexdigest() == case["signing_sha256"], "signing bytes")
+    _expect(statement.params_hash(params) == fields["params_hash"], "parameters hash")
+    signature = b"selftest-signature"
+    verifier = _KnownAnswerVerifier((statement.NAMESPACE, statement.SIGNING_PREFIX + canonical, signature))
+    expected = statement.Expected(types=(fields["type"],), scope=fields["scope"], target=fields["target"])
+    clock = ManualWallClock(fields["expires_at"] - 300)
+    backend = replay.MemoryBackend()
+
+    def attempt(raw: bytes = canonical, sig: bytes = signature, **kw: Any) -> str:
+        args = dict(verifier=verifier, expected=expected, params=params, now=clock, store=replay.ReplayGuard(backend))
+        args.update(kw)
+        return _refusal(lambda: statement.verify_statement(raw, sig, **args))
+
+    _expect(attempt(sig=b"another signature") == "signature", "a wrong signature must be refused")
+    _expect(attempt(raw=canonical.replace(b",", b", ")) == "noncanonical", "a statement with a space must be refused")
+    _expect(attempt(params={"ssid": "Home Net", "security": "open"}) == "params", "other parameters must be refused")
+    _expect(backend.list_markers() == [] and backend.read_floor() == 0, "a refused statement must leave no trace")
+    _expect(attempt() == "accepted", "the genuine statement")
+    _expect(attempt() == "replayed", "a second use must be refused, with a new guard over the same store")
+    guard = replay.ReplayGuard(backend)
+    _expect(_refusal(lambda: guard.claim("1" * 32, fields["expires_at"], clock.now() - 121, 600, 120)) == "clock",
+            "a clock behind the floor by more than the skew must be refused")
+    clock.set(fields["expires_at"])
+    _expect(attempt(sig=b"another signature") == "signature", "the signature comes before the expiry")
+
+
 CHECKS: List[Tuple[str, Check]] = [
     ("python version", check_python), ("validators", check_validators), ("parsers", check_parsers),
     ("regulatory domain", check_regdom), ("policy matrix", check_policy), ("credentials and tokens", check_auth),
     ("wifi qr payload", check_wifi_qr), ("qr encoder", check_qr), ("captive portal answers", check_captive), ("job state machine", check_jobs),
-    ("config renderers", check_render), ("read-only runner", check_read_only),
+    ("config renderers", check_render), ("read-only runner", check_read_only), ("statements and replay", check_statements),
 ]
 
 

@@ -19,7 +19,7 @@ code that is being landed in parallel (section 2.7).
 |---|---|---|
 | P0 | **WP-A** stop-gap fixes on the current payload | Written in the working tree, **not committed** when this was written (another agent owned it); landed in `b882e00`. Section 2.7 lists what it changes and what it leaves. |
 | P0 | **WP-B** backend enablement (dependency lists, units not enabled at boot) | Edits to the Ubuntu, Arch (the provisioning engine under CachyOS) and CachyOS packaging were in the working tree, **not committed**, when this was written, and landed in `b882e00` with WP-A; not re-verified here. The Mint, Fedora and NixOS copies of those edits went with their backends on 2026-10-17 (restore: tag `pre-retire-multidistro-2026-10-17`). |
-| P1 | **WP-C** core library | **Done** as a library: `core/headless/ci_setup/`, 26 modules, no service wiring. Section 6. |
+| P1 | **WP-C** core library | **Done** as a library: `core/headless/ci_setup/`, 28 modules, no service wiring. Section 6. |
 | P1 | **WP-G** hwsim test infrastructure | A QEMU-based harness exists in `stick/tests/qemu/` (another agent, in progress); section 9.5. |
 | P2 | WP-D agent and AP runtime, WP-E portal v2, WP-F console and names | Not started. They consume the library. |
 | P3 | WP-H Stick integration, WP-I installer hand-off | Not started. |
@@ -541,7 +541,7 @@ python3 -m ci_setup selftest                                               # bui
 | Module | What it does |
 |---|---|
 | `ci_setup/validators.py` | SSID (bytes, controls, bidi, edges), passphrase, hostname, country, MAC, PIN, ids, port, channel, interface and phy names, strict IPv4 and CIDR, `loads_strict`, `validate_wifi_join_request`, `validate_provisioning_doc` |
-| `ci_setup/errors.py`, `ci_setup/clock.py` | `ValidationError` (never echoes the value), `SystemClock`, `ManualClock` |
+| `ci_setup/errors.py`, `ci_setup/clock.py` | `ValidationError` (never echoes the value), `SystemClock`, `ManualClock`; `WallClock` and `ManualWallClock` for an absolute expiry that a signer chose (section 6.6) |
 | `ci_setup/parsers/iw.py` | `iw dev`, `iw phy info` / `iw list` (modes, frequency flags, interface combinations, `concurrent_ap_sta`), `iw reg get`, `iw scan dump` (security classification, hidden, strongest per SSID, survey, country votes), `iw link`, `iw station dump` |
 | `ci_setup/parsers/nmcli.py` | terse tabular (escaped colons, dropped forged rows), multiline, device state with detail, connection list with TYPE, Wi-Fi list, connectivity, general status |
 | `ci_setup/parsers/rfkill.py`, `ipjson.py`, `supplicant.py`, `common.py` | `rfkill list` and `-J`; `ip -j` link/addr/route, uplink, used networks; `wpa_cli` and `hostapd_cli` status, `all_sta`, control-socket events; SSID decoding, band and channel arithmetic, bounded line reader |
@@ -553,6 +553,8 @@ python3 -m ci_setup selftest                                               # bui
 | `ci_setup/wifi_qr.py`, `ci_setup/qr.py` | the `WIFI:` payload and its parser; a QR encoder (byte mode, versions 1-10, levels L/M/Q/H) with black-on-white console rendering |
 | `ci_setup/captive.py` | the nine probe URLs in pending and done states, host and target routing, header safety |
 | `ci_setup/jobs.py` | the setup job state machine with timeouts, cancellation, snapshots |
+| `ci_setup/statement.py` | operation-bound owner statements (section 6.6): `canonical_json`, `params_hash`, `Expected`, `verify_statement` with an injected signature check, `new_request_id`; library only, not wired into any service |
+| `ci_setup/replay.py` | the replay guard (section 6.6): `ReplayGuard` over a backend interface, `MemoryBackend` with crash injection; library only, not wired into any service |
 | `ci_setup/apcfg.py`, `fw.py`, `templating.py`, `privfile.py`, `templates/*.in` | hostapd and dnsmasq renderers, AP subnet picker, the nftables ruleset and teardown, strict templating with a lint, 0600-from-the-first-byte file writer |
 | `ci_setup/cli.py`, `selftest.py`, `__main__.py` | the command line above and the built-in self-test |
 
@@ -657,6 +659,79 @@ table ip ci_setup_nat {
 * The QR encoder is verified by a second decoder and by CoreImage; it has not been scanned from a screen with a phone camera.
 * `nmcli` SSIDs are untrusted display text. A newline inside an SSID can forge a row with the right field count; use `iw scan dump`
   (which escapes) for anything that is acted on.
+* The owner-statement library has no signature scheme, no on-disk replay store and no caller (section 6.6).
+
+### 6.6 Operation-bound owner statements and the replay guard (library only)
+
+`statement.py`, `replay.py` and the wall clocks of `clock.py` are a library for the setup-service redesign (known issue KI-02) and the
+identity daemon. **They are not wired into any service**: only the self-test and the tests import them [V: `git grep` over `core`,
+`backends` and `stick`, 2026-10-30]. No signature scheme ships with them: the check is an object that the caller injects, and the tests use
+an HMAC stand-in labelled test-only [V: `helpers.py`]. The library decides whether the owner approved exactly this operation, on exactly
+this target, with exactly these parameters, once.
+
+A statement has exactly seven members, and any other member is refused: `v` (the integer 1), `type` (1 to 32 characters of `a-z 0-9 . _ -`,
+from the caller's allow-list), `request_id` (32 lowercase hex digits, 128 random bits, the key of the replay guard), `scope` (1 to 128
+printable ASCII characters, what the verifier expects for itself), `target` (1 to 128 printable ASCII characters, what the caller is about
+to act on), `params_hash` (SHA-256 of the canonical JSON of the parameters about to be applied) and `expires_at` (whole seconds since the
+epoch). The statement is canonical JSON: members sorted by key, no space, ASCII only (other characters as `\u` escapes in lower case), integers
+up to 2^53 - 1, no floats, nesting at most 8 deep, at most 2048 bytes. A received statement is accepted only if its bytes equal the canonical
+encoding of what they parse to. The signature covers the bytes `ci-os-statement/1`, a newline and then those bytes, and the injected check is
+called with the namespace `ci-os-statement@ci.computer`, so a login proof and an operation statement can never stand in for each other
+[V: `test_statement.py`]. Known answers for other languages are in `fixtures/statements/vectors.json`; an independent JavaScript
+implementation, run once and not kept, reproduced all 38 byte strings and hashes in it [V, 2026-10-30].
+
+`verify_statement` runs these steps in this order, and the first failure ends it with an error whose `code` names the step. The text of the
+error is constant: it never contains the statement, the target, the scope, the id or the parameters [V: `test_statement.py`].
+
+| Step | Code | Refused when |
+|---|---|---|
+| 1 | `size`, `encoding`, `format` | more than 2048 bytes; a byte above 0x7F; not a JSON object, a duplicate member, NaN, a number of more than 30 characters |
+| 2 | `noncanonical` | the bytes differ from the canonical encoding of what they parse to |
+| 3 | `signature` | the injected check says no or raises, or the signature is not 1 to 1024 bytes |
+| 4 | `version`, `field` | `v` is an integer other than 1; the members are not exactly the seven, or one has the wrong type or shape |
+| 5 | `type`, `scope`, `target`, `params` | the statement is for another operation, scope, target or parameter set (the hash is compared with `consteq`) |
+| 6 | `expired`, `ttl` | `now >= expires_at`; `expires_at - now > max_ttl_s + skew_s`, which is also the defence against a clock far behind |
+| 7 | `clock` | the clock reading is not a whole number of seconds, or it is behind the replay floor by more than `skew_s` |
+| 8 | `replayed`, `store`, `store_full` | the request id is already consumed; the store failed; the store is full |
+
+Nothing unauthenticated has an effect: the signature is checked on the exact bytes before any member is given a meaning, and a statement that
+fails a step before the last one does not consume its id, so a valid statement presented with the wrong parameters cannot be burned
+[V: `test_statement.py`, planted defects `stmt-*` and `canon-*`]. On success the caller gets a frozen record and then acts; if the action
+fails it needs a new statement (at most once).
+
+The replay guard keeps one marker per consumed id, named `<expiry as 12 digits>-<sha256 of the id>`, and one number, the clock floor. Its rules
+each have a test and a planted defect [V: `test_replay.py`, `replay-*`, on the in-memory backend]:
+
+* The claim is durable before the operation runs: `claim` returns only after the marker and then the floor have been written. A crash
+  before the marker exists leaves the id untouched; after that it is consumed.
+* A marker is found by the hash in its name, so any name ending in `-<hash>` means consumed, whatever its expiry digits or its body. A damaged
+  marker stays consumed: existence is the signal and the body is never read for the decision.
+* The floor is raised to `now` only when a statement is accepted, so only the holder of the signing key can move it. A claim with
+  `now < floor - skew_s` fails with `clock`. The floor file is decimal digits and a final newline; a file without the newline has been cut
+  short, and it is damaged, never read as a smaller floor.
+* A marker is purged only when `expiry + 3600 + max_ttl_s < floor`, using the persisted floor and never the current clock, so a clock that
+  later jumps backwards cannot bring back a statement whose marker is gone. The 3600 is the ceiling of `skew_s` (the number `Expected`
+  enforces), not the skew of the claim that purges: the policy can differ from one claim to the next, and a marker has to outlive every skew
+  a later claim may use. So a marker is never purged earlier than `expiry + skew_s + max_ttl_s < floor` would purge it, whatever the skew of
+  the claim, and a claim with a skew above the ceiling is refused as a programming error [V: `test_replay.py`, `test_statement.py`, planted
+  defects `replay-purge-assumes-default-skew` and `replay-skew-above-ceiling-accepted`]. At most 4096 markers: the guard purges first, then
+  refuses with `store_full`.
+
+Not covered, and for the reviewer to decide [N unless marked otherwise]:
+
+* The durable steps (create, write, flush the file, flush the directory) are modelled in memory and the tests stop the sequence at each one
+  [V]. The on-disk store, the flush order on a real file system and a claim from several processes are the next change.
+* Defaults: `max_ttl_s` 600 and `skew_s` 120, with ceilings of 86400 and 3600 that `Expected` enforces [V: `test_statement.py`]; the 3600 is also
+  the number the replay guard purges by. Which values to ship, which signature scheme to inject first and where the store lives are open.
+* A damaged floor makes the guard fail closed with `store` and repair nothing, and a lost store is not handled; the rules for both are open.
+* The floor moves only when a statement is accepted and a marker goes only by the floor, so a store that fills inside one lifetime stays full
+  until a statement can be accepted [V: `test_replay.py`]. Whether to accept that is open. A marker is kept until the floor is
+  `3600 + max_ttl_s` seconds past its expiry (4200 with the defaults), so with the defaults 4096 statements accepted within about 82
+  minutes, one every 1.2 seconds, fill the store: the bound is the number to size.
+* The floor notices a clock that goes back past the latest accepted statement, not one set back to a time after it, which is why the life of
+  a statement is short by default [V: `test_statement.py`]. Any expiry judged by a wall clock alone has this limit.
+
+Run the self-test with `cd core/headless && python3 -m ci_setup selftest`, and the tests with `bash core/headless/tests/ci_setup/run.sh --quick`.
 
 ## 7. Phased plan
 
@@ -735,15 +810,18 @@ mutation check; `--pythons "a b"` runs the suites under several interpreters.
 | `test_jobs.py` | happy path, every failure path, cancellation from every active state, every timeout, an exhaustive (state, event) matrix, snapshot and restore in every state, random event sequences |
 | `test_render.py` | goldens for hostapd (three variants), dnsmasq (two), nft (two) and the teardown; injection attempts through every parameter; the template engine and lint; the subnet picker with a real capture; the private-file writer (mode 0600 from creation, umask, symlink, failure cleanup) |
 | `test_cli.py` | all four commands, injected runner and file system, refusals, exit codes, the key never on the command line |
+| `test_statement.py` | the canonical encoding and the known answers in `fixtures/statements/vectors.json`, every structural refusal with its code, the signer-side `canonical_statement`, the signature step (each member tampered, another namespace, the length bounds), the binding to type, scope, target and parameters, the expiry and lifetime boundaries, the clock floor, the result record (which type it names), error text that never echoes a value, the self-test vectors |
+| `test_replay.py` | single use across a restart, damaged markers that stay consumed, the same id with another expiry, the floor rules, purging by the persisted floor, the bound, crash injection at every durable step, backend failures, the order of the backend calls, threads |
+| `test_fuzz_statements.py` | seeded mutations of a signed statement (never accepted under the old signature, only the module's error escapes), re-signed mutations against an independent oracle, random input of every shape, random clock readings and policies against a plain model, random claims against a dictionary model |
 | `test_hygiene.py` | no side effects on import (audit hook), nothing asks for root, Python 3.8 syntax and API on the AST, no unused imports, executable bits, no block art or retired product names, every fixture listed in `MANIFEST.json` with an honest origin |
 
 ### 9.2 Fixtures
 
-`fixtures/MANIFEST.json` lists 56 files with their origin (the six probe scenarios under `fixtures/scenarios/` are compositions of them). **Captured (real):** the four `ip -j` outputs (iproute2-7.2.0, in a throwaway
+`fixtures/MANIFEST.json` lists 57 files with their origin (the six probe scenarios under `fixtures/scenarios/` are compositions of them). **Captured (real):** the four `ip -j` outputs (iproute2-7.2.0, in a throwaway
 container with dummy interfaces) and an excerpt of the tz database `zone.tab`. **Synthetic:** everything else, written by hand or by a
 throwaway script from the formats in the tools' sources and manuals (`iw`'s `interface.c`, `info.c`, `reg.c`, `scan.c`, `link.c`,
 `station.c`; `nmcli-utils.c`, `nmcli-common2.c`, `nmcli-devices.c`; the `rfkill`, `wpa_cli` and `hostapd_cli` formats from memory).
-A synthetic fixture proves that the parser reads the documented format, not that a particular chip prints it. The `iw phy info`
+A synthetic fixture proves that the parser reads the documented format, not that a particular chip prints it. `statements/vectors.json` is synthetic in another way: it holds known answers for the owner-statement encoding (section 6.6) that the Portal and a phone must reproduce byte for byte. The `iw phy info`
 examples are chip-shaped (dual band with 6 GHz and two channels, a USB dongle limited to one channel, a station-only chip, a world
 domain) and are not captures of any real chip.
 
@@ -770,12 +848,15 @@ domain) and are not captures of any real chip.
 
 ### 9.4 Mutation check (`mutation_check.py`)
 
-129 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
+163 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
 rotation disabled, a table value changed, the nft hook moved from `raw` to `filter`, the file mode widened ...). Each is applied to a copy
 of the package, the covering tests run, and the mutant must be killed. Every `old` text must occur exactly once, so a refactor cannot turn
 a mutant into a no-op. The first run killed 112 of 115 and exposed three gaps that were closed: a redundant port check (removed, the
 validator already refuses it), an idle-timeout clock that a client could restart by coming and going (test added), and a read-only
-allow-list mutant that was unreachable (rewritten to target the reachable branch).
+allow-list mutant that was unreachable (rewritten to target the reachable branch). The last 34 (`stmt-*`, `canon-*`, `replay-*`) plant a
+defect in the owner-statement verifier or the replay guard: a check skipped or reordered, an off-by-one at an expiry, a damaged marker read
+as absent, a purge by the clock instead of the floor, a purge by the skew of the claim that happens to purge, the floor written before
+the marker, a floor file cut short read as a smaller floor, a bound on the signature removed, a record that names the wrong type.
 
 ### 9.5 The hwsim harness and the other test directories
 

@@ -25,6 +25,8 @@ HEADLESS = os.path.normpath(os.path.join(HERE, "..", ".."))
 PKG = os.path.join(HEADLESS, "ci_setup")
 
 V = ["test_validators", "test_fuzz_validators"]
+ST = ["test_statement"]
+RP = ["test_replay"]
 
 # (id, file under ci_setup/, exact old text, new text, test modules that must fail)
 MUTANTS = [
@@ -168,6 +170,41 @@ MUTANTS = [
     ("parse-cmdline-last-wins", "sysinfo.py", "        params[name[:64]] = value[:256]", "        params.setdefault(name[:64], value[:256])", ["test_parsers_misc"]),
     ("probe-follow-uplink-unchecked", "probe.py", "        if radio.follow_uplink_mhz is not None and not plan.ok:", "        if False:", ["test_probe"]),
     ("probe-hard-block-ignored", "probe.py", "        if name in blocks and blocks[name].hard_blocked:\n            hard_blocked = True", "        if False:\n            hard_blocked = True", ["test_probe"]),
+    # ---- owner statements (statement.py) and the replay guard (replay.py)
+    ("stmt-signature-skipped", "statement.py", "    if not _signature_ok(verifier, SIGNING_PREFIX + data, signature):", "    if False:", ST),
+    ("stmt-namespace-dropped", "statement.py", "verifier.verify(NAMESPACE, message, bytes(signature))", "verifier.verify(\"\", message, bytes(signature))", ST),
+    ("stmt-noncanonical-accepted", "statement.py", "    if canonical != data:", "    if False:", ST),
+    ("stmt-duplicate-key-accepted", "statement.py", "        obj = loads_strict(data)", "        obj = json.loads(data)", ST),
+    ("stmt-float-accepted", "statement.py", "    if t is int:", "    if t is int or t is float:", ST),
+    ("stmt-unknown-field-accepted", "statement.py", "    if set(obj) != FIELD_SET:", "    if not FIELD_SET <= set(obj):", ST),
+    ("stmt-version-ignored", "statement.py", "    if version != VERSION:", "    if False:", ST),
+    ("stmt-size-unbounded", "statement.py", "    if len(data) > MAX_STATEMENT_BYTES:", "    if False:", ST),
+    ("stmt-type-ignored", "statement.py", "    if obj[\"type\"] not in expected.types:", "    if False:", ST),
+    ("stmt-scope-ignored", "statement.py", "    if not consteq(obj[\"scope\"], expected.scope):", "    if False:", ST),
+    ("stmt-target-ignored", "statement.py", "    if not consteq(obj[\"target\"], expected.target):", "    if False:", ST),
+    ("stmt-params-not-bound", "statement.py", "    if not consteq(obj[\"params_hash\"], params_hash(params)):", "    if False:", ST),
+    ("stmt-params-burns-id", "statement.py", "    _check_params(obj, params)\n    t = _read_clock(now)\n    _check_time(obj, t, expected)\n    _claim(store, obj, t, expected)\n", "    t = _read_clock(now)\n    _claim(store, obj, t, expected)\n    _check_params(obj, params)\n    _check_time(obj, t, expected)\n", ST),
+    ("stmt-expiry-off-by-one", "statement.py", "    if t >= obj[\"expires_at\"]:", "    if t > obj[\"expires_at\"]:", ST),
+    ("stmt-ttl-cap-removed", "statement.py", "    if obj[\"expires_at\"] - t > expected.max_ttl_s + expected.skew_s:", "    if False:", ST),
+    ("stmt-skew-widened", "statement.py", "DEFAULT_SKEW_S = 120", "DEFAULT_SKEW_S = 1200", ST),
+    ("stmt-error-echoes-value", "statement.py", "        raise StatementError(\"target\")", "        raise StatementError(\"target\", \"expected \" + obj[\"target\"])", ST),
+    ("stmt-record-type-from-allow-list", "statement.py", "return VerifiedStatement(type=obj[\"type\"],", "return VerifiedStatement(type=expected.types[0],", ST),
+    ("stmt-signature-too-long-accepted", "statement.py", "or not 1 <= len(signature) <= MAX_SIGNATURE_BYTES:", "or not 1 <= len(signature):", ST),
+    ("stmt-signature-empty-accepted", "statement.py", "or not 1 <= len(signature) <= MAX_SIGNATURE_BYTES:", "or not len(signature) <= MAX_SIGNATURE_BYTES:", ST),
+    ("stmt-canonical-statement-skips-members", "statement.py", "    _check_fields(fields)\n    return canonical_json(fields, MAX_STATEMENT_BYTES)", "    return canonical_json(fields, MAX_STATEMENT_BYTES)", ST),
+    ("stmt-canonical-statement-skips-type-check", "statement.py", "    if type(fields) is not dict:\n        raise StatementError(\"format\")\n    _check_fields(fields)", "    _check_fields(fields)", ST),
+    ("canon-sort-keys-removed", "statement.py", "sort_keys=True, ", "sort_keys=False, ", ST),
+    ("canon-separator-changed", "statement.py", "separators=(\",\", \":\")", "separators=(\", \", \": \")", ST),
+    ("replay-floor-ignored", "replay.py", "                if now < floor - skew_s:", "                if False:", RP),
+    ("replay-floor-advances-on-reject", "replay.py", "                names = _listing(backend)\n", "                backend.write_floor(max(now, floor))\n                names = _listing(backend)\n", RP),
+    ("replay-damaged-marker-ignored", "replay.py", "if any(n.endswith(\"-\" + digest) for n in names):", "if any(n.endswith(\"-\" + digest) and backend.marker_body(n) == MARKER_BODY for n in names):", RP),
+    ("replay-lookup-by-exact-name", "replay.py", "if any(n.endswith(\"-\" + digest) for n in names):", "if name in names:", RP),
+    ("replay-purge-by-now", "replay.py", "live = self._purge(names, floor, max_ttl_s)", "live = self._purge(names, now, max_ttl_s)", RP),
+    ("replay-store-unbounded", "replay.py", "                if live >= self.max_markers:", "                if False:", RP),
+    ("replay-floor-truncation-accepted", "replay.py", " or raw[-1:] != b\"\\n\":", ":", RP),
+    ("replay-floor-before-marker", "replay.py", "                try:\n                    backend.create_marker(name)\n                except MarkerExists:\n                    raise ReplayError(\"replayed\") from None\n                if now > floor:\n                    backend.write_floor(now)\n", "                if now > floor:\n                    backend.write_floor(now)\n                try:\n                    backend.create_marker(name)\n                except MarkerExists:\n                    raise ReplayError(\"replayed\") from None\n", RP),
+    ("replay-purge-assumes-default-skew", "replay.py", "if expiry is not None and expiry + MAX_SKEW_CEILING_S + max_ttl_s < floor:", "if expiry is not None and expiry + 120 + max_ttl_s < floor:", RP),
+    ("replay-skew-above-ceiling-accepted", "replay.py", "    if skew_s > MAX_SKEW_CEILING_S:", "    if False:", RP),
 ]
 
 
