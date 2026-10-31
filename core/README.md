@@ -16,7 +16,8 @@ a backend.
 - **`lib/`**: distro-portable bash helpers: `theme-lib.sh` (tokens, logging, Plymouth theme writers), `grub-merge.sh`,
   `gpu-detect.sh` (the Strix Halo hardware rule and the data-driven model-fit gate), `ci-os-models.sh` (the OS-side model adapter),
   `ci-hub.sh` (CI-Hub deploy), `vendor-brand.sh` and `check-brand-mirrors.sh` (the brand bundle), and the repository gates
-  `check-repo.sh`, `check-untracked-deps.sh` and `retired-names.allow`. `lib/tests/` holds the tests of the helpers.
+  `check-repo.sh`, `check-untracked-deps.sh`, `retired-names.allow` and `repro-claims.allow`. `lib/tests/` holds the tests of the helpers and
+  `release-names.sh`, the names and claims suite of the release tooling.
 - **`headless/payload/`**: the captive-portal Wi-Fi onboarding payload: the Flask setup backend, the static portal, the
   hostapd, dnsmasq and nginx configuration, and the systemd units. The payload itself is distro-portable; only the packaging
   wrapper (the Ubuntu `.deb` in `backends/ubuntu/headless-package/`, the CachyOS stager `backends/cachyos/provision/stage-headless.sh`)

@@ -2,7 +2,7 @@
 #=============================================================================
 # Publish a built Companion OS release to Cloudflare R2: the shared dl-dev / dl-prod buckets, served from dl.ci.computer
 #
-#   publish-r2.sh --dir output --version 1.0 [--channel dev|production] [--apply] [options]
+#   publish-r2.sh --dir output --version 1.0 [--channel dev|production] [--edition ubuntu|plasma] [--apply] [options]
 #
 # A DRY RUN UNTIL --apply, like `ci-local`: without it the script checks everything it can (the files, SHA256SUMS, the signature, the manifest)
 # and prints what it would upload, with no credentials and no network. With --apply it uploads the images, then the small files, then manifest.json,
@@ -14,16 +14,23 @@
 # uses the AWS CLI against R2's S3 endpoint, with 64 MB parts. Nor GitHub Releases: an asset is limited to 2 GiB.
 #
 # Layout under the bucket:  <prefix>/<version>/<arch>/companion-os-<version>-<arch>.iso
-#                           <prefix>/<version>/{SHA256SUMS,SHA256SUMS.asc,SBOM.txt,manifest.json}      <prefix>/latest.json
-# Default prefix "os"; default bucket and public origin by channel: dev is dl-dev at https://dl-dev.ci.computer, production is dl-prod at
+#                           <prefix>/<version>/{SHA256SUMS,SHA256SUMS.asc,MD5SUMS,SBOM.txt,manifest.json}      <prefix>/latest.json
+# Two editions, two releases, one tool (--edition). ubuntu is the default and is laid out as above, under the prefix "os". plasma is
+#                           os-plasma/<YYYY.MM.DD>/x86_64/companion-os-plasma-<YYYY.MM.DD>-x86_64.iso, with the release version the image date, and
+#                           os-plasma/<YYYY.MM.DD>/{<base>.pkgs.txt,<base>.build-info} beside the common files (<base> is the image name without .iso).
+# An image of the other edition in --dir is a refusal, never a silent skip: publish each edition from a directory of its own.
+# Default prefix "os" (ubuntu) or "os-plasma" (plasma); default bucket and public origin by channel: dev is dl-dev at https://dl-dev.ci.computer, production is dl-prod at
 # https://dl.ci.computer (the pairs CI-Capture's release workflow also uses, with its own prefix "applet"). A version that already exists is refused unless --overwrite: a published image is not replaced by accident.
 #
 # Options
-#   --dir DIR            the build output: companion-os-<version>-<arch>.iso and SHA256SUMS (required); SHA256SUMS.asc and SBOM.txt are published
-#                        when present. --make-checksums writes SHA256SUMS from the images when there is none
-#   --version V          1.0, 1.0-rc1 ... (required; must be the version in the image names)
+#   --dir DIR            the build output: the edition's images and SHA256SUMS (required); SHA256SUMS.asc, MD5SUMS and SBOM.txt are published
+#                        when present, and for plasma the image's .pkgs.txt and .build-info. --make-checksums writes SHA256SUMS from the edition's
+#                        images (companion-os-<digit>*.iso for ubuntu, companion-os-plasma-*.iso for plasma) when there is none; it leaves no
+#                        file behind when it finds no image, and a SHA256SUMS that lists no file is refused
+#   --version V          1.0, 1.0-rc1 ... (required; must be the version in the image names; for plasma the image date, 2026.10.18)
+#   --edition E          ubuntu (default) or plasma: which images --dir holds, and so the default prefix and the files that are published
 #   --channel C          dev (default) or production. Production REQUIRES a good signature on SHA256SUMS
-#   --bucket B           override the bucket        --prefix P   override the prefix (default os)
+#   --bucket B           override the bucket        --prefix P   override the prefix (default os, or os-plasma for plasma)
 #   --base-url URL       the public origin (default by channel, see above)
 #   --pubkey FILE        verify SHA256SUMS.asc against this public key in a throw-away keyring, instead of the user's keyring
 #   --repository R --commit SHA --run-url URL      recorded in manifest.json
@@ -46,7 +53,8 @@ MANIFEST_TOOL="$HERE/release-manifest.py"
 die() { echo "publish-r2: $*" >&2; exit 2; }
 fail() { echo "publish-r2: $*" >&2; exit 1; }
 
-DIR="" VERSION="" CHANNEL="dev" BUCKET="" PREFIX="os" BASE_URL="" PUBKEY=""
+DIR="" VERSION="" CHANNEL="dev" EDITION="ubuntu" BUCKET="" BASE_URL="" PUBKEY=""
+PREFIX="" PREFIX_GIVEN=0      # only --prefix or the edition sets the prefix: a PREFIX exported in the environment is ignored
 REPOSITORY="" COMMIT="" RUN_URL="" APPLY=0 OVERWRITE=0 CHECK_PUBLIC=0 MAKE_SUMS=0
 
 need_value() { [ $# -ge 2 ] || die "$1 needs a value"; }
@@ -55,8 +63,9 @@ while [ $# -gt 0 ]; do
     --dir) need_value "$@"; DIR="$2"; shift 2 ;;
     --version) need_value "$@"; VERSION="$2"; shift 2 ;;
     --channel) need_value "$@"; CHANNEL="$2"; shift 2 ;;
+    --edition) need_value "$@"; EDITION="$2"; shift 2 ;;
     --bucket) need_value "$@"; BUCKET="$2"; shift 2 ;;
-    --prefix) need_value "$@"; PREFIX="$2"; shift 2 ;;
+    --prefix) need_value "$@"; PREFIX="$2"; PREFIX_GIVEN=1; shift 2 ;;
     --base-url) need_value "$@"; BASE_URL="$2"; shift 2 ;;
     --pubkey) need_value "$@"; PUBKEY="$2"; shift 2 ;;
     --repository) need_value "$@"; REPOSITORY="$2"; shift 2 ;;
@@ -74,6 +83,8 @@ done
 [ -n "$DIR" ] && [ -d "$DIR" ] || die "--dir must name the build output directory"
 [ -n "$VERSION" ] || die "--version is required"
 case "$CHANNEL" in dev|production) ;; *) die "--channel must be dev or production" ;; esac
+case "$EDITION" in ubuntu|plasma) ;; *) die "--edition must be ubuntu or plasma" ;; esac
+[ "$PREFIX_GIVEN" = 1 ] || { [ "$EDITION" = plasma ] && PREFIX="os-plasma" || PREFIX="os"; }
 [ -n "$BUCKET" ] || { [ "$CHANNEL" = production ] && BUCKET="dl-prod" || BUCKET="dl-dev"; }
 [ -n "$BASE_URL" ] || { [ "$CHANNEL" = production ] && BASE_URL="https://dl.ci.computer" || BASE_URL="https://dl-dev.ci.computer"; }
 echo "$BUCKET" | grep -q -E '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$' || die "bucket name '$BUCKET' is not a bucket name"
@@ -86,9 +97,20 @@ WORK="$(mktemp -d "${TMPDIR:-/tmp}/publish-r2.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 if [ ! -f "$DIR/SHA256SUMS" ]; then
   [ "$MAKE_SUMS" = 1 ] || die "$DIR/SHA256SUMS is missing (the build writes it; --make-checksums writes it from the images)"
-  ( cd "$DIR" && sha_make companion-os-*.iso > SHA256SUMS ) || die "could not write SHA256SUMS"
+  # the edition's own images only (an Ubuntu version starts with a digit): a directory that also holds the other edition's image is then refused
+  # by the manifest step below, as an image that is not this release's, and not checksummed into this release's SHA256SUMS.
+  # The list is made in the work directory and moved into place only when it names a file: a glob that matches nothing (an --edition that does
+  # not fit the directory) must leave no SHA256SUMS behind, because an empty one would be taken for a list by the next run.
+  case "$EDITION" in
+    plasma) ( cd "$DIR" && sha_make companion-os-plasma-*.iso > "$WORK/SHA256SUMS" ) || die "could not write SHA256SUMS: there is no image of the plasma edition in $DIR (is --edition right for this directory?)" ;;
+    *)      ( cd "$DIR" && sha_make companion-os-[0-9]*.iso > "$WORK/SHA256SUMS" ) || die "could not write SHA256SUMS: there is no image of the ubuntu edition in $DIR (is --edition right for this directory?)" ;;
+  esac
+  [ -s "$WORK/SHA256SUMS" ] || die "could not write SHA256SUMS: no image of the $EDITION edition was listed"
+  mv "$WORK/SHA256SUMS" "$DIR/SHA256SUMS" || die "could not write $DIR/SHA256SUMS"
   echo "wrote $DIR/SHA256SUMS"
 fi
+# a list that names no file checks nothing (some checksum tools accept it), so it is a refusal here, whoever made it
+[ -s "$DIR/SHA256SUMS" ] || die "$DIR/SHA256SUMS is empty: it must list the images (remove it and run again with --make-checksums)"
 ( cd "$DIR" && sha_check --quiet SHA256SUMS >/dev/null 2>&1 ) || die "SHA256SUMS does not match the files in $DIR (the bytes changed after the checksums were made)"
 echo "checksums: every file in SHA256SUMS matches"
 
@@ -111,7 +133,7 @@ fi
 # --- 3. the manifest and the list of uploads -----------------------------------------------------------------------------------------
 LIST="$WORK/uploads.tsv"
 python3 "$MANIFEST_TOOL" --dir "$DIR" --out-dir "$WORK" --version "$VERSION" --channel "$CHANNEL" --base-url "$BASE_URL" --prefix "$PREFIX" \
-  --repository "$REPOSITORY" --commit "$COMMIT" --run-url "$RUN_URL" > "$LIST" || die "could not describe the release (see above)"
+  --edition "$EDITION" --repository "$REPOSITORY" --commit "$COMMIT" --run-url "$RUN_URL" > "$LIST" || die "could not describe the release (see above)"
 COUNT="$(grep -c . "$LIST" | tr -d ' ')"
 TAB="$(printf '\t')"
 

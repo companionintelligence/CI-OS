@@ -1,23 +1,31 @@
 #!/usr/bin/env python3
 """The files that describe a published Companion OS release: manifest.json, latest.json and a SHA256SUMS to check them by.
 
-  release-manifest.py --dir DIR --version 1.0 --channel dev|production --base-url https://dl.ci.computer --prefix os
+  release-manifest.py --dir DIR --version 1.0 --channel dev|production --base-url https://dl.ci.computer [--prefix os] [--edition ubuntu|plasma]
                       [--commit SHA] [--run-url URL] [--repository companionintelligence/CI-OS] [--date 2026-10-20T00:00:00Z]
                       [--out-dir OUT] [--notes-out FILE]
 
-DIR holds the build's output: companion-os-<version>-<arch>.iso (amd64 and/or arm64) and, beside each set, SHA256SUMS, SHA256SUMS.asc and SBOM.txt
-when they exist. Nothing is uploaded here, and nothing is read from the network: the sha256 of every file is computed from the bytes on disk, and
-SHA256SUMS (when there is one) must agree with them, so a manifest can never describe a different file than the one that gets uploaded.
+DIR holds the build's output. Two editions, two kinds of release, one tool (--edition, default ubuntu, so a call that does not name one behaves
+as it always did):
+  ubuntu   companion-os-<version>-<amd64|arm64>.iso, under the prefix "os"
+  plasma   companion-os-plasma-<YYYY.MM.DD>-x86_64.iso, under the prefix "os-plasma"; the release version is that date, and the image's own
+           <base>.pkgs.txt and <base>.build-info (<base> is the image name without .iso) are published beside it
+and, for both, SHA256SUMS, SHA256SUMS.asc, MD5SUMS and SBOM.txt when they exist. An image of the other edition in DIR is a refusal, never a
+silent skip, so one directory never becomes a release that mixes the two. Nothing is uploaded here, and nothing is read from the network: the sha256
+of every file is computed from the bytes on disk, and SHA256SUMS (when there is one) must agree with them, so a manifest can never describe a
+different file than the one that gets uploaded.
 
 Writes OUT/manifest.json and OUT/latest.json (default OUT = DIR) and prints the list of files to upload, one "<local path>TAB<key under the prefix>TAB<content type>" per line, in the order they must go up: the images first, the small files after, manifest.json next to last, latest.json last
 (the pointer moves only when everything it points to is in place).
 
 The shape follows what Companion Capture publishes to the same bucket (CI-Capture .github/scripts/upload-desktop-r2.sh): per-platform entries with
 url, size and sha256, a manifest per version and a small latest.json feed. Key layout: <prefix>/<version>/<arch>/<file>, <prefix>/<version>/manifest.json,
-<prefix>/latest.json (prefix "os" on the shared dl-dev and dl-prod buckets).
+<prefix>/latest.json (prefix "os" or "os-plasma" on the shared dl-dev and dl-prod buckets). The manifest and latest.json of a Plasma release carry
+"edition": "plasma"; for Ubuntu the key is absent, which means ubuntu, so the files of an Ubuntu release are what they always were.
 
 --notes-out FILE also writes release notes in Markdown (the images with size, sha256 and URL, how to verify and where to go next), generated from the
-manifest so they cannot disagree with it.
+manifest so they cannot disagree with it. The first line and the install paragraph come from the edition: the Plasma notes say that there is no
+Secure Boot, that the installer is an online one and that the packages are rolling (so the image carries an expiry note).
 
 Exit codes: 0 ok, 2 a usage or input problem (no image, a name that does not fit, SHA256SUMS that disagrees with the files).
 """
@@ -30,12 +38,36 @@ import re
 import sys
 import urllib.parse
 
-ARCHES = ("amd64", "arm64")
 VERSION_RE = re.compile(r"^[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z]+)*$")
 PREFIX_RE = re.compile(r"^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$")
 CHANNELS = ("dev", "production")
+DEFAULT_EDITION = "ubuntu"
+# One row per edition: the architectures a release of it carries (in the order they are listed), the grammar of an image name (group 1 is the version,
+# group 2 the architecture), the key prefix a release goes under unless --prefix says otherwise, and the files that sit beside each image, named from
+# the image's own name ({base} is the image name without .iso). The Plasma grammar follows the one source of that name, EDITION_ISO_NAME and
+# EDITION_ARCH in backends/cachyos/upstream.lock (core/lib/tests/release-names.sh derives the name from them and checks it against this row).
+EDITIONS = {
+    "ubuntu": {
+        "arches": ("amd64", "arm64"),
+        "image": re.compile(r"companion-os-(.+)-(amd64|arm64)\.iso"),
+        "shape": "companion-os-<version>-<amd64|arm64>.iso",
+        "wanted": "companion-os-%s-<arch>.iso",
+        "prefix": "os",
+        "side": (),
+    },
+    "plasma": {
+        "arches": ("x86_64",),
+        "image": re.compile(r"companion-os-plasma-(\d{4}\.\d{2}\.\d{2})-(x86_64)\.iso"),
+        "shape": "companion-os-plasma-<YYYY.MM.DD>-x86_64.iso",
+        "wanted": "companion-os-plasma-%s-x86_64.iso",
+        "prefix": "os-plasma",
+        "side": ("{base}.pkgs.txt", "{base}.build-info"),
+    },
+}
+# The files that sit beside the images of every edition: published, at the version's root, when they exist.
 SIDE_FILES = ("SHA256SUMS", "SHA256SUMS.asc", "MD5SUMS", "SBOM.txt")
-TYPES = {".iso": "application/x-iso9660-image", ".json": "application/json", ".asc": "application/pgp-signature", ".txt": "text/plain"}
+TYPES = {".iso": "application/x-iso9660-image", ".json": "application/json", ".asc": "application/pgp-signature", ".txt": "text/plain",
+         ".build-info": "text/plain"}
 CHUNK = 1024 * 1024
 
 
@@ -57,7 +89,9 @@ def content_type(name):
     return TYPES.get(os.path.splitext(name)[1].lower(), "application/octet-stream")
 
 
-def check_args(version, channel, prefix, base_url):
+def check_args(version, channel, prefix, base_url, edition=DEFAULT_EDITION):
+    if edition not in EDITIONS:
+        raise Problem("edition %r is not one of %s" % (edition, ", ".join(EDITIONS)))
     if not VERSION_RE.match(version or ""):
         raise Problem("version %r is not like 1.0 or 1.0-rc1" % version)
     if channel not in CHANNELS:
@@ -68,20 +102,33 @@ def check_args(version, channel, prefix, base_url):
         raise Problem("base URL %r must be an https URL without a query" % base_url)
 
 
-def find_images(directory, version):
-    """{arch: path} of companion-os-<version>-<arch>.iso in the directory; anything else named companion-os-*.iso is a problem."""
+def edition_of(name):
+    """The edition whose image grammar `name` fits, or None."""
+    for edition, row in EDITIONS.items():
+        if row["image"].fullmatch(name):
+            return edition
+    return None
+
+
+def find_images(directory, version, edition=DEFAULT_EDITION):
+    """{arch: path} of the edition's images of `version` in the directory; any other companion-os-*.iso is a problem, the other edition's included."""
+    row = EDITIONS[edition]
     images = {}
     for name in sorted(os.listdir(directory)):
         if not (name.startswith("companion-os-") and name.endswith(".iso")):
             continue
-        m = re.fullmatch(r"companion-os-(.+)-(amd64|arm64)\.iso", name)
+        m = row["image"].fullmatch(name)
         if not m:
-            raise Problem("%s does not look like companion-os-<version>-<amd64|arm64>.iso" % name)
+            other = edition_of(name)
+            if other:
+                raise Problem("%s is an image of the %s edition, and this release is the %s edition (--edition %s): each edition is published "
+                              "from a directory of its own" % (name, other, edition, edition))
+            raise Problem("%s does not look like %s" % (name, row["shape"]))
         if m.group(1) != version:
             raise Problem("%s is version %s, not %s" % (name, m.group(1), version))
         images[m.group(2)] = os.path.join(directory, name)
     if not images:
-        raise Problem("no companion-os-%s-<arch>.iso in %s" % (version, directory))
+        raise Problem("no %s in %s" % (row["wanted"] % version, directory))
     return images
 
 
@@ -101,18 +148,25 @@ def url_for(base_url, prefix, version, arch, name):
     return "%s/%s" % (base_url.rstrip("/"), urllib.parse.quote(path, safe="/"))
 
 
-def build(directory, version, channel, base_url, prefix, repository="", commit="", run_url="", date=None):
+def build(directory, version, channel, base_url, prefix, repository="", commit="", run_url="", date=None, edition=DEFAULT_EDITION):
     """(manifest dict, latest dict, uploads) for the build output in `directory`. Uploads: [(local path, key under the prefix, content type)]."""
-    check_args(version, channel, prefix, base_url)
-    images = find_images(directory, version)
+    check_args(version, channel, prefix, base_url, edition)
+    row = EDITIONS[edition]
+    images = find_images(directory, version, edition)
     sums_path = os.path.join(directory, "SHA256SUMS")
     claimed = read_sums(sums_path) if os.path.exists(sums_path) else {}
+    if os.path.exists(sums_path) and not claimed:
+        # both cross-checks below are skipped for a list without lines, so an empty file (or one this tool cannot read) would switch them off
+        raise Problem("SHA256SUMS lists no file (a line is '<64 hex digits>  <file name>'): a list that names nothing checks nothing. Remove it and "
+                      "run publish-r2.sh with --make-checksums, or `sha256sum companion-os-*.iso > SHA256SUMS` in the directory")
     date = date or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     manifest = {"product": "companion-os", "version": version, "channel": channel, "date": date, "images": {}}
     if repository or commit or run_url:
         manifest["source"] = {k: v for k, v in (("repository", repository), ("commit", commit), ("workflow_run", run_url)) if v}
+    if edition != DEFAULT_EDITION:
+        manifest["edition"] = edition                       # absent means ubuntu: the manifest of an Ubuntu release is what it always was
     uploads = []
-    for arch in ARCHES:
+    for arch in row["arches"]:
         if arch not in images:
             continue
         path = images[arch]
@@ -129,14 +183,21 @@ def build(directory, version, channel, base_url, prefix, repository="", commit="
         uploads.append((path, "%s/%s/%s/%s" % (prefix, version, arch, name), content_type(name)))
         manifest["images"][arch] = entry
     # the files that sit beside the images: one copy of each, under the first arch's directory is wrong for a shared SHA256SUMS, so they live at the
-    # version's root, where the manifest is
-    for name in SIDE_FILES:
+    # version's root, where the manifest is. The edition's own per-image files (the Plasma package list and build record) come after the common ones.
+    names = list(SIDE_FILES)
+    for arch in row["arches"]:
+        if arch in images:
+            base = os.path.basename(images[arch])[:-len(".iso")]
+            names += [pattern.format(base=base) for pattern in row["side"]]
+    for name in names:
         path = os.path.join(directory, name)
         if os.path.exists(path):
             manifest.setdefault("files", {})[name] = {"url": url_for(base_url, prefix, version, None, name), "size": os.path.getsize(path),
                                                        "sha256": sha256_of(path)}
             uploads.append((path, "%s/%s/%s" % (prefix, version, name), content_type(name)))
     latest = {"product": "companion-os", "version": version, "channel": channel, "date": date}
+    if edition != DEFAULT_EDITION:
+        latest["edition"] = edition
     return manifest, latest, uploads
 
 
@@ -149,14 +210,21 @@ def human_size(n):
 
 def render_notes(manifest):
     """Markdown release notes for a manifest: a fact for every claim, and nothing about testing the generator cannot know."""
+    edition = manifest.get("edition", DEFAULT_EDITION)
+    if edition not in EDITIONS:
+        raise Problem("manifest.json names the edition %r, which is not one of %s" % (edition, ", ".join(EDITIONS)))
+    row = EDITIONS[edition]
     v, ch = manifest["version"], manifest["channel"]
-    lines = ["# Companion OS %s%s" % (v, "" if ch == "production" else " (%s build)" % ch), "",
-             "Companion OS on Ubuntu 26.04.1 LTS. Built %s." % manifest["date"]]
+    qualifier = "" if ch == "production" else " (%s build)" % ch
+    if edition == "plasma":
+        lines = ["# Companion OS Plasma edition %s%s" % (v, qualifier), "", "Companion OS, Plasma edition (x86-64). Built %s." % manifest["date"]]
+    else:
+        lines = ["# Companion OS %s%s" % (v, qualifier), "", "Companion OS on Ubuntu 26.04.1 LTS. Built %s." % manifest["date"]]
     src = manifest.get("source", {})
     if src.get("commit"):
         lines.append("Source commit `%s`%s." % (src["commit"][:12], (", [workflow run](%s)" % src["workflow_run"]) if src.get("workflow_run") else ""))
     lines += ["", "## Images", "", "| Architecture | File | Size | sha256 |", "|---|---|---|---|"]
-    for arch in ARCHES:
+    for arch in row["arches"]:
         iso = manifest["images"].get(arch, {}).get("iso")
         if iso:
             lines.append("| %s | [`%s`](%s) | %s | `%s` |" % (arch, iso["name"], iso["url"], human_size(iso["size"]), iso["sha256"]))
@@ -169,6 +237,25 @@ def render_notes(manifest):
     lines += ["```", ""]
     if "SHA256SUMS.asc" not in files:
         lines += ["**This build is not signed**: the checksums say the download is intact, not who made it.", ""]
+    if edition == "plasma":
+        # What the checklist (gates 9 and 12) requires the notes of this edition to say. The facts are those of docs/guides/installation-guide.md.
+        lines += ["## Before you install", "",
+                  "- **No Secure Boot.** The boot loader and the kernels of this edition are not signed. Turn Secure Boot off in the firmware settings "
+                  "before you start the stick.",
+                  "- **An online installer.** It needs a network connection and downloads packages while it installs.",
+                  "- **Rolling packages.** The image carries the packages of the day it was built (%s, the date in its file name) and the installer "
+                  "fetches current ones. Package repositories move on, so an image that is more than a few weeks old can fail to install: use the "
+                  "newest image that is published." % v, ""]
+        lines += ["## Install", "",
+                  "Write the image to a USB stick (Raspberry Pi Imager, balenaEtcher, Rufus, or `dd` on Linux and macOS), restart in UEFI mode, pick "
+                  "the stick in the boot menu, wait for the desktop and start **Install Companion OS** from the application menu.", "",
+                  "The installer can erase a disk. Check which disk it will use before you confirm.", ""]
+        kinds = {".pkgs.txt": "The packages in this image", ".build-info": "How this image was built"}
+        records = [(kinds.get(suffix, "A record of the build"), name) for suffix in (p.replace("{base}", "") for p in row["side"])
+                   for name in sorted(files) if name.endswith(suffix)]
+        if records:
+            lines += ["## Build record", ""] + ["- %s: [`%s`](%s)" % (what, name, files[name]["url"]) for what, name in records] + [""]
+        return "\n".join(lines)
     lines += ["## Install", "",
               "Write the image for your computer's architecture to a USB stick (Raspberry Pi Imager, balenaEtcher, Rufus, or `dd` on Linux and macOS), "
               "restart, pick the stick in the boot menu and choose **Install Companion OS (automatic)**. "
@@ -183,7 +270,9 @@ def main(argv=None):
     ap.add_argument("--version", required=True)
     ap.add_argument("--channel", required=True)
     ap.add_argument("--base-url", required=True)
-    ap.add_argument("--prefix", default="os")
+    ap.add_argument("--prefix", help="key prefix in the bucket (default: os for ubuntu, os-plasma for plasma)")
+    ap.add_argument("--edition", default=DEFAULT_EDITION, choices=tuple(EDITIONS),
+                    help="which edition's images DIR holds (default: %s); an image of the other one is a refusal" % DEFAULT_EDITION)
     ap.add_argument("--repository", default="")
     ap.add_argument("--commit", default="")
     ap.add_argument("--run-url", default="")
@@ -192,8 +281,9 @@ def main(argv=None):
     ap.add_argument("--notes-out")
     a = ap.parse_args(argv)
     out = a.out_dir or a.dir
+    prefix = EDITIONS[a.edition]["prefix"] if a.prefix is None else a.prefix      # an empty --prefix is not "absent": it is refused as before
     try:
-        manifest, latest, uploads = build(a.dir, a.version, a.channel, a.base_url, a.prefix, a.repository, a.commit, a.run_url, a.date)
+        manifest, latest, uploads = build(a.dir, a.version, a.channel, a.base_url, prefix, a.repository, a.commit, a.run_url, a.date, a.edition)
     except (Problem, OSError) as exc:
         print("release-manifest: %s" % exc, file=sys.stderr)
         return 2
@@ -206,8 +296,8 @@ def main(argv=None):
     if a.notes_out:
         with open(a.notes_out, "w", encoding="utf-8") as fh:
             fh.write(render_notes(manifest))
-    uploads.append((mpath, "%s/%s/manifest.json" % (a.prefix, a.version), "application/json"))
-    uploads.append((lpath, "%s/latest.json" % a.prefix, "application/json"))
+    uploads.append((mpath, "%s/%s/manifest.json" % (prefix, a.version), "application/json"))
+    uploads.append((lpath, "%s/latest.json" % prefix, "application/json"))
     for path, key, ctype in uploads:
         print("%s\t%s\t%s" % (path, key, ctype))
     return 0
