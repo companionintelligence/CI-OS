@@ -734,6 +734,40 @@ mod tests {
             "{:?}",
             out.warnings
         );
+
+        // The same sequence again, for a changed bundle, is no better: a machine that accepted
+        // the first one refuses the second as a conflict, so the warning must not wait for a
+        // strictly lower number.
+        let out = lock(
+            dir.path(),
+            &LockOptions {
+                sequence: Some(1),
+                created_at: at("2026-01-03T00:00:00Z"),
+                ..LockOptions::default()
+            },
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        assert_eq!(out.bundle.sequence, Some(1));
+        assert!(
+            out.warnings.iter().any(|w| w.contains("not greater than")),
+            "{:?}",
+            out.warnings
+        );
+
+        // A higher one is quiet.
+        let out = lock(
+            dir.path(),
+            &LockOptions {
+                sequence: Some(2),
+                created_at: at("2026-01-04T00:00:00Z"),
+                ..LockOptions::default()
+            },
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        assert_eq!(out.bundle.sequence, Some(2));
+        assert!(out.warnings.is_empty(), "{:?}", out.warnings);
     }
 
     #[test]
