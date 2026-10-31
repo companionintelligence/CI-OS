@@ -3,6 +3,9 @@
 Python 3.8 or newer, standard library only. The tests find the package through PYTHONPATH (run.sh sets it); if it is not
 importable the repository's core/headless is added, so ``python3 -m unittest`` from the tests directory also works.
 """
+import collections
+import hashlib
+import hmac
 import json
 import os
 import random
@@ -111,3 +114,78 @@ NASTY = (
 
 def rand_text(rnd, max_len=40):
     return "".join(rnd.choice(NASTY) for _ in range(rnd.randint(0, max_len)))
+
+
+# --------------------------------------------------------------------------------------------------------------------
+# owner statements (statement.py, replay.py)
+# --------------------------------------------------------------------------------------------------------------------
+
+# Restated here on purpose: a test must not follow a changed constant of the module it tests.
+STMT_NAMESPACE = "ci-os-statement@ci.computer"
+STMT_PREFIX = b"ci-os-statement/1\n"
+STMT_T0 = 1790000000
+STMT_TYPE = "wifi.join"
+STMT_REQUEST_ID = "00112233445566778899aabbccddeeff"
+STMT_SCOPE = "device-key-thumbprint-0001"
+STMT_TARGET = "wifi:home-network"
+STMT_PARAMS = {"security": "wpa2", "ssid": "Home Net"}
+
+
+class HmacStandInVerifier(object):
+    """TEST ONLY. Stands in for the signature scheme that the identity daemon will supply: HMAC-SHA256 over the namespace, a NUL
+    byte and the message, under a key that signer and verifier share. A MAC is not a signature (whoever can verify can also sign)
+    and nothing outside the tests may use this. What the tests need from a scheme is that it binds the namespace and every byte of
+    the message, and this does. The key is derived at run time from a label; it protects nothing."""
+
+    def __init__(self, label=b"TEST-ONLY ci_setup statement stand-in"):
+        self._key = hashlib.sha256(label).digest()
+        self.calls = []
+
+    def sign(self, namespace, message):
+        return hmac.new(self._key, namespace.encode("utf-8") + b"\x00" + bytes(message), hashlib.sha256).digest()
+
+    def verify(self, namespace, message, signature):
+        self.calls.append((namespace, bytes(message), bytes(signature)))
+        return hmac.compare_digest(self.sign(namespace, message), bytes(signature))
+
+
+class AcceptAllVerifier(object):
+    """TEST ONLY. Says yes to every signature, to show that a refusal comes from the structure of the statement and not from the
+    signature check."""
+
+    def verify(self, namespace, message, signature):
+        return True
+
+
+def canon_bytes(value):
+    """Canonical JSON written with the standard library only (not with ci_setup), so a test does not rely on the code it tests."""
+    return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=True).encode("ascii")
+
+
+def params_digest(params):
+    return hashlib.sha256(canon_bytes(params)).hexdigest()
+
+
+OMIT = object()    # as the value of a member in statement_fields / make_statement: leave the member out
+
+
+def statement_fields(**over):
+    """The members of a valid statement for the standard harness, with ``over`` applied (a member set to OMIT is left out)."""
+    fields = {"v": 1, "type": STMT_TYPE, "request_id": STMT_REQUEST_ID, "scope": STMT_SCOPE, "target": STMT_TARGET,
+              "params_hash": params_digest(STMT_PARAMS), "expires_at": STMT_T0 + 300}
+    fields.update(over)
+    return {k: v for k, v in fields.items() if v is not OMIT}
+
+
+Signed = collections.namedtuple("Signed", "raw signature fields")
+
+
+def sign_raw(signer, raw, namespace=STMT_NAMESPACE):
+    return signer.sign(namespace, STMT_PREFIX + bytes(raw))
+
+
+def make_statement(signer, namespace=STMT_NAMESPACE, **over):
+    """A signed statement (canonical bytes, signature, members). ``over`` replaces members; a member set to OMIT is left out."""
+    fields = statement_fields(**over)
+    raw = canon_bytes(fields)
+    return Signed(raw, sign_raw(signer, raw, namespace), fields)
