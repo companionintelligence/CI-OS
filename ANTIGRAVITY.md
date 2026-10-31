@@ -22,7 +22,7 @@ decision). Policy, capability matrix and evidence tags: `docs/architecture/suppo
 ## Validate before every push
 
 ```bash
-./core/lib/check-repo.sh   # bash -n, shellcheck (errors), py_compile, yamllint, retired-name guards, untracked-file guard, fast suites
+./core/lib/check-repo.sh   # bash -n, shellcheck (errors), py_compile, yamllint, retired-name guards, untracked-file guard, release names and claims, fast suites
 (cd stick && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)   # when you touched stick/
 ```
 

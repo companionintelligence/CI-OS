@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Fast repo checks, run on every PR (.github/workflows/pr-checks.yml) and before any push.
+# Fast repo checks: run them before any push. The manual PR checks workflow (gh workflow run pr-checks.yml) runs this same script.
 # Needs: bash 3.2+ (so it runs on a stock macOS too), git, shellcheck, python3, yamllint.
 # A few suites also want bsdtar (CachyOS compat-libs.sh; Debian and Ubuntu: libarchive-tools), gresource (libglib2.0-bin) or curl; without
 # one the suite is printed with a leading "!" (cannot run here) and does not fail the gate.
@@ -278,7 +278,8 @@ for suite in \
   "ollama pull progress filter|bash backends/ubuntu/chroot/tests/pull-progress-filter.sh" \
   "gresource provenance|bash core/render/tests/gresource-provenance.sh" \
   "live GRUB menu modules|bash backends/ubuntu/iso/tests/grub-live-menu-modules.sh" \
-  "untracked-file guard|bash core/lib/tests/untracked-deps.sh"; do
+  "untracked-file guard|bash core/lib/tests/untracked-deps.sh" \
+  "release names and claims|bash core/lib/tests/release-names.sh"; do
   sname="${suite%%|*}"; scmd="${suite#*|}"
   sfile="$(printf '%s' "$scmd" | sed -n 's/.*\(core\/[^ ]*\.sh\|backends\/[^ ]*\.sh\).*/\1/p')"
   if [ -n "$sfile" ] && [ ! -f "$sfile" ]; then echo "✖ missing: $sfile ($sname)"; rc=1; continue; fi

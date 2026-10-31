@@ -53,7 +53,7 @@ is never edited by hand) and `video/assets/audio/` (recorded by the kit; `render
 |---|---|
 | `core/manifest/` | `ecosystem.yaml` (single source of truth for what gets installed), `role-map/{apt,pacman}.yaml`, `model-packs.yaml` and its lock, `tier-b-pins.env` |
 | `core/render/` | tokens + assets to portable artefacts (GRUB background, Plymouth inputs, MOTD, mark PNGs, GNOME Shell gresource) |
-| `core/lib/` | portable bash: `theme-lib.sh`, `gpu-detect.sh` (hardware rule, model-fit gate), `ci-os-models.sh`, `ci-hub.sh`, `check-repo.sh`, `check-untracked-deps.sh`, `retired-names.allow` |
+| `core/lib/` | portable bash: `theme-lib.sh`, `gpu-detect.sh` (hardware rule, model-fit gate), `ci-os-models.sh`, `ci-hub.sh`, `check-repo.sh`, `check-untracked-deps.sh`, `retired-names.allow`, `repro-claims.allow` |
 | `core/headless/` | the setup-portal payload (`payload/`, shared by both editions), the tested `ci_setup/` library (not wired into any service), tests |
 | `backends/ubuntu/` | `iso/` (build, verify, tests), `chroot/` (customisation, one-click installer, payloads), `provision/`, `desktop-theme/`, `lib/`, `packages/`, `headless-package/` |
 | `backends/cachyos/` | `iso/` (host entry point, in-container engine, overlay, verifier, tests), `installer/` (Calamares overlay), `provision/` (first-boot wrapper, stager), `upstream.lock`, `compat-libs.lock` |
@@ -157,7 +157,9 @@ file; no `((VAR++))` under `set -e`; **no retired product name** ("CI OS", "Comp
 `.github/`; **no retired distro name** outside `core/lib/retired-names.allow` (and a stale allow-list entry fails); no block-letter
 banner art; `py_compile`; `yamllint`; shebang files are executable; no committed build artefacts; **no tracked file that names an
 untracked one** (`core/lib/check-untracked-deps.sh`: `git add -N <path>` is enough for `git commit -a` to take a new file); the
-one-click installer's unit tests; the `md5sum.txt` tests; the CachyOS no-Docker suites; and the setup-portal, `ci_setup`,
+one-click installer's unit tests; the `md5sum.txt` tests; the CachyOS no-Docker suites; **the release names and claims suite** (`core/lib/tests/release-names.sh`: one
+signature file name, `.asc`, in the build, the publisher and the guides; the image names of both editions; the pins that must agree; workflow headers that match the
+triggers; and no document that claims byte for byte rebuilds except the lines listed in `core/lib/repro-claims.allow`); and the setup-portal, `ci_setup`,
 layer-split Part A, installed-boot self-test, model-adapter and Ubuntu 26.04 backend suites. The heavy suites (container, QEMU,
 network) are manual; the tables are in `backends/ubuntu/iso/README.md` ("Script tests") and `backends/cachyos/README.md` ("Tests").
 Touching `docs/architecture/headless-setup.md`: run `bash core/headless/tests/ci_setup/run.sh --quick` (a test reads that file).
