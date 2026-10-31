@@ -63,13 +63,23 @@ ci-stick lock ./staging --id companion-stick-ubuntu --version 2026.09.0 \
     --size 512GB --packs ../core/manifest/model-packs.yaml
 ci-stick lock ./staging                     # re-lock: id/version/layout/packs carried over
 
+# A release bundle is schema 2: a sequence number (the release pipeline picks it) and an expiry.
+# expires_at is created_at + the window, never read from the clock, so the same inputs give the same bytes.
+ci-stick lock ./staging --sequence 3 --valid-days 365
+ci-stick lock ./staging                     # stays schema 2; a changed tree gets the previous sequence plus one
+
 # Development signing (release bundles are signed by the release pipeline, not this)
 ci-stick dev keygen --out ./dev             # writes dev.key (0600) + dev.pub
 ci-stick dev sign ./staging --key ./dev.key
 
-# Verify: the signature is mandatory unless --allow-unsigned (development only, loud warning)
+# Verify: the signature is mandatory unless --allow-unsigned (development only, loud warning).
+# A schema 2 bundle must also be unexpired and not older than the last one this machine accepted.
 ci-stick verify ./staging --pubkey ./dev.pub
 ci-stick verify ./staging --pubkey <64-hex> --json
+
+# What this build pins (nothing yet: KI-23), what is revoked, and the sequence floor per bundle id
+ci-stick trust show
+ci-stick trust show --json
 
 # Read-only diagnostics: host support, candidate USB devices + the layout each would get
 ci-stick doctor
@@ -79,6 +89,33 @@ ci-stick doctor --bundle /media/$USER/CI-SHARED --pubkey ./dev.pub --full   # + 
 
 Exit codes: `0` ok, `1` verification failed, `2` usage or I/O error, or a safety refusal.
 (The `models plan|lock|fetch|cache-info` commands add `3` to `7`; see below.)
+
+### Trust: pinned keys, expiry and the sequence floor
+
+`verify`, `flash` and `doctor --bundle` refuse a bundle that is correctly signed but old. All of it is described in
+[`docs/architecture/companion-stick.md`](../docs/architecture/companion-stick.md#bundle-format-and-trust-model); in short:
+
+| Finding (exit 1) | When |
+|---|---|
+| `bundle-expired` | `now >= expires_at` (schema 2) |
+| `bundle-rollback` | `sequence` is below the floor stored for the bundle `id` |
+| `bundle-sequence-conflict` | `sequence` equals the floor but `bundle.json` has other bytes (the same bytes are accepted again) |
+| `signature-key-revoked` | the signature verifies under a key whose fingerprint is revoked |
+| `signature-key-unknown` | a pinned-key policy with no key pinned |
+| `bundle-freshness-missing` | a schema 1 bundle, when this build pins a key |
+
+* **This build pins no release key** (`stick/trust/pinned-keys.json` is `[]`; KI-23), so `--pubkey` is still the only key source and the
+  commands say so. Once a key is pinned, the default is that key, `--pubkey` needs `--development-key` and is refused with `--device`, and a
+  schema 1 bundle is refused. A new binary carries every pinned key and every revocation.
+* **The sequence floor** is the highest `sequence` accepted per bundle `id`, kept in `floors.json` in the state directory:
+  `--state-dir <dir>`, else `$CI_STICK_STATE_DIR`, else `$XDG_STATE_HOME/ci-stick` or `~/.local/state/ci-stick` (Linux),
+  `~/Library/Application Support/ci-stick` (macOS), `%LOCALAPPDATA%\ci-stick` (Windows). It moves up only after a whole verification
+  succeeded (in `verify`; in `flash` after the stick was written), never in `--dry-run` or `doctor`. A damaged `floors.json` is never reset:
+  the command stops and names it. A `--device` write refuses when there is no usable state directory; a development `--image` flow warns.
+* **`revoked.txt`** in the state directory (one key fingerprint per line, `#` comments) adds revocations before a new binary does. It can only
+  add refusals, and a line that is not a fingerprint stops the command.
+* For rehearsals use a throw-away directory, so the real floor stays where it is:
+  `CI_STICK_STATE_DIR="$(mktemp -d)" ci-stick verify ./staging --pubkey ./dev.pub`.
 
 ### Models: lock, plan, fetch, cache-info
 
@@ -287,6 +324,7 @@ stick/
     layout.rs  size.rs          partition plan (pure) + size parsing
     lock.rs  verify.rs          staging -> bundle.json; bundle -> report
     signing.rs  hashing.rs      ed25519 detached signatures; streaming sha256
+    trust.rs  state.rs          pinned keys + revocations (stick/trust/*.json); state directory, sequence floors
     paths.rs                    relative-path rules (no escapes)
     packs.rs                    model-pack catalog + fit logic
     cmd_models.rs               models plan | lock | fetch | cache-info (CLI contract in its header)
@@ -304,8 +342,8 @@ stick/
     grubenv.rs  bootcfg.rs      A/B pointer (GRUB env block); grub.cfg from the layout
     slot.rs                     slot show / set
   crates/ci-stick/templates/    grub.cfg template
-  crates/ci-stick/tests/        CLI end-to-end, flash-to-image, schema drift, model catalog, lock, fetch and resume tests, and the opt-in
-                                live-registry test (models_live.rs)
+  crates/ci-stick/tests/        CLI end-to-end, flash-to-image, schema drift, trust (sequence floor, expiry, revocation), model catalog,
+                                lock, fetch and resume tests, and the opt-in live-registry test (models_live.rs)
   .cargo/config.toml            MSRV-aware dependency resolution (see "Adding a dependency or bumping the lock")
   scripts/fetch-signed-boot.sh  Secure Boot chain (shim, Canonical GRUB, MokManager) via apt
   scripts/grub-builtin-modules.py  modules built into a signed GRUB image (fetch-signed-boot.sh checks them)
@@ -315,8 +353,10 @@ stick/
                                 guest-docker-test.sh) and the mac80211_hwsim hotspot test (hotspot-hwsim.sh, guest-hotspot-test.sh,
                                 README-hotspot.md)
   tests/secureboot/             local Secure Boot harness (run-on-mac.sh, build-in-container.sh; not in CI)
-  schema/bundle.schema.json     published JSON Schema (mirror of manifest.rs)
-  schema/examples/              canonical example bundle.json
+  schema/bundle.schema.json     published JSON Schema (mirror of manifest.rs; schema_version 1 and 2)
+  schema/examples/              canonical example bundle.json files (schema 1, schema 1 with a Hugging Face model, schema 2)
+  trust/pinned-keys.json        release keys compiled into the binary (empty: KI-23)
+  trust/revoked.json            revoked key fingerprints compiled into the binary (empty)
 ```
 
 Rust is first-class inside `stick/` only. `core/` and the shell backends must never
