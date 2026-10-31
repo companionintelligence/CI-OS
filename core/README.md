@@ -15,7 +15,7 @@ a backend.
   colour math lives, once, instead of being reimplemented per backend. `render/inputs/` holds the raw PNG inputs.
 - **`lib/`**: distro-portable bash helpers: `theme-lib.sh` (tokens, logging, Plymouth theme writers), `grub-merge.sh`,
   `gpu-detect.sh` (the Strix Halo hardware rule and the data-driven model-fit gate), `ci-os-models.sh` (the OS-side model adapter),
-  `ci-hub.sh` (CI-Hub deploy), `vendor-brand.sh` and `check-brand-mirrors.sh` (the brand bundle), and the repository gates
+  `ci-hub.sh` (CI-Hub deploy), `memory-protection.sh` (the units and the lint of the memory protection drop-ins both editions ship), `vendor-brand.sh` and `check-brand-mirrors.sh` (the brand bundle), and the repository gates
   `check-repo.sh`, `check-untracked-deps.sh` and `retired-names.allow`. `lib/tests/` holds the tests of the helpers.
 - **`headless/payload/`**: the captive-portal Wi-Fi onboarding payload: the Flask setup backend, the static portal, the
   hostapd, dnsmasq and nginx configuration, and the systemd units. The payload itself is distro-portable; only the packaging
