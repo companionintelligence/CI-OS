@@ -8,6 +8,8 @@
 #   a shorter file: the size check sees it                               SHA256SUMS that lists another hash, or none: refused
 #   a manifest whose URL is not this release's path: refused             no latest.json, no manifest, an unusable version: a clear failure
 #   signature: verified with the key given (stub gpg), refused when it does not verify    not https: refused unless localhost
+#   a Plasma release (--edition plasma): found under os-plasma, --arch x86_64, the manifest must say the same edition as the one asked for,
+#     and an architecture of the other edition is refused
 #
 # Pure bash 3.2, python3, curl, no network beyond 127.0.0.1, writes only to a temporary directory.
 #   backends/ubuntu/iso/tests/verify-published.sh
@@ -135,6 +137,52 @@ build_release; rm "$WORK/root/os/1.0/SHA256SUMS.asc"; run --pubkey "$WORK/bin/gp
 eq "no signature served while a key is given: exit 1" "$RC" "1"
 build_release; run
 has "no key given: says the signature was not checked" "signature not checked"
+
+echo
+echo "== the Plasma edition (--edition plasma)"
+PBASE="companion-os-plasma-2026.10.18-x86_64"
+build_plasma_release() { # the release as the bucket holds it: root/os-plasma/2026.10.18/x86_64/..., root/os-plasma/latest.json
+  rm -rf "$WORK/out" "$WORK/root" "$WORK/mf"; mkdir -p "$WORK/out" "$WORK/root/os-plasma/2026.10.18/x86_64"
+  printf 'plasma image bytes %.0s' $(seq 1 300) >"$WORK/out/$PBASE.iso"
+  ( cd "$WORK/out" && { shasum -a 256 "$PBASE.iso" 2>/dev/null || sha256sum "$PBASE.iso"; } >SHA256SUMS )
+  echo sig >"$WORK/out/SHA256SUMS.asc"
+  python3 "$MANIFEST" --dir "$WORK/out" --out-dir "$WORK/mf" --version 2026.10.18 --channel dev --base-url https://dl.ci.computer --edition plasma >/dev/null
+  cp "$WORK/out/$PBASE.iso" "$WORK/root/os-plasma/2026.10.18/x86_64/"
+  cp "$WORK/out/SHA256SUMS" "$WORK/out/SHA256SUMS.asc" "$WORK/mf/manifest.json" "$WORK/root/os-plasma/2026.10.18/"; cp "$WORK/mf/latest.json" "$WORK/root/os-plasma/"
+}
+build_plasma_release
+run --edition plasma
+eq "an untouched Plasma release, found through latest.json under os-plasma: exit 0" "$RC" "0"
+has "  the version is the image date" "latest.json names version 2026.10.18"
+has "  the manifest says plasma, as asked" "manifest.json is the plasma edition"
+has "  the image is checked at x86_64" "x86_64: $PBASE.iso is served at"
+run --edition plasma --arch x86_64 --full
+eq "--arch x86_64 --full: exit 0" "$RC" "0"
+has "  the bytes of the image match" "x86_64: downloaded and sha256"
+run --edition plasma --version 2026.10.18 --pubkey "$WORK/bin/gpg"
+eq "an explicit version and a good signature: exit 0" "$RC" "0"
+has "  the signature check is reported" "SHA256SUMS.asc verifies against"
+run --prefix os-plasma --arch x86_64
+eq "the prefix of a Plasma release without --edition plasma: the manifest says another edition, exit 1" "$RC" "1"
+has "  and says which" "is the 'plasma' edition, and this check is for ubuntu"
+run --edition plasma --arch amd64; eq "an Ubuntu architecture for a Plasma manifest: refused (exit 2)" "$RC" "2"
+has "  and says why" "is not an architecture of the plasma edition"
+run --edition plasma --arch arm64; eq "  arm64 too" "$RC" "2"
+run --edition nope; eq "an edition that does not exist: refused" "$RC" "2"
+run --edition; eq "--edition without its value" "$RC" "2"
+printf 'X' | dd of="$WORK/root/os-plasma/2026.10.18/x86_64/$PBASE.iso" bs=1 seek=100 conv=notrunc 2>/dev/null
+run --edition plasma --full
+eq "a changed byte in the Plasma image: --full sees it (exit 1)" "$RC" "1"
+has "  and says which image" "x86_64: the downloaded file has sha256"
+build_plasma_release; head -c 1000 "$WORK/out/$PBASE.iso" >"$WORK/root/os-plasma/2026.10.18/x86_64/$PBASE.iso"
+run --edition plasma
+eq "a shorter Plasma image: the size check sees it (exit 1)" "$RC" "1"
+build_release
+run --arch x86_64; eq "an Ubuntu manifest with --arch x86_64: refused (exit 2)" "$RC" "2"
+has "  and says why" "is not an architecture of the ubuntu edition"
+run --edition plasma --prefix os; eq "an Ubuntu release checked as plasma: the manifest says another edition, exit 1" "$RC" "1"
+has "  and says which" "is the 'ubuntu' edition, and this check is for plasma"
+run --arch amd64; eq "the Ubuntu architectures are still accepted for an Ubuntu manifest" "$RC" "0"
 
 echo
 echo "== arguments"
