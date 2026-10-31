@@ -8,6 +8,8 @@
 #   changed bytes after the checksums were made: refused before any upload   production without a good signature: refused
 #   a version that exists: refused without --overwrite          a size that does not match after the upload: latest.json is NOT written
 #   a version, bucket or channel that could point elsewhere: refused          --check-public compares the served manifest with the written one
+#   --edition plasma: the prefix os-plasma, the image date as the version, the image's .pkgs.txt and .build-info beside the checksums, the
+#     checksums made from the edition's own images, and the other edition's image in the directory refused
 #
 # Pure bash 3.2 (run it with /bin/bash on a Mac), python3, no network, writes only to a temporary directory.
 #   backends/ubuntu/iso/tests/publish-r2.sh
@@ -219,6 +221,75 @@ fresh; run bash "$TOOL" --version 1.0; eq "no --dir" "$RC" "2"
 fresh; run bash "$TOOL" --dir "$WORK/out"; eq "no --version" "$RC" "2"
 fresh; pub --nonsense; eq "an unknown argument" "$RC" "2"
 fresh; run bash "$TOOL" --dir "$WORK/out" --version; eq "an option without its value" "$RC" "2"
+
+echo
+echo "== the Plasma edition (--edition plasma): its own prefix, version and side files"
+PBASE="companion-os-plasma-2026.10.18-x86_64"
+fresh_plasma() { # a new build directory of one Plasma image with its package list and build record, checksummed
+  rm -rf "$WORK/out" "$WORK/store" "$WORK/log" "$WORK/env"; mkdir -p "$WORK/out" "$WORK/store"; : >"$WORK/log"; : >"$WORK/env"
+  printf 'plasma image bytes %.0s' $(seq 1 300) >"$WORK/out/$PBASE.iso"
+  echo "packages" >"$WORK/out/$PBASE.pkgs.txt"; echo "KEY=VALUE" >"$WORK/out/$PBASE.build-info"
+  ( cd "$WORK/out" && { shasum -a 256 "$PBASE.iso" 2>/dev/null || sha256sum "$PBASE.iso"; } >SHA256SUMS )
+}
+pubp() { run bash "$TOOL" --dir "$WORK/out" --version 2026.10.18 --edition plasma "$@"; }
+
+fresh_plasma; pubp
+eq "a dry run of the Plasma image: exit 0" "$RC" "0"
+has "  lists the image under the plasma prefix and the image date" "os-plasma/2026.10.18/x86_64/$PBASE.iso"
+has "  and the package list beside the checksums" "os-plasma/2026.10.18/$PBASE.pkgs.txt"
+has "  and the build record" "os-plasma/2026.10.18/$PBASE.build-info"
+has "  and the pointer last, under the same prefix" "os-plasma/latest.json moves last"
+eq "  and nothing listed under the Ubuntu prefix" "$(grep -c '^  os/' <<<"$OUT" | tr -d ' ')" "0"
+eq "no aws call at all" "$(grep -c . "$WORK/log" | tr -d ' ')" "0"
+
+fresh_plasma; pubp --apply
+eq "--apply: exit 0" "$RC" "0"
+eq "the objects went up in the order that keeps latest honest" "$(puts | tr '\n' ' ')" \
+   "dl-dev/os-plasma/2026.10.18/x86_64/$PBASE.iso dl-dev/os-plasma/2026.10.18/SHA256SUMS dl-dev/os-plasma/2026.10.18/$PBASE.pkgs.txt dl-dev/os-plasma/2026.10.18/$PBASE.build-info dl-dev/os-plasma/2026.10.18/manifest.json dl-dev/os-plasma/latest.json "
+eq "the side files are plain text" "$(grep -E "pkgs.txt|build-info" "$WORK/log" | grep '^cp' | sed -n 's/.*ct=//p' | sort -u | tr '\n' ' ')" "text/plain "
+eq "the manifest in the bucket says which edition it is" "$(python3 -c "import json; d=json.load(open('$WORK/store/dl-dev/os-plasma/2026.10.18/manifest.json')); print(d['edition'], d['product'], list(d['images']))")" "plasma companion-os ['x86_64']"
+eq "  and so does the feed" "$(python3 -c "import json; d=json.load(open('$WORK/store/dl-dev/os-plasma/latest.json')); print(d['edition'], d['version'])")" "plasma 2026.10.18"
+eq "nothing was written under the Ubuntu prefix" "$(puts | grep -c '^dl-dev/os/')" "0"
+
+fresh_plasma; pubp --apply --check-public
+eq "--check-public finds the Plasma manifest at the plasma prefix" "$RC" "0"
+has "  and says so" "os-plasma/2026.10.18/manifest.json serves the manifest just written"
+
+fresh_plasma; echo sig >"$WORK/out/SHA256SUMS.asc"; pubp --apply --channel production
+eq "production, signed: the objects went to dl-prod under the plasma prefix" "$RC/$(puts | grep -c '^dl-prod/os-plasma/2026.10.18/')" "0/6"
+fresh_plasma; pubp --channel production
+eq "production without a signature: refused, for this edition too" "$RC" "2"
+fresh_plasma; pubp --prefix os-plasma/preview
+has "--prefix still overrides the edition's prefix" "os-plasma/preview/2026.10.18/x86_64/$PBASE.iso"
+
+echo
+echo "== --make-checksums writes the checksums of the edition's own images"
+fresh_plasma; rm "$WORK/out/SHA256SUMS"; pubp --make-checksums
+eq "plasma: written from the Plasma image, and the dry run passes" "$RC/$(awk '{print $2}' "$WORK/out/SHA256SUMS" | tr '\n' ' ')" "0/$PBASE.iso "
+fresh; rm "$WORK/out/SHA256SUMS"; pub --make-checksums
+eq "ubuntu: written from both Ubuntu images" "$RC/$(awk '{print $2}' "$WORK/out/SHA256SUMS" | tr '\n' ' ')" "0/companion-os-1.0-amd64.iso companion-os-1.0-arm64.iso "
+fresh_plasma; printf 'u' >"$WORK/out/companion-os-1.0-amd64.iso"; rm "$WORK/out/SHA256SUMS"; pubp --make-checksums
+eq "plasma, with an Ubuntu image in the directory: the checksums name only the Plasma image" "$(awk '{print $2}' "$WORK/out/SHA256SUMS" | tr '\n' ' ')" "$PBASE.iso "
+eq "  and the release is refused (exit 2), nothing uploaded" "$RC/$(grep -c '^cp ' "$WORK/log" | tr -d ' ')" "2/0"
+has "  with the reason" "image of the ubuntu edition"
+fresh; printf 'p' >"$WORK/out/$PBASE.iso"; rm "$WORK/out/SHA256SUMS"; pub --make-checksums
+eq "ubuntu, with a Plasma image in the directory: the checksums name only the Ubuntu images" "$(awk '{print $2}' "$WORK/out/SHA256SUMS" | tr '\n' ' ')" "companion-os-1.0-amd64.iso companion-os-1.0-arm64.iso "
+eq "  and the release is refused (exit 2)" "$RC" "2"
+has "  with the reason" "image of the plasma edition"
+
+echo
+echo "== the edition is checked before anything else"
+fresh_plasma; pub --version 2026.10.18
+eq "a Plasma directory published as the default edition: refused (exit 2)" "$RC" "2"
+has "  with the reason" "image of the plasma edition"
+fresh; pub --edition plasma
+eq "an Ubuntu directory published as plasma: refused (exit 2)" "$RC" "2"
+fresh_plasma; pubp --version 2026.10.19
+eq "a Plasma version that is not the image date: refused" "$RC" "2"
+fresh_plasma; pubp --edition nope; eq "an edition that does not exist: refused" "$RC/$(grep -c '^cp ' "$WORK/log" | tr -d ' ')" "2/0"
+has "  and says which" "--edition must be ubuntu or plasma"
+fresh_plasma; run bash "$TOOL" --dir "$WORK/out" --version 2026.10.18 --edition; eq "--edition without its value" "$RC" "2"
+OUT="$(bash "$TOOL" --help 2>&1)"; has "--help documents the edition" "--edition E"
 
 echo
 echo "== the script itself"

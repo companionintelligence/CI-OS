@@ -2,7 +2,12 @@
 #=============================================================================
 # Gate 14 of docs/guides/release-checklist.md, as a command: is what is served at the public URL what was built?
 #
-#   verify-published.sh --base-url https://dl.ci.computer [--version 1.0] [--prefix os] [--arch amd64|arm64] [--full] [--pubkey FILE]
+#   verify-published.sh --base-url https://dl.ci.computer [--version 1.0] [--edition ubuntu|plasma] [--prefix os] [--arch amd64|arm64|x86_64]
+#                       [--full] [--pubkey FILE]
+#
+# --edition (default ubuntu) says which release is checked: the default prefix is os for ubuntu and os-plasma for plasma, and the manifest must say
+# the same edition (its "edition" key; absent means ubuntu), or the check fails. --arch is amd64 or arm64 for an Ubuntu manifest and x86_64 for a
+# Plasma one.
 #
 # Reads <base>/<prefix>/latest.json (or the version you name), then <base>/<prefix>/<version>/manifest.json, and for every image (or the one --arch)
 #   - HEAD: the served size equals the manifest's size;
@@ -20,12 +25,13 @@
 set -uo pipefail
 
 die() { echo "verify-published: $*" >&2; exit 2; }
-BASE="" VERSION="" PREFIX="os" ARCH="" FULL=0 PUBKEY=""
+BASE="" VERSION="" PREFIX="" EDITION="ubuntu" ARCH="" FULL=0 PUBKEY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --base-url) [ $# -ge 2 ] || die "$1 needs a value"; BASE="$2"; shift 2 ;;
     --version) [ $# -ge 2 ] || die "$1 needs a value"; VERSION="$2"; shift 2 ;;
     --prefix) [ $# -ge 2 ] || die "$1 needs a value"; PREFIX="$2"; shift 2 ;;
+    --edition) [ $# -ge 2 ] || die "$1 needs a value"; EDITION="$2"; shift 2 ;;
     --arch) [ $# -ge 2 ] || die "$1 needs a value"; ARCH="$2"; shift 2 ;;
     --pubkey) [ $# -ge 2 ] || die "$1 needs a value"; PUBKEY="$2"; shift 2 ;;
     --full) FULL=1; shift ;;
@@ -39,8 +45,10 @@ case "$BASE" in
   http://localhost|http://localhost:*|http://127.0.0.1|http://127.0.0.1:*) ;;
   *) die "--base-url must be an https URL" ;;
 esac
+case "$EDITION" in ubuntu|plasma) ;; *) die "--edition must be ubuntu or plasma" ;; esac
+[ -n "$PREFIX" ] || { [ "$EDITION" = plasma ] && PREFIX="os-plasma" || PREFIX="os"; }
 echo "$PREFIX" | grep -q -E '^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$' || die "--prefix is not a plain key prefix"
-[ -z "$ARCH" ] || case "$ARCH" in amd64|arm64) ;; *) die "--arch must be amd64 or arm64" ;; esac
+[ -z "$ARCH" ] || case "$ARCH" in amd64|arm64|x86_64) ;; *) die "--arch must be amd64 or arm64 (ubuntu) or x86_64 (plasma)" ;; esac
 [ -z "$VERSION" ] || echo "$VERSION" | grep -q -E '^[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z]+)*$' || die "--version is not a version"
 command -v curl >/dev/null 2>&1 || die "curl is required"
 command -v python3 >/dev/null 2>&1 || die "python3 is required"
@@ -65,8 +73,16 @@ get "$MURL" "$WORK/manifest.json" 60 || { bad "$MURL does not answer"; echo "ver
 [ "$(json "$WORK/manifest.json" "d['product']")" = "companion-os" ] && [ "$(json "$WORK/manifest.json" "d['version']")" = "$VERSION" ] \
   && ok "manifest.json is Companion OS $VERSION" || bad "manifest.json is not Companion OS $VERSION"
 
+# the manifest's own edition decides which architectures are valid; the edition asked for must be the same (absent in the manifest means ubuntu)
+MED="$(json "$WORK/manifest.json" "d.get('edition', 'ubuntu')")"
+[ "$MED" = "$EDITION" ] && ok "manifest.json is the $EDITION edition" || bad "manifest.json is the '${MED:-unknown}' edition, and this check is for $EDITION (--edition, --prefix)"
 ARCHES="$(json "$WORK/manifest.json" "' '.join(sorted(d['images']))")"
-[ -n "$ARCH" ] && ARCHES="$ARCH"
+if [ -n "$ARCH" ]; then
+  case "$MED:$ARCH" in
+    ubuntu:amd64|ubuntu:arm64|plasma:x86_64) ARCHES="$ARCH" ;;
+    *) die "--arch $ARCH is not an architecture of the ${MED:-unknown} edition (ubuntu: amd64 or arm64; plasma: x86_64)" ;;
+  esac
+fi
 for a in $ARCHES; do
   name="$(json "$WORK/manifest.json" "d['images']['$a']['iso']['name']")"
   size="$(json "$WORK/manifest.json" "d['images']['$a']['iso']['size']")"

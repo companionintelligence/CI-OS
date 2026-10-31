@@ -164,7 +164,7 @@ gpg --verify SHA256SUMS.asc SHA256SUMS
 shasum -a 256 -c SHA256SUMS
 ```
 
-`build-iso.sh --sign` signs `SHA256SUMS` and `MD5SUMS` of the Ubuntu edition with the invoking user's default GPG key; the workflow signs with the `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` secrets of the `production` environment when the `sign` input is true. The Plasma build writes a `.sha256` and does not sign. For two architectures the file must list **both** images: build each on its own machine, gather the images, `cat SHA256SUMS.amd64 SHA256SUMS.arm64 > SHA256SUMS`, and sign that; `publish-r2.sh` refuses a `SHA256SUMS` that leaves a published image out, and refuses a production release with no good signature. **Who holds the release key and where the public key is published are open decisions** (KI-12). Never commit a private key and never place one in a shell history.
+`build-iso.sh --sign` signs `SHA256SUMS` and `MD5SUMS` of the Ubuntu edition with the invoking user's default GPG key and writes `SHA256SUMS.asc` and `MD5SUMS.asc` (the one name the publisher, the verifier and this page use for our signature); the workflow signs with the `GPG_PRIVATE_KEY` and `GPG_PASSPHRASE` secrets of the `production` environment when the `sign` input is true. The Plasma build writes a `.sha256` and does not sign. For two architectures the file must list **both** images: build each on its own machine, gather the images, `cat SHA256SUMS.amd64 SHA256SUMS.arm64 > SHA256SUMS`, and sign that; `publish-r2.sh` refuses a `SHA256SUMS` that leaves a published image out, and refuses a production release with no good signature. **Who holds the release key and where the public key is published are open decisions** (KI-12). Never commit a private key and never place one in a shell history.
 
 ### 14. Hosted and re-verified
 
@@ -178,19 +178,20 @@ Then flash the downloaded file with a raw writer or `ci-stick`, boot it in QEMU 
 
 ## Publishing to R2
 
-**Evidence.** **[I]** implemented and tested with a stub `aws`, `gpg` and `curl` and a real local HTTP server (`backends/ubuntu/iso/tests/{publish-r2.sh,verify-published.sh,build-in-docker.sh,test_release_manifest.py}`, part of `check-repo.sh`; the workflow passes `actionlint`). **[N]** never run against the real buckets: no R2 credential is configured where this was written, no bucket was written to, and a 5.6 GB multipart upload to R2 has not been seen to finish. The first real run is the `dev` rehearsal at the end of this section.
+**Evidence.** **[I]** implemented and tested with a stub `aws`, `gpg` and `curl` and a real local HTTP server (`backends/ubuntu/iso/tests/{publish-r2.sh,verify-published.sh,build-in-docker.sh,test_release_manifest.py}`, part of `check-repo.sh`; the workflow passes `actionlint`). **[N]** never run against the real buckets: no R2 credential is configured where this was written, no bucket was written to, and a 5.6 GB multipart upload to R2 has not been seen to finish. The first real run is the `dev` rehearsal at the end of this section. The names that the tools, the workflow and this page share (the signature file, the image names of both editions, the files beside the images) are kept in agreement by `core/lib/tests/release-names.sh`, part of `check-repo.sh` **[I]**.
 
 ### Where each thing lives
 
 | What | Where | Why |
 |---|---|---|
-| The images | R2, the shared buckets `dl-dev` (served at `https://dl-dev.ci.computer`) and `dl-prod` (`https://dl.ci.computer`), under the prefix `os/` | a GitHub release asset is limited to 2 GiB; Companion Capture already publishes its installers to the same buckets under `applet/` |
-| `SHA256SUMS`, `SHA256SUMS.asc`, `SBOM.txt`, `manifest.json`, `latest.json` | R2, beside the images | the manifest is what an installer or a download page reads; `latest.json` is written last |
+| The images | R2, the shared buckets `dl-dev` (served at `https://dl-dev.ci.computer`) and `dl-prod` (`https://dl.ci.computer`), under the prefix `os/` (Ubuntu edition) or `os-plasma/` (Plasma edition) | a GitHub release asset is limited to 2 GiB; Companion Capture already publishes its installers to the same buckets under `applet/` |
+| `SHA256SUMS`, `SHA256SUMS.asc`, `MD5SUMS`, `SBOM.txt`, `manifest.json`, `latest.json` | R2, beside the images (those that exist; `manifest.json` and `latest.json` always) | the manifest is what an installer or a download page reads; `latest.json` is written last |
+| Plasma edition only: `<base>.pkgs.txt` and `<base>.build-info` (`<base>` is the image name without `.iso`) | R2, beside the checksums of that release | the package list and the build record of the image, the two files that `backends/cachyos/NOTICE` ties a source offer to |
 | The checksums, the signature, the SBOM and the release notes | a draft GitHub release (production only), without images | the audit trail and the control plane stay on GitHub |
 | The R2 key pair, the release signing key | GitHub **environments** `dev` and `production` | an environment's secrets are visible only to the job that names it, and `production` can require reviewers |
 | The workflow | `.github/workflows/build-companion-os-iso.yml`: manual only (`ci-local:gated`), inputs `version`, `arch`, `publish` (`none`, `dev`, `production`), `sign`, `runner_amd64`, `runner_arm64` | the org gates automatic runs because hosted minutes are billed; [`docs/CI.md`](../CI.md) has the `gh workflow run` line |
 
-Keys: `os/<version>/<arch>/companion-os-<version>-<arch>.iso`, `os/<version>/{SHA256SUMS,SHA256SUMS.asc,SBOM.txt,manifest.json}` and `os/latest.json`.
+Keys: `os/<version>/<arch>/companion-os-<version>-<arch>.iso`, `os/<version>/{SHA256SUMS,SHA256SUMS.asc,MD5SUMS,SBOM.txt,manifest.json}` and `os/latest.json`. Plasma edition: `os-plasma/<YYYY.MM.DD>/x86_64/companion-os-plasma-<YYYY.MM.DD>-x86_64.iso`, the same common files and `<base>.pkgs.txt` and `<base>.build-info` under `os-plasma/<YYYY.MM.DD>/`, and `os-plasma/latest.json`.
 
 ### The two routes, one publisher
 
@@ -209,6 +210,16 @@ backends/ubuntu/iso/scripts/verify-published.sh --base-url https://dl-dev.ci.com
 ```
 
 **On a GitHub runner.** `gh workflow run build-companion-os-iso.yml --repo companionintelligence/CI-OS --ref <branch> -f version=1.0 -f arch=both -f publish=dev`. The `plan` job checks the inputs (a production release must be signed), `build` runs one job per architecture (the same container build, `verify-iso.sh` included, the image kept as an artifact for 7 days), and `publish` runs only when asked: it takes the environment of the same name, checks that the secrets exist, builds one `SHA256SUMS` and an SBOM, signs when asked, runs `publish-r2.sh` as a dry run and then for real, and runs `verify-published.sh` (with `--full` for production). `runner_amd64` and `runner_arm64` send a build to a self-hosted runner instead (hosted arm64 runners for a private repository are unverified).
+
+**The Plasma edition.** **[I]** The same publisher takes it with `--edition plasma`. Two editions are two releases under two prefixes, `os/` and `os-plasma/`, and an image of the other edition in the directory is a refusal, not a skip. The release version is the day in the image's file name (`2026.10.18`), so `--version` is that date and one Plasma image exists per day. Publish from a directory that holds only the Plasma image, the `.pkgs.txt` and `.build-info` that the build wrote beside it, and the checksums (gate 13 applies as for Ubuntu: a production release needs `SHA256SUMS.asc`, a `dev` rehearsal does not):
+
+```bash
+mkdir plasma-release && cp output/companion-os-plasma-2026.10.18-x86_64.{iso,pkgs.txt,build-info} plasma-release/
+backends/ubuntu/iso/scripts/publish-r2.sh --dir plasma-release --version 2026.10.18 --edition plasma --make-checksums --channel dev     # a dry run
+backends/ubuntu/iso/scripts/verify-published.sh --base-url https://dl-dev.ci.computer --edition plasma --version 2026.10.18 --full
+```
+
+`release-manifest.py --edition plasma --notes-out FILE` writes the release notes: they say that there is no Secure Boot (gate 9), that the installer is an online one and that the packages are rolling, so that every notes file carries the expiry note that gate 12 asks for. No hosted workflow builds or publishes this edition **[N]**; the route above is the only one. The tools accept the image; publishing it where the public can fetch it waits for two owner decisions: the source offer (`backends/cachyos/NOTICE` says it is not written yet) and whether the CachyOS name may appear in public text (KI-13). The notes, the manifest and the file names do not carry that name; the contents of `.build-info` do (it records the pins of the build), which is one more reason to settle KI-13 before the first public file.
 
 ### What the publisher does and refuses
 
