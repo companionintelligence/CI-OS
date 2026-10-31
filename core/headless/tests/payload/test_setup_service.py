@@ -851,6 +851,86 @@ class HotspotStateInConfigureTests(unittest.TestCase):
         self.assertEqual(self.runs[0], [self.m.HOTSPOT_SCRIPT, 'stop'])
 
 
+class PortalHostDefaultsTests(unittest.TestCase):
+    """HOST: the built-in Portal host is the production Portal, and a device can still be pointed at another one.
+
+    The old defaults (portal.companionintelligence.com for the pairing API, portal.ci.computer for the redirect) have no DNS
+    record. On a fresh device the pairing request could not resolve its host, the portal then asked the user to check a pairing
+    code that was right, and the phone was sent to a host that does not exist. The pairing API comes from the environment, then
+    from /etc/setup-device/device.conf, then from the built-in default.
+    """
+    PROD = 'https://hub.ci.computer'
+    OTHER = 'https://staging.example.test'
+
+    def pairing_url(self, env=None, conf=None):
+        """The pairing URL of a service started with CI_CLOUD_API_URL set to `env` (None: unset) and device.conf `conf` (None: absent)."""
+        with mock.patch.dict(os.environ):
+            os.environ.pop('CI_CLOUD_API_URL', None)
+            if env is not None:
+                os.environ['CI_CLOUD_API_URL'] = env
+            seed = {'etc/setup-device/device.conf': conf} if conf is not None else None
+            with loaded_service(seed=seed) as svc:
+                return svc.module._cloud_pairing_url()
+
+    def test_the_default_pairing_url_is_the_production_portal(self):
+        self.assertEqual(self.pairing_url(), self.PROD + '/api/devices/pair')
+
+    def test_the_environment_overrides_the_default_in_every_spelling_of_the_base_url(self):
+        for value in (self.OTHER, self.OTHER + '/', self.OTHER + '/api', self.OTHER + '/api/'):
+            with self.subTest(value=value):
+                self.assertEqual(self.pairing_url(env=value), self.OTHER + '/api/devices/pair')
+
+    def test_device_conf_overrides_the_default(self):
+        self.assertEqual(self.pairing_url(conf=f'CI_CLOUD_API_URL={self.OTHER}\n'), self.OTHER + '/api/devices/pair')
+
+    def test_the_environment_wins_over_device_conf(self):
+        url = self.pairing_url(env=self.OTHER, conf='CI_CLOUD_API_URL=https://third.example.test\n')
+        self.assertEqual(url, self.OTHER + '/api/devices/pair')
+
+    def test_the_shipped_device_conf_leaves_the_default_in_force(self):
+        shipped = (harness.PAYLOAD / 'setup-device-defaults' / 'device.conf').read_text()
+        self.assertEqual(self.pairing_url(conf=shipped), self.PROD + '/api/devices/pair')
+
+    def test_the_redirect_fallback_is_the_production_portal(self):
+        with loaded_service() as svc:
+            m = svc.module
+            self.assertEqual(m.DEFAULT_PORTAL_REDIRECT_URL, self.PROD)
+            self.assertEqual(m._build_redirect_metadata(), {
+                'redirect_url': self.PROD, 'redirect_candidates': [self.PROD], 'redirect_fallback_url': self.PROD})
+
+    def test_the_device_own_address_still_comes_before_the_fallback(self):
+        with loaded_service() as svc:
+            m = svc.module
+            self.assertEqual(m._build_redirect_metadata({'subdomain': 'abc12'})['redirect_candidates'],
+                             ['https://abc12.ci.computer', self.PROD])
+            self.assertEqual(m._build_redirect_metadata({'domain': 'box.example.test'})['redirect_url'],
+                             'https://box.example.test')
+
+    def test_the_page_falls_back_to_the_same_portal_as_the_service(self):
+        html = (harness.PAYLOAD / 'var' / 'www' / 'setup-portal' / 'index.html').read_text()
+        found = re.findall(r"const DEFAULT_REDIRECT_URL = '([^']*)';", html)
+        self.assertEqual(found, [self.PROD], 'index.html must declare one DEFAULT_REDIRECT_URL, the production Portal')
+        with loaded_service() as svc:
+            self.assertEqual(found[0], svc.module.DEFAULT_PORTAL_REDIRECT_URL)
+
+    def test_the_pending_answer_sends_the_phone_to_the_production_portal(self):
+        """Over the hotspot the answer is written before any pairing, so the fallback is the only address it can name."""
+        with loaded_service() as svc:
+            m = svc.module
+            m._run_script = lambda argv, timeout: 0
+            m._spawn_background_configure = lambda *a: None
+            svc.system.units_active.add('hostapd-setup.service')
+            form = {'ssid': 'HomeNet', 'password': 'password12'}
+            r = svc.client().post('/api/configure', json=form, headers=JSON)
+            self.assertEqual(r.status_code, 202)
+            self.assertEqual(r.get_json()['redirect_url'], self.PROD)
+            m._configure_lock.release()  # the background thread would release it
+            r = svc.client().post('/api/configure', data=form)  # a plain form post: the HTML answer
+            self.assertEqual(r.status_code, 202)
+            self.assertIn(f'href="{self.PROD}"', r.text)
+            m._configure_lock.release()
+
+
 if __name__ == '__main__':
     print(f'flask: {harness.FLASK_KIND}' + (' (stand-in: real Flask is not installed here)' if harness.FLASK_KIND == 'standin' else ''))
     unittest.main(verbosity=2)

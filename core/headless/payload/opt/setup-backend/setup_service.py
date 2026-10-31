@@ -91,6 +91,7 @@ def _read_env_file(path):
 
 # Cloud API config - can be set via environment `CI_CLOUD_API_URL`
 # or via `/etc/setup-device/device.conf` value `CI_CLOUD_API_URL`.
+# Unset, it is the production Portal (hub.ci.computer); set one of the two to pair against staging or dev.
 def _read_conf_value(key):
     return _read_env_file(CONFIG_DIR / 'device.conf').get(key)
 
@@ -104,14 +105,14 @@ def _read_int_env(name, default):
     except (TypeError, ValueError):
         return default
 
-CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://portal.companionintelligence.com/api/'
+CI_CLOUD_API_URL = os.environ.get('CI_CLOUD_API_URL') or _read_conf_value('CI_CLOUD_API_URL') or 'https://hub.ci.computer/api/'
 CI_ZONE_ID = os.environ.get('CI_ZONE_ID') or _read_conf_value('CI_ZONE_ID') or '2b77d4360dbd4a9ccdad5c8d947323c9'
 CI_HUB_REGISTRATION_STATUS_URL = os.environ.get('CI_HUB_REGISTRATION_STATUS_URL', 'http://127.0.0.1:5002/api/registration/status')
 CI_HUB_REGISTRATION_CALLBACK_URL = os.environ.get('CI_HUB_REGISTRATION_CALLBACK_URL', 'http://127.0.0.1:5002/api/registration/callback')
 CI_HUB_REGISTRATION_DEVICE_ID_URL = os.environ.get('CI_HUB_REGISTRATION_DEVICE_ID_URL', 'http://127.0.0.1:5002/api/registration/device-id')
 REGISTRATION_CONNECTIVITY_WINDOW_SECONDS = _read_int_env('SETUP_REGISTRATION_CONNECTIVITY_WINDOW_SECONDS', 20)
 CLOUD_REQUEST_USER_AGENT = os.environ.get('SETUP_CLOUD_USER_AGENT', 'curl/8.5.0')
-DEFAULT_PORTAL_REDIRECT_URL = 'https://portal.ci.computer'
+DEFAULT_PORTAL_REDIRECT_URL = 'https://hub.ci.computer'
 DEFAULT_CLOUD_DOMAIN = 'ci.computer'
 
 

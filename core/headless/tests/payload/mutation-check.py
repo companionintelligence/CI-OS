@@ -47,6 +47,7 @@ PY_DEVID = ('py', 'test_setup_service.DeviceIdTests')
 PY_HEALTH = ('py', 'test_setup_service.HealthEndpointTests')
 PY_SIGNAL = ('py', 'test_setup_service.SignalHandlerTests')
 PY_RUNSCRIPT = ('py', 'test_setup_service.RunScriptTests')
+PY_HOST = ('py', 'test_setup_service.PortalHostDefaultsTests')
 PY_PRESCAN = ('py', 'test_prescan')
 PY_STATIC = ('py', 'test_static')
 SH_MONITOR = ('sh', 'test_monitor.sh', '')
@@ -252,6 +253,17 @@ MUTATIONS = [
      "systemctl disable hostapd-setup.service 2>/dev/null || true\n", "", PY_STATIC),
     ('K2-deb', 'K2 the deb depends on iw', 'backends/ubuntu/headless-package/DEBIAN/control', "network-manager, iw, iproute2, rfkill", "network-manager, iproute2, rfkill", PY_STATIC),
     ('K2-arch', 'K2 arch installs util-linux', 'backends/arch/headless-setup/install.sh', "networkmanager iw iproute2 util-linux)", "networkmanager iw iproute2)", PY_STATIC),
+    # ---- the Portal host the images default to (no DNS record for the old ones) ----------------------------------------------
+    ('HOST-api', 'HOST the pairing API defaults to the production Portal', SERVICE,
+     "or 'https://hub.ci.computer/api/'", "or 'https://portal.companionintelligence.com/api/'", PY_HOST),
+    ('HOST-redirect', 'HOST the redirect fallback is the production Portal', SERVICE,
+     "DEFAULT_PORTAL_REDIRECT_URL = 'https://hub.ci.computer'", "DEFAULT_PORTAL_REDIRECT_URL = 'https://portal.ci.computer'", PY_HOST),
+    ('HOST-page', 'HOST the page falls back to the production Portal', 'payload/var/www/setup-portal/index.html',
+     "const DEFAULT_REDIRECT_URL = 'https://hub.ci.computer';", "const DEFAULT_REDIRECT_URL = 'https://portal.ci.computer';", PY_HOST),
+    ('HOST-conf', 'HOST the shipped device.conf does not override the default', 'payload/setup-device-defaults/device.conf',
+     "# CI_CLOUD_API_URL=https://hub.ci.computer\n", "CI_CLOUD_API_URL=https://portal.companionintelligence.com\n", PY_HOST),
+    ('HOST-static', 'HOST no shipped file names a host without DNS', 'payload/usr/local/bin/ci-os-post-validation.sh',
+     "(hub.ci.computer)", "(portal.ci.computer)", PY_STATIC),
 ]
 
 

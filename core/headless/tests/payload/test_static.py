@@ -224,5 +224,32 @@ class PostinstBehaviourTests(unittest.TestCase):
             self.assertIn('systemctl disable nginx.service', guarded.group(1))
 
 
+class PortalHostTests(unittest.TestCase):
+    """HOST: nothing an image ships names a Portal host that has no DNS record.
+
+    portal.companionintelligence.com and portal.ci.computer were the defaults of the setup portal and of the Hub deploy; neither
+    resolves (the production Portal is hub.ci.computer). A document may name them as history; a file an image carries may not.
+    """
+    DEAD_HOSTS = (b'portal.companionintelligence.com', b'portal.ci.computer')
+    ROOTS = (PAYLOAD, BACKENDS, REPO / 'core' / 'lib', REPO / 'core' / 'manifest')
+    MAX_BYTES = 1 << 20  # a build artefact left in a working tree (an ISO) is never read whole
+
+    def test_no_shipped_file_names_a_host_without_dns(self):
+        found = []
+        for root in self.ROOTS:
+            scanned = 0
+            for directory, dirs, files in os.walk(root):
+                dirs[:] = [d for d in dirs if d not in ('tests', '.git')]
+                for name in files:
+                    path = Path(directory) / name
+                    if path.is_symlink() or path.stat().st_size > self.MAX_BYTES:
+                        continue
+                    scanned += 1
+                    data = path.read_bytes()
+                    found += [f'{path}: {host.decode()}' for host in self.DEAD_HOSTS if host in data]
+            self.assertGreater(scanned, 0, f'{root} holds no file to scan: the guard would pass without looking')
+        self.assertEqual(found, [], 'a shipped file names a host with no DNS record; the production Portal is https://hub.ci.computer')
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

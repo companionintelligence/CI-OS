@@ -283,9 +283,16 @@ def remove_scratch(path):
 
 
 @contextlib.contextmanager
-def loaded_service(prefix='setup-service-test-', real_subprocess=False, real_time=False):
-    """A fresh setup_service module in a scratch root. Yields LoadedService."""
+def loaded_service(prefix='setup-service-test-', real_subprocess=False, real_time=False, seed=None):
+    """A fresh setup_service module in a scratch root. Yields LoadedService.
+
+    `seed` maps a path under the root to its text, e.g. {'etc/setup-device/device.conf': 'KEY=value\\n'}. The files exist
+    before the module is imported, which is when it reads its configuration."""
     root = Path(tempfile.mkdtemp(prefix=prefix)).resolve()
+    for rel, text in (seed or {}).items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
     saved_env = os.environ.get('SETUP_DEVICE_ROOT')
     os.environ['SETUP_DEVICE_ROOT'] = str(root)
     stdout = io.StringIO()
