@@ -1,13 +1,19 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://companionintelligence.com/schemas/companion-stick/bundle-1.schema.json",
-  "title": "Companion Stick bundle manifest (bundle.json), schema_version 1",
-  "description": "Published mirror of the Rust types in stick/crates/ci-stick/src/manifest.rs and layout.rs, which are the source of truth. The file is signed byte-for-byte by a detached ed25519 signature in bundle.json.sig. Consumers must reject unknown schema_version values and unknown fields.",
+  "title": "Companion Stick bundle manifest (bundle.json), schema_version 1 and 2",
+  "description": "Published mirror of the Rust types in stick/crates/ci-stick/src/manifest.rs and layout.rs, which are the source of truth. The file is signed byte-for-byte by a detached ed25519 signature in bundle.json.sig. Consumers must reject unknown schema_version values and unknown fields. Schema 2 adds sequence and expires_at (both required there, both forbidden in schema 1) so that an old or expired bundle can be refused; everything else is the same in both versions.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "id", "version", "created_at", "artifacts", "model_packs", "layout"],
+  "if": { "properties": { "schema_version": { "const": 2 } }, "required": ["schema_version"] },
+  "then": { "required": ["sequence", "expires_at"] },
+  "else": { "properties": { "sequence": false, "expires_at": false } },
   "properties": {
-    "schema_version": { "const": 1 },
+    "schema_version": {
+      "description": "1: the original format. 2: adds sequence and expires_at.",
+      "enum": [1, 2]
+    },
     "id": {
       "description": "Stable identifier of the bundle line.",
       "type": "string",
@@ -16,6 +22,16 @@
     "version": { "description": "Release version of this bundle.", "type": "string", "minLength": 1 },
     "created_at": {
       "description": "RFC 3339 UTC, second precision.",
+      "type": "string",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
+    },
+    "sequence": {
+      "description": "Schema 2 only (required there, forbidden in schema 1): the release counter of this bundle id, 1 or more and increasing with every release, assigned by the release pipeline. A machine that has accepted sequence N refuses a lower one, and refuses N itself with different bundle.json bytes.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "expires_at": {
+      "description": "Schema 2 only (required there, forbidden in schema 1): RFC 3339 UTC, second precision. From this instant on the bundle is refused. It must be after created_at; ci-stick checks that, which JSON Schema cannot express.",
       "type": "string",
       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$"
     },

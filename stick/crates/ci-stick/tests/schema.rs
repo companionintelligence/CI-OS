@@ -55,6 +55,8 @@ fn load_example(name: &str) -> Value {
 const PRIMARY_EXAMPLE: &str = "bundle.example.json";
 /// The example that carries a Hugging Face model and resolved digests.
 const HF_EXAMPLE: &str = "bundle-hf-model.example.json";
+/// The schema 2 example: the primary one plus `sequence` and `expires_at`.
+const V2_EXAMPLE: &str = "bundle-v2.example.json";
 
 fn bundle_schema() -> Schema {
     let text = std::fs::read_to_string(schema_dir().join("bundle.schema.json")).expect("schema");
@@ -116,6 +118,15 @@ fn check_object(schema: &Value, def_name: &str, instances: &[&Value]) {
     );
 }
 
+/// The numbers listed in the `enum` at `pointer`.
+fn numbers_of(schema: &Value, pointer: &str) -> Vec<u64> {
+    schema
+        .pointer(pointer)
+        .and_then(|v| v["enum"].as_array())
+        .map(|a| a.iter().filter_map(Value::as_u64).collect())
+        .unwrap_or_default()
+}
+
 fn enum_of(schema: &Value, pointer: &str) -> BTreeSet<String> {
     strings(&schema.pointer(pointer).unwrap_or(&Value::Null)["enum"])
 }
@@ -169,12 +180,15 @@ fn schema_declares_exactly_what_the_types_emit() {
     .expect("example parses");
     let v = serde_json::to_value(&bundle).expect("serialise");
     let hf = load_example(HF_EXAMPLE);
+    let v2 = load_example(V2_EXAMPLE);
 
     assert_eq!(
-        schema["properties"]["schema_version"]["const"],
-        ci_stick::manifest::SCHEMA_VERSION
+        numbers_of(&schema, "/properties/schema_version"),
+        ci_stick::manifest::SUPPORTED_SCHEMA_VERSIONS.map(u64::from)
     );
-    check_object(&schema, "", &[&v, &hf]);
+    // Schema 2 is what introduces `sequence` and `expires_at`, so the example that has them is
+    // part of what proves the schema declares exactly the keys the types emit.
+    check_object(&schema, "", &[&v, &hf, &v2]);
     let artifacts: Vec<&Value> = v["artifacts"]
         .as_array()
         .expect("artifacts")
@@ -408,7 +422,7 @@ fn a_hugging_face_model_validates_without_changing_the_record_or_the_version() {
     let schema = bundle_schema();
     let raw = load_json("bundle.schema.json");
 
-    // The Model record is exactly these nine fields, and the format is still version 1.
+    // The Model record is exactly these nine fields; schema 2 only added two bundle-level keys.
     let fields = [
         "digest",
         "license",
@@ -423,8 +437,8 @@ fn a_hugging_face_model_validates_without_changing_the_record_or_the_version() {
     let expected: BTreeSet<String> = fields.iter().map(|s| s.to_string()).collect();
     assert_eq!(keys(&raw["$defs"]["model"]["properties"]), expected);
     assert_eq!(strings(&raw["$defs"]["model"]["required"]), expected);
-    assert_eq!(raw["properties"]["schema_version"]["const"], 1);
-    assert_eq!(ci_stick::manifest::SCHEMA_VERSION, 1);
+    assert_eq!(numbers_of(&raw, "/properties/schema_version"), [1, 2]);
+    assert_eq!(ci_stick::manifest::SUPPORTED_SCHEMA_VERSIONS, [1, 2]);
     // Written without `..`: adding a field to `Model` breaks this test's compilation, so the
     // addition is a deliberate act that also touches the schema, the example and the docs.
     let model = Model {
@@ -456,6 +470,7 @@ fn a_hugging_face_model_validates_without_changing_the_record_or_the_version() {
     assert_eq!(validate_packs(&[pack]), Vec::<String>::new());
 
     // The shipped example has one next to an Ollama-library model, both with resolved digests.
+    // It is a schema 1 bundle: nothing about a Hugging Face model needs schema 2.
     let example = load_example(HF_EXAMPLE);
     assert_eq!(example["schema_version"], 1);
     let models = example["model_packs"][0]["models"].as_array().unwrap();
@@ -509,10 +524,32 @@ enum Rust {
     Gap(&'static str),
 }
 
+/// Which examples a mutation applies to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Only {
+    All,
+    /// Only the primary example has a bootloader.
+    Primary,
+    /// Examples that are schema 1 documents.
+    SchemaV1,
+    /// Examples that are schema 2 documents.
+    SchemaV2,
+}
+
+impl Only {
+    fn applies(self, example: &str, doc: &Value) -> bool {
+        match self {
+            Only::All => true,
+            Only::Primary => example == PRIMARY_EXAMPLE,
+            Only::SchemaV1 => doc["schema_version"] == 1,
+            Only::SchemaV2 => doc["schema_version"] == 2,
+        }
+    }
+}
+
 struct Case {
     name: &'static str,
-    /// Only the primary example has a bootloader.
-    primary_only: bool,
+    only: Only,
     mutate: fn(&mut Value),
     /// Text that must appear in the schema's errors.
     schema: &'static str,
@@ -563,7 +600,7 @@ fn cases() -> Vec<Case> {
         ($name:expr, $schema:expr, $rust:expr, $mutate:expr) => {
             Case {
                 name: $name,
-                primary_only: false,
+                only: Only::All,
                 mutate: $mutate,
                 schema: $schema,
                 rust: $rust,
@@ -572,7 +609,25 @@ fn cases() -> Vec<Case> {
         (primary $name:expr, $schema:expr, $rust:expr, $mutate:expr) => {
             Case {
                 name: $name,
-                primary_only: true,
+                only: Only::Primary,
+                mutate: $mutate,
+                schema: $schema,
+                rust: $rust,
+            }
+        };
+        (v1 $name:expr, $schema:expr, $rust:expr, $mutate:expr) => {
+            Case {
+                name: $name,
+                only: Only::SchemaV1,
+                mutate: $mutate,
+                schema: $schema,
+                rust: $rust,
+            }
+        };
+        (v2 $name:expr, $schema:expr, $rust:expr, $mutate:expr) => {
+            Case {
+                name: $name,
+                only: Only::SchemaV2,
                 mutate: $mutate,
                 schema: $schema,
                 rust: $rust,
@@ -637,7 +692,7 @@ fn cases() -> Vec<Case> {
         ),
         case!(
             "schema_version as a string",
-            "/schema_version: must equal 1",
+            "/schema_version: \"1\" is not one of",
             Rust::Parse,
             |d| set(d, "/schema_version", json!("1"))
         ),
@@ -731,11 +786,38 @@ fn cases() -> Vec<Case> {
             |d| set(d, "/created_at", json!("2026-10-17T12:00:00+02:00"))
         ),
         case!(
-            "schema_version 2",
-            "/schema_version: must equal 1",
+            "a schema_version this ci-stick does not know",
+            "/schema_version: 3 is not one of",
             Rust::Validate,
-            |d| set(d, "/schema_version", json!(2))
+            |d| set(d, "/schema_version", json!(3))
         ),
+        // ---- schema 2: sequence and expires_at come together with the version ----
+        case!(v1 "a schema 1 bundle that claims version 2", "missing required property \"sequence\"", Rust::Validate,
+        |d| set(d, "/schema_version", json!(2))),
+        case!(v1 "schema 1 with a sequence", "/sequence: not allowed here", Rust::Validate,
+        |d| add(d, "", "sequence", json!(1))),
+        case!(v1 "schema 1 with an expires_at", "/expires_at: not allowed here", Rust::Validate,
+        |d| add(d, "", "expires_at", json!("2030-01-01T00:00:00Z"))),
+        case!(v2 "a schema 2 bundle that claims version 1", "/sequence: not allowed here", Rust::Validate,
+        |d| set(d, "/schema_version", json!(1))),
+        case!(v2 "schema 2 without a sequence", "missing required property \"sequence\"", Rust::Validate,
+        |d| remove(d, "/sequence")),
+        case!(v2 "schema 2 without an expires_at", "missing required property \"expires_at\"", Rust::Validate,
+        |d| remove(d, "/expires_at")),
+        case!(v2 "sequence 0", "/sequence: 0 is below the minimum 1", Rust::Validate,
+        |d| set(d, "/sequence", json!(0))),
+        case!(v2 "a negative sequence", "/sequence: -1 is below the minimum 1", Rust::Parse,
+        |d| set(d, "/sequence", json!(-1))),
+        case!(v2 "sequence as a string", "/sequence: expected type integer but found string", Rust::Parse,
+        |d| set(d, "/sequence", json!("3"))),
+        case!(v2 "sequence as a float", "/sequence: expected type integer but found number", Rust::Parse,
+        |d| set(d, "/sequence", json!(2.5))),
+        case!(v2 "expires_at not a timestamp", "/expires_at: \"next year\" does not match", Rust::Validate,
+        |d| set(d, "/expires_at", json!("next year"))),
+        case!(v2 "expires_at with an offset", "/expires_at: \"2027-10-30T14:00:00+02:00\" does not match", Rust::Validate,
+        |d| set(d, "/expires_at", json!("2027-10-30T14:00:00+02:00"))),
+        case!(v2 "expires_at as a number", "/expires_at: expected type string but found integer", Rust::Parse,
+        |d| set(d, "/expires_at", json!(1_900_000_000))),
         case!(
             "artifact sha256 uppercase",
             "/artifacts/0/sha256",
@@ -997,7 +1079,7 @@ fn mutated_bundles_are_rejected_by_the_schema_as_the_rust_types_reject_them() {
     for name in example_names() {
         let base = load_example(&name);
         for case in &table {
-            if case.primary_only && name != PRIMARY_EXAMPLE {
+            if !case.only.applies(&name, &base) {
                 continue;
             }
             let mut doc = base.clone();
@@ -1053,6 +1135,44 @@ fn mutated_bundles_are_rejected_by_the_schema_as_the_rust_types_reject_them() {
     assert!(gaps >= 4, "the documented gaps are exercised ({gaps})");
 }
 
+#[test]
+fn an_expiry_not_after_creation_is_the_one_rule_only_rust_enforces() {
+    // JSON Schema cannot compare two timestamps, so `Bundle::validate` alone refuses an
+    // `expires_at` that is not after `created_at`; the schema's own text says so.
+    let raw = load_json("bundle.schema.json");
+    assert!(raw["properties"]["expires_at"]["description"]
+        .as_str()
+        .is_some_and(|d| d.contains("must be after created_at")));
+    let schema = bundle_schema();
+    for expires in [
+        "2026-10-30T12:00:00Z", // equal
+        "2026-10-30T11:59:59Z", // one second before
+        "2020-01-01T00:00:00Z",
+    ] {
+        let mut doc = load_example(V2_EXAMPLE);
+        set(&mut doc, "/expires_at", json!(expires));
+        assert_eq!(
+            schema.validate(&doc),
+            Vec::<String>::new(),
+            "the schema has no way to say no to {expires}"
+        );
+        let bundle = Bundle::parse(doc.to_string().as_bytes()).expect(expires);
+        assert!(
+            bundle
+                .validate()
+                .join("\n")
+                .contains("is not after created_at"),
+            "{expires}: {:?}",
+            bundle.validate()
+        );
+    }
+    // One second after is the smallest valid window.
+    let mut doc = load_example(V2_EXAMPLE);
+    set(&mut doc, "/expires_at", json!("2026-10-30T12:00:01Z"));
+    let bundle = Bundle::parse(doc.to_string().as_bytes()).unwrap();
+    assert_eq!(bundle.validate(), Vec::<String>::new());
+}
+
 // ---------------------------------------------------------------------------------------
 // The schema's patterns agree with the Rust predicates they mirror
 // ---------------------------------------------------------------------------------------
@@ -1103,22 +1223,24 @@ fn schema_patterns_agree_with_the_rust_validators() {
         assert_eq!(digest.is_match(&s), is_model_digest(&s), "digest {s:?}");
     }
 
-    // created_at: RFC 3339 UTC, second precision.
-    let created = pattern_at(&raw, "/properties/created_at/pattern");
-    for s in [
-        "2026-10-17T12:00:00Z",
-        "2026-10-17T12:00:00",
-        "2026-10-17 12:00:00Z",
-        "2026-10-17T12:00:00.5Z",
-        "2026-10-17T12:00:00+00:00",
-        "26-10-17T12:00:00Z",
-        "",
-    ] {
-        assert_eq!(
-            created.is_match(s),
-            ci_stick::timefmt::is_rfc3339_utc(s),
-            "created_at {s:?}"
-        );
+    // created_at and expires_at: RFC 3339 UTC, second precision.
+    for field in ["created_at", "expires_at"] {
+        let pattern = pattern_at(&raw, &format!("/properties/{field}/pattern"));
+        for s in [
+            "2026-10-17T12:00:00Z",
+            "2026-10-17T12:00:00",
+            "2026-10-17 12:00:00Z",
+            "2026-10-17T12:00:00.5Z",
+            "2026-10-17T12:00:00+00:00",
+            "26-10-17T12:00:00Z",
+            "",
+        ] {
+            assert_eq!(
+                pattern.is_match(s),
+                ci_stick::timefmt::is_rfc3339_utc(s),
+                "{field} {s:?}"
+            );
+        }
     }
 
     // artifact paths: the schema's regex and `paths::validate_rel_path` accept the same strings,

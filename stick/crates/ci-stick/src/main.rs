@@ -196,6 +196,14 @@ struct LockArgs {
     /// Fixed created_at (RFC 3339 UTC). Defaults to SOURCE_DATE_EPOCH when set.
     #[arg(long)]
     created_at: Option<String>,
+    /// Write schema_version 2 with this release counter (1 or more). Without it a schema 2
+    /// bundle that changed gets the previous bundle.json's plus one (1 for a new one).
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    sequence: Option<u64>,
+    /// Write schema_version 2 that expires this many days after created_at (default 365).
+    /// Counted from created_at, never from the clock, so the output stays reproducible.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    valid_days: Option<u32>,
     /// Machine-readable output.
     #[arg(long)]
     json: bool,
@@ -528,6 +536,8 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
         packs,
         device_bytes,
         created_at,
+        sequence: a.sequence,
+        valid_days: a.valid_days,
     };
     let mut progress = if a.json {
         Progress::disabled()
@@ -540,6 +550,11 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
         #[derive(Serialize)]
         struct LockJson<'a> {
             bundle_json: String,
+            schema_version: u32,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            sequence: Option<u64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            expires_at: Option<&'a str>,
             changed: bool,
             stale_signature: bool,
             artifacts: usize,
@@ -548,6 +563,9 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
         }
         print_json(&LockJson {
             bundle_json: a.dir.join(BUNDLE_FILE).display().to_string(),
+            schema_version: out.bundle.schema_version,
+            sequence: out.bundle.sequence,
+            expires_at: out.bundle.expires_at.as_deref(),
             changed: out.changed,
             stale_signature: out.stale_signature,
             artifacts: out.bundle.artifacts.len(),
@@ -565,6 +583,9 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
             out.bundle.model_packs.len(),
             out.bundle.layout.policy
         );
+        if let (Some(n), Some(until)) = (out.bundle.sequence, &out.bundle.expires_at) {
+            println!("sequence {n}, expires {until}");
+        }
         println!(
             "{} {}",
             if out.changed { "wrote" } else { "unchanged" },

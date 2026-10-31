@@ -507,6 +507,8 @@ mod tests {
                 packs: None,
                 device_bytes: Some(128_000_000_000),
                 created_at: Some("2026-09-28T00:00:00Z".into()),
+                sequence: None,
+                valid_days: None,
             };
             lock(root, &opts, &mut Progress::disabled()).unwrap();
             let key = SigningKey::from_bytes(&[42u8; 32]);
