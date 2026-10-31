@@ -8,14 +8,15 @@
 # Why it exists. GitHub-hosted runners are billed and the org gates its workflows to manual runs (docs/CI.md), so the images are built on
 # hardware we already own and published from there (publish-r2.sh), or by .github/workflows/build-companion-os-iso.yml when a hosted run is
 # wanted. This script is the build half of the first route: the recipe of docs/guides/building-on-a-mac.md, in one command, that every
-# step of which the workflow also runs (a test keeps the two in step: the pins and the package list).
+# step of which the workflow also runs (a test keeps the two in step: the pins, the build image and the package list).
 #
 # What it does, in order (each step stops the run when it fails):
 #   1. refuses to start from a dirty tree (a build comes from a commit), a base ISO whose sha256 is not the pinned one, an arm64 image on an
 #      x86-64 host (qemu-user, never tried), a missing Docker;
 #   2. takes a clean checkout of the commit with `git archive` (nothing untracked, nothing from your working tree can leak in);
-#   3. starts a privileged ubuntu:26.04 container of THIS HOST'S OWN platform, which runs natively and builds an image of either architecture,
-#      with loop devices, the build dependencies, the checkout and the base ISO (read-only). An amd64 image on an Apple-silicon Mac is built
+#   3. starts a privileged ubuntu:26.04 container (BUILD_IMAGE, pinned by the digest of its image index) of THIS HOST'S OWN platform, which
+#      runs natively and builds an image of either architecture, with loop devices, the build dependencies, the checkout and the base ISO
+#      (read-only). An amd64 image on an Apple-silicon Mac is built
 #      this way: the image's x86-64 programs run in a chroot through the Docker VM's Rosetta binfmt, the route that built and verified the first
 #      amd64 image (772 s; an amd64 container is the less predictable one: docs/guides/building-on-a-mac.md, "Why arm64");
 #   4. runs build-iso.sh, then verify-iso.sh with VERIFY_BASE_ISO and VERIFY_REQUIRE_CANON=1, as CI does;
@@ -52,7 +53,10 @@ set -u
 # The stock Ubuntu 26.04.1 desktop ISOs this build starts from. The workflow pins the same two (a test compares them).
 PIN_AMD64="601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f"   # releases.ubuntu.com/26.04/ubuntu-26.04.1-desktop-amd64.iso
 PIN_ARM64="c54d196489d3c867975fb3bbb72ca52ec2e137456e305481f81096304e4d2517"   # cdimage.ubuntu.com/ubuntu/releases/26.04/release/ubuntu-26.04.1-desktop-arm64.iso
-BUILD_IMAGE="ubuntu:26.04"
+# The build container's image, pinned by the digest of its OCI image index (amd64 and arm64), so a moved tag cannot change what the build
+# starts from. It pins the starting userland only: the container then runs apt-get update against the live archive. The workflow pins the
+# same reference (a test compares them); to refresh it: docs/guides/release-checklist.md, "Pinned inputs and how to refresh them".
+BUILD_IMAGE="ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
 # What the build needs inside the container; the workflow's "Install dependencies" step lists the same packages.
 DEPS="ca-certificates squashfs-tools xorriso rsync gpg curl cpio zstd initramfs-tools-core imagemagick librsvg2-bin libglib2.0-bin libglib2.0-dev-bin yaru-theme-gnome-shell python3 python3-yaml diffutils mount util-linux file"
 

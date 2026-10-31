@@ -90,7 +90,10 @@ env:
   # Where the image is built. The runner is only the host (Docker, disk, artifacts); the build runs in
   # this privileged container so that the build host is Ubuntu 26.04 whatever the runner image is
   # (Yaru theme and GNOME 50 resources, initramfs-tools 0.151 with its unmkinitramfs, squashfs-tools, ...).
-  BUILD_IMAGE: "ubuntu:26.04"
+  # Pinned by the digest of its OCI image index (amd64 and arm64), so a moved tag cannot change what the build starts from. The digest pins
+  # the starting userland only: the container then runs apt-get update against the live archive. build-in-docker.sh pins the same reference
+  # (backends/ubuntu/iso/tests/build-in-docker.sh compares the two); refresh: docs/guides/release-checklist.md, "Pinned inputs".
+  BUILD_IMAGE: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

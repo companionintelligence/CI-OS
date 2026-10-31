@@ -7,7 +7,7 @@
 # mounted read-only, the build and the verify with the arguments CI uses, the copy out, the cleanup), the refusals (a dirty tree, an unpinned base
 # ISO, an arm64 image on an x86-64 host, a missing Docker), that an amd64 image on an Apple-silicon Mac is built in the arm64 container (the documented
 # Rosetta route), the failures (a build that fails, a verify that fails, a setup step that fails),
-# --keep, --no-verify and --dry-run, and that the pins and the package list are the workflow's own.
+# --keep, --no-verify and --dry-run, and that the pins, the build image (digest included) and the package list are the workflow's own.
 #
 # Pure bash 3.2, no root, no Docker, no network; writes only to a temporary directory.
 #   backends/ubuntu/iso/tests/build-in-docker.sh
@@ -32,6 +32,7 @@ has()   { if printf '%s\n' "$OUT" | grep -q -F -- "$2"; then pass "$1"; else fai
 lacks() { if printf '%s\n' "$OUT" | grep -q -F -- "$2"; then fail "$1 (found '$2')"; else pass "$1"; fi; }
 logs()  { if grep -q -F -- "$2" "$STUB_LOG"; then pass "$1"; else fail "$1 (no '$2' in the docker calls)"; fi; }
 nolog() { if grep -q -F -- "$2" "$STUB_LOG"; then fail "$1 (found '$2' in the docker calls)"; else pass "$1"; fi; }
+logs_re() { if grep -q -E -- "$2" "$STUB_LOG"; then pass "$1"; else fail "$1 (nothing like '$2' in the docker calls)"; fi; }
 rc_is() { if [ "$RC" -eq "$2" ]; then pass "$1"; else fail "$1 (exit $RC, wanted $2)"; fi; }
 
 # --- a throw-away repository with one commit, and a fake base ISO ------------------------------------------------------------------------
@@ -98,7 +99,7 @@ logs "  platform linux/arm64" "--platform linux/arm64"
 logs "  --privileged" "--privileged"
 logs "  the base ISO is mounted read-only" "/base/ubuntu-base.iso:ro"
 logs "  the checkout is mounted read-only" ":/src:ro"
-logs "  the build image is ubuntu:26.04" "ubuntu:26.04 sleep infinity"
+logs_re "  the build image is ubuntu:26.04, pinned by its digest" 'ubuntu:26\.04@sha256:[0-9a-f]{64} sleep infinity'
 logs "loop devices are made" "mknod -m 0660 /dev/loop"
 logs "the dependencies are installed" "apt-get install -y -qq ca-certificates squashfs-tools xorriso"
 nolog "  and debootstrap is not among them (nothing uses it)" "debootstrap"
@@ -291,7 +292,19 @@ if [ -f "$WF" ]; then
   wf_deps="$(awk '/apt-get install -y \\$/ {on=1; next} on { gsub(/\\/,""); gsub(/\047/,""); gsub(/^[ \t]+|[ \t]+$/,""); if ($0!="") print $0; if ($0 ~ /file$/) exit }' "$WF" | sort | tr '\n' ' ')"
   sc_deps="$(sed -n 's/^DEPS="\(.*\)"$/\1/p' "$TOOL" | tr ' ' '\n' | sort | tr '\n' ' ')"
   if [ -n "$wf_deps" ] && [ "$wf_deps" = "$sc_deps" ]; then pass "the build dependencies are the same list in the workflow and the script"; else fail "the dependency lists differ: workflow '$wf_deps', script '$sc_deps'"; fi
-  grep -q 'ubuntu:26.04' "$WF" && grep -q '^BUILD_IMAGE="ubuntu:26.04"' "$TOOL" && pass "both build in ubuntu:26.04" || fail "the build image differs"
+  # The build image: one full reference, ubuntu:26.04 pinned by a sha256 digest, the same in both. A copy of the workflow whose digest is one
+  # hex digit off must not pass the same comparison.
+  image_of_workflow() { sed -n 's/^  BUILD_IMAGE: "\([^"]*\)".*/\1/p' "$1"; }
+  image_of_script()   { sed -n 's/^BUILD_IMAGE="\([^"]*\)".*/\1/p' "$1"; }
+  same_image() { [ -n "$1" ] && [ "$1" = "$2" ] && printf '%s\n' "$1" | grep -q -E '^ubuntu:26\.04@sha256:[0-9a-f]{64}$'; }
+  wf_img="$(image_of_workflow "$WF")"; sc_img="$(image_of_script "$TOOL")"
+  if same_image "$wf_img" "$sc_img"; then pass "both build in the same ubuntu:26.04 image, pinned by its digest"
+  else fail "the build image differs or is not pinned by a digest: workflow '$wf_img', script '$sc_img'"; fi
+  last="${wf_img#"${wf_img%?}"}"; if [ "$last" = 0 ]; then other=1; else other=0; fi
+  sed "s|^  BUILD_IMAGE: \"$wf_img\"|  BUILD_IMAGE: \"${wf_img%?}$other\"|" "$WF" > "$WORK/workflow-one-digit-off.yml"
+  off="$(image_of_workflow "$WORK/workflow-one-digit-off.yml")"
+  if [ "$off" = "${wf_img%?}$other" ] && ! same_image "$off" "$sc_img"; then pass "  a workflow image one hex digit off the script's is caught (planted defect)"
+  else fail "  a workflow image one hex digit off the script's is not caught (workflow copy '$off', script '$sc_img')"; fi
 else
   echo "! the workflow is not at $WF: its checks are skipped"
 fi

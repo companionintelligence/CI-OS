@@ -62,7 +62,9 @@ pre-installing the tools. Every third-party key fingerprint and download hash is
 The stock desktop image has no image renderer, so the logo PNGs are rendered on the build host from the vendored SVG marks (`core/render/render-mark-png.sh`): `librsvg2-bin` (`rsvg-convert`) renders the greeter logo, the Settings > About logo and the GRUB background, and `imagemagick` scales the Plymouth logo and composes the GRUB background. `build-iso.sh` stops at the start if either is missing, and `verify-iso.sh` fails an image built without them. `unmkinitramfs` (`initramfs-tools-core` 0.151, a 3cpio-based program that extracts all four segments of the 26.04 initrd flat into one directory; a desktop install has it, a minimal container or a bare `ubuntu:26.04` does not) unpacks the stock casper initrd to take the live Plymouth theme files from it. To verify a built ISO (below) you only need `xorriso squashfs-tools zstd cpio python3`.
 
 > **Building on a Mac or any non-Ubuntu host:** run the whole build in a privileged `ubuntu:26.04` container with a clean tree of the repo,
-> the base ISO mounted read-only and a named Docker volume for `--work-dir` and `--output-dir`. A privileged container is needed for the
+> the base ISO mounted read-only and a named Docker volume for `--work-dir` and `--output-dir`. The image is pinned by the digest of its image
+> index, `ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c` (the `BUILD_IMAGE` of `scripts/build-in-docker.sh`
+> and of the workflow; it pins the starting userland only, the build then installs from the live archive). A privileged container is needed for the
 > chroot's `proc`/`dev` mounts. **On Apple silicon use an ARM64 container** (`--platform linux/arm64`): it is the route that built and verified
 > the image, and the image's x86-64 chroot runs through the Docker VM's Rosetta binfmt handlers. An amd64 `ubuntu:26.04` container may fail
 > (GNU tar 1.35 reported "Function not implemented" under Rosetta once; the trigger was not isolated). The full, tested recipe is in

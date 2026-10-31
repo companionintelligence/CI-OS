@@ -121,8 +121,10 @@ backends/ubuntu/iso/scripts/publish-r2.sh --dir release --version 1.0 --channel 
 verified the image, and the image's x86-64 chroot runs through the Docker VM's Rosetta binfmt. An amd64 `ubuntu:26.04` container *may fail*
 (on 2026-10-17 GNU tar 1.35 failed with "Function not implemented" under Rosetta in one; on 2026-10-18 another ran to the end; the trigger
 was not isolated), so do not build the ISO in one. Use a named volume for the work and output directories, a clean tree of the commit, and the
-verified base ISO. `backends/ubuntu/iso/scripts/build-in-docker.sh` runs these steps as one command (it refuses a dirty tree and an unpinned
-base ISO). The same block is in `README.md` and, with the reasons for each step, in `docs/guides/building-on-a-mac.md`; change the three together:
+verified base ISO. The image is pinned by the digest of its image index, the `BUILD_IMAGE` of `build-in-docker.sh` and of the workflow (refresh:
+`docs/guides/release-checklist.md`, "Pinned inputs and how to refresh them"). `backends/ubuntu/iso/scripts/build-in-docker.sh` runs these steps as
+one command (it refuses a dirty tree and an unpinned base ISO). The same block is in `README.md` and, with the reasons for each step, in
+`docs/guides/building-on-a-mac.md`; change the three together:
 
 ```bash
 export ISO="$HOME/Downloads/ubuntu-26.04.1-desktop-amd64.iso"        # the 26.04.1 file, not the 26.04.0 image
@@ -131,7 +133,8 @@ echo '601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f  '"$ISO" 
 rm -rf "$BUILD" && mkdir -p "$BUILD" && git archive HEAD | tar -x -C "$BUILD"      # a clean tree of the commit you want to build
 docker volume create ci-os-ubuild-vol
 docker run -d --name ci-os-ubuild --privileged --platform linux/arm64 -v ci-os-ubuild-vol:/vol -v "$BUILD":/src:ro \
-  -v "$ISO":/base/ubuntu-base.iso:ro -w /vol -e DEBIAN_FRONTEND=noninteractive ubuntu:26.04 sleep infinity
+  -v "$ISO":/base/ubuntu-base.iso:ro -w /vol -e DEBIAN_FRONTEND=noninteractive \
+  ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c sleep infinity
 docker exec ci-os-ubuild bash -euc 'for i in $(seq 0 127); do [ -e /dev/loop$i ] || mknod -m 0660 /dev/loop$i b 7 $i; done; [ -e /dev/loop-control ] || mknod -m 0660 /dev/loop-control c 10 237'
 docker exec ci-os-ubuild bash -euo pipefail -c 'apt-get update -qq && apt-get install -y -qq ca-certificates squashfs-tools xorriso rsync gpg curl cpio zstd initramfs-tools-core imagemagick librsvg2-bin libglib2.0-bin libglib2.0-dev-bin yaru-theme-gnome-shell python3 python3-yaml diffutils mount util-linux file'
 docker exec ci-os-ubuild bash -euc 'mkdir -p /vol/repo /vol/work /vol/out /vol/cache && rsync -a --delete /src/ /vol/repo/'

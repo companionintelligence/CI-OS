@@ -90,6 +90,8 @@ jobs:
           # --privileged: /dev/kvm, and a disk the system-disk write refusals can aim at. Ephemeral
           # runner: CI_STICK_TEST_SYSDISK_WRITE_REFUSAL=1 also checks that write attempts at the
           # runner's own system disk are refused (skipped by default on developer machines).
+          # The image is pinned by the digest of its index, the BUILD_IMAGE of build-companion-os-iso.yml; it pins the starting
+          # userland only, the container then installs from the live archive.
           docker run --rm --privileged \
             -v "$GITHUB_WORKSPACE":/src -w /src \
             -v "$CI_STICK_QEMU_WORK":"$CI_STICK_QEMU_WORK" \
@@ -97,7 +99,7 @@ jobs:
             -e CI_STICK_BIN=/src/stick/target/release/ci-stick \
             -e CI_STICK_TEST_SYSDISK_WRITE_REFUSAL=1 \
             -e DEBIAN_FRONTEND=noninteractive \
-            ubuntu:26.04 bash -euo pipefail -c '
+            ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c bash -euo pipefail -c '
               apt-get update -qq
               apt-get install -y -qq --no-install-recommends ca-certificates qemu-system-x86 \
                 ovmf-generic grub-efi-amd64-bin grub-common gdisk dosfstools mtools exfatprogs \
