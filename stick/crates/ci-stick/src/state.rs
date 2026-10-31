@@ -65,10 +65,23 @@ pub enum StateError {
     Conflict(String),
 }
 
+/// Said when the cause is a permission: the usual way to get one is a directory, or a file in
+/// it, that another account created, for example by a `ci-stick` command run with `sudo` while
+/// `HOME` was kept. The floor belongs to the account that runs the command.
+fn ownership_hint(e: &io::Error) -> &'static str {
+    if e.kind() == io::ErrorKind::PermissionDenied {
+        " (another account probably owns it, for example through a command run with sudo: give \
+         it back to this account, or use one --state-dir for every command)"
+    } else {
+        ""
+    }
+}
+
 fn unusable(dir: &Path, what: &str, e: &io::Error) -> StateError {
     StateError::Unusable(format!(
-        "cannot use the state directory {}: {what}: {e}",
-        dir.display()
+        "cannot use the state directory {}: {what}: {e}{}",
+        dir.display(),
+        ownership_hint(e)
     ))
 }
 
@@ -77,6 +90,17 @@ fn damaged(path: &Path, why: &str) -> StateError {
         "{} is damaged: {why}. It was left untouched, and ci-stick never resets it: fix it, or \
          move it away to forget what it records",
         path.display()
+    ))
+}
+
+/// A file that exists but cannot be read. Like a damaged one it is never read around, in any
+/// flow: an unreadable floor must not read as "no floor".
+fn unreadable(path: &Path, e: &io::Error) -> StateError {
+    StateError::Damaged(format!(
+        "{} cannot be read: {e}{}. It was left untouched, and ci-stick never resets it: make it \
+         readable, or move it away to forget what it records",
+        path.display(),
+        ownership_hint(e)
     ))
 }
 
@@ -153,6 +177,9 @@ fn non_empty(v: &Option<OsString>) -> Option<PathBuf> {
     v.as_ref().filter(|s| !s.is_empty()).map(PathBuf::from)
 }
 
+/// Appended when no default location can be worked out: the flag and the variable always work.
+const CHOOSE_ONE: &str = "; name one with --state-dir <absolute directory> or CI_STICK_STATE_DIR";
+
 /// Pick the state directory. Pure: it reads nothing but its arguments.
 pub fn resolve_state_dir(
     os: Os,
@@ -192,16 +219,20 @@ pub fn resolve_state_dir(
                 abs(non_empty(&env.home)).map(|h| h.join(".local").join("state").join(APP_DIR))
             })
             .ok_or_else(|| {
-                StateError::Undetermined(
-                    "neither XDG_STATE_HOME nor HOME is an absolute path".into(),
-                )
+                StateError::Undetermined(format!(
+                    "neither XDG_STATE_HOME nor HOME is an absolute path{CHOOSE_ONE}"
+                ))
             })?,
         Os::MacOs => abs(non_empty(&env.home))
             .map(|h| h.join("Library").join("Application Support").join(APP_DIR))
-            .ok_or_else(|| StateError::Undetermined("HOME is not an absolute path".into()))?,
+            .ok_or_else(|| {
+                StateError::Undetermined(format!("HOME is not an absolute path{CHOOSE_ONE}"))
+            })?,
         Os::Windows => non_empty(&env.local_app_data)
             .map(|d| d.join(APP_DIR))
-            .ok_or_else(|| StateError::Undetermined("LOCALAPPDATA is not set".into()))?,
+            .ok_or_else(|| {
+                StateError::Undetermined(format!("LOCALAPPDATA is not set{CHOOSE_ONE}"))
+            })?,
     };
     Ok((dir, StateDirSource::Default))
 }
@@ -352,7 +383,7 @@ impl FloorStore {
         match fs::read(&path) {
             Ok(bytes) => parse_floors(&bytes).map_err(|why| damaged(&path, &why)),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeMap::new()),
-            Err(e) => Err(damaged(&path, &format!("it cannot be read ({e})"))),
+            Err(e) => Err(unreadable(&path, &e)),
         }
     }
 
@@ -371,7 +402,7 @@ impl FloorStore {
         match fs::read_to_string(&path) {
             Ok(text) => parse_revoked_txt(&text).map_err(|e| damaged(&path, &format!("{e}"))),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(Vec::new()),
-            Err(e) => Err(damaged(&path, &format!("it cannot be read ({e})"))),
+            Err(e) => Err(unreadable(&path, &e)),
         }
     }
 
@@ -534,12 +565,13 @@ mod tests {
     fn an_undeterminable_directory_is_an_error_not_a_guess() {
         let nothing = StateEnv::default();
         for os in [Os::Linux, Os::MacOs, Os::Windows] {
+            let err = resolve_state_dir(os, &nothing, None).unwrap_err();
+            assert!(matches!(err, StateError::Undetermined(_)), "{os:?}");
+            // The way out is in the message: the flag and the variable always work.
+            let msg = format!("{err}");
             assert!(
-                matches!(
-                    resolve_state_dir(os, &nothing, None),
-                    Err(StateError::Undetermined(_))
-                ),
-                "{os:?}"
+                msg.contains("--state-dir") && msg.contains(STATE_DIR_ENV),
+                "{os:?}: {msg}"
             );
         }
         let mut e = env();
@@ -681,6 +713,65 @@ mod tests {
                 content,
                 "{what}: the damaged file must be left exactly as it was"
             );
+        }
+    }
+
+    /// `floors.json` and `revoked.txt` that exist but cannot be read (a directory in their
+    /// place, or no permission) are refused, never read as "nothing recorded". Every flow
+    /// stops, the message names the file, and the file is left exactly as it was.
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_floor_or_revocation_file_is_refused_not_read_as_empty() {
+        use std::os::unix::fs::PermissionsExt as _;
+        for name in [FLOORS_FILE, REVOKED_FILE] {
+            let asks = |s: &FloorStore| -> Vec<Result<(), StateError>> {
+                if name == REVOKED_FILE {
+                    vec![s.extra_revoked().map(drop)]
+                } else {
+                    vec![
+                        s.load().map(drop),
+                        s.floor("a").map(drop),
+                        s.record(&update("a", 1, 'a')).map(drop),
+                    ]
+                }
+            };
+
+            // A directory where the file belongs.
+            let (_t, s) = store();
+            fs::create_dir_all(s.dir().join(name)).unwrap();
+            for result in asks(&s) {
+                let err = result.unwrap_err();
+                assert!(matches!(err, StateError::Damaged(_)), "{name}: {err}");
+                assert!(format!("{err}").contains(name), "{name}: {err}");
+            }
+            assert!(s.dir().join(name).is_dir(), "{name}: left as it was");
+
+            // A file that nobody may read.
+            let (_t, s) = store();
+            fs::create_dir_all(s.dir()).unwrap();
+            let path = s.dir().join(name);
+            fs::write(&path, "stays as it is").unwrap();
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+            if fs::read(&path).is_ok() {
+                continue; // a superuser reads anything: nothing to prove
+            }
+            for result in asks(&s) {
+                let err = result.unwrap_err();
+                let msg = format!("{err}");
+                assert!(matches!(err, StateError::Damaged(_)), "{name}: {err}");
+                assert!(
+                    msg.contains(name) && msg.contains("cannot be read"),
+                    "{name}: {msg}"
+                );
+                // A permission problem is not "damage": the way out is ownership, and the message
+                // says so instead of calling the file damaged.
+                assert!(
+                    msg.contains("another account") && !msg.contains("is damaged"),
+                    "{name}: {msg}"
+                );
+            }
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+            assert_eq!(fs::read_to_string(&path).unwrap(), "stays as it is");
         }
     }
 
