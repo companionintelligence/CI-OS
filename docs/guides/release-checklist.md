@@ -230,18 +230,24 @@ Names only; nothing here was done, and no secret value belongs in a document, a 
 A Companion Stick bundle (`ci-stick lock`) carries an ISO, the signed boot chain and optionally model packs, and is signed with ed25519
 ([`companion-stick.md`](../architecture/companion-stick.md)). **A bundle cannot be released today**: there is no release key, no signing
 command for one and no pipeline (KI-23); `ci-stick dev sign` is for development and tests and must never sign a bundle that leaves the
-building. When the key holder is named, the gates for a bundle are, in order:
+building. What exists now **[I]**: a release bundle is schema 2 (a `sequence` and an `expires_at`), `ci-stick` refuses an expired one and one
+older than the last it accepted, and a build can pin release keys and revoke them; the pinned list is empty until the owner names the key
+holder. When the key holder is named, the gates for a bundle are, in order:
 
 | # | Gate | How |
 |---|---|---|
 | S1 | The ISO inside passed gates 1 to 12 above | the bundle's `boot/` ISO is a released ISO, not a development build |
 | S2 | The signed boot chain is fetched, not copied | `stick/scripts/fetch-signed-boot.sh ./signed-boot` on Ubuntu 26.04: shim, Canonical GRUB, MokManager from the resolute archive, signatures checked |
-| S3 | The bundle is locked | `ci-stick lock ./staging --id companion-stick-ubuntu --version <YYYY.M.N> --size <stick size, for example 64GB> --packs core/manifest/model-packs.yaml` |
+| S3 | The bundle is locked as schema 2 | `ci-stick lock ./staging --id companion-stick-ubuntu --version <YYYY.M.N> --size <stick size, for example 64GB> --packs core/manifest/model-packs.yaml --sequence <N> --valid-days <D>`. `<N>` is higher than the sequence of every earlier release of this id (record it with the version); `<D>` is the validity window (365 is proposed; the owner decides), counted from `created_at`. Use `SOURCE_DATE_EPOCH` or `--created-at` so the same inputs give the same bytes. Two bundles that differ in any byte (a different `--size` changes the layout) must not share an id and a sequence: a machine that accepted one refuses the other as `bundle-sequence-conflict`, so give each variant its own `--id` |
 | S4 | The model packs are licensed for the media | counsel's answer on the Gemma and Llama terms (KI-24); `ci-stick models fetch` does not gate them yet |
-| S5 | **Signed with the release key** | **[N]** no command, key or pipeline exists (KI-23). Record the key id and the date here when they do |
-| S6 | Verified with the published public key | `ci-stick verify ./staging --pubkey <release public key>` exits 0 on the bundle as it will be flashed |
+| S5 | **Signed with the release key** | **[N]** no command, key or pipeline exists (KI-23). Record the key id, the sequence and the date here when they do. The public key then goes into `stick/trust/pinned-keys.json` in a separate change with the owner's explicit approval and a second reviewer |
+| S6 | Verified with the published public key | `ci-stick verify ./staging --pubkey <release public key>` exits 0 on the bundle as it will be flashed (without `--pubkey` once the key is pinned in the binary). It also checks the expiry and the sequence, and it raises this machine's sequence floor: verify a candidate you do not mean to accept with `CI_STICK_STATE_DIR="$(mktemp -d)"` in front |
 | S7 | Flashed and booted | `ci-stick flash ... --dry-run` first, then flash a sparse image and run `stick/tests/secureboot/run-on-mac.sh --iso <the ISO>` or `stick/tests/qemu/run.sh`; a physical stick only with a device the owner named |
 | S8 | Recorded | the bundle id, version, the sha256 of `bundle.json` and of the ISO, and the verifier output, in `docs/evidence/` |
+
+A key rotation or a revocation ships in a new `ci-stick` binary (a revocation can also be put in a user's `revoked.txt`); there is no other
+way to change what a build trusts. A bundle past its `expires_at` is refused by every `ci-stick`, so a release needs a successor before its
+window ends.
 
 The Plasma edition cannot be carried by a Stick (KI-04).
 

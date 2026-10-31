@@ -132,6 +132,10 @@ Read by `backends/cachyos/provision/first-boot-setup.sh`; the defaults are the i
 
 They change how patiently and in what pieces `fetch` talks to the registry and never weaken a check (`stick/crates/ci-stick/src/cmd_models.rs`).
 
+| Variable | Default | What it does |
+|---|---|---|
+| `CI_STICK_STATE_DIR` | `$XDG_STATE_HOME/ci-stick` or `~/.local/state/ci-stick` (Linux), `~/Library/Application Support/ci-stick` (macOS), `%LOCALAPPDATA%\ci-stick` (Windows) | an absolute path: where `ci-stick` keeps the sequence floors (`floors.json`) and the optional `revoked.txt`; `--state-dir <dir>` beats it. A new, empty directory is a new, empty floor, so use it for tests and rehearsals; the floor guards against a stale bundle, not against someone who controls your environment (`stick/crates/ci-stick/src/state.rs`) |
+
 ## Tests
 
 | Variable | What it does | Read by |
