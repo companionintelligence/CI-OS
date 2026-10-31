@@ -125,6 +125,21 @@ repo_configured() {
     [[ -f "$repo_file" ]]
 }
 
+# fetch_apt_key <url> <keyring>: download an apt signing key into a temporary file next to the keyring and move it into
+# place only when curl succeeded and the file is not empty. A failed download writes nothing: no empty or partial keyring
+# is left for apt. The callers test for the keyring with -s, not -f, so an empty one that an older run left is fetched
+# again instead of being kept forever.
+fetch_apt_key() {
+    local url="$1" dest="$2" tmp
+    tmp="$(mktemp "${dest}.XXXXXX")" || return 1
+    if curl -fsSL --connect-timeout 20 --retry 2 "$url" -o "$tmp" && [[ -s "$tmp" ]] && chmod 0644 "$tmp" && mv -f "$tmp" "$dest"; then
+        return 0
+    fi
+    rm -f "$tmp"
+    log_error "Could not download the apt signing key ${url} (nothing was written to ${dest})"
+    return 1
+}
+
 # Helper function to check if a user exists
 user_exists() {
     id "$1" &>/dev/null
@@ -278,7 +293,7 @@ install_tailscale() {
         # codename, which 404s against pkgs.tailscale.com's Ubuntu-only repo.
         local ubuntu_codename
         ubuntu_codename="$(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")"
-        curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${ubuntu_codename}.noarmor.gpg" | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+        fetch_apt_key "https://pkgs.tailscale.com/stable/ubuntu/${ubuntu_codename}.noarmor.gpg" /usr/share/keyrings/tailscale-archive-keyring.gpg
         curl -fsSL "https://pkgs.tailscale.com/stable/ubuntu/${ubuntu_codename}.tailscale-keyring.list" | tee /etc/apt/sources.list.d/tailscale.list >/dev/null
         apt-get update
         apt-get install -y tailscale
@@ -366,12 +381,11 @@ install_docker() {
         if ! repo_configured "/etc/apt/sources.list.d/docker.sources"; then
             log_info "Configuring Docker repository..."
             install -m 0755 -d /etc/apt/keyrings
-            if ! curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc; then
+            if ! fetch_apt_key https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings/docker.asc; then
                 log_warning "Could not download Docker GPG key (network/DNS). Continuing because Docker is already installed."
                 finalize_docker_access_for_actual_user
                 return 0
             fi
-            chmod a+r /etc/apt/keyrings/docker.asc
             tee /etc/apt/sources.list.d/docker.sources <<EOF
 Types: deb
 URIs: https://download.docker.com/linux/ubuntu
@@ -394,11 +408,10 @@ EOF
             apt install -y curl
         fi
 
-        # Add Docker's official GPG key (only if not exists)
+        # Add Docker's official GPG key (only if it is missing or empty)
         install -m 0755 -d /etc/apt/keyrings
-        if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
-            curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-            chmod a+r /etc/apt/keyrings/docker.asc
+        if [[ ! -s /etc/apt/keyrings/docker.asc ]]; then
+            fetch_apt_key https://download.docker.com/linux/ubuntu/gpg /etc/apt/keyrings/docker.asc
         fi
 
         # Add the repository to Apt sources (only if not configured)
@@ -1059,10 +1072,9 @@ install_github_cli() {
     
     log_info "Installing GitHub CLI..."
     
-    # Add GitHub CLI GPG key (only if not exists)
-    if [[ ! -f /usr/share/keyrings/githubcli-archive-keyring.gpg ]]; then
-        curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
-        chmod go+r /usr/share/keyrings/githubcli-archive-keyring.gpg
+    # Add GitHub CLI GPG key (only if it is missing or empty)
+    if [[ ! -s /usr/share/keyrings/githubcli-archive-keyring.gpg ]]; then
+        fetch_apt_key https://cli.github.com/packages/githubcli-archive-keyring.gpg /usr/share/keyrings/githubcli-archive-keyring.gpg
     fi
     
     # Add GitHub CLI repository (only if not configured)
@@ -1090,8 +1102,8 @@ install_cloudflared() {
     mkdir -p --mode=0755 /usr/share/keyrings
     # cloudflare-main.gpg is the vendor's current key file (CloudFlare Software Packaging 2025, rolled 2025-10-30);
     # the old cloudflare-public-v2.gpg URL serves the identical file. The ISO bakes the same name (Step 10e).
-    if [[ ! -f /usr/share/keyrings/cloudflare-main.gpg ]]; then
-        curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+    if [[ ! -s /usr/share/keyrings/cloudflare-main.gpg ]]; then
+        fetch_apt_key https://pkg.cloudflare.com/cloudflare-main.gpg /usr/share/keyrings/cloudflare-main.gpg
     fi
     
     # Add repository (only if not configured)
@@ -1685,9 +1697,11 @@ main() {
     # --step=ci-hub: used by the headless captive-portal flow after WiFi/pairing
     # completes. Skips the rest of provisioning — Docker is assumed already
     # present from an earlier core-tier run (first boot or manual).
+    # It exits rather than returns: the blocks that follow main() below (ROCm, the Strix Halo boot parameters, LACT
+    # and the GNOME power mode) belong to a full run, and a step run must not reach them.
     if [[ "$STEP_ONLY" == "ci-hub" ]]; then
         deploy_ci_hub
-        return 0
+        exit 0
     fi
 
     log_info "✓ Running with root privileges (EUID: $EUID)"
@@ -1804,7 +1818,13 @@ install_lact() {
     LACT_DEB_URL="${asset%%$'\t'*}"
     LACT_SHA256="${asset#*$'\t'}"
     TMP_DEB="/tmp/lact-latest.deb"
-    curl -fL --connect-timeout 30 --retry 2 "$LACT_DEB_URL" -o "$TMP_DEB"
+    # install_lact runs under `|| true`, where set -e does nothing: every step checks its own status, so a failed
+    # download or install is reported as a failure, never as "installed".
+    if ! curl -fsSL --connect-timeout 30 --retry 2 "$LACT_DEB_URL" -o "$TMP_DEB"; then
+        log_error "Could not download ${LACT_DEB_URL}; LACT is not installed."
+        rm -f "$TMP_DEB"
+        return 1
+    fi
     if [[ -n "$LACT_SHA256" ]]; then
         got_sha="$(sha256sum "$TMP_DEB" | awk '{print $1}')"
         if [[ "$got_sha" != "$LACT_SHA256" ]]; then
@@ -1816,7 +1836,11 @@ install_lact() {
     else
         log_warning "The release lists no sha256 for ${LACT_DEB_URL}; installing without checksum verification"
     fi
-    apt-get install -y "$TMP_DEB" || dpkg -i "$TMP_DEB"
+    if ! apt-get install -y "$TMP_DEB" && ! dpkg -i "$TMP_DEB"; then
+        log_error "Installing the LACT .deb failed; LACT is not installed."
+        rm -f "$TMP_DEB"
+        return 1
+    fi
     rm -f "$TMP_DEB"
     log_success "LACT GPU monitor installed. Run 'lact-gui' to launch."
         # Pin LACT to GNOME favorites bar for the user
