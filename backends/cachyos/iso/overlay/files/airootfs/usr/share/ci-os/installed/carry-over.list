@@ -23,3 +23,12 @@
 # Boot: GRUB theme (grubcfg.conf GRUB_THEME) and Plymouth theme (plymouthcfg.conf plymouth_theme)
 /usr/share/grub/themes/companion-os
 /usr/share/plymouth/themes/companion-os
+
+# Memory protection (core/lib/memory-protection.sh): the drop-ins that keep the recovery path reachable and the desktop responsive when
+# memory is short. The installed system is pacstrapped, so it has none of the live image's /etc unless it is listed here. Off-switch: delete
+# these five lines and the five files (the live image and the installed system then have no memory protection).
+/etc/systemd/system/system.slice.d/30-ci-os-memory.conf
+/etc/systemd/system/user.slice.d/30-ci-os-memory.conf
+/etc/systemd/system/sshd.service.d/30-ci-os-memory.conf
+/etc/systemd/system/docker.service.d/30-ci-os-memory.conf
+/etc/systemd/system/containerd.service.d/30-ci-os-memory.conf
