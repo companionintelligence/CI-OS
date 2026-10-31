@@ -28,7 +28,7 @@
 # at 2, 4, 6, 8, 16, 32 and 64 GiB of RAM:
 #   1. for system.slice, the sum of what its children claim (ssh, docker, containerd, and ollama when a file for it exists) is below
 #      its own value, for MemoryMin and for MemoryLow. Below, not "at most": the parent keeps at least one point of slack for services
-#      that are not listed (the design table's "1% plus slack"), and a child that equals its parent has no sibling to share with;
+#      that are not listed (2% over a 1% SSH daemon), and a child that equals its parent leaves nothing for a sibling to share;
 #   2. every MemoryMin together (a child's value is also part of its parent's, so this overcounts on purpose) is below 5% of RAM:
 #      protecting more than is generally available can cause constant OOM kills;
 #   3. with an ollama.service file, user.slice MemoryLow plus ollama.service MemoryHigh is at most 100% of RAM;
@@ -249,16 +249,16 @@ ci_os_memprot_lint() {
         fi
     done
     # Mode 0644, like every other drop-in of the images.
-    bad="$(find "$etc" -mindepth 2 -maxdepth 2 -type f -name "$CI_OS_MEMPROT_FILE" ! -perm 644 2>/dev/null | LC_ALL=C sort)"
+    bad="$(find "$etc" -mindepth 2 -maxdepth 2 -type f -name "$CI_OS_MEMPROT_FILE" ! -perm 644 2>/dev/null | LC_ALL=C sort)" || true
     while IFS= read -r p; do
         [ -n "$p" ] || continue
-        mode="$(stat -c %a "$p" 2>/dev/null || stat -f %Lp "$p" 2>/dev/null)"
+        mode="$(stat -c %a "$p" 2>/dev/null || stat -f %Lp "$p" 2>/dev/null)" || mode=""
         echo "FAIL: ${p:${#prefix}} is mode ${mode:-unknown}, not 0644"; rc=1
     done <<EOF
 $bad
 EOF
     # No file of ours for a unit that is not on this edition's list (the other edition's SSH name, a stray copy).
-    bad="$(find "$etc" -mindepth 2 -maxdepth 2 -name "$CI_OS_MEMPROT_FILE" 2>/dev/null | LC_ALL=C sort)"
+    bad="$(find "$etc" -mindepth 2 -maxdepth 2 -name "$CI_OS_MEMPROT_FILE" 2>/dev/null | LC_ALL=C sort)" || true
     while IFS= read -r p; do
         [ -n "$p" ] || continue
         unit="${p%/*}"; unit="${unit##*/}"; unit="${unit%.d}"
@@ -273,7 +273,7 @@ EOF
 
     # A *.conf of these units' directories that is not a regular file cannot be judged: a symlink may point at anything (or at /dev/null, which masks
     # the drop-in), and a FIFO or a device would block the reader. Our own file of a listed unit was reported above.
-    bad="$(find "$etc" -mindepth 2 -maxdepth 2 -name '*.conf' ! -type f 2>/dev/null | LC_ALL=C sort)"
+    bad="$(find "$etc" -mindepth 2 -maxdepth 2 -name '*.conf' ! -type f 2>/dev/null | LC_ALL=C sort)" || true
     while IFS= read -r p; do
         [ -n "$p" ] || continue
         unit="${p%/*}"; unit="${unit##*/}"; unit="${unit%.d}"
@@ -289,7 +289,7 @@ EOF
 
     # The content of every regular *.conf of the expected units' directories (and of ollama.service's), in the order systemd reads them.
     out="$(find "$etc" -mindepth 2 -maxdepth 2 -type f -name '*.conf' 2>/dev/null | LC_ALL=C sort \
-        | awk -v root="$prefix" -v sshunit="$sshu" -v memfile="$CI_OS_MEMPROT_FILE" "$CI_OS_MEMPROT_AWK")"
+        | awk -v root="$prefix" -v sshunit="$sshu" -v memfile="$CI_OS_MEMPROT_FILE" "$CI_OS_MEMPROT_AWK")" || true
     while IFS= read -r line; do
         case "$line" in
             "FAIL: "*) printf '%s\n' "$line"; rc=1 ;;
