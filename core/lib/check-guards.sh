@@ -3,8 +3,8 @@
 # checkout or a private key enter the tree unnoticed.
 #
 # The workflows of this repository are manual-only (ci-local), so a rule that lived only in a workflow would never run on a push. This script
-# is run by core/lib/check-repo.sh, which is what the PR checks workflow runs and what the author runs by hand. Its test, with a planted
-# defect for every rule, is core/lib/tests/guards.sh.
+# is run by core/lib/check-repo.sh, which is what the PR checks workflow runs and what the author runs by hand. Its test,
+# core/lib/tests/guards.sh, has a failing and a passing case for every rule and four planted defects.
 #
 # Usage: core/lib/check-guards.sh [ROOT]        (default: the repository this script is in)
 # Output: one line per finding, "FAIL <rule> <file>:<line> <what>", and nothing at all when the tree is clean.
@@ -20,11 +20,12 @@
 #   missing-permissions   a workflow with no "permissions:" at the top level and not on every job (the default token of the repository is write).
 #   checkout-credentials  an actions/checkout step without "persist-credentials: false" under its "with:" (the token would stay in .git/config).
 #   private-key           a private-key block (RSA, EC, OPENSSH, PGP, PKCS8) in a tracked text file of at most 1 MiB. Public keys and certificates
-#                         do not match. The marker is assembled below at run time, so this file and its test do not match themselves.
+#                         do not match. Every line is read, comment lines too: a key in a comment is still a key. The marker is
+#                         assembled below at run time, so this file and its test do not match themselves.
 #
 # What it reads. Workflows (.github/workflows/*.yml and *.yaml, top level only, as GitHub reads them) and composite actions
 # (.github/actions/**/action.yml or action.yaml), tracked files and new files that are not ignored, so the run before "git add" sees them.
-# The YAML is read line by line: comment lines are ignored by every rule except dangerous-trigger (which also reads the gated block); the
+# The YAML is read line by line: comment lines are ignored by every YAML rule except dangerous-trigger (which also reads the gated block); the
 # text of a block scalar ("run: |") is not read as YAML. A flow-style step or secrets map ("- {uses: ...}") hides the value from a line reader,
 # so it is refused rather than guessed at; the same goes for an alias or a folded value where a pinned reference is expected.
 #
@@ -109,6 +110,8 @@ function trigger(s, ln, where) {
   if (has_word(s, "pull_request_target")) add("dangerous-trigger", ln, "pull_request_target runs code from a fork with the repository secrets and a write token" where)
   if (has_word(s, "workflow_run")) add("dangerous-trigger", ln, "workflow_run runs with secrets on the output of another workflow, which may have run fork code" where)
 }
+# the pin of an action or a called workflow: a full 40 character commit sha in lowercase hex (a tag or a branch can be moved)
+function pinned_ref(ref) { return (length(ref) == 40 && ref ~ /^[0-9a-f]+$/) }
 function check_uses(val, ln,   at, j, path, ref, digest) {
   if (val == "") { add("unpinned-uses", ln, "uses: has no value"); return }
   if (substr(val, 1, 2) == "./") return
@@ -125,7 +128,7 @@ function check_uses(val, ln,   at, j, path, ref, digest) {
   for (j = length(val); j >= 1; j--) if (substr(val, j, 1) == "@") { at = j; break }
   if (at > 1) {
     path = substr(val, 1, at - 1); ref = substr(val, at + 1)
-    if (path ~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.\/-]+$/ && length(ref) == 40 && ref ~ /^[0-9a-f]+$/) return
+    if (path ~ /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.\/-]+$/ && pinned_ref(ref)) return
   }
   add("unpinned-uses", ln, substr(val, 1, 100) " is not pinned to a full 40 character lowercase commit sha (a tag or a branch can move)")
 }
@@ -187,7 +190,9 @@ BEGIN {
   if (t ~ /^#[ \t]*>>>[ \t]*ci-local:gated/) { K[n] = "M"; gated = 1; next }
   if (t ~ /^#[ \t]*<<<[ \t]*ci-local:gated/) { K[n] = "M"; gated = 0; next }
   if (t ~ /^#/) {
-    if (gated) { K[n] = "G"; b = substr(t, 2); sub(/^[ \t]/, "", b); BODY[n] = b } else K[n] = "C"
+    # the text after the "#"; only the trigger rule reads it, and only inside the gated block
+    b = substr(t, 2); sub(/^[ \t]/, "", b); BODY[n] = b
+    K[n] = gated ? "G" : "C"
     next
   }
   K[n] = "L"
@@ -209,10 +214,11 @@ BEGIN {
 END {
   for (i = 1; i <= n; i++) {
     k = K[i]
+    if (k == "B" || k == "M") continue
+    if (k == "C") continue   # an ordinary comment: no rule reads it (core/lib/tests/guards.sh plants a guard that does)
     if (k == "G") { trigger(uncomment(BODY[i]), i, " (inside the ci-local gated block: restoring that trigger would add it)"); continue }
     if (k == "S") { if (BODY[i] !~ /^#/) trigger(uncomment(BODY[i]), i, ""); continue }
-    if (k != "L") continue
-    b = BODY[i]
+    b = BODY[i]   # a live line
     trigger(uncomment(b), i, "")
 
     if (b ~ /^["']?uses["']?[ \t]*:/) {
@@ -317,7 +323,7 @@ allowed() {
   while [ "$i" -lt "${#AL_RULE[@]}" ]; do
     if [ "${AL_RULE[$i]}" = "$1" ]; then
       # shellcheck disable=SC2254  # the path column is a glob on purpose
-      case "$2" in ${AL_PATH[$i]}) AL_USED[$i]=1; hit=0 ;; esac
+      case "$2" in ${AL_PATH[$i]}) AL_USED[i]=1; hit=0 ;; esac
     fi
     i=$((i + 1))
   done

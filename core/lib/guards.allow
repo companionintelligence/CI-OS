@@ -1,0 +1,10 @@
+# Allow-list of core/lib/check-guards.sh: findings of the workflow and secret guards that are accepted on purpose.
+#
+# One entry per line, three columns separated by a TAB:   rule<TAB>path or glob<TAB>reason
+#   rule     unpinned-uses, dangerous-trigger, secrets-inherit, missing-permissions, checkout-credentials or private-key
+#   path     relative to the repository root, without a leading ./ and without ..; a shell glob may match several files
+#   reason   at least 8 characters: why the finding is accepted, and what will remove the entry
+# A line that starts with # and an empty line are skipped. An entry that no longer excuses a finding fails the gate (stale-allow), so the
+# list only shrinks; a malformed entry fails it too (allow-syntax). A new entry is a security decision: name it in the PR text.
+#
+# No entry: nothing is excused.
