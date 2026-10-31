@@ -25,7 +25,7 @@
 set -uo pipefail
 
 die() { echo "verify-published: $*" >&2; exit 2; }
-BASE="" VERSION="" PREFIX="" EDITION="ubuntu" ARCH="" FULL=0 PUBKEY=""
+BASE="" VERSION="" EDITION="ubuntu" ARCH="" FULL=0 PUBKEY=""      # PREFIX stays unset until --prefix or the edition sets it
 while [ $# -gt 0 ]; do
   case "$1" in
     --base-url) [ $# -ge 2 ] || die "$1 needs a value"; BASE="$2"; shift 2 ;;
@@ -46,7 +46,7 @@ case "$BASE" in
   *) die "--base-url must be an https URL" ;;
 esac
 case "$EDITION" in ubuntu|plasma) ;; *) die "--edition must be ubuntu or plasma" ;; esac
-[ -n "$PREFIX" ] || { [ "$EDITION" = plasma ] && PREFIX="os-plasma" || PREFIX="os"; }
+[ -n "${PREFIX+x}" ] || { [ "$EDITION" = plasma ] && PREFIX="os-plasma" || PREFIX="os"; }
 echo "$PREFIX" | grep -q -E '^[a-z0-9][a-z0-9._-]*(/[a-z0-9][a-z0-9._-]*)*$' || die "--prefix is not a plain key prefix"
 [ -z "$ARCH" ] || case "$ARCH" in amd64|arm64|x86_64) ;; *) die "--arch must be amd64 or arm64 (ubuntu) or x86_64 (plasma)" ;; esac
 [ -z "$VERSION" ] || echo "$VERSION" | grep -q -E '^[0-9]+(\.[0-9]+)*([-.][0-9A-Za-z]+)*$' || die "--version is not a version"

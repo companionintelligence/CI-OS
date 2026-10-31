@@ -277,7 +277,7 @@ def main(argv=None):
     ap.add_argument("--notes-out")
     a = ap.parse_args(argv)
     out = a.out_dir or a.dir
-    prefix = a.prefix or EDITIONS[a.edition]["prefix"]
+    prefix = EDITIONS[a.edition]["prefix"] if a.prefix is None else a.prefix      # an empty --prefix is not "absent": it is refused as before
     try:
         manifest, latest, uploads = build(a.dir, a.version, a.channel, a.base_url, prefix, a.repository, a.commit, a.run_url, a.date, a.edition)
     except (Problem, OSError) as exc:
