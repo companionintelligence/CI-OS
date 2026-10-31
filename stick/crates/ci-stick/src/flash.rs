@@ -334,6 +334,17 @@ pub fn plan(
     req: &FlashRequest,
     progress: &mut Progress,
 ) -> anyhow::Result<Result<FlashPlan, VerifyReport>> {
+    plan_with(req, progress, target::prepare_device)
+}
+
+/// [`plan`] with the preparation of a `--device` target passed in, so that a unit test can plan
+/// a device write without a device. Private on purpose: nothing outside this module can swap
+/// the device safety checks of [`target::prepare_device`] for anything else.
+fn plan_with(
+    req: &FlashRequest,
+    progress: &mut Progress,
+    prepare_device: impl FnOnce(&Path) -> anyhow::Result<DeviceTarget>,
+) -> anyhow::Result<Result<FlashPlan, VerifyReport>> {
     validate_request(req)?;
     let report = verify::verify_at(
         &req.bundle_root,
@@ -404,7 +415,7 @@ pub fn plan(
             )
         }
         TargetSpec::Device { path } => {
-            let dev = target::prepare_device(path)?;
+            let dev = prepare_device(path)?;
             let size = dev.disk.size_bytes;
             (
                 PlannedTarget::Device {
@@ -1135,7 +1146,20 @@ fn commit_floor(p: &FlashPlan, req: &FlashRequest) -> anyhow::Result<()> {
 
 /// Plan, and unless it is a dry run, write.
 pub fn flash(req: &FlashRequest, progress: &mut Progress) -> anyhow::Result<FlashOutcome> {
-    let p = match plan(req, progress)? {
+    flash_with(req, progress, target::prepare_device, execute)
+}
+
+/// [`flash`] with the device preparation and the write passed in, so that a unit test can check
+/// what happens around the write (a dry run and a refused bundle never reach it, the floor is
+/// recorded after it and only when it succeeded) without a stick or the flash tools. Private for
+/// the same reason as [`plan_with`].
+fn flash_with(
+    req: &FlashRequest,
+    progress: &mut Progress,
+    prepare_device: impl FnOnce(&Path) -> anyhow::Result<DeviceTarget>,
+    write: impl FnOnce(&FlashPlan, &FlashRequest) -> anyhow::Result<WriteReport>,
+) -> anyhow::Result<FlashOutcome> {
+    let p = match plan_with(req, progress, prepare_device)? {
         Ok(p) => p,
         Err(report) => return Ok(FlashOutcome::VerifyFailed(Box::new(report))),
     };
@@ -1143,7 +1167,7 @@ pub fn flash(req: &FlashRequest, progress: &mut Progress) -> anyhow::Result<Flas
         return Ok(FlashOutcome::DryRun(Box::new(p)));
     }
     eprint!("{}", render_plan(&p, false));
-    let report = execute(&p, req)?;
+    let report = write(&p, req)?;
     commit_floor(&p, req)?;
     Ok(FlashOutcome::Written(Box::new(p), report))
 }
@@ -1430,13 +1454,12 @@ mod tests {
         // A plan without a floor (schema 1) records nothing and does not even create the directory.
         commit_floor(&written_plan(None), &r).unwrap();
         assert!(!dir.exists());
-        // Planning alone (what --dry-run does) never writes: only commit_floor does.
-        let p = written_plan(Some(4));
-        assert!(!dir.exists());
-        commit_floor(&p, &r).unwrap();
+        // A plan with one records it; `the_floor_is_recorded_after_the_write_and_only_when_it_
+        // succeeded` below proves that nothing but a completed write gets here.
+        commit_floor(&written_plan(Some(4)), &r).unwrap();
         let store = crate::state::FloorStore::new(dir.clone());
         assert_eq!(store.floor("flash-test").unwrap().unwrap().sequence, 4);
-        // Floors that are off record nothing.
+        // Floors that are off have nowhere to record to, and that is no failure.
         let off = req(
             TargetSpec::Image {
                 path: "/tmp/x.img".into(),
@@ -1444,9 +1467,8 @@ mod tests {
             },
             key(),
         );
-        let t2 = tempfile::tempdir().unwrap();
         commit_floor(&written_plan(Some(9)), &off).unwrap();
-        assert_eq!(fs::read_dir(t2.path()).unwrap().count(), 0);
+        assert_eq!(store.floor("flash-test").unwrap().unwrap().sequence, 4);
     }
 
     #[test]
@@ -1489,9 +1511,317 @@ mod tests {
         );
         assert!(UNPROTECTED_DEVICE_WARNING.contains("no release key is pinned in this build"));
         assert!(UNPROTECTED_DEVICE_WARNING.contains("nothing protects against an old bundle"));
-        // And the plan prints it.
-        let mut p = fake_plan(BootChain::Secure, false);
-        p.notes.push(UNPROTECTED_DEVICE_WARNING.to_string());
+        // That `plan` really calls it is proved below, with a bundle on disk.
+    }
+
+    // ---- planning and flashing a bundle on disk, without a stick ----------------------------
+
+    use crate::lock::{lock, LockOptions};
+    use crate::manifest::SIGNATURE_FILE;
+    use crate::signing::{fingerprint, sign_to_hex};
+    use crate::state::FloorStore;
+    use crate::target::{DevNum, DiskInfo, Resolved};
+    use ed25519_dalek::SigningKey;
+
+    /// A signed bundle on disk with a boot image and the Secure Boot chain. `sequence` makes it
+    /// schema 2 (valid a year from 2026-09-28); without it the bundle is schema 1.
+    struct Staged {
+        dir: tempfile::TempDir,
+        key: SigningKey,
+    }
+
+    impl Staged {
+        fn new(sequence: Option<u64>) -> Self {
+            let dir = tempfile::tempdir().unwrap();
+            for (rel, data) in [
+                ("boot/test.iso", &b"CD001 test image"[..]),
+                ("efi/shimx64.efi", b"MZ shim"),
+                ("efi/grubx64.efi", b"MZ grub"),
+                ("efi/mmx64.efi", b"MZ mok manager"),
+            ] {
+                let full = dir.path().join(rel);
+                fs::create_dir_all(full.parent().unwrap()).unwrap();
+                fs::write(full, data).unwrap();
+            }
+            let opts = LockOptions {
+                id: Some("flash-unit".into()),
+                version: Some("0.0.1".into()),
+                packs: None,
+                device_bytes: Some(64_000_000_000),
+                created_at: Some("2026-09-28T00:00:00Z".into()),
+                sequence,
+                valid_days: sequence.map(|_| 365),
+            };
+            lock(dir.path(), &opts, &mut Progress::disabled()).unwrap();
+            let key = SigningKey::from_bytes(&[42u8; 32]);
+            let bytes = fs::read(dir.path().join(BUNDLE_FILE)).unwrap();
+            fs::write(dir.path().join(SIGNATURE_FILE), sign_to_hex(&key, &bytes)).unwrap();
+            Self { dir, key }
+        }
+
+        fn manifest_sha256(&self) -> String {
+            crate::hashing::sha256_hex(&fs::read(self.dir.path().join(BUNDLE_FILE)).unwrap())
+        }
+
+        /// A request to flash this bundle, 2026-09-21 on the clock.
+        fn request(&self, target: TargetSpec, floors: FloorMode) -> FlashRequest {
+            FlashRequest {
+                bundle_root: self.dir.path().to_path_buf(),
+                policy: SignaturePolicy::Require(self.key.verifying_key()),
+                target,
+                boot_image: None,
+                slot_b_from: None,
+                extra_cmdline: None,
+                dry_run: false,
+                confirm: None,
+                expect_serial: None,
+                work_dir: None,
+                allow_unsigned_bootloader: false,
+                freshness: Freshness {
+                    now: 1_790_000_000,
+                    floors,
+                    ..Freshness::without_floors(0)
+                },
+            }
+        }
+    }
+
+    fn fake_device() -> DeviceTarget {
+        DeviceTarget {
+            resolved: Resolved {
+                given: "/dev/fake".into(),
+                node: "/dev/fake".into(),
+            },
+            disk: DiskInfo {
+                name: "fake".into(),
+                node: "/dev/fake".into(),
+                devnum: DevNum {
+                    major: 8,
+                    minor: 16,
+                },
+                size_bytes: 64_000_000_000,
+                removable: true,
+                model: Some("Test stick".into()),
+                serial: Some("TEST0001".into()),
+                logical_sector: 512,
+                partitions: vec![],
+                holders: vec![],
+            },
+            transport: Some("usb".into()),
+        }
+    }
+
+    fn device() -> TargetSpec {
+        TargetSpec::Device {
+            path: "/dev/fake".into(),
+        }
+    }
+
+    fn image(dir: &Path) -> TargetSpec {
+        TargetSpec::Image {
+            path: dir.join("stick.img"),
+            size_bytes: 64_000_000_000,
+        }
+    }
+
+    fn required_floors(dir: &Path) -> FloorMode {
+        FloorMode::Store {
+            store: FloorStore::new(dir.join("state")),
+            required: true,
+            record: false,
+        }
+    }
+
+    fn unprotected(plan: &FlashPlan) -> bool {
+        plan.notes.iter().any(|n| n == UNPROTECTED_DEVICE_WARNING)
+    }
+
+    #[test]
+    fn a_target_says_what_a_verification_for_it_is_for() {
+        assert_eq!(device().purpose(), verify::Purpose::FlashDevice);
+        assert_eq!(
+            image(Path::new("/tmp")).purpose(),
+            verify::Purpose::FlashImage
+        );
+    }
+
+    #[test]
+    fn plan_flags_a_schema_1_bundle_on_a_device_and_carries_the_floor_of_a_schema_2_one() {
+        let t = tempfile::tempdir().unwrap();
+        let plan_of = |fx: &Staged, target: TargetSpec, floors: FloorMode| {
+            plan_with(
+                &fx.request(target, floors),
+                &mut Progress::disabled(),
+                |p| {
+                    assert_eq!(p, Path::new("/dev/fake"));
+                    Ok(fake_device())
+                },
+            )
+            .unwrap()
+            .unwrap_or_else(|r| panic!("refused: {}", verify::render_human(&r)))
+        };
+
+        // Schema 1 on a stick: nothing protects against an old bundle, and the plan says so,
+        // in the plan itself and in the text printed from it.
+        let v1 = Staged::new(None);
+        let p = plan_of(&v1, device(), required_floors(t.path()));
+        assert!(unprotected(&p), "{:?}", p.notes);
         assert!(render_plan(&p, true).contains("nothing protects against an old bundle"));
+        assert!(
+            p.floor_update.is_none(),
+            "schema 1 has no sequence to record"
+        );
+
+        // Schema 2 on a stick: protected, so no warning, and the floor to record is there.
+        let v2 = Staged::new(Some(3));
+        let p = plan_of(&v2, device(), required_floors(t.path()));
+        assert!(!unprotected(&p), "{:?}", p.notes);
+        let update = p.floor_update.as_ref().expect("the floor to record");
+        assert_eq!(update.bundle_id, "flash-unit");
+        assert_eq!(update.floor.sequence, 3);
+        assert_eq!(update.floor.bundle_sha256, v2.manifest_sha256());
+        assert_eq!(update.floor.signer, fingerprint(&v2.key.verifying_key()));
+
+        // An image file is a development flow: no warning, and no device is even prepared.
+        let p = plan_with(
+            &v1.request(image(t.path()), FloorMode::Off),
+            &mut Progress::disabled(),
+            |_| panic!("an image needs no device"),
+        )
+        .unwrap()
+        .unwrap_or_else(|r| panic!("refused: {}", verify::render_human(&r)));
+        assert!(!unprotected(&p), "{:?}", p.notes);
+    }
+
+    #[test]
+    fn nothing_is_prepared_for_a_bundle_that_failed_verification() {
+        let t = tempfile::tempdir().unwrap();
+        let fx = Staged::new(Some(1));
+        fs::write(fx.dir.path().join("boot/test.iso"), b"tampered!!!!!!!!!").unwrap();
+        let refused = plan_with(
+            &fx.request(device(), required_floors(t.path())),
+            &mut Progress::disabled(),
+            |_| panic!("a device is not touched for a bundle that failed verification"),
+        )
+        .unwrap();
+        assert!(refused.is_err());
+    }
+
+    #[test]
+    fn the_floor_is_recorded_after_the_write_and_only_when_it_succeeded() {
+        let t = tempfile::tempdir().unwrap();
+        let store = FloorStore::new(t.path().join("state"));
+        let floors = || FloorMode::Store {
+            store: store.clone(),
+            required: false,
+            record: false,
+        };
+        let no_device =
+            |_: &Path| -> anyhow::Result<DeviceTarget> { panic!("an image needs no device") };
+        let fx = Staged::new(Some(4));
+        let request = |dry_run: bool| {
+            let mut r = fx.request(image(t.path()), floors());
+            r.dry_run = dry_run;
+            r
+        };
+        let progress = || Progress::disabled();
+
+        // A dry run plans and stops: no write, no floor, not even the state directory.
+        let out = flash_with(&request(true), &mut progress(), no_device, |_, _| {
+            panic!("a dry run writes nothing")
+        })
+        .unwrap();
+        assert!(matches!(out, FlashOutcome::DryRun(_)));
+        assert!(!store.dir().exists());
+
+        // A write that fails leaves the floor where it was, and the error comes out.
+        let err = flash_with(&request(false), &mut progress(), no_device, |_, _| {
+            Err(anyhow::anyhow!("the stick was unplugged"))
+        })
+        .err()
+        .expect("the failed write is reported");
+        assert!(format!("{err:#}").contains("unplugged"), "{err:#}");
+        assert_eq!(store.floor("flash-unit").unwrap(), None);
+
+        // A write that completes records the floor, and only once it is done.
+        let out = flash_with(&request(false), &mut progress(), no_device, |plan, _| {
+            assert_eq!(plan.bundle_id, "flash-unit");
+            assert_eq!(
+                store.floor("flash-unit").unwrap(),
+                None,
+                "the floor must not move before the write is done"
+            );
+            Ok(WriteReport::default())
+        })
+        .unwrap();
+        assert!(matches!(out, FlashOutcome::Written(..)));
+        let f = store.floor("flash-unit").unwrap().expect("recorded");
+        assert_eq!(f.sequence, 4);
+        assert_eq!(f.bundle_sha256, fx.manifest_sha256());
+        assert_eq!(f.signer, fingerprint(&fx.key.verifying_key()));
+
+        // The very same bytes can be flashed again.
+        let out = flash_with(&request(false), &mut progress(), no_device, |_, _| {
+            Ok(WriteReport::default())
+        })
+        .unwrap();
+        assert!(matches!(out, FlashOutcome::Written(..)));
+
+        // An older release is refused before the write, which is not even attempted, and the
+        // floor stays.
+        let older = Staged::new(Some(3));
+        let mut r = older.request(image(t.path()), floors());
+        r.dry_run = false;
+        let out = flash_with(&r, &mut progress(), no_device, |_, _| {
+            panic!("an older release must not be written")
+        })
+        .unwrap();
+        let FlashOutcome::VerifyFailed(report) = out else {
+            panic!("expected a refusal");
+        };
+        assert_eq!(report.errors[0].code, "bundle-rollback");
+        assert_eq!(store.floor("flash-unit").unwrap().unwrap().sequence, 4);
+    }
+
+    #[test]
+    fn a_device_write_records_its_floor_too_and_says_so_when_it_cannot() {
+        let t = tempfile::tempdir().unwrap();
+        let fx = Staged::new(Some(2));
+        let prepare = |_: &Path| Ok(fake_device());
+        let store = FloorStore::new(t.path().join("state"));
+        let r = fx.request(
+            device(),
+            FloorMode::Store {
+                store: store.clone(),
+                required: true,
+                record: false,
+            },
+        );
+        let out = flash_with(&r, &mut Progress::disabled(), prepare, |plan, req| {
+            assert!(matches!(plan.target, PlannedTarget::Device { .. }));
+            assert!(req.freshness.floors_required());
+            Ok(WriteReport::default())
+        })
+        .unwrap();
+        assert!(matches!(out, FlashOutcome::Written(..)));
+        assert_eq!(store.floor("flash-unit").unwrap().unwrap().sequence, 2);
+
+        // A floor that cannot be kept is found while planning, before anything is written.
+        let blocker = t.path().join("blocker");
+        fs::write(&blocker, b"x").unwrap();
+        let r = fx.request(
+            device(),
+            FloorMode::Store {
+                store: FloorStore::new(blocker.join("state")),
+                required: true,
+                record: false,
+            },
+        );
+        let err = flash_with(&r, &mut Progress::disabled(), prepare, |_, _| {
+            panic!("nothing may be written when the floor cannot be kept")
+        })
+        .err()
+        .expect("refused");
+        assert!(format!("{err:#}").contains("state directory"), "{err:#}");
     }
 }
