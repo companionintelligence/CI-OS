@@ -1,6 +1,6 @@
 #!/bin/bash
 # Companion OS Post-Validation Setup
-# Runs after portal.ci.computer pairing + Hub. Heavy downloads: ROCm, Ollama models.
+# Runs after pairing with the Portal (hub.ci.computer) + Hub. Heavy downloads: ROCm, Ollama models.
 # Only runs once; creates /var/lib/setup-device/post-validation-done when complete.
 #
 # The heavy install runs only on supported hardware (Strix Halo-class APU with

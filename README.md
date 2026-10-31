@@ -509,7 +509,7 @@ the backend responses stubbed only to trigger the portal's own render paths; not
 No sticker ships today. A QR printed on an appliance cannot rotate and cannot expire: whatever is in the ink stays valid for the life of
 the box, on every unit of the run, readable by anyone who sees the case.
 
-* **It may carry** a non-secret per-unit serial and a Portal claim URL for that serial (`https://portal.companionintelligence.com/...`).
+* **It may carry** a non-secret per-unit serial and a Portal claim URL for that serial (`https://hub.ci.computer/...`).
 * **It must not carry** a long-lived key, token or device secret; Wi-Fi credentials (the setup hotspot passphrase is a shared default,
   and printing it would make that default physically permanent for the whole fleet); anything still valid after the first claim.
 * **Do not ship a hotspot QR until the SSID is per-device.** `device.conf` reserves `SERIAL_SUFFIX` for this and nothing reads it

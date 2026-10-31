@@ -25,11 +25,11 @@ So a machine can finish first boot "successfully" with no Hub on it. The check i
 
 | Variable | Needed | Meaning | Default |
 |---|---|---|---|
-| `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` | yes | login for `portal.companionintelligence.com`; without both the script stops with exit 0 | none; no fallback exists on purpose (a shared default was a checked-in credential) |
+| `REGISTRY_USERNAME`, `REGISTRY_PASSWORD` | yes | login for `hub.ci.computer` (the host is fixed in the script; that this registry holds `ci-os-hub:latest` is **[N]**); without both the script stops with exit 0 | none; no fallback exists on purpose (a shared default was a checked-in credential) |
 | `DEVICE_ID` | no | the device's identity in the Hub | the DMI serial from `sudo dmidecode -s system-serial-number`, else `staging-<hostname>-<epoch>` |
 | `API_KEY` | no | copied to `CI_CLOUD_API_KEY` unless that is already set | empty: the deploy proceeds without device pairing |
 | `TUNNEL_TOKEN` | no | enables the Cloudflare tunnel profile | unset: the `tunnel` profile does not run |
-| `CI_CLOUD_URL`, `CI_CLOUD_API_URL`, `CI_CLOUD_FRONTEND_URL` | no | the cloud endpoints written into the Hub's `.env` | `https://portal.companionintelligence.com` and its `/api` |
+| `CI_CLOUD_URL`, `CI_CLOUD_API_URL`, `CI_CLOUD_FRONTEND_URL` | no | the cloud endpoints written into the Hub's `.env` | `https://hub.ci.computer` and its `/api` |
 | `CI_OS_HUB_REPO_PATH` | no | a sibling checkout whose `.env.dev` supplies the registry login | `<workspace parent>/CI-OS-Hub` |
 
 If `REGISTRY_USERNAME` or `REGISTRY_PASSWORD` is unset, the script looks, in this order, for `$CI_OS_HUB_REPO_PATH/.env.dev`,
@@ -66,7 +66,7 @@ Everything is under `$HOME/ci-os-hub-staging` of the user who runs it (`INSTALL_
 |---|---|---|
 | `ci-hub-db` | `postgres:14` | 6543 |
 | `ci-os-hub-queue` | `rabbitmq:4-alpine` | 5001 (to 5672) |
-| `ci-os-hub` | `portal.companionintelligence.com/ci-os-hub:latest` | 5002 (to 3000) |
+| `ci-os-hub` | `hub.ci.computer/ci-os-hub:latest` | 5002 (to 3000) |
 | `traefik` | `traefik:v3.6.7`, with `/var/run/docker.sock` mounted read-only | 18080 (80), 18443 (443), 18081 (8080, the dashboard; `api.insecure: true`) |
 | `cloudflared` (profile `tunnel`) | `cloudflare/cloudflared:latest`, `tunnel run --token-file` | none |
 
@@ -91,7 +91,7 @@ the first-boot log (`journalctl -u ci-os-first-boot-setup`) should hold the line
 ```bash
 cd ~/ci-os-hub-staging && docker compose --profile tunnel down          # stops and removes the containers, keeps the data
 cd ~/ci-os-hub-staging && docker compose --profile tunnel down -v       # also deletes the database volume: the Hub's data is gone
-docker logout portal.companionintelligence.com                           # removes the registry credential from ~/.docker/config.json
+docker logout hub.ci.computer                                            # removes the registry credential from ~/.docker/config.json
 shred -u ~/ci-os-hub-staging/.env ~/ci-os-hub-staging/.env.bak          # the secrets (shred is best effort on journaling and copy-on-write filesystems)
 ```
 

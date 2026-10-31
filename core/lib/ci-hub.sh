@@ -54,14 +54,15 @@ if [ -z "$REGISTRY_USERNAME" ] || [ -z "$REGISTRY_PASSWORD" ]; then
   exit 0
 fi
 
-# Configuration - always use dev registry (setup.companionintelligence.com)
-REGISTRY_DOMAIN="portal.companionintelligence.com"
+# Configuration - the production Portal and its registry (hub.ci.computer). The registry host is fixed;
+# the three CI Cloud URLs below can be overridden from the environment (staging, dev).
+REGISTRY_DOMAIN="hub.ci.computer"
 IMAGE_NAME="${REGISTRY_DOMAIN}/ci-os-hub:latest"
 INSTALL_DIR="${HOME}/ci-os-hub-staging"
 # CI Cloud URLs (user-facing setup/API)
-CI_CLOUD_URL="${CI_CLOUD_URL:-https://portal.companionintelligence.com}"
-CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://portal.companionintelligence.com/api}"
-CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://portal.companionintelligence.com}"
+CI_CLOUD_URL="${CI_CLOUD_URL:-https://hub.ci.computer}"
+CI_CLOUD_API_URL="${CI_CLOUD_API_URL:-https://hub.ci.computer/api}"
+CI_CLOUD_FRONTEND_URL="${CI_CLOUD_FRONTEND_URL:-https://hub.ci.computer}"
 
 # Colors
 RED='\033[0;31m'
@@ -122,7 +123,7 @@ if [ -z "${REGISTRY_USERNAME:-}" ] || [ -z "${REGISTRY_PASSWORD:-}" ]; then
     echo -e "${YELLOW}Note: Set REGISTRY_USERNAME and REGISTRY_PASSWORD for registry auth.${NC}"
     echo -e "${YELLOW}Example: export REGISTRY_USERNAME=xxx REGISTRY_PASSWORD=xxx${NC}"
 fi
-echo -e "${YELLOW}Logging in to the staging registry (${REGISTRY_DOMAIN})...${NC}"
+echo -e "${YELLOW}Logging in to the registry (${REGISTRY_DOMAIN})...${NC}"
 if [ -n "${REGISTRY_USERNAME:-}" ] && [ -n "${REGISTRY_PASSWORD:-}" ]; then
     echo "Configuring docker auth manually to bypass registry root 404 issue..."
     # Calculate base64 auth string (user:pass)

@@ -105,7 +105,7 @@ ecosystem:
       requirement, not a bug. When credentials/pairing are absent, the step
       must report a single clear message and exit cleanly rather than
       attempting a silent fallback.
-    registry: portal.companionintelligence.com
+    registry: hub.ci.computer
     image: "ci-os-hub:latest"
     requires_secrets: [REGISTRY_USERNAME, REGISTRY_PASSWORD]
     # DEVICE_ID/API_KEY are soft: core/lib/ci-hub.sh auto-generates a DEVICE_ID
