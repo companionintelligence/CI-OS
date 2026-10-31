@@ -203,6 +203,27 @@ class RefusalTests(unittest.TestCase):
         manifest, _latest, _uploads = rel.build()
         self.assertEqual(list(manifest["images"]), ["arm64"])
 
+    def test_a_list_of_sums_that_names_no_file_is_refused_not_skipped(self):
+        # both cross-checks run only for a list that has lines, so an empty SHA256SUMS (the leftover of a --make-checksums that found no image)
+        # used to switch them off and the release went out unchecked
+        for edition in ("ubuntu", "plasma"):
+            for content in ("", "\n", "# nothing is listed here\n", "this is not a checksum line\n"):
+                rel = Release(edition=edition, sums=False)
+                self.addCleanup(rel.cleanup)
+                with open(os.path.join(rel.dir, "SHA256SUMS"), "w") as fh:
+                    fh.write(content)
+                with self.assertRaises(rm.Problem, msg="%s %r" % (edition, content)) as cm:
+                    rel.build()
+                self.assertIn("lists no file", str(cm.exception))
+
+    def test_a_missing_list_of_sums_is_still_allowed_here(self):
+        # the publisher is what insists on a SHA256SUMS; this tool describes a directory that has none exactly as it always did
+        for edition in ("ubuntu", "plasma"):
+            rel = Release(edition=edition, sums=False)
+            self.addCleanup(rel.cleanup)
+            manifest, _, _ = rel.build()
+            self.assertNotIn("files", manifest)
+
     def test_no_image_a_wrong_version_and_an_odd_name(self):
         empty = tempfile.mkdtemp(prefix="rm-test-")
         self.addCleanup(shutil.rmtree, empty, True)
@@ -259,6 +280,16 @@ class CliTests(unittest.TestCase):
             rc = rm.main(["--dir", empty, "--version", "1.0", "--channel", "dev", "--base-url", BASE])
         self.assertEqual(rc, 2)
         self.assertIn("release-manifest:", err.getvalue())
+
+    def test_cli_exit_2_for_a_list_of_sums_that_names_no_file(self):
+        rel = Release(sums=False)
+        self.addCleanup(rel.cleanup)
+        open(os.path.join(rel.dir, "SHA256SUMS"), "w").close()
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = rm.main(["--dir", rel.dir, "--version", "1.0", "--channel", "dev", "--base-url", BASE])
+        self.assertEqual(rc, 2)
+        self.assertIn("lists no file", err.getvalue())
 
     def test_a_path_with_a_space_survives(self):
         rel = Release()
