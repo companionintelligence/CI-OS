@@ -133,12 +133,15 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
   (`stick/crates/ci-stick/src/trust.rs`). **Both lists are empty today** [V]
   (`no_release_key_is_pinned_until_the_owner_chooses_one`): no release key, key custody or
   signing pipeline exists (KI-23), so `--pubkey` is still the only key source and `verify`,
-  `flash` and `doctor` print "no release key is pinned in this build (KI-23)". Once a key is
+  `flash` and `doctor --bundle` print "no release key is pinned in this build (KI-23)"
+  (`doctor_says_that_no_release_key_is_pinned_with_or_without_a_key`). Once a key is
   pinned, the default policy is `Pinned`: some non-revoked pinned key must verify the
   signature (a signature that verifies only under a revoked key is `signature-key-revoked`,
   any other failure `signature-invalid`); a schema 1 bundle is refused
   (`bundle-freshness-missing`); and `--pubkey` is accepted only with `--development-key`
-  (a loud warning) and never with `--device`. Pinning a key, rotating it or revoking one is
+  (a loud warning) and never with `--device`. A bundle checked with a development key never
+  reads or moves a sequence floor in such a build (its expiry is still enforced), so it cannot
+  lock out the floor of a release line. Pinning a key, rotating it or revoking one is
   a change to those two files and ships in a new binary. It needs the owner's explicit
   approval and a second reviewer. Release signing happens in the release pipeline;
   `ci-stick dev sign` exists only for development and tests.
@@ -147,6 +150,11 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
   compiled into a build reach users with a new binary. A file `revoked.txt` in the state
   directory (below), one fingerprint per line, reaches a user sooner: it can only add
   refusals, and a line that is not a fingerprint stops the command instead of being skipped.
+  The same goes for a `revoked.txt` that exists but cannot be read. If the state directory
+  itself cannot be looked at (a parent that cannot be searched, a file in its place), the list
+  cannot be read either: a flow that needs the floors (`--device`, a pinned key) then refuses,
+  and any other flow carries on with a `revoked-list-not-read` warning, so a revocation never
+  stops applying without a word.
 - **Expiry and rollback protection.** [I] Schema 2 adds `sequence` (1 or more, increasing
   with every release of the same bundle `id`, assigned by the release pipeline) and
   `expires_at` (RFC 3339 UTC, after `created_at`). Once the signature and the manifest have
@@ -168,9 +176,27 @@ A bundle is a directory tree with this layout: `boot/`, `installers/`, `oci/`, `
   verification succeeded: in `verify`, and in `flash` after the stick was written and read
   back. `--dry-run` and `doctor` read it and never write it. The file is replaced
   atomically under a lock (not locked on Windows). A damaged file stops every command that
-  needs it and names it; nothing resets it. With no usable state directory a pinned or
-  `--device` flow refuses and a development `--image` flow warns. The floor protects against
-  a stale bundle, not against someone who controls your account or environment.
+  needs it and names it; nothing resets it, and a file that cannot be read is treated the
+  same way. With no usable state directory a schema 2 bundle in a pinned or `--device` flow
+  refuses and in a development `--image` flow warns (a schema 1 bundle never looks at the
+  floor). The floor protects against a stale bundle, not against someone who controls your
+  account or environment.
+- **The floor belongs to the account that runs the command.** [I] `verify` as a user and `sudo
+  ci-stick flash --device` run as two accounts. A command started with `sudo` normally gets a
+  fresh environment, so `CI_STICK_STATE_DIR` and `XDG_STATE_HOME` do not reach it and `HOME`
+  may be root's: the two commands then keep two separate floors, and a floor raised by one
+  does not protect the other. Where `HOME` is kept instead, root creates `floors.json` in the
+  user's directory and the user's next run stops with a permission error that names the file.
+  The flag does survive `sudo`, so name one directory with it and run every command that
+  needs the floor, as the same account, with that directory: `sudo ci-stick --state-dir <dir>
+  verify ...` and `sudo ci-stick --state-dir <dir> flash ... --device ...`. UNKNOWN: how the
+  `sudo` of Ubuntu 26.04 treats `HOME` was not checked; the flag works whichever way it does.
+- **A floor raised by mistake.** [I] If a candidate that was not meant to be accepted was
+  verified on the release machine, the floor it raised is undone by moving `floors.json` away,
+  which forgets every floor: an older bundle is accepted again until a verification records a
+  new one. The file is JSON
+  (`ci-stick trust show` lists what it holds), so the entry of one `id` can also be edited by
+  hand; an invalid file stops every command. For rehearsals use a throw-away `--state-dir`.
 - **Fail closed.** `verify` checks the signature first. If it is missing, malformed or
   wrong, the tool stops without hashing anything and without reporting the manifest's
   claims as trusted. `--allow-unsigned` must be passed explicitly and prints a loud
@@ -290,8 +316,9 @@ it fails.
    required. `--allow-unsigned` is accepted only for `--image` targets and refused with
    `--device`. A schema 2 bundle must also be unexpired and not below the sequence floor
    (see [Bundle format and trust model](#bundle-format-and-trust-model)); a `--device`
-   write needs a usable state directory for the floor. A failed verification exits 1 and
-   writes nothing. The floor is recorded only after the stick was written and read back.
+   write of a schema 2 bundle needs a usable state directory for the floor. A failed
+   verification exits 1 and writes nothing. The floor is recorded only after the stick was
+   written and read back.
 2. **Plan.** Resolve the target, compute the layout for its size (not the size the bundle
    was locked for, though the policy must match), pick the `boot-image` and the
    `bootloader`, and check that the image fits its slot. `--dry-run` prints the target's
