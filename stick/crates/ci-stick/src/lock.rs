@@ -33,6 +33,14 @@
 //! `created_at` is taken from `--created-at`/`SOURCE_DATE_EPOCH` when given, otherwise
 //! carried over from the existing `bundle.json` when nothing else changed. Re-running
 //! `lock` on an unchanged tree therefore rewrites byte-identical output.
+//!
+//! Schema 2 (`sequence` and `expires_at`) is opt-in: `--sequence` or `--valid-days` asks for
+//! it, and a `bundle.json` that is already schema 2 stays schema 2. Without either option a
+//! new bundle is schema 1, exactly as before. For schema 2 the same rule holds: nothing is
+//! read from the wall clock except the default `created_at` of a bundle that changed, and
+//! `expires_at` is `created_at` plus `--valid-days` (default 365), so the same inputs give
+//! the same bytes. A bundle that changed gets the previous `sequence` plus one unless
+//! `--sequence` says otherwise; the release pipeline is the one that assigns real numbers.
 
 use std::fs;
 use std::io;
@@ -44,12 +52,15 @@ use crate::hashing::hash_file;
 use crate::layout::{self, LayoutPlan};
 use crate::manifest::{
     Artifact, ArtifactKind, BootChain, BootloaderRole, Bundle, ModelPack, Platform, BUNDLE_FILE,
-    SCHEMA_VERSION, SIGNATURE_FILE,
+    SCHEMA_V1, SCHEMA_V2, SIGNATURE_FILE,
 };
 use crate::packs::unique_models_bytes;
 use crate::paths::to_manifest_path;
 use crate::progress::Progress;
-use crate::timefmt::now_rfc3339;
+use crate::timefmt::{now_rfc3339, parse_rfc3339_utc, plus_days_rfc3339};
+
+/// How long a schema 2 bundle is valid when `--valid-days` is not given.
+pub const DEFAULT_VALID_DAYS: u32 = 365;
 
 #[derive(Debug, Default, Clone)]
 pub struct LockOptions {
@@ -61,6 +72,12 @@ pub struct LockOptions {
     pub device_bytes: Option<u64>,
     /// Fixed timestamp (e.g. from `SOURCE_DATE_EPOCH`).
     pub created_at: Option<String>,
+    /// `--sequence`: write schema 2 with this release counter. Without it a changed schema 2
+    /// bundle gets the previous sequence plus one (1 for a new one).
+    pub sequence: Option<u64>,
+    /// `--valid-days`: write schema 2 whose `expires_at` is `created_at` plus this many days
+    /// (default [`DEFAULT_VALID_DAYS`]).
+    pub valid_days: Option<u32>,
 }
 
 #[derive(Debug)]
@@ -235,27 +252,24 @@ pub fn lock(
     }
     progress.finish();
 
+    let schema_2 = opts.sequence.is_some()
+        || opts.valid_days.is_some()
+        || existing
+            .as_ref()
+            .is_some_and(|b| b.schema_version == SCHEMA_V2);
     let mut bundle = Bundle {
-        schema_version: SCHEMA_VERSION,
+        schema_version: if schema_2 { SCHEMA_V2 } else { SCHEMA_V1 },
         id,
         version,
         created_at: String::new(),
+        sequence: None,
+        expires_at: None,
         artifacts,
         model_packs,
         layout,
     };
-    bundle.created_at = match (&opts.created_at, &existing) {
-        (Some(ts), _) => ts.clone(),
-        (None, Some(old))
-            if Bundle {
-                created_at: old.created_at.clone(),
-                ..bundle.clone()
-            } == *old =>
-        {
-            old.created_at.clone()
-        }
-        _ => now_rfc3339(),
-    };
+    let mut warnings = Vec::new();
+    stamp(&mut bundle, opts, existing.as_ref(), &mut warnings)?;
 
     let problems = bundle.validate();
     if !problems.is_empty() {
@@ -265,7 +279,6 @@ pub fn lock(
         );
     }
 
-    let mut warnings = Vec::new();
     let packs_bytes = unique_models_bytes(&bundle.model_packs);
     if packs_bytes > bundle.layout.cache_bytes() {
         warnings.push(format!(
@@ -292,6 +305,75 @@ pub fn lock(
         stale_signature,
         warnings,
     })
+}
+
+/// `created_at` plus `days`, as `expires_at`.
+fn expires_at_for(created_at: &str, days: u32) -> anyhow::Result<String> {
+    if parse_rfc3339_utc(created_at).is_none() {
+        bail!("created_at {created_at:?} is not a real RFC 3339 UTC instant, so expires_at cannot be derived from it");
+    }
+    plus_days_rfc3339(created_at, days)
+        .with_context(|| format!("created_at {created_at} plus {days} days is past the year 9999"))
+}
+
+/// Fill in `created_at` and, for schema 2, `sequence` and `expires_at`.
+///
+/// If the existing `bundle.json` would come out byte for byte (everything carried over, the
+/// options agreeing with it), it is kept as it is. Otherwise this is a new release: a fresh
+/// `created_at`, the next sequence, and an expiry counted from that `created_at`.
+fn stamp(
+    bundle: &mut Bundle,
+    opts: &LockOptions,
+    existing: Option<&Bundle>,
+    warnings: &mut Vec<String>,
+) -> anyhow::Result<()> {
+    let schema_2 = bundle.schema_version == SCHEMA_V2;
+    let days = opts.valid_days.unwrap_or(DEFAULT_VALID_DAYS);
+
+    if let Some(old) = existing {
+        let mut same = bundle.clone();
+        same.created_at = opts
+            .created_at
+            .clone()
+            .unwrap_or_else(|| old.created_at.clone());
+        if schema_2 {
+            same.sequence = opts.sequence.or(old.sequence);
+            same.expires_at = match &old.expires_at {
+                Some(e) if opts.valid_days.is_none() && same.created_at == old.created_at => {
+                    Some(e.clone())
+                }
+                _ => Some(expires_at_for(&same.created_at, days)?),
+            };
+        }
+        if same == *old {
+            *bundle = same;
+            return Ok(());
+        }
+    }
+
+    bundle.created_at = opts.created_at.clone().unwrap_or_else(now_rfc3339);
+    if schema_2 {
+        let previous = existing.and_then(|old| old.sequence);
+        let sequence = match (opts.sequence, previous) {
+            (Some(n), Some(p)) => {
+                if n <= p {
+                    warnings.push(format!(
+                        "--sequence {n} is not greater than the previous bundle.json's {p}: a \
+                         machine that already accepted sequence {p} will refuse this bundle"
+                    ));
+                }
+                n
+            }
+            (Some(n), None) => n,
+            (None, Some(p)) => p
+                .checked_add(1)
+                .context("the previous sequence cannot be increased")?,
+            (None, None) => 1,
+        };
+        bundle.sequence = Some(sequence);
+        bundle.expires_at = Some(expires_at_for(&bundle.created_at, days)?);
+    }
+    Ok(())
 }
 
 /// Write via a temp file + rename so a crash never leaves a half-written manifest.
@@ -329,6 +411,8 @@ mod tests {
             packs: None,
             device_bytes: Some(256_000_000_000),
             created_at: None,
+            sequence: None,
+            valid_days: None,
         }
     }
 
@@ -487,6 +571,214 @@ mod tests {
         )
         .unwrap_err();
         assert!(format!("{err:#}").contains("--id"), "{err:#}");
+    }
+
+    fn at(created: &str) -> Option<String> {
+        Some(created.to_string())
+    }
+
+    #[test]
+    fn schema_2_is_opt_in() {
+        let dir = staging();
+        let out = lock(dir.path(), &opts(), &mut Progress::disabled()).unwrap();
+        assert_eq!(out.bundle.schema_version, SCHEMA_V1);
+        assert_eq!((out.bundle.sequence, out.bundle.expires_at), (None, None));
+        let text = fs::read_to_string(dir.path().join(BUNDLE_FILE)).unwrap();
+        assert!(
+            !text.contains("sequence") && !text.contains("expires_at"),
+            "{text}"
+        );
+
+        for ask in [
+            LockOptions {
+                sequence: Some(4),
+                ..opts()
+            },
+            LockOptions {
+                valid_days: Some(30),
+                ..opts()
+            },
+        ] {
+            let other = staging();
+            let out = lock(other.path(), &ask, &mut Progress::disabled()).unwrap();
+            assert_eq!(out.bundle.schema_version, SCHEMA_V2);
+            assert!(
+                out.bundle.validate().is_empty(),
+                "{:?}",
+                out.bundle.validate()
+            );
+        }
+    }
+
+    #[test]
+    fn expiry_counts_from_created_at_and_never_from_the_clock() {
+        // The wall clock is years away from 2020, so a derivation that read it could not give
+        // these exact strings. 2020 is a leap year.
+        let dir = staging();
+        let out = lock(
+            dir.path(),
+            &LockOptions {
+                sequence: Some(2),
+                valid_days: Some(30),
+                created_at: at("2020-01-01T00:00:00Z"),
+                ..opts()
+            },
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        assert_eq!(out.bundle.created_at, "2020-01-01T00:00:00Z");
+        assert_eq!(out.bundle.sequence, Some(2));
+        assert_eq!(
+            out.bundle.expires_at.as_deref(),
+            Some("2020-01-31T00:00:00Z")
+        );
+
+        let default_window = staging();
+        let out = lock(
+            default_window.path(),
+            &LockOptions {
+                sequence: Some(1),
+                created_at: at("2020-01-01T00:00:00Z"),
+                ..opts()
+            },
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        assert_eq!(DEFAULT_VALID_DAYS, 365);
+        assert_eq!(
+            out.bundle.expires_at.as_deref(),
+            Some("2020-12-31T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn schema_2_output_is_reproducible() {
+        let a = staging();
+        let b = staging();
+        let fixed = LockOptions {
+            sequence: Some(7),
+            valid_days: Some(90),
+            created_at: at("2026-01-01T00:00:00Z"),
+            ..opts()
+        };
+        lock(a.path(), &fixed, &mut Progress::disabled()).unwrap();
+        lock(b.path(), &fixed, &mut Progress::disabled()).unwrap();
+        let bytes = fs::read(a.path().join(BUNDLE_FILE)).unwrap();
+        assert_eq!(bytes, fs::read(b.path().join(BUNDLE_FILE)).unwrap());
+
+        // The same inputs again, and no inputs at all, rewrite nothing.
+        for again in [fixed.clone(), LockOptions::default()] {
+            let out = lock(a.path(), &again, &mut Progress::disabled()).unwrap();
+            assert!(!out.changed, "{again:?}");
+            assert_eq!(fs::read(a.path().join(BUNDLE_FILE)).unwrap(), bytes);
+            assert_eq!(out.bundle.sequence, Some(7));
+        }
+    }
+
+    #[test]
+    fn a_changed_schema_2_bundle_gets_the_next_sequence() {
+        let dir = staging();
+        lock(
+            dir.path(),
+            &LockOptions {
+                sequence: Some(1),
+                created_at: at("2026-01-01T00:00:00Z"),
+                ..opts()
+            },
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        fs::write(dir.path().join("docs/a.txt"), b"changed").unwrap();
+        let out = lock(
+            dir.path(),
+            &LockOptions {
+                created_at: at("2026-02-01T00:00:00Z"),
+                ..LockOptions::default()
+            },
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        assert!(out.changed);
+        assert_eq!(out.bundle.schema_version, SCHEMA_V2);
+        assert_eq!(out.bundle.sequence, Some(2));
+        assert_eq!(out.bundle.created_at, "2026-02-01T00:00:00Z");
+        assert_eq!(
+            out.bundle.expires_at.as_deref(),
+            Some("2027-02-01T00:00:00Z")
+        );
+        assert!(out.warnings.is_empty(), "{:?}", out.warnings);
+    }
+
+    #[test]
+    fn a_sequence_that_does_not_increase_is_written_with_a_warning() {
+        let dir = staging();
+        let first = LockOptions {
+            sequence: Some(2),
+            created_at: at("2026-01-01T00:00:00Z"),
+            ..opts()
+        };
+        lock(dir.path(), &first, &mut Progress::disabled()).unwrap();
+        let out = lock(
+            dir.path(),
+            &LockOptions {
+                sequence: Some(1),
+                created_at: at("2026-01-02T00:00:00Z"),
+                ..LockOptions::default()
+            },
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        assert_eq!(out.bundle.sequence, Some(1));
+        assert!(
+            out.warnings.iter().any(|w| w.contains("not greater than")),
+            "{:?}",
+            out.warnings
+        );
+    }
+
+    #[test]
+    fn schema_1_becomes_schema_2_only_when_asked() {
+        let dir = staging();
+        lock(dir.path(), &opts(), &mut Progress::disabled()).unwrap();
+        let out = lock(
+            dir.path(),
+            &LockOptions {
+                sequence: Some(1),
+                created_at: at("2026-03-01T00:00:00Z"),
+                ..LockOptions::default()
+            },
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        assert!(out.changed);
+        assert_eq!(out.bundle.schema_version, SCHEMA_V2);
+        assert_eq!(out.bundle.sequence, Some(1));
+    }
+
+    #[test]
+    fn an_empty_or_out_of_range_window_is_refused() {
+        for (created, days) in [
+            ("2026-01-01T00:00:00Z", 0),
+            ("9999-12-31T00:00:00Z", 1),
+            ("2026-13-01T00:00:00Z", 30),
+        ] {
+            let dir = staging();
+            let err = lock(
+                dir.path(),
+                &LockOptions {
+                    sequence: Some(1),
+                    valid_days: Some(days),
+                    created_at: at(created),
+                    ..opts()
+                },
+                &mut Progress::disabled(),
+            )
+            .unwrap_err();
+            assert!(
+                !dir.path().join(BUNDLE_FILE).exists(),
+                "{created} + {days}: {err:#}"
+            );
+        }
     }
 
     #[cfg(unix)]

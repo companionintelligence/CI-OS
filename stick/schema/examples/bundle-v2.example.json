@@ -1,0 +1,229 @@
+{
+  "schema_version": 2,
+  "id": "companion-stick-ubuntu",
+  "version": "2026.10.0",
+  "created_at": "2026-10-30T12:00:00Z",
+  "sequence": 3,
+  "expires_at": "2027-10-30T12:00:00Z",
+  "artifacts": [
+    {
+      "path": "boot/companion-ubuntu-26.04-x86_64.img",
+      "kind": "boot-image",
+      "sha256": "deb055d836e44a1dcf0317b0cacac2dbdd36301f82abf787f7849d3f5b916750",
+      "size": 5
+    },
+    {
+      "path": "docs/README.txt",
+      "kind": "doc",
+      "sha256": "00d75b5176b48ccc71d91bcc1d7b90fc2820429b1629b77fd1d5f4c5dcee4f6d",
+      "size": 7
+    },
+    {
+      "path": "efi/grubx64.efi",
+      "kind": "bootloader",
+      "sha256": "739a697b30834668d1664d1130c1ad94bb7a790fce323e3fe311f2db42187ad7",
+      "size": 14,
+      "platforms": [
+        "x86_64-uefi"
+      ],
+      "bootloader_role": "grub"
+    },
+    {
+      "path": "efi/mmx64.efi",
+      "kind": "bootloader",
+      "sha256": "e91ebd84ab800126e5907640e569047f7a72fb74d9b7cc10111d61d5ece6ec83",
+      "size": 12,
+      "platforms": [
+        "x86_64-uefi"
+      ],
+      "bootloader_role": "mok-manager"
+    },
+    {
+      "path": "efi/shimx64.efi",
+      "kind": "bootloader",
+      "sha256": "f8a96b9f9c38f3705754d9e227a59fa2395e10ad891b72d66e4b451f62af07bc",
+      "size": 14,
+      "platforms": [
+        "x86_64-uefi"
+      ],
+      "bootloader_role": "shim"
+    },
+    {
+      "path": "installers/macos-arm64/ci-stick-launcher.pkg",
+      "kind": "installer",
+      "sha256": "f238df2ae16f95a3461bb262b8db52df5808bb03a6f2d85471442835bb31c65b",
+      "size": 4,
+      "platforms": [
+        "macos-arm64"
+      ]
+    },
+    {
+      "path": "installers/windows-x86_64/ci-stick-launcher.exe",
+      "kind": "installer",
+      "sha256": "cd47d6ce8c25e5c92422bfc6e63ae848644460075916584426db7355a2d128a1",
+      "size": 4,
+      "platforms": [
+        "windows-x86_64"
+      ]
+    },
+    {
+      "path": "models/blobs/sha256-0123",
+      "kind": "model-blob",
+      "sha256": "bc103b4a84971ef6459b294a2b98568a2bfb72cded09d4acd1e16366a401f95b",
+      "size": 5
+    },
+    {
+      "path": "oci/ci-hub/index.json",
+      "kind": "oci-image",
+      "sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+      "size": 3
+    },
+    {
+      "path": "tools/linux-x86_64/ci-stick",
+      "kind": "tool",
+      "sha256": "47de97e16916cd2d895d58e6406cf39c7aec6f4b29a114d53f1d1d8a652c625b",
+      "size": 4,
+      "platforms": [
+        "linux-x86_64"
+      ]
+    }
+  ],
+  "model_packs": [
+    {
+      "name": "starter",
+      "description": "Small, fast defaults for any 8 GB machine",
+      "models": [
+        {
+          "name": "nomic-embed-text",
+          "tag": "latest",
+          "digest": null,
+          "quantization": "F16",
+          "license": "Apache-2.0",
+          "size_bytes": 274000000,
+          "min_ram_gb": 2,
+          "min_vram_gb": null,
+          "platforms": [
+            "linux-x86_64",
+            "linux-arm64",
+            "macos-arm64",
+            "macos-x86_64",
+            "windows-x86_64"
+          ]
+        },
+        {
+          "name": "gemma3",
+          "tag": "1b",
+          "digest": null,
+          "quantization": "Q4_K_M",
+          "license": "Gemma Terms of Use",
+          "size_bytes": 815000000,
+          "min_ram_gb": 4,
+          "min_vram_gb": null,
+          "platforms": [
+            "linux-x86_64",
+            "linux-arm64",
+            "macos-arm64",
+            "macos-x86_64",
+            "windows-x86_64"
+          ]
+        },
+        {
+          "name": "llama3.2",
+          "tag": "3b",
+          "digest": null,
+          "quantization": "Q4_K_M",
+          "license": "Llama 3.2 Community License",
+          "size_bytes": 2000000000,
+          "min_ram_gb": 8,
+          "min_vram_gb": null,
+          "platforms": [
+            "linux-x86_64",
+            "linux-arm64",
+            "macos-arm64",
+            "macos-x86_64",
+            "windows-x86_64"
+          ]
+        },
+        {
+          "name": "qwen3",
+          "tag": "4b",
+          "digest": null,
+          "quantization": "Q4_K_M",
+          "license": "Apache-2.0",
+          "size_bytes": 2500000000,
+          "min_ram_gb": 8,
+          "min_vram_gb": null,
+          "platforms": [
+            "linux-x86_64",
+            "linux-arm64",
+            "macos-arm64",
+            "macos-x86_64",
+            "windows-x86_64"
+          ]
+        }
+      ]
+    }
+  ],
+  "layout": {
+    "policy": "ci-stick-layout/1",
+    "table": "gpt",
+    "device_bytes": 512000000000,
+    "usable_bytes": 511997640704,
+    "partitions": [
+      {
+        "index": 1,
+        "label": "CI-EFI",
+        "role": "esp",
+        "filesystem": "vfat",
+        "gpt_type": "C12A7328-F81F-11D2-BA4B-00A0C93EC93B",
+        "start_bytes": 1048576,
+        "size_bytes": 2147483648
+      },
+      {
+        "index": 2,
+        "label": "CI-SHARED",
+        "role": "shared",
+        "filesystem": "exfat",
+        "gpt_type": "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7",
+        "start_bytes": 2148532224,
+        "size_bytes": 31138512896
+      },
+      {
+        "index": 3,
+        "label": "CI-BOOT-A",
+        "role": "boot-a",
+        "filesystem": "raw-image",
+        "gpt_type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
+        "start_bytes": 33287045120,
+        "size_bytes": 50465865728
+      },
+      {
+        "index": 4,
+        "label": "CI-BOOT-B",
+        "role": "boot-b",
+        "filesystem": "raw-image",
+        "gpt_type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
+        "start_bytes": 83752910848,
+        "size_bytes": 50465865728
+      },
+      {
+        "index": 5,
+        "label": "CI-CACHE",
+        "role": "cache",
+        "filesystem": "exfat",
+        "gpt_type": "EBD0A0A2-B9E5-4433-87C0-68B6B72699C7",
+        "start_bytes": 134218776576,
+        "size_bytes": 326417514496
+      },
+      {
+        "index": 6,
+        "label": "CI-PERSIST",
+        "role": "persist",
+        "filesystem": "ext4",
+        "gpt_type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
+        "start_bytes": 460636291072,
+        "size_bytes": 51362398208
+      }
+    ]
+  }
+}

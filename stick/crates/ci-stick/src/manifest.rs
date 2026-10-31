@@ -8,6 +8,11 @@
 //! The file is signed as raw bytes (see [`crate::signing`]), so the serialisation must be
 //! stable: [`Bundle::to_canonical_json`] emits fields in declaration order, 2-space indented,
 //! with a trailing newline, and `lock` sorts `artifacts` by path.
+//!
+//! Two schema versions exist. Version 1 is the original format. Version 2 adds `sequence`
+//! and `expires_at` (right after `created_at`) so that an old or expired bundle can be
+//! refused (see [`crate::verify`] and [`crate::state`]); both fields are absent from version
+//! 1 and the version 1 bytes are unchanged, so signed version 1 bundles stay valid.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -19,9 +24,14 @@ use serde::{Deserialize, Serialize};
 use crate::hashing::is_sha256_hex;
 use crate::layout::LayoutPlan;
 use crate::paths::validate_rel_path;
-use crate::timefmt::is_rfc3339_utc;
+use crate::timefmt::{is_rfc3339_utc, parse_rfc3339_utc};
 
-pub const SCHEMA_VERSION: u32 = 1;
+/// The original format: no `sequence`, no `expires_at`.
+pub const SCHEMA_V1: u32 = 1;
+/// Adds `sequence` and `expires_at`, both required.
+pub const SCHEMA_V2: u32 = 2;
+/// Every `schema_version` this ci-stick reads; `bundle.schema.json` lists the same values.
+pub const SUPPORTED_SCHEMA_VERSIONS: [u32; 2] = [SCHEMA_V1, SCHEMA_V2];
 pub const BUNDLE_FILE: &str = "bundle.json";
 pub const SIGNATURE_FILE: &str = "bundle.json.sig";
 
@@ -35,6 +45,15 @@ pub struct Bundle {
     pub version: String,
     /// RFC 3339 UTC, second precision.
     pub created_at: String,
+    /// Schema 2 only (required there, forbidden in schema 1): the release counter of this
+    /// bundle `id`, 1 or more, increasing with every release. The release pipeline assigns it.
+    /// A machine that has accepted sequence N refuses a lower one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sequence: Option<u64>,
+    /// Schema 2 only (required there, forbidden in schema 1): RFC 3339 UTC, second precision,
+    /// after `created_at`. From this instant on the bundle is refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
     pub artifacts: Vec<Artifact>,
     pub model_packs: Vec<ModelPack>,
     /// The partition plan this bundle was built for.
@@ -627,6 +646,48 @@ impl Bundle {
         Self::parse(&bytes).with_context(|| format!("parsing {}", path.display()))
     }
 
+    /// `created_at` as Unix seconds, if it is a real instant.
+    pub fn created_unix(&self) -> Option<u64> {
+        parse_rfc3339_utc(&self.created_at)
+    }
+
+    /// `expires_at` as Unix seconds, if present and a real instant.
+    pub fn expires_unix(&self) -> Option<u64> {
+        self.expires_at.as_deref().and_then(parse_rfc3339_utc)
+    }
+
+    /// The schema 2 rules: both fields present, `sequence` 1 or more, `expires_at` a real
+    /// instant after `created_at`.
+    fn validate_freshness(&self, problems: &mut Vec<String>) {
+        match self.sequence {
+            None => problems.push("schema_version 2 requires sequence".into()),
+            Some(0) => problems.push("sequence must be 1 or more".into()),
+            Some(_) => {}
+        }
+        let Some(expires_at) = &self.expires_at else {
+            problems.push("schema_version 2 requires expires_at".into());
+            return;
+        };
+        let Some(expires) = parse_rfc3339_utc(expires_at) else {
+            problems.push(format!(
+                "expires_at {expires_at:?} is not an RFC 3339 UTC instant (YYYY-MM-DDTHH:MM:SSZ)"
+            ));
+            return;
+        };
+        match self.created_unix() {
+            None => problems.push(format!(
+                "created_at {:?} is not a real RFC 3339 UTC instant, so expires_at cannot be \
+                 compared with it",
+                self.created_at
+            )),
+            Some(created) if expires <= created => problems.push(format!(
+                "expires_at {expires_at} is not after created_at {}",
+                self.created_at
+            )),
+            Some(_) => {}
+        }
+    }
+
     /// The boot chain this bundle carries (see [`detect_boot_chain`]).
     pub fn boot_chain(&self) -> Result<Option<BootChain>, String> {
         detect_boot_chain(&self.artifacts)
@@ -651,11 +712,20 @@ impl Bundle {
     /// Semantic validation beyond what serde enforces. Returns every problem found.
     pub fn validate(&self) -> Vec<String> {
         let mut problems = Vec::new();
-        if self.schema_version != SCHEMA_VERSION {
-            problems.push(format!(
-                "unsupported schema_version {} (this ci-stick understands {SCHEMA_VERSION})",
-                self.schema_version
-            ));
+        match self.schema_version {
+            SCHEMA_V1 => {
+                if self.sequence.is_some() || self.expires_at.is_some() {
+                    problems.push(
+                        "sequence and expires_at belong to schema_version 2; schema_version 1 \
+                         does not have them"
+                            .into(),
+                    );
+                }
+            }
+            SCHEMA_V2 => self.validate_freshness(&mut problems),
+            other => problems.push(format!(
+                "unsupported schema_version {other} (this ci-stick understands 1 and 2)"
+            )),
         }
         if !is_identifier(&self.id) {
             problems.push(format!(
@@ -740,10 +810,12 @@ mod tests {
 
     fn sample() -> Bundle {
         Bundle {
-            schema_version: SCHEMA_VERSION,
+            schema_version: SCHEMA_V1,
             id: "companion-stick-ubuntu".into(),
             version: "2026.09.0".into(),
             created_at: "2026-09-28T12:00:00Z".into(),
+            sequence: None,
+            expires_at: None,
             artifacts: vec![Artifact {
                 path: "boot/ci-os.img".into(),
                 kind: ArtifactKind::BootImage,
@@ -790,6 +862,112 @@ mod tests {
         );
         assert!(text.contains("\"kind\": \"boot-image\""));
         assert!(text.ends_with("}\n"));
+    }
+
+    fn sample_v2() -> Bundle {
+        Bundle {
+            schema_version: SCHEMA_V2,
+            sequence: Some(3),
+            expires_at: Some("2027-09-28T12:00:00Z".into()),
+            ..sample()
+        }
+    }
+
+    #[test]
+    fn schema_1_bytes_carry_neither_new_key() {
+        // The two keys are skipped when absent, so a signed schema 1 bundle stays valid and a
+        // re-lock of one rewrites the same bytes.
+        let text = String::from_utf8(sample().to_canonical_json()).unwrap();
+        assert!(!text.contains("sequence"), "{text}");
+        assert!(!text.contains("expires_at"), "{text}");
+    }
+
+    #[test]
+    fn schema_2_round_trips_with_the_new_keys_after_created_at() {
+        let b = sample_v2();
+        assert!(b.validate().is_empty(), "{:?}", b.validate());
+        let bytes = b.to_canonical_json();
+        assert_eq!(Bundle::parse(&bytes).unwrap(), b);
+        let text = String::from_utf8(bytes).unwrap();
+        let at = |key: &str| {
+            text.find(key)
+                .unwrap_or_else(|| panic!("{key} missing:\n{text}"))
+        };
+        assert!(at("\"created_at\"") < at("\"sequence\""));
+        assert!(at("\"sequence\"") < at("\"expires_at\""));
+        assert!(at("\"expires_at\"") < at("\"artifacts\""));
+        assert!(text.contains("\"sequence\": 3,"), "{text}");
+        assert_eq!(b.expires_unix(), Some(1_822_132_800));
+        assert_eq!(b.created_unix(), Some(1_790_596_800));
+    }
+
+    #[test]
+    fn schema_2_rules_and_schema_1_exclusions() {
+        type Mutation = (&'static str, fn(&mut Bundle), &'static str);
+        let cases: Vec<Mutation> = vec![
+            ("no sequence", |b| b.sequence = None, "requires sequence"),
+            (
+                "no expires_at",
+                |b| b.expires_at = None,
+                "requires expires_at",
+            ),
+            ("sequence 0", |b| b.sequence = Some(0), "1 or more"),
+            (
+                "expires_at equal to created_at",
+                |b| b.expires_at = Some(b.created_at.clone()),
+                "is not after created_at",
+            ),
+            (
+                "expires_at before created_at",
+                |b| b.expires_at = Some("2026-09-28T11:59:59Z".into()),
+                "is not after created_at",
+            ),
+            (
+                "expires_at not a timestamp",
+                |b| b.expires_at = Some("next year".into()),
+                "not an RFC 3339 UTC instant",
+            ),
+            (
+                "expires_at on a day that does not exist",
+                |b| b.expires_at = Some("2027-02-30T00:00:00Z".into()),
+                "not an RFC 3339 UTC instant",
+            ),
+            (
+                "created_at on a day that does not exist",
+                |b| b.created_at = "2026-02-30T00:00:00Z".into(),
+                "not a real RFC 3339 UTC instant",
+            ),
+            (
+                "schema 1 with a sequence",
+                |b| {
+                    b.schema_version = SCHEMA_V1;
+                    b.expires_at = None;
+                },
+                "belong to schema_version 2",
+            ),
+            (
+                "schema 1 with an expires_at",
+                |b| {
+                    b.schema_version = SCHEMA_V1;
+                    b.sequence = None;
+                },
+                "belong to schema_version 2",
+            ),
+            (
+                "schema 3",
+                |b| b.schema_version = 3,
+                "unsupported schema_version 3",
+            ),
+        ];
+        for (what, mutate, needle) in cases {
+            let mut b = sample_v2();
+            mutate(&mut b);
+            let problems = b.validate().join("\n");
+            assert!(problems.contains(needle), "{what}: {problems}");
+        }
+        // A schema 1 bundle with neither key and a schema 2 bundle with both are the valid shapes.
+        assert!(sample().validate().is_empty());
+        assert!(sample_v2().validate().is_empty());
     }
 
     #[test]
