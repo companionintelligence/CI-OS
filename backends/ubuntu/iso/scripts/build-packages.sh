@@ -47,8 +47,9 @@ for pkg_dir in "$PACKAGES_DIR"/*/; do
         fi
     done
     
-    # Build the package
-    dpkg-deb --build "$pkg_dir" "$OUTPUT_DIR"
+    # Build the package. --root-owner-group: the files are root:root in the package even when a regular user builds it
+    # (otherwise the builder's uid would be baked into files that root installs and runs).
+    dpkg-deb --root-owner-group --build "$pkg_dir" "$OUTPUT_DIR"
     
     echo "[+] Built: $pkg_name"
 done

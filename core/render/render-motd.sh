@@ -38,6 +38,8 @@ fi
 # system greet alike. It is words only: the block-letter art that stood here spelled a retired name, and check-repo.sh
 # refuses block art in the sources. Keep the two in step by hand.
 rm -f "$MOTD_DIR/00-ci-header"
+# A system without update-motd (Arch, for one) has no /etc/update-motd.d: create it instead of failing at the first write.
+mkdir -p "$MOTD_DIR"
 cat > "$MOTD_DIR/00-ci-os-header" <<'EOF'
 #!/bin/sh
 cat << 'MOTD'
@@ -53,7 +55,9 @@ cat > "$MOTD_DIR/10-ci-sysinfo" <<'EOF'
 #!/bin/bash
 echo "System information as of $(date)"
 echo ""
-free -h | awk 'NR==2 {printf "  Memory usage: %s / %s (%.0f%%)\n", $3, $2, ($3/$2)*100}'
+# From /proc/meminfo (kB), used = total - available. Not from free -h, whose columns each carry their own unit (Mi, Gi).
+awk '/^MemTotal:/ {t = $2} /^MemAvailable:/ {a = $2}
+  END {if (t > 0) {u = t - a; printf "  Memory usage: %.1f GiB / %.1f GiB (%.0f%%)\n", u / 1048576, t / 1048576, u * 100 / t}}' /proc/meminfo
 df -h / | awk 'NR==2 {printf "  Disk usage:   %s / %s (%s)\n", $3, $2, $5}'
 uptime | awk -F'load average:' '{print "  Load average: " $2}'
 echo ""

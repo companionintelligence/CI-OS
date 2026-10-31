@@ -112,6 +112,10 @@ echo
 echo "== wiring in provision.sh"
 eq "the start is called in the core tier right after deploy_ci_hub" "$(grep -n -A1 '^        deploy_ci_hub$' "$PROV" | grep -c 'start_companion_hub')" "1"
 eq "nothing in the start function asks for a registry credential" "$(sed -n '/^start_companion_hub() {/,/^}/p' "$PROV" | grep -c -i -E 'REGISTRY_(USERNAME|PASSWORD)|docker login')" "0"
+# --step=ci-hub (ci-os-hub-start.sh after pairing) must end the run: the ROCm, boot-parameter, LACT and power-mode blocks
+# that follow main() belong to a full run. A return from main() would fall through into them.
+step_block="$(sed -n '/if \[\[ "\$STEP_ONLY" == "ci-hub" ]]; then/,/^    fi$/p' "$PROV" | grep -v '^ *#' | sed 's/^ *//' | tr '\n' ' ')"
+eq "--step=ci-hub deploys the Hub, then exits before the blocks after main()" "$step_block" 'if [[ "$STEP_ONLY" == "ci-hub" ]]; then deploy_ci_hub exit 0 fi '
 
 echo
 echo "== Summary: $PASS passed, $FAIL failed"

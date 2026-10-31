@@ -254,7 +254,8 @@ treat everything else in the restored directory as untested on this tree.
 Only the owner adds or restores a target. The steps, in order:
 
 1. **Decision.** The owner records it. Update the two tables in section 1 and section 3 of this page, the README edition table,
-   `CLAUDE.md`, `AGENTS.md`, `ANTIGRAVITY.md`, `.github/copilot-instructions.md` and `opencode.json`, in one change.
+   `CLAUDE.md`, `AGENTS.md`, `ANTIGRAVITY.md` and `.github/copilot-instructions.md`, in one change. (`opencode.json` holds no target
+   text: it points OpenCode at `CLAUDE.md` and `AGENTS.md`.)
 2. **Backend.** Create `backends/<name>/` (restore it from the tag for a retired one, section 7). It must meet the per-backend contract in
    [`multi-distro-design.md`](multi-distro-design.md#10-per-backend-contract), which has ten obligations: the six of the design (a
    manifest consumer through a role map in `core/manifest/role-map/<pkgmgr>.yaml`, a theme-render consumer, an identity writer, a declared

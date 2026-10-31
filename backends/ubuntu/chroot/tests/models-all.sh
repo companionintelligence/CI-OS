@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #=============================================================================
 # Runs the model-tooling tests: models-gate.sh, models-view.sh, models-lib.sh, models-env.sh, models-units.sh, and with --mutation also
-# models-mutation.sh (110 broken copies of the code, one rule each; every one must make its test fail; this takes a while).
+# models-mutation.sh (111 broken copies of the code, one rule each; every one must make its test fail; this takes a while).
 #
 #   bash backends/ubuntu/chroot/tests/models-all.sh [--mutation]
 #

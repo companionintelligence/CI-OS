@@ -107,6 +107,7 @@ mutant "reader: the larger of two needs does not win" gate gpu 'if ($4 + 0 > ram
 mutant "detector: rocm-smi plain output is lost"    gate gpu 'NR == 1 && index($0, ",") > 0 &&' 'NR == 1 &&'
 mutant "detector: non-AMD cards counted from sysfs" gate gpu '[[ "$(cat "${f%/mem_info_vram_total}/vendor" 2>/dev/null)" == 0x1002 ]] || continue' ':'
 mutant "detector: nvidia-smi garbage lines counted" gate gpu "'\$1 ~ /^[0-9]+\$/ { s += \$1 }" "'{ s += \$1 }"
+mutant "detector: rocminfo piped into grep -q again (pipefail)" gate gpu "grep -qiE 'gfx1151|8060S|Strix Halo|RYZEN AI MAX' <<<\"\$out\"" "rocminfo 2>/dev/null | grep -qiE 'gfx1151|8060S|Strix Halo|RYZEN AI MAX'"
 
 echo "== the view builder and lock reader (core/lib/ci-os-models.sh) - guarded by models-view.sh"
 mutant "view: '..' components are allowed"          view models "case \"\$c\" in ''|.|..) return 1 ;; esac" "case \"\$c\" in '') return 1 ;; esac"

@@ -55,10 +55,28 @@ backends/ubuntu/iso/output/
 
 # Package build artifacts
 *.deb
+*.rpm
 *.dsc
 *.changes
 *.buildinfo
 backends/*/headless-package/.pkgroot/
+
+# Disk and VM images
+*.img
+*.qcow2
+
+# Secrets: environment files (the .env.example template is the exception), keys and certificates.
+# Tracked configuration such as core/manifest/tier-b-pins.env is not matched; commit templates only, never real values.
+.env
+.env.*
+!.env.example
+hub.env
+*-env.txt
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
 
 # Repository artifacts
 /srv/

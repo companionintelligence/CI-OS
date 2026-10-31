@@ -224,6 +224,31 @@ class PostinstBehaviourTests(unittest.TestCase):
             self.assertIn('systemctl disable nginx.service', guarded.group(1))
 
 
+class MaintainerScriptTests(unittest.TestCase):
+    """KILL: the deb's maintainer scripts stop the package's own units and never kill processes by name.
+
+    A name pattern such as "hostapd" or "dnsmasq" also matches the daemons of libvirt, NetworkManager or the administrator,
+    and the postinst and the prerm run on every upgrade."""
+
+    DEBIAN = BACKENDS / 'ubuntu' / 'headless-package' / 'DEBIAN'
+    KILL_BY_NAME = re.compile(r'(?:^|[\s;&|(`])(?:pkill|killall)\b')
+    UNITS = ('setup-backend', 'setup-network-monitor', 'hostapd-setup', 'dnsmasq-setup')
+
+    def test_no_maintainer_script_kills_by_process_name(self):
+        for name in ('preinst', 'postinst', 'prerm', 'postrm'):
+            path = self.DEBIAN / name
+            if path.is_file():
+                with self.subTest(script=name):
+                    self.assertIsNone(self.KILL_BY_NAME.search(code_text(path)), f'{name} kills processes by name')
+
+    def test_the_package_s_units_are_still_stopped_before_an_upgrade_or_a_removal(self):
+        for name in ('postinst', 'prerm'):
+            text = code_text(self.DEBIAN / name)
+            for unit in self.UNITS:
+                with self.subTest(script=name, unit=unit):
+                    self.assertRegex(text, rf'systemctl stop {re.escape(unit)}\.service')
+
+
 class PortalHostTests(unittest.TestCase):
     """HOST: nothing an image ships names a Portal host that has no DNS record.
 

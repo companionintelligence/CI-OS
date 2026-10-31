@@ -3,8 +3,9 @@
 > **Private & Confidential. Property of Lifescope Inc. Do not distribute.**
 
 `core/lib/ci-hub.sh` is the only way the CI Hub Service gets onto an appliance. It is a Docker Compose deploy of the `ci-os-hub` container
-and its database, queue and reverse proxy, pulled from a private registry. It takes secrets, publishes ports on every interface and has no
-other documentation, so this page is its runbook. Everything below was read from `core/lib/ci-hub.sh`, `core/lib/generate-tunnel-certs.sh`
+and its database, queue and reverse proxy, pulled from a private registry. It takes secrets, publishes the Hub and the reverse proxy on every
+interface (the database and the queue on 127.0.0.1 only) and has no other documentation, so this page is its runbook. Everything below was
+read from `core/lib/ci-hub.sh`, `core/lib/generate-tunnel-certs.sh`
 and `pull-dev-manual.sh` (**[V]** for what the code does); none of it was run for this page, so what happens on a real registry is **[N]**.
 The name is historical (the script was `pull-dev.sh`); the architecture note on the three things called "Hub" is in
 [`multi-distro-design.md`](../architecture/multi-distro-design.md#8-naming-three-things-called-hub).
@@ -55,19 +56,19 @@ Everything is under `$HOME/ci-os-hub-staging` of the user who runs it (`INSTALL_
 
 | Path | Content |
 |---|---|
-| `.env` | the Hub's configuration, including `JWT_SECRET`, `CI_CLOUD_API_KEY` and `DEVICE_ID`. The previous file is copied to `.env.bak` first, and `JWT_SECRET` is **reused** from it, so a re-run does not log everyone out; a first install gets `openssl rand -hex 32`. **The script never sets a mode on `.env`** (it is created with your umask) |
+| `.env` | the Hub's configuration, including `JWT_SECRET`, `CI_CLOUD_API_KEY` and `DEVICE_ID`. The previous file is copied to `.env.bak` first, and `JWT_SECRET` is **reused** from it, so a re-run does not log everyone out; a first install gets `openssl rand -hex 32`. `.env` and `.env.bak` are written owner-only (mode 0600, also when an older run left them wider) |
 | `docker-compose.yml` | five services, below |
 | `data/state/traefik/config/traefik.yml`, `dynamic/dynamic.yml`, `acme_storage.json` (mode 0600), `tls/` | the reverse proxy's configuration |
 | `data/{media,repos,apps,logs,user-config,backups}`, `app-data/` | the Hub's data directories |
 | `tunnel/token` (mode 0600), `tunnel/certs/custom-ca.pem`, `tunnel/config.yml` | only when `TUNNEL_TOKEN` is set |
-| `~/.docker/config.json` | an `auths` entry for the registry with the credentials as base64, and **`credsStore` deleted** so that the plain entry is used (the script says it bypasses a registry 404). Needs `jq` |
+| `~/.docker/config.json` | an `auths` entry for the registry with the credentials as base64, and **`credsStore` deleted** so that the plain entry is used (the script says it bypasses a registry 404). Written owner-only (mode 0600). Needs `jq` |
 
 | Service | Image | Published ports |
 |---|---|---|
-| `ci-hub-db` | `postgres:14` | 6543 |
-| `ci-os-hub-queue` | `rabbitmq:4-alpine` | 5001 (to 5672) |
+| `ci-hub-db` | `postgres:14` | 6543, on 127.0.0.1 only |
+| `ci-os-hub-queue` | `rabbitmq:4-alpine` | 5001 (to 5672), on 127.0.0.1 only |
 | `ci-os-hub` | `hub.ci.computer/ci-os-hub:latest` | 5002 (to 3000) |
-| `traefik` | `traefik:v3.6.7`, with `/var/run/docker.sock` mounted read-only | 18080 (80), 18443 (443), 18081 (8080, the dashboard; `api.insecure: true`) |
+| `traefik` | `traefik:v3.6.7`, with `/var/run/docker.sock` mounted read-only | 18080 (80), 18443 (443). The API's insecure mode is off and its port 8080 is not published |
 | `cloudflared` (profile `tunnel`) | `cloudflare/cloudflared:latest`, `tunnel run --token-file` | none |
 
 The sequence is: check `docker` and `docker compose`; create the directories; write the tunnel token and certificate directory if there is a
@@ -98,12 +99,14 @@ shred -u ~/ci-os-hub-staging/.env ~/ci-os-hub-staging/.env.bak          # the se
 ## Security notes (read before running it on a machine that is on a network you do not control)
 
 1. **Registry credentials are stored in `~/.docker/config.json` in base64** (not encrypted), and any process of that user can read them.
-2. **`.env` has `JWT_SECRET`, the API key and fixed default credentials for the database and the queue, and is created with your umask.**
-   Run `chmod 600 ~/ci-os-hub-staging/.env ~/ci-os-hub-staging/.env.bak` after the first deploy. The repository review of 2026-10-12 found a
+2. **`.env` has `JWT_SECRET`, the API key and fixed default credentials for the database and the queue.** The script writes it, and
+   `.env.bak`, owner-only (mode 0600). The Hub container also reads `.env` through a read-only bind mount; that it can still do so at
+   mode 0600 is **[N]**: no deploy was run. The repository review of 2026-10-12 found a
    deployed Hub keeping a leaked `JWT_SECRET` in its `.env` (KI-05, finding M7).
-3. **Five ports are published on all interfaces**: the database (6543), the queue (5001), the Hub (5002) and Traefik with its dashboard
-   (18080, 18443, 18081). Neither edition installs a host firewall (`cachyos-backend.md`, risk R7b), so they are reachable from the LAN. The
-   database and the queue use the script's fixed defaults, not secrets of the device.
+3. **Three ports are published on all interfaces**: the Hub (5002) and Traefik's two entrypoints (18080, 18443). The database (6543) and
+   the queue (5001) are published on 127.0.0.1 only, and Traefik's API runs without its insecure mode, with port 8080 not published.
+   Neither edition installs a host firewall (`cachyos-backend.md`, risk R7b), so the three are reachable from the LAN. The database and the
+   queue use the script's fixed defaults, not secrets of the device.
 4. **Traefik has the Docker socket.** A read-only mount of the socket still allows API calls that can start containers.
 5. **Three images are not pinned by digest** (`postgres:14`, `rabbitmq:4-alpine`, `cloudflare/cloudflared:latest`), and the Hub image is `latest`.
 6. `sudo dmidecode` runs when `DEVICE_ID` is not set, so a manual run may ask for your password.
