@@ -178,6 +178,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Choose the base ISO of this architecture
         run: |
@@ -361,6 +363,8 @@ jobs:
     steps:
       - name: Checkout repository (for the publishing scripts)
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Free disk space (both images, and one downloaded again to verify, are on this disk at once)
         run: |
