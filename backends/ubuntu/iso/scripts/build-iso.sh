@@ -25,7 +25,8 @@
 #   --output-dir PATH     Output directory for built ISO (default: ./output)
 #   --work-dir PATH       Working directory (default: ./work)
 #   --version VERSION     CI-OS version string (default: 1.0)
-#   --sign                Sign the ISO checksums with GPG
+#   --sign                Sign the ISO checksums with GPG: writes SHA256SUMS.asc and MD5SUMS.asc (armored, detached), the names the publisher,
+#                         the verifier and the release checklist use. Ubuntu's own SHA256SUMS.gpg is a different file (see repack_squashfs).
 #   --clean               Clean work directory before building
 #   --skip-packages       Skip building .deb packages and gresource (use for
 #                         iterative builds when packages have not changed)
@@ -1139,8 +1140,9 @@ generate_iso() {
     # ─────────────────────────────────────────────────────────────────────────
     log_info "Building ISO with xorriso (inheriting boot from base ISO)..."
     # An earlier run's image, rejected image and checksums go together: a failure below must not leave an image next to the
-    # checksums of a different build.
-    rm -f "$iso_path" "$iso_path.rejected" "$OUTPUT_DIR"/{SHA256SUMS,MD5SUMS}{,.gpg}
+    # checksums of a different build. .gpg is what an older build of this script called the signature (it is also Ubuntu's name for its own
+    # stock file); it is removed here so that an old output directory never keeps a signature of checksums that were rewritten.
+    rm -f "$iso_path" "$iso_path.rejected" "$OUTPUT_DIR"/{SHA256SUMS,MD5SUMS}{,.gpg,.asc}
 
     local -a xorriso_edits=(
         -rm_r /casper --
@@ -1205,8 +1207,8 @@ generate_checksums() {
     # Sign if requested
     if [[ "$SIGN_CHECKSUMS" == "true" ]]; then
         log_info "Signing checksums with GPG..."
-        gpg --armor --detach-sign --output SHA256SUMS.gpg SHA256SUMS
-        gpg --armor --detach-sign --output MD5SUMS.gpg MD5SUMS
+        gpg --armor --detach-sign --output SHA256SUMS.asc SHA256SUMS
+        gpg --armor --detach-sign --output MD5SUMS.asc MD5SUMS
         log_info "Checksums signed"
     fi
     

@@ -89,7 +89,7 @@ An **arm64** image: add `--arch arm64` and give the arm64 desktop ISO as `--base
 
 Environment knobs (all default to baked in): `CI_OS_BAKE_THIRD_PARTY`, `CI_OS_BAKE_OLLAMA`, `CI_OS_BAKE_LAUNCHER`, `CI_OS_BAKE_CAPTURE` (0 or 1; x86-64 only)), `CI_OS_OLLAMA_CUDA=all|none` (`none` drops about 1.5 GB), `CI_OS_LAUNCHER_AUTOSTART`, `CI_OS_CACHE_DIR`, `CI_OS_TIERB_PINS`. See the header of `build-iso.sh` and [tier-b-tools.md](../architecture/tier-b-tools.md).
 
-**Output** (default version): `output/companion-os-1.0-amd64.iso`, `SHA256SUMS`, `MD5SUMS`, and with `--sign` the two `.gpg` signatures. The build reads the finished image back against its own `md5sum.txt` before it reports success. These checksum the ISO file as a whole; the image also carries `/md5sum.txt`, which the live session's `casper-md5check.service` verifies file by file at every boot.
+**Output** (default version): `output/companion-os-1.0-amd64.iso`, `SHA256SUMS`, `MD5SUMS`, and with `--sign` the two signatures `SHA256SUMS.asc` and `MD5SUMS.asc`. The build reads the finished image back against its own `md5sum.txt` before it reports success. These checksum the ISO file as a whole; the image also carries `/md5sum.txt`, which the live session's `casper-md5check.service` verifies file by file at every boot.
 
 ### What the build does
 

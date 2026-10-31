@@ -66,7 +66,7 @@ If in doubt, take the Ubuntu edition. Its limits and open decisions are in [know
 
 | Edition | File | Checksum file |
 |---|---|---|
-| Ubuntu | `companion-os-<version>-amd64.iso` | `SHA256SUMS` (and `SHA256SUMS.gpg` when signed) |
+| Ubuntu | `companion-os-<version>-amd64.iso` | `SHA256SUMS` (and `SHA256SUMS.asc` when signed) |
 | Plasma | `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso` | `companion-os-plasma-<YYYY.MM.DD>-x86_64.iso.sha256` |
 
 Verify before you write it:
@@ -88,7 +88,7 @@ Get-FileHash .\companion-os-1.0-amd64.iso -Algorithm SHA256
 A signature, when there is one, is checked against the published release key (which does not exist yet):
 
 ```bash
-gpg --verify SHA256SUMS.gpg SHA256SUMS
+gpg --verify SHA256SUMS.asc SHA256SUMS
 ```
 
 **Is it the current base?** An Ubuntu-edition ISO must say 26.04.1; an image from the retired 24.04 baseline must not be installed or published:
