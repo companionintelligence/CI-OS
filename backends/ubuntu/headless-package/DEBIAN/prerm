@@ -6,8 +6,8 @@ set -e
 echo "Stopping setup-device services..."
 
 # Only manage RUNNING services when systemd is actually PID 1. In a chroot (building the ISO, debootstrap,
-# pbuilder), a container or an image build there is nothing to stop or start, and the pkill calls below
-# would hit unrelated processes of the BUILD HOST (libvirt and NetworkManager run dnsmasq too).
+# pbuilder), a container or an image build there is nothing to stop or start, and the systemctl stop calls
+# below could reach the services of the BUILD HOST through a shared /run.
 # Enabling units is a plain symlink operation and stays safe everywhere.
 SYSTEMD_RUNNING=0
 # ischroot (debianutils) is true inside a chroot even when the build host runs systemd and /run/systemd/system
@@ -18,7 +18,9 @@ if [ "$SYSTEMD_RUNNING" = 1 ]; then
     # Reload systemd first to ensure we have latest service definitions
     systemctl daemon-reload || true
 
-    # Stop all services gracefully with timeout
+    # Stop all services gracefully with timeout. These units own every process the package runs, and systemctl stop
+    # comes back once a unit's processes are gone (after SIGKILL when the stop timeout runs out). Nothing is killed by
+    # name: a "hostapd" or "dnsmasq" pattern also matches the daemons of libvirt, NetworkManager or the administrator.
     echo "Stopping services..."
     systemctl stop setup-backend.service 2>/dev/null || true
     systemctl stop setup-network-monitor.service 2>/dev/null || true
@@ -28,14 +30,6 @@ if [ "$SYSTEMD_RUNNING" = 1 ]; then
     if [ -x /usr/local/bin/setup-device-hotspot-start.sh ]; then
         /usr/local/bin/setup-device-hotspot-start.sh stop 2>/dev/null || true
     fi
-    sleep 1
-
-    # Kill any lingering processes
-    echo "Killing lingering processes..."
-    pkill -9 -f "setup_service.py" 2>/dev/null || true
-    pkill -9 -f "setup-network-monitor.sh" 2>/dev/null || true
-    pkill -9 -f "hostapd" 2>/dev/null || true
-    pkill -9 -f "dnsmasq" 2>/dev/null || true
     sleep 1
 fi
 

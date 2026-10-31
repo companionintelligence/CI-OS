@@ -251,6 +251,11 @@ MUTATIONS = [
      "systemctl start nginx.service\nlog_info \"Validating nginx configuration (nginx itself is started on demand by the hotspot script)...\"", PY_STATIC),
     ('L2-disable', 'L2 an older install\'s boot-enabling is turned off', 'backends/arch/headless-setup/install.sh',
      "systemctl disable hostapd-setup.service 2>/dev/null || true\n", "", PY_STATIC),
+    ('KILL-postinst-pkill', 'KILL the postinst never kills by process name', 'backends/ubuntu/headless-package/DEBIAN/postinst',
+     "    systemctl stop dnsmasq-setup.service 2>/dev/null || true\n    sleep 1\n",
+     "    systemctl stop dnsmasq-setup.service 2>/dev/null || true\n    pkill -f \"dnsmasq\" 2>/dev/null || true\n    sleep 1\n", PY_STATIC),
+    ('KILL-prerm-stop', 'KILL the prerm still stops the hotspot units', 'backends/ubuntu/headless-package/DEBIAN/prerm',
+     "    systemctl stop hostapd-setup.service 2>/dev/null || true\n", "", PY_STATIC),
     ('K2-deb', 'K2 the deb depends on iw', 'backends/ubuntu/headless-package/DEBIAN/control', "network-manager, iw, iproute2, rfkill", "network-manager, iproute2, rfkill", PY_STATIC),
     ('K2-arch', 'K2 arch installs util-linux', 'backends/arch/headless-setup/install.sh', "networkmanager iw iproute2 util-linux)", "networkmanager iw iproute2)", PY_STATIC),
     # ---- the Portal host the images default to (no DNS record for the old ones) ----------------------------------------------
