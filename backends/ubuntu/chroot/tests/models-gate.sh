@@ -205,6 +205,10 @@ t_eq "unified: Radeon 8060S" 1 "$(ci_os_fit_unified)"
 fake lscpu.model "Test CPU"
 mkstub rocminfo 'echo "  Name:                    gfx1151"'
 t_eq "unified: rocminfo shows gfx1151" 1 "$(ci_os_fit_unified)"
+# The real rocminfo prints the agent names early and a long property dump after them. Under pipefail (the provisioners set
+# it) `rocminfo | grep -q` read that as "not detected": grep stops at the match and rocminfo dies of SIGPIPE on the rest.
+mkstub rocminfo 'echo "  Name:                    gfx1151"; i=0; while [ "$i" -lt 4000 ]; do echo "  Property $i:  a line of the dump that follows the agent names"; i=$((i + 1)); done'
+t_eq "unified: rocminfo shows gfx1151 before a long dump, under pipefail" 1 "$(set -o pipefail; ci_os_fit_unified)"
 rmstub rocminfo
 t_eq "CI_OS_FIT_UNIFIED=1 overrides" 1 "$(CI_OS_FIT_UNIFIED=1 ci_os_fit_unified)"
 fake lscpu.model 'AMD Ryzen AI Max+ 395'

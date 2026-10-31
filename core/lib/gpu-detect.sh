@@ -29,10 +29,14 @@ is_confidently_strix_halo_cpu_string() {
 }
 
 rocminfo_shows_strix_halo() {
+  local out
   if ! command -v rocminfo >/dev/null 2>&1; then
     return 1
   fi
-  rocminfo 2>/dev/null | grep -qiE 'gfx1151|8060S|Strix Halo|RYZEN AI MAX'
+  # Read the whole output, then match. `rocminfo | grep -q` fails under pipefail (the callers set it) when grep stops at the
+  # match and rocminfo dies of SIGPIPE writing the rest of its dump: a Strix Halo machine then reads as not detected.
+  out="$(rocminfo 2>/dev/null)" || true
+  grep -qiE 'gfx1151|8060S|Strix Halo|RYZEN AI MAX' <<<"$out"
 }
 
 is_strix_halo_from_system() {
