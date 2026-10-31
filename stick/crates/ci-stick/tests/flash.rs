@@ -13,9 +13,20 @@ use std::process::{Command, Output};
 use ci_stick::gpt;
 use ci_stick::layout;
 
+/// Where the runs of this file that do not name a state directory keep theirs: never the one
+/// of the person who runs the tests (their `revoked.txt` would apply to these bundles).
+fn scratch_state() -> PathBuf {
+    Path::new(env!("CARGO_TARGET_TMPDIR")).join("state-flash-tests")
+}
+
 fn ci_stick(args: &[&str]) -> Output {
+    ci_stick_in(&scratch_state(), args)
+}
+
+fn ci_stick_in(state: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ci-stick"))
         .args(args)
+        .env("CI_STICK_STATE_DIR", state)
         .env_remove("SOURCE_DATE_EPOCH")
         .output()
         .expect("failed to run ci-stick")
@@ -394,6 +405,119 @@ fn lock_refuses_both_chains_and_dev_chain_plan_says_so() {
     let plan = String::from_utf8_lossy(&o.stdout);
     assert!(plan.contains("Secure Boot: NOT supported (unsigned development GRUB)"));
     assert!(plan.contains("--allow-unsigned-bootloader"), "{plan}");
+}
+
+/// A schema 2 bundle (`sequence`, valid until the end of 2099) with a fake boot image and a fake
+/// bootloader, signed with a throw-away key. `relock` moves it to another sequence.
+fn bundle_v2(dir: &Path, sequence: &str) -> (PathBuf, PathBuf) {
+    let (stage, pubkey) = bundle(dir);
+    relock(
+        &stage,
+        &dir.join("dev.key"),
+        sequence,
+        "2090-01-01T00:00:00Z",
+    );
+    (stage, pubkey)
+}
+
+fn relock(stage: &Path, key: &Path, sequence: &str, created_at: &str) {
+    ok(&ci_stick(&[
+        "lock",
+        p(stage),
+        "--sequence",
+        sequence,
+        "--created-at",
+        created_at,
+        "--valid-days",
+        "3650",
+    ]));
+    ok(&ci_stick(&["dev", "sign", p(stage), "--key", p(key)]));
+}
+
+#[test]
+fn a_written_schema_2_stick_records_its_floor_and_an_older_release_is_refused() {
+    if !tools_present() {
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let state = tmp.path().join("state");
+    let (stage, pubkey) = bundle_v2(tmp.path(), "2");
+    let img = tmp.path().join("stick.img");
+    let flash = |extra: &[&str]| {
+        ci_stick_in(
+            &state,
+            &[
+                &[
+                    "flash",
+                    p(&stage),
+                    "--pubkey",
+                    p(&pubkey),
+                    "--image",
+                    p(&img),
+                    "--size",
+                    "64GB",
+                    "--work-dir",
+                    p(tmp.path()),
+                ][..],
+                extra,
+            ]
+            .concat(),
+        )
+    };
+    let floor = || -> Option<serde_json::Value> {
+        let text = fs::read(state.join("floors.json")).ok()?;
+        serde_json::from_slice::<serde_json::Value>(&text)
+            .ok()
+            .map(|f| f["floors"]["flash-test"].clone())
+    };
+
+    // A dry run plans and checks, and writes nothing: no image, no floor, no state directory.
+    ok(&flash(&["--dry-run"]));
+    assert!(!img.exists());
+    assert!(!state.exists());
+
+    // A completed write records what it wrote: the sequence and the digest of bundle.json.
+    ok(&flash(&[]));
+    assert!(img.exists());
+    let recorded = floor().expect("the floor of the stick that was written");
+    assert_eq!(recorded["sequence"], 2);
+    assert_eq!(
+        recorded["bundle_sha256"],
+        ci_stick::hashing::sha256_hex(&fs::read(stage.join("bundle.json")).unwrap())
+    );
+
+    // The very same bytes may be written again.
+    ok(&flash(&[]));
+    assert_eq!(floor().expect("still there")["sequence"], 2);
+
+    // An older release is refused with nothing written, and the floor stays.
+    fs::remove_file(&img).unwrap();
+    relock(
+        &stage,
+        &tmp.path().join("dev.key"),
+        "1",
+        "2090-01-02T00:00:00Z",
+    );
+    let o = flash(&[]);
+    assert_eq!(
+        o.status.code(),
+        Some(1),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert!(String::from_utf8_lossy(&o.stderr).contains("bundle-rollback"));
+    assert!(!img.exists());
+    assert_eq!(floor().expect("kept")["sequence"], 2);
+
+    // A newer one is written and raises it.
+    relock(
+        &stage,
+        &tmp.path().join("dev.key"),
+        "3",
+        "2090-01-03T00:00:00Z",
+    );
+    ok(&flash(&[]));
+    assert_eq!(floor().expect("raised")["sequence"], 3);
 }
 
 /// The full QEMU boot test (downloads an Ubuntu kernel, boots three VMs). Run with
