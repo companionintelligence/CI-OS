@@ -10,6 +10,8 @@
 #   signature: verified with the key given (stub gpg), refused when it does not verify    not https: refused unless localhost
 #   a Plasma release (--edition plasma): found under os-plasma, --arch x86_64, the manifest must say the same edition as the one asked for,
 #     and an architecture of the other edition is refused
+#   the image keys of the manifest (a served file) are held to the edition's table, with or without --arch: a key of the other edition, a key that
+#     is no architecture name, and a manifest with no image at all are failures, and a key is never used before it has passed
 #
 # Pure bash 3.2, python3, curl, no network beyond 127.0.0.1, writes only to a temporary directory.
 #   backends/ubuntu/iso/tests/verify-published.sh
@@ -32,6 +34,7 @@ pass() { PASS=$((PASS + 1)); printf 'PASS  %s\n' "$*"; }
 fail() { FAIL=$((FAIL + 1)); printf 'FAIL  %s\n' "$*"; }
 eq() { if [[ "$2" == "$3" ]]; then pass "$1"; else fail "$1 (got '$2', want '$3')"; fi; }
 has() { if grep -q -F -- "$2" <<<"$OUT"; then pass "$1"; else fail "$1 (no '$2' in the output)"; fi; }
+lacks() { if grep -q -F -- "$2" <<<"$OUT"; then fail "$1 (found '$2')"; else pass "$1"; fi; }
 
 PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
 BASE="http://127.0.0.1:$PORT"
@@ -195,6 +198,54 @@ PREFIX=zzz run --edition plasma; eq "nor does it move a Plasma check off os-plas
 has "  the release is found under os-plasma/" "/os-plasma: all checks passed"
 PREFIX=zzz run --edition plasma --prefix os-plasma; eq "--prefix still decides when it is given" "$RC" "0"
 PREFIX=os-plasma run --edition plasma --prefix os; eq "  and the environment still does not (the manifest is not under os/)" "$RC" "1"
+
+echo
+echo "== the manifest's image keys are held to the edition's table, with or without --arch"
+edit_manifest() { # FILE PYTHON-STATEMENT: change the manifest d of a release in the bucket layout
+  python3 - "$1" "$2" <<'PY'
+import json, sys
+p = sys.argv[1]; d = json.load(open(p)); exec(sys.argv[2]); json.dump(d, open(p, "w"))
+PY
+}
+# a release whose image is listed under the architecture of the OTHER edition, laid out consistently: the size, the hash, the URL, the served path
+# and SHA256SUMS all agree, so only the table can tell
+build_plasma_release
+edit_manifest "$WORK/root/os-plasma/2026.10.18/manifest.json" 'e = d["images"].pop("x86_64"); e["iso"]["url"] = e["iso"]["url"].replace("/x86_64/", "/amd64/"); d["images"]["amd64"] = e'
+mkdir -p "$WORK/root/os-plasma/2026.10.18/amd64"; mv "$WORK/root/os-plasma/2026.10.18/x86_64/$PBASE.iso" "$WORK/root/os-plasma/2026.10.18/amd64/"
+run --edition plasma
+eq "a Plasma manifest that lists its image as amd64, without --arch: exit 1" "$RC" "1"
+has "  and says that amd64 is not an architecture of the plasma edition" "an image for 'amd64', which is not an architecture of the plasma edition"
+lacks "  and never says all checks passed" "all checks passed"
+build_release
+edit_manifest "$WORK/root/os/1.0/manifest.json" 'e = d["images"].pop("amd64"); e["iso"]["url"] = e["iso"]["url"].replace("/amd64/", "/x86_64/"); d["images"]["x86_64"] = e'
+mkdir -p "$WORK/root/os/1.0/x86_64"; mv "$WORK/root/os/1.0/amd64/companion-os-1.0-amd64.iso" "$WORK/root/os/1.0/x86_64/"
+run
+eq "an Ubuntu manifest that lists an image as x86_64, without --arch: exit 1" "$RC" "1"
+has "  and says that x86_64 is not an architecture of the ubuntu edition" "an image for 'x86_64', which is not an architecture of the ubuntu edition"
+has "  while the Ubuntu image that is listed correctly is still checked" "arm64: companion-os-1.0-arm64.iso is served at"
+build_release; edit_manifest "$WORK/root/os/1.0/manifest.json" 'd["images"] = {}'
+run
+eq "an Ubuntu manifest with no image at all: exit 1" "$RC" "1"
+has "  and says so" "lists no image of the ubuntu edition"
+lacks "  and never says all checks passed" "all checks passed"
+build_plasma_release; edit_manifest "$WORK/root/os-plasma/2026.10.18/manifest.json" 'd["images"] = {}'
+run --edition plasma
+eq "a Plasma manifest with no image at all: exit 1" "$RC" "1"
+has "  and says so" "lists no image of the plasma edition"
+# keys that are no architecture name at all: a blank, a glob character, a slash, a quote, a line break. They are reported and printed cleaned.
+build_release
+edit_manifest "$WORK/root/os/1.0/manifest.json" 'for k in ("evil arch", "a*", "../x", "x" + chr(39) + "y", "p" + chr(10) + "q"): d["images"][k] = d["images"]["amd64"]'
+run
+eq "keys that are no architecture name (a blank, a glob character, a slash, a quote, a line break): exit 1" "$RC" "1"
+eq "  each one is reported, none is used (six words, six reports)" "$(grep -c 'which is not an architecture of the ubuntu edition' <<<"$OUT" | tr -d ' ')" "6"
+has "  a blank is printed cleaned" "an image for 'evil?arch'"
+has "  a quote is printed cleaned" "an image for 'x?y'"
+lacks "  nothing from a key is printed as it is" "evil arch"
+has "  and the real images are still checked" "amd64: companion-os-1.0-amd64.iso is served at"
+run --arch arm64
+eq "with --arch the odd keys are still a failure (exit 1)" "$RC" "1"
+eq "  and only the image asked for is checked" "$(grep -c 'is served at' <<<"$OUT" | tr -d ' ')" "1"
+has "  that one is arm64" "arm64: companion-os-1.0-arm64.iso is served at"
 
 echo
 echo "== arguments"
