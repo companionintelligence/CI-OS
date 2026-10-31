@@ -11,9 +11,13 @@
 #      boot 2  boot-count=2                         (persistence survives a reboot)
 #      `ci-stick slot set B`
 #      boot 3  slot=B cmdline_slot=B, boot-count=3  (same persistence from the other slot)
-# 4. negative safety tests: a tampered bundle, --allow-unsigned with --device, a regular
-#    file as --device, and a non-removable disk as --device must all be refused without
-#    writing anything.
+# 4. negative safety tests: a tampered bundle, a rolled-back or expired schema 2 bundle,
+#    --allow-unsigned with --device, a regular file as --device, and a non-removable disk
+#    as --device must all be refused without writing anything. The bundle of steps 1 to 3
+#    is schema 1 (no sequence, no expiry); a schema 2 variant of it is checked in step 4.
+#
+# The sequence floors this script creates live in "$WORK/state" (CI_STICK_STATE_DIR is set
+# below), never in the state directory of the machine running it.
 #
 # Environment:
 #   CI_STICK_BIN          use this ci-stick binary instead of building one
@@ -79,6 +83,9 @@ else
   (cd "$STICK" && cargo build --release --locked --quiet) || die "cargo build"
   CI="$STICK/target/release/ci-stick"
 fi
+
+# Keep the sequence floors of this run in its own work directory.
+export CI_STICK_STATE_DIR="$WORK/state"
 
 # --- 1. artifacts, bundle, signature ---------------------------------------------------
 log "building BOOTX64.EFI and test boot images"
@@ -196,6 +203,33 @@ cp "$STAGE/bundle.json" "$TAMPER/bundle.json"
 sed -i 's/0.0.0-test/0.0.1-test/' "$TAMPER/bundle.json"
 refused "flash of a bundle whose manifest no longer matches its signature" 1 "signature" -- \
   "$CI" flash "$TAMPER" --pubkey "$WORK/dev.pub" --image "$WORK/tampered.img" --size 64GB
+
+log "schema 2: a current bundle is accepted, an older and an expired one are refused"
+V2="$WORK/stage-v2"
+rm -rf "$V2"; cp -r "$STAGE" "$V2"
+rm -f "$V2/bundle.json" "$V2/bundle.json.sig" "$WORK/v2.img"
+lock_v2() { # lock_v2 <sequence> <created_at> <valid days>: re-lock and re-sign the schema 2 copy
+  "$CI" lock "$V2" --id companion-stick-qemu-test --version 0.0.0-test --size 64GB \
+    --sequence "$1" --created-at "$2" --valid-days "$3" >/dev/null \
+    && "$CI" dev sign "$V2" --key "$WORK/dev.key" >/dev/null
+}
+if lock_v2 2 2090-01-01T00:00:00Z 3650 \
+   && "$CI" verify "$V2" --pubkey "$WORK/dev.pub" >/dev/null \
+   && "$CI" flash "$V2" --pubkey "$WORK/dev.pub" --image "$WORK/v2.img" --size 64GB --dry-run \
+        > "$WORK/plan-v2.txt" \
+   && grep -qF "sequence 2" "$WORK/plan-v2.txt"; then
+  pass "schema 2 bundle (sequence 2) verified and planned"
+else
+  fail "schema 2 bundle (sequence 2) was not accepted"
+fi
+lock_v2 1 2090-01-02T00:00:00Z 3650 || die "lock schema 2, sequence 1"
+refused "flash of a bundle below the sequence floor" 1 "bundle-rollback" -- \
+  "$CI" flash "$V2" --pubkey "$WORK/dev.pub" --image "$WORK/v2.img" --size 64GB
+lock_v2 3 2020-01-01T00:00:00Z 30 || die "lock schema 2, expired"
+refused "flash of an expired bundle" 1 "bundle-expired" -- \
+  "$CI" flash "$V2" --pubkey "$WORK/dev.pub" --image "$WORK/v2.img" --size 64GB
+[ ! -e "$WORK/v2.img" ] && pass "refused schema 2 bundles: no image written" \
+  || fail "refused schema 2 bundles: $WORK/v2.img exists"
 
 log "negative: device safety"
 refused "--allow-unsigned with --device" 2 "--allow-unsigned is refused with --device" -- \
