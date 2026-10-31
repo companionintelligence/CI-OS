@@ -201,6 +201,8 @@ MUTANTS = [
     ("replay-lookup-by-exact-name", "replay.py", "if any(n.endswith(\"-\" + digest) for n in names):", "if name in names:", RP),
     ("replay-purge-by-now", "replay.py", "live = self._purge(names, floor, max_ttl_s, skew_s)", "live = self._purge(names, now, max_ttl_s, skew_s)", RP),
     ("replay-store-unbounded", "replay.py", "                if live >= self.max_markers:", "                if False:", RP),
+    ("replay-floor-truncation-accepted", "replay.py", " or raw[-1:] != b\"\\n\":", ":", RP),
+    ("replay-floor-before-marker", "replay.py", "                try:\n                    backend.create_marker(name)\n                except MarkerExists:\n                    raise ReplayError(\"replayed\") from None\n                if now > floor:\n                    backend.write_floor(now)\n", "                if now > floor:\n                    backend.write_floor(now)\n                try:\n                    backend.create_marker(name)\n                except MarkerExists:\n                    raise ReplayError(\"replayed\") from None\n", RP),
 ]
 
 
