@@ -17,7 +17,7 @@
 #      for the model tooling), run on those defect trees: each weakening must make at least one of the fixtures designated for it stop
 #      producing its message. A weakening that no fixture notices fails the suite, and so does a replacement that matched nothing;
 #   5. the same trees minus the defect: green again, and silent; a symlink or a FIFO named like a drop-in is reported and never opened;
-#   6. what the lint must leave alone (neighbouring drop-ins, other units, comments, a ceiling that fits).
+#   6. what the lint must leave alone (neighbouring drop-ins, other units, comments, a ceiling that fits); the lint under set -euo pipefail.
 #
 # It cannot say what the kernel does with the values: that is a boot (docs/guides/testing-in-qemu.md, "Memory protection runs").
 #
@@ -433,6 +433,21 @@ if mkfifo "$WORK/fifo/$U/docker.service.d/99-x.conf" 2>/dev/null; then
     fi
 else
     printf 'info  SKIPPED: no mkfifo on this machine, so the FIFO case was not run\n'
+fi
+
+echo
+echo "== 8. under set -euo pipefail (customize-chroot.sh runs the lint that way)"
+make_tree ubuntu "$WORK/strict"
+out="$(bash -c 'set -euo pipefail; . "$1"; ci_os_memprot_lint "$2" ubuntu; echo "rc=$?"' _ "$LIB" "$WORK/strict" 2>&1)"
+eq "a good tree: the lint returns 0 and the shell goes on" "$out" "rc=0"
+if [ "$(id -u)" != 0 ]; then
+    chmod 000 "$WORK/strict/$U/docker.service.d"
+    out="$(bash -c 'set -euo pipefail; . "$1"; rc=0; ci_os_memprot_lint "$2" ubuntu || rc=$?; echo "rc=$rc"' _ "$LIB" "$WORK/strict" 2>&1)"
+    chmod 755 "$WORK/strict/$U/docker.service.d"
+    expect "an unreadable drop-in directory (find exits non-zero under pipefail): only that unit is reported, and the shell goes on" \
+        bash -c 'printf "%s\n" "$1" | grep -q "docker.service.d/30-ci-os-memory.conf is missing" && ! printf "%s\n" "$1" | grep -q "ssh.service: MemoryMin is not set" && printf "%s\n" "$1" | tail -n 1 | grep -q "^rc=1$"' _ "$out"
+else
+    printf 'info  SKIPPED: running as root, which can read an unreadable directory\n'
 fi
 
 echo
