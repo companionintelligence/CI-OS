@@ -25,6 +25,7 @@ HEADLESS = os.path.normpath(os.path.join(HERE, "..", ".."))
 PKG = os.path.join(HEADLESS, "ci_setup")
 
 V = ["test_validators", "test_fuzz_validators"]
+RP = ["test_replay"]
 
 # (id, file under ci_setup/, exact old text, new text, test modules that must fail)
 MUTANTS = [
@@ -168,6 +169,13 @@ MUTANTS = [
     ("parse-cmdline-last-wins", "sysinfo.py", "        params[name[:64]] = value[:256]", "        params.setdefault(name[:64], value[:256])", ["test_parsers_misc"]),
     ("probe-follow-uplink-unchecked", "probe.py", "        if radio.follow_uplink_mhz is not None and not plan.ok:", "        if False:", ["test_probe"]),
     ("probe-hard-block-ignored", "probe.py", "        if name in blocks and blocks[name].hard_blocked:\n            hard_blocked = True", "        if False:\n            hard_blocked = True", ["test_probe"]),
+    # ---- the replay guard (replay.py)
+    ("replay-floor-ignored", "replay.py", "                if now < floor - skew_s:", "                if False:", RP),
+    ("replay-floor-advances-on-reject", "replay.py", "                names = _listing(backend)\n", "                backend.write_floor(max(now, floor))\n                names = _listing(backend)\n", RP),
+    ("replay-damaged-marker-ignored", "replay.py", "if any(n.endswith(\"-\" + digest) for n in names):", "if any(n.endswith(\"-\" + digest) and backend.marker_body(n) == MARKER_BODY for n in names):", RP),
+    ("replay-lookup-by-exact-name", "replay.py", "if any(n.endswith(\"-\" + digest) for n in names):", "if name in names:", RP),
+    ("replay-purge-by-now", "replay.py", "live = self._purge(names, floor, max_ttl_s, skew_s)", "live = self._purge(names, now, max_ttl_s, skew_s)", RP),
+    ("replay-store-unbounded", "replay.py", "                if live >= self.max_markers:", "                if False:", RP),
 ]
 
 

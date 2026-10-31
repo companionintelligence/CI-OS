@@ -19,7 +19,7 @@ code that is being landed in parallel (section 2.7).
 |---|---|---|
 | P0 | **WP-A** stop-gap fixes on the current payload | Written in the working tree, **not committed** when this was written (another agent owned it); landed in `b882e00`. Section 2.7 lists what it changes and what it leaves. |
 | P0 | **WP-B** backend enablement (dependency lists, units not enabled at boot) | Edits to the Ubuntu, Arch (the provisioning engine under CachyOS) and CachyOS packaging were in the working tree, **not committed**, when this was written, and landed in `b882e00` with WP-A; not re-verified here. The Mint, Fedora and NixOS copies of those edits went with their backends on 2026-10-17 (restore: tag `pre-retire-multidistro-2026-10-17`). |
-| P1 | **WP-C** core library | **Done** as a library: `core/headless/ci_setup/`, 26 modules, no service wiring. Section 6. |
+| P1 | **WP-C** core library | **Done** as a library: `core/headless/ci_setup/`, 27 modules, no service wiring. Section 6. |
 | P1 | **WP-G** hwsim test infrastructure | A QEMU-based harness exists in `stick/tests/qemu/` (another agent, in progress); section 9.5. |
 | P2 | WP-D agent and AP runtime, WP-E portal v2, WP-F console and names | Not started. They consume the library. |
 | P3 | WP-H Stick integration, WP-I installer hand-off | Not started. |
@@ -541,7 +541,7 @@ python3 -m ci_setup selftest                                               # bui
 | Module | What it does |
 |---|---|
 | `ci_setup/validators.py` | SSID (bytes, controls, bidi, edges), passphrase, hostname, country, MAC, PIN, ids, port, channel, interface and phy names, strict IPv4 and CIDR, `loads_strict`, `validate_wifi_join_request`, `validate_provisioning_doc` |
-| `ci_setup/errors.py`, `ci_setup/clock.py` | `ValidationError` (never echoes the value), `SystemClock`, `ManualClock` |
+| `ci_setup/errors.py`, `ci_setup/clock.py` | `ValidationError` (never echoes the value), `SystemClock`, `ManualClock`; `WallClock` and `ManualWallClock` for an absolute expiry that a signer chose |
 | `ci_setup/parsers/iw.py` | `iw dev`, `iw phy info` / `iw list` (modes, frequency flags, interface combinations, `concurrent_ap_sta`), `iw reg get`, `iw scan dump` (security classification, hidden, strongest per SSID, survey, country votes), `iw link`, `iw station dump` |
 | `ci_setup/parsers/nmcli.py` | terse tabular (escaped colons, dropped forged rows), multiline, device state with detail, connection list with TYPE, Wi-Fi list, connectivity, general status |
 | `ci_setup/parsers/rfkill.py`, `ipjson.py`, `supplicant.py`, `common.py` | `rfkill list` and `-J`; `ip -j` link/addr/route, uplink, used networks; `wpa_cli` and `hostapd_cli` status, `all_sta`, control-socket events; SSID decoding, band and channel arithmetic, bounded line reader |
@@ -553,6 +553,7 @@ python3 -m ci_setup selftest                                               # bui
 | `ci_setup/wifi_qr.py`, `ci_setup/qr.py` | the `WIFI:` payload and its parser; a QR encoder (byte mode, versions 1-10, levels L/M/Q/H) with black-on-white console rendering |
 | `ci_setup/captive.py` | the nine probe URLs in pending and done states, host and target routing, header safety |
 | `ci_setup/jobs.py` | the setup job state machine with timeouts, cancellation, snapshots |
+| `ci_setup/replay.py` | the replay guard: `ReplayGuard` over a backend interface (single use across a restart, damaged markers stay consumed, a clock floor, purge by the persisted floor, at most 4096 markers), `MemoryBackend` with crash injection; library only, not wired into any service |
 | `ci_setup/apcfg.py`, `fw.py`, `templating.py`, `privfile.py`, `templates/*.in` | hostapd and dnsmasq renderers, AP subnet picker, the nftables ruleset and teardown, strict templating with a lint, 0600-from-the-first-byte file writer |
 | `ci_setup/cli.py`, `selftest.py`, `__main__.py` | the command line above and the built-in self-test |
 
@@ -735,6 +736,7 @@ mutation check; `--pythons "a b"` runs the suites under several interpreters.
 | `test_jobs.py` | happy path, every failure path, cancellation from every active state, every timeout, an exhaustive (state, event) matrix, snapshot and restore in every state, random event sequences |
 | `test_render.py` | goldens for hostapd (three variants), dnsmasq (two), nft (two) and the teardown; injection attempts through every parameter; the template engine and lint; the subnet picker with a real capture; the private-file writer (mode 0600 from creation, umask, symlink, failure cleanup) |
 | `test_cli.py` | all four commands, injected runner and file system, refusals, exit codes, the key never on the command line |
+| `test_replay.py` | single use across a restart, damaged markers that stay consumed, the same id with another expiry, the floor rules, purging by the persisted floor, the bound, crash injection at every durable step, backend failures, the order of the backend calls, threads |
 | `test_hygiene.py` | no side effects on import (audit hook), nothing asks for root, Python 3.8 syntax and API on the AST, no unused imports, executable bits, no block art or retired product names, every fixture listed in `MANIFEST.json` with an honest origin |
 
 ### 9.2 Fixtures
@@ -770,12 +772,12 @@ domain) and are not captures of any real chip.
 
 ### 9.4 Mutation check (`mutation_check.py`)
 
-129 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
+135 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
 rotation disabled, a table value changed, the nft hook moved from `raw` to `filter`, the file mode widened ...). Each is applied to a copy
 of the package, the covering tests run, and the mutant must be killed. Every `old` text must occur exactly once, so a refactor cannot turn
 a mutant into a no-op. The first run killed 112 of 115 and exposed three gaps that were closed: a redundant port check (removed, the
 validator already refuses it), an idle-timeout clock that a client could restart by coming and going (test added), and a read-only
-allow-list mutant that was unreachable (rewritten to target the reachable branch).
+allow-list mutant that was unreachable (rewritten to target the reachable branch). The last 6 (`replay-*`) plant a defect in the replay guard: a floor that is ignored or moved by a refusal, a damaged marker read as absent, a lookup by the exact name, a purge by the clock instead of the floor, a store without a bound.
 
 ### 9.5 The hwsim harness and the other test directories
 
