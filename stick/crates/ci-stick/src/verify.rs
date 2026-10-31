@@ -17,6 +17,12 @@
 //! asked for it ([`FloorMode::Store`] with `record`): `verify` does, `doctor` and `flash
 //! --dry-run` never do, and `flash` records after the stick was written.
 //!
+//! Which command uses the floors, and how, is decided in one place, [`floor_rules`], from the
+//! command's [`Purpose`], so that the decisions can be tested with a pinned key although the
+//! binary pins none: a bundle that only a development key vouches for never reads or moves a
+//! floor in a build that pins a release key, and a flow that needs the floors refuses when it
+//! cannot have them.
+//!
 //! Artifact checks, per entry: the path is a plain relative path; no component on the way
 //! to it is a symlink (exFAT cannot hold symlinks, so one is a red flag and is never
 //! followed); the canonical target is still inside the root; it is a regular file; the size
@@ -38,7 +44,7 @@ use crate::paths::{to_manifest_path, validate_rel_path};
 use crate::progress::Progress;
 use crate::signing::{fingerprint, parse_signature, verify_detached};
 use crate::size::fmt_binary;
-use crate::state::{Floor, FloorStore, FloorUpdate, StateError};
+use crate::state::{Floor, FloorStore, FloorUpdate, StateDirSource, StateError};
 use crate::timefmt::{format_unix, parse_rfc3339_utc};
 use crate::trust::TrustAnchors;
 
@@ -66,6 +72,10 @@ pub struct Freshness {
     /// build plus the state directory's `revoked.txt`. A [`SignaturePolicy::Pinned`] also
     /// honours the revocations it carries.
     pub revoked: Vec<String>,
+    /// Why the state directory's `revoked.txt` could not be looked at (its directory cannot
+    /// be inspected), so that the revocations it may hold did not apply. A flow that needs
+    /// the floors refuses; any other flow says so in a warning.
+    pub revocations_unread: Option<String>,
     pub floors: FloorMode,
 }
 
@@ -93,6 +103,7 @@ impl Freshness {
         Self {
             now,
             revoked: Vec::new(),
+            revocations_unread: None,
             floors: FloorMode::Off,
         }
     }
@@ -227,6 +238,29 @@ pub fn verify_at(
         warnings: Vec::new(),
         floor_update: None,
     };
+
+    // 0. A revocation list that could not be looked at is never ignored in silence: a flow that
+    // needs the floors refuses, any other says so. Only a policy that trusts some key cares.
+    if let Some(why) = &fresh.revocations_unread {
+        if !matches!(
+            policy,
+            SignaturePolicy::NotChecked | SignaturePolicy::AllowUnsigned(None)
+        ) {
+            ensure!(
+                !fresh.floors_required(),
+                "the revocations kept on this machine could not be read, and this verification \
+                 needs them: {why}"
+            );
+            report.warnings.push(Finding::new(
+                "revoked-list-not-read",
+                None,
+                format!(
+                    "the revocations kept on this machine were not read, so a key revoked there \
+                     still counts as trusted: {why}"
+                ),
+            ));
+        }
+    }
 
     // 1. Signature — before anything in the manifest is believed.
     report.signature = check_signature(&root, &manifest_bytes, policy, fresh, &mut report)?;
@@ -474,6 +508,18 @@ fn check_pinned(
     })
 }
 
+/// Added to a floor refusal: where the floors are kept and how to look at them, so that whoever
+/// has to decide whether the floor is right can find it. A floor raised by verifying a bundle
+/// that was not meant to be accepted is undone by removing the file, which forgets every floor
+/// and so accepts old bundles again.
+fn floor_pointer(store: &FloorStore) -> String {
+    format!(
+        "`ci-stick trust show` lists what this machine remembers; it is kept in {} (removing \
+         that file forgets all of it)",
+        store.floors_path().display()
+    )
+}
+
 /// A floor that [`verify_at`] records once everything else has passed.
 struct PendingFloor {
     store: FloorStore,
@@ -576,8 +622,10 @@ fn check_freshness(
                 Some(BUNDLE_FILE),
                 format!(
                     "sequence {sequence} is below {}, the highest this machine has accepted for \
-                     {}: an older release is refused",
-                    f.sequence, bundle.id
+                     {}: an older release is refused. {}",
+                    f.sequence,
+                    bundle.id,
+                    floor_pointer(store)
                 ),
             ));
         } else if sequence == f.sequence && digest != f.bundle_sha256 {
@@ -586,9 +634,10 @@ fn check_freshness(
                 Some(BUNDLE_FILE),
                 format!(
                     "sequence {sequence} of {} was accepted here with different bundle.json \
-                     bytes (sha256 {}); two different bundles must not share a sequence",
+                     bytes (sha256 {}); two different bundles must not share a sequence. {}",
                     bundle.id,
-                    &f.bundle_sha256[..12]
+                    &f.bundle_sha256[..12],
+                    floor_pointer(store)
                 ),
             ));
         }
@@ -700,6 +749,180 @@ pub fn choose_policy(anchors: &TrustAnchors, req: PolicyRequest) -> anyhow::Resu
         ),
     };
     Ok(ChosenPolicy { policy, notes })
+}
+
+// ---- what one command trusts: policy, revocations and floors ---------------------------------
+
+/// Which command asks for a verification. It decides how the sequence floors are used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Purpose {
+    /// `verify`: verifying is accepting, so the floor is raised once the whole bundle checked
+    /// out.
+    Verify,
+    /// `flash --image`: the floor is checked; `flash` raises it after the image was written.
+    FlashImage,
+    /// `flash --device`: as `FlashImage`, and a floor that cannot be used refuses the write.
+    FlashDevice,
+    /// `doctor --bundle`: a report. The floor is looked at and never raised, and not being
+    /// able to use it is no failure.
+    Doctor,
+}
+
+/// How a verification uses the sequence floors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FloorRules {
+    /// Are the floors read at all? Expiry is enforced either way.
+    pub consult: bool,
+    /// Does a floor that cannot be used refuse, instead of warn?
+    pub required: bool,
+    /// Does [`verify_at`] raise the floor after a fully successful verification?
+    pub record: bool,
+}
+
+/// The one place that says how `purpose` uses the sequence floors under `policy`.
+///
+/// * A device write and a pinned-key verification need a usable floor (`required`); a
+///   development flow only warns when it has none; `doctor` never fails for want of one.
+/// * `verify` raises the floor (`record`); `flash` does it itself after the write, and `doctor`
+///   never does.
+/// * A floor belongs to a bundle `id`, not to a key. Once the build pins a release key, a
+///   bundle that only a development key vouches for (`--pubkey` with `--development-key`)
+///   must not be able to raise, and so lock out, the floor of a release line: it neither reads
+///   nor moves a floor (its expiry is still enforced). While nothing is pinned (today)
+///   `--pubkey` is the only key there is, and its bundles use the floors.
+pub fn floor_rules(
+    anchors: &TrustAnchors,
+    policy: &SignaturePolicy,
+    purpose: Purpose,
+) -> FloorRules {
+    let pinned = matches!(policy, SignaturePolicy::Pinned(_));
+    let device = purpose == Purpose::FlashDevice;
+    let consult = device || pinned || !anchors.has_pinned_keys();
+    FloorRules {
+        consult,
+        required: consult && (device || (pinned && purpose != Purpose::Doctor)),
+        record: consult && purpose == Purpose::Verify,
+    }
+}
+
+/// What the command line said about keys.
+pub struct KeyArgs {
+    /// `--pubkey`
+    pub pubkey: Option<VerifyingKey>,
+    /// `--development-key`
+    pub development_key: bool,
+    /// `--allow-unsigned`
+    pub allow_unsigned: bool,
+}
+
+/// The build's trust anchors plus what this machine's state directory adds to them.
+pub struct Trust {
+    /// The compiled-in lists plus the fingerprints in the state directory's `revoked.txt`.
+    pub anchors: TrustAnchors,
+    /// The floor store, or why there is none.
+    pub store: Result<FloorStore, String>,
+    /// Why `revoked.txt` could not be looked at, if that is so ([`Freshness`]).
+    pub revocations_unread: Option<String>,
+}
+
+impl Trust {
+    /// Combine the compiled-in anchors with the state directory `resolved` names.
+    ///
+    /// A `revoked.txt` that exists but cannot be read or understood stops everything (`Err`):
+    /// a revocation that silently did not apply is worse than a refusal. A directory that
+    /// cannot be inspected at all is remembered in `revocations_unread`, because whether it
+    /// matters depends on the flow: [`verify_at`] refuses a flow that needs the floors and
+    /// warns in any other.
+    pub fn load(
+        builtin: TrustAnchors,
+        resolved: Result<(PathBuf, StateDirSource), StateError>,
+    ) -> anyhow::Result<Self> {
+        Ok(match resolved {
+            Ok((dir, _source)) => {
+                let store = FloorStore::new(dir);
+                let (extra, unread) = match store.extra_revoked() {
+                    Ok(v) => (v, None),
+                    Err(e @ StateError::Damaged(_)) => return Err(e.into()),
+                    Err(e) => (Vec::new(), Some(e.to_string())),
+                };
+                Self {
+                    anchors: builtin.with_revoked(extra),
+                    store: Ok(store),
+                    revocations_unread: unread,
+                }
+            }
+            // No state directory at all, so there is no list to read either.
+            Err(e) => Self {
+                anchors: builtin,
+                store: Err(e.to_string()),
+                revocations_unread: None,
+            },
+        })
+    }
+
+    /// The signature policy, the notes to print on stderr, and the freshness context for a
+    /// command with this `purpose`, at the injected clock `now`.
+    pub fn setup(&self, purpose: Purpose, keys: KeyArgs, now: u64) -> anyhow::Result<Setup> {
+        let (policy, notes) = if purpose == Purpose::Doctor
+            && keys.pubkey.is_none()
+            && !self.anchors.has_pinned_keys()
+        {
+            // Diagnostics: report only. With no pinned key and no --pubkey nothing is trusted,
+            // and the report says so.
+            (
+                SignaturePolicy::NotChecked,
+                vec![NO_PINNED_KEY_NOTE.to_string()],
+            )
+        } else {
+            let chosen = choose_policy(
+                &self.anchors,
+                PolicyRequest {
+                    pubkey: keys.pubkey,
+                    development_key: keys.development_key,
+                    allow_unsigned: keys.allow_unsigned,
+                    device: purpose == Purpose::FlashDevice,
+                },
+            )?;
+            (chosen.policy, chosen.notes)
+        };
+        let freshness = self.freshness(&policy, purpose, now);
+        Ok(Setup {
+            policy,
+            notes,
+            freshness,
+        })
+    }
+
+    /// The clock, every revoked fingerprint, and the floors as [`floor_rules`] says.
+    pub fn freshness(&self, policy: &SignaturePolicy, purpose: Purpose, now: u64) -> Freshness {
+        let rules = floor_rules(&self.anchors, policy, purpose);
+        let floors = match (&self.store, rules.consult) {
+            (_, false) => FloorMode::Off,
+            (Ok(store), true) => FloorMode::Store {
+                store: store.clone(),
+                required: rules.required,
+                record: rules.record,
+            },
+            (Err(reason), true) => FloorMode::Unavailable {
+                reason: reason.clone(),
+                required: rules.required,
+            },
+        };
+        Freshness {
+            now,
+            revoked: self.anchors.revoked().map(str::to_string).collect(),
+            revocations_unread: self.revocations_unread.clone(),
+            floors,
+        }
+    }
+}
+
+/// What [`Trust::setup`] decided for one command.
+pub struct Setup {
+    pub policy: SignaturePolicy,
+    /// Lines for stderr: warnings the user must see, and the note about the missing key.
+    pub notes: Vec<String>,
+    pub freshness: Freshness,
 }
 
 /// Returns the number of bytes checked, or the first problem found.
@@ -931,6 +1154,7 @@ mod tests {
     use super::*;
     use crate::lock::{lock, LockOptions};
     use crate::signing::sign_to_hex;
+    use crate::trust::PinnedKey;
     use ed25519_dalek::SigningKey;
 
     /// The clock of the unit tests: 2026-09-21T14:13:20Z.
@@ -1204,6 +1428,7 @@ mod tests {
         Freshness {
             now: NOW,
             revoked: Vec::new(),
+            revocations_unread: None,
             floors: FloorMode::Store {
                 store: store.clone(),
                 required,
@@ -1275,11 +1500,20 @@ mod tests {
             r.artifacts_total, 0,
             "refused before any artifact is hashed"
         );
+        // A refusal says where the floor lives and how to look at it, so that a floor raised by
+        // mistake can be found and dealt with.
+        let pointer = |r: &VerifyReport| {
+            let m = &r.errors[0].message;
+            m.contains("ci-stick trust show")
+                && m.contains(&store.floors_path().display().to_string())
+        };
+        assert!(pointer(&r), "{:?}", r.errors);
 
         // The floor itself, but other bytes: two different bundles must not share a sequence.
         let r = run_with(&Fixture::v2(2, 365), &fresh).unwrap();
         assert_eq!(codes_of(&r), ["bundle-sequence-conflict"]);
         assert_eq!(r.artifacts_total, 0);
+        assert!(pointer(&r), "{:?}", r.errors);
 
         // The floor itself with the very same bytes: a re-flash is fine.
         let same = Fixture::v2(2, 365);
@@ -1436,6 +1670,7 @@ mod tests {
             let fresh = Freshness {
                 now: NOW,
                 revoked: Vec::new(),
+                revocations_unread: None,
                 floors: FloorMode::Unavailable {
                     reason: "HOME is not set".into(),
                     required,
@@ -1668,6 +1903,181 @@ mod tests {
         assert!(r.warnings.is_empty());
     }
 
+    #[test]
+    fn an_expired_bundle_is_refused_whatever_the_state_of_the_floor_store() {
+        // Expiry reads the clock and the bundle, never the floors: it must hold with no floor
+        // store at all, with one that cannot be used, and with one that is asked to record.
+        let t = tempfile::tempdir().unwrap();
+        let blocker = t.path().join("blocker");
+        fs::write(&blocker, b"x").unwrap();
+        let broken = || FloorStore::new(blocker.join("state"));
+        let fx = Fixture::v2(1, 30); // created 2026-09-28, gone after 2026-10-28
+        let late = NOW + 86_400 * 400;
+        let modes: [(&str, FloorMode); 5] = [
+            ("floors off", FloorMode::Off),
+            (
+                "no state directory could be found",
+                FloorMode::Unavailable {
+                    reason: "HOME is not set".into(),
+                    required: false,
+                },
+            ),
+            (
+                "a file where the state directory should be",
+                FloorMode::Store {
+                    store: broken(),
+                    required: false,
+                    record: false,
+                },
+            ),
+            (
+                "the same, asked to record",
+                FloorMode::Store {
+                    store: broken(),
+                    required: false,
+                    record: true,
+                },
+            ),
+            (
+                "a usable store",
+                FloorMode::Store {
+                    store: store_in(&t),
+                    required: false,
+                    record: true,
+                },
+            ),
+        ];
+        for (what, floors) in modes {
+            let fresh = Freshness {
+                now: late,
+                floors,
+                ..fresh()
+            };
+            let r = run_with(&fx, &fresh).unwrap();
+            assert_eq!(codes_of(&r), ["bundle-expired"], "{what}");
+            assert_eq!(r.artifacts_total, 0, "{what}: not even hashed");
+        }
+        assert!(
+            !store_in(&t).dir().exists(),
+            "an expired bundle writes nothing"
+        );
+    }
+
+    #[test]
+    fn a_revocation_list_that_could_not_be_read_refuses_a_required_flow_and_warns_in_any_other() {
+        let fx = Fixture::v2(1, 365);
+        let t = tempfile::tempdir().unwrap();
+        let store = store_in(&t);
+        let why = "cannot use the state directory /locked/state: looking at it: Permission denied";
+        let unread = |f: Freshness| Freshness {
+            revocations_unread: Some(why.to_string()),
+            ..f
+        };
+
+        // A flow that needs the floors refuses, and the message says what could not be read.
+        for fresh in [
+            unread(floors(&store, true, false)),
+            unread(Freshness {
+                floors: FloorMode::Unavailable {
+                    reason: "x".into(),
+                    required: true,
+                },
+                ..fresh()
+            }),
+        ] {
+            let msg = format!("{:#}", run_with(&fx, &fresh).unwrap_err());
+            assert!(
+                msg.contains("revocations") && msg.contains("Permission denied"),
+                "{msg}"
+            );
+        }
+
+        // Any other flow carries on, loudly.
+        let r = run_with(&fx, &unread(floors(&store, false, false))).unwrap();
+        assert!(r.ok, "{}", render_human(&r));
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.code == "revoked-list-not-read"
+                    && w.message.contains("Permission denied")),
+            "{:?}",
+            r.warnings
+        );
+
+        // Where no key is trusted there is nothing a revocation could change: no noise.
+        let r = verify_at(
+            fx.root(),
+            &SignaturePolicy::NotChecked,
+            &unread(floors(&store, false, false)),
+            HashMode::Full,
+            &mut Progress::disabled(),
+        )
+        .unwrap();
+        assert!(
+            r.warnings.iter().all(|w| w.code != "revoked-list-not-read"),
+            "{:?}",
+            r.warnings
+        );
+
+        // And when the list was read there is nothing to say.
+        let r = run_with(&fx, &floors(&store, false, false)).unwrap();
+        assert!(r.warnings.iter().all(|w| w.code != "revoked-list-not-read"));
+    }
+
+    #[test]
+    fn the_state_directory_adds_its_revocations_and_an_unreadable_list_is_never_dropped_in_silence()
+    {
+        let t = tempfile::tempdir().unwrap();
+        let dir = t.path().join("state");
+        let load = |d: &Path| {
+            Trust::load(
+                TrustAnchors::default(),
+                Ok((d.to_path_buf(), StateDirSource::Env)),
+            )
+        };
+
+        // Nothing there yet: nothing added, nothing unread, and the store is ready for later.
+        let tr = load(&dir).unwrap();
+        assert!(tr.store.is_ok());
+        assert!(tr.revocations_unread.is_none());
+        assert_eq!(tr.anchors.revoked().count(), 0);
+
+        // A list adds its fingerprints, whatever their case.
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("revoked.txt"), "# why\n0123456789ABCDEF\n").unwrap();
+        let tr = load(&dir).unwrap();
+        assert!(tr.anchors.is_revoked("0123456789abcdef"));
+        assert!(tr.revocations_unread.is_none());
+
+        // A line that is not a fingerprint stops everything.
+        fs::write(dir.join("revoked.txt"), "not a fingerprint\n").unwrap();
+        let msg = format!("{:#}", load(&dir).err().expect("a damaged list stops"));
+        assert!(
+            msg.contains("revoked.txt") && msg.contains("line 1"),
+            "{msg}"
+        );
+
+        // A directory that cannot be looked at: remembered, so that the flow decides.
+        let file = t.path().join("a-file");
+        fs::write(&file, b"x").unwrap();
+        let tr = load(&file.join("state")).unwrap();
+        assert!(
+            tr.revocations_unread
+                .as_deref()
+                .is_some_and(|m| m.contains("state directory")),
+            "{:?}",
+            tr.revocations_unread
+        );
+
+        // No state directory at all: there is no list to read.
+        let tr = Trust::load(
+            TrustAnchors::default(),
+            Err(StateError::Undetermined("HOME is not set".into())),
+        )
+        .unwrap();
+        assert!(tr.store.is_err() && tr.revocations_unread.is_none());
+    }
+
     // ---- choosing the policy ---------------------------------------------------------------
 
     fn request(
@@ -1707,6 +2117,11 @@ mod tests {
         let c = choose_policy(&none, request(None, false, true, false)).unwrap();
         assert!(matches!(c.policy, SignaturePolicy::AllowUnsigned(None)));
         assert_eq!(c.notes, [UNSIGNED_WARNING]);
+        // --allow-unsigned together with --pubkey: a missing signature is tolerated, a present
+        // one is still checked against the key.
+        let c = choose_policy(&none, request(Some(&k), false, true, false)).unwrap();
+        assert!(matches!(c.policy, SignaturePolicy::AllowUnsigned(Some(_))));
+        assert_eq!(c.notes, [UNSIGNED_WARNING, NO_PINNED_KEY_NOTE]);
     }
 
     #[test]
@@ -1739,5 +2154,289 @@ mod tests {
         // --allow-unsigned is still the image-only development escape.
         let c = choose_policy(&pinned, request(None, false, true, false)).unwrap();
         assert!(matches!(c.policy, SignaturePolicy::AllowUnsigned(None)));
+        // Together with a development key it checks a signature that is there, and warns twice.
+        let c = choose_policy(&pinned, request(Some(&dev), true, true, false)).unwrap();
+        assert!(matches!(c.policy, SignaturePolicy::AllowUnsigned(Some(_))));
+        assert_eq!(c.notes, [UNSIGNED_WARNING, DEVELOPMENT_KEY_WARNING]);
+        assert!(choose_policy(&pinned, request(Some(&dev), true, true, true)).is_err());
+    }
+
+    // ---- what one command trusts -----------------------------------------------------------
+
+    fn release_key() -> SigningKey {
+        SigningKey::from_bytes(&[5u8; 32])
+    }
+
+    fn pinned_anchors() -> TrustAnchors {
+        TrustAnchors::new(
+            vec![PinnedKey::from_key(release_key().verifying_key())],
+            vec![],
+        )
+    }
+
+    fn trust_with(anchors: TrustAnchors, store: Result<FloorStore, String>) -> Trust {
+        Trust {
+            anchors,
+            store,
+            revocations_unread: None,
+        }
+    }
+
+    fn keys(pubkey: Option<&SigningKey>, development_key: bool, allow_unsigned: bool) -> KeyArgs {
+        KeyArgs {
+            pubkey: pubkey.map(SigningKey::verifying_key),
+            development_key,
+            allow_unsigned,
+        }
+    }
+
+    #[test]
+    fn the_floor_rules_follow_the_purpose_and_the_policy() {
+        let dev = SigningKey::from_bytes(&[6u8; 32]).verifying_key();
+        let rules = |consult, required, record| FloorRules {
+            consult,
+            required,
+            record,
+        };
+        let none = TrustAnchors::default();
+        let pinned = pinned_anchors();
+
+        // Nothing pinned (today): --pubkey is the only key there is, and its bundles use the
+        // floors. Only a device write (or a pinned key) makes them mandatory.
+        for policy in [
+            SignaturePolicy::Require(dev),
+            SignaturePolicy::AllowUnsigned(Some(dev)),
+        ] {
+            let at = |purpose| floor_rules(&none, &policy, purpose);
+            assert_eq!(at(Purpose::Verify), rules(true, false, true));
+            assert_eq!(at(Purpose::FlashImage), rules(true, false, false));
+            assert_eq!(at(Purpose::FlashDevice), rules(true, true, false));
+            assert_eq!(at(Purpose::Doctor), rules(true, false, false));
+        }
+
+        // A pinned release key: its flows need the floors, except a doctor's report.
+        let policy = SignaturePolicy::Pinned(pinned.clone());
+        let at = |purpose| floor_rules(&pinned, &policy, purpose);
+        assert_eq!(at(Purpose::Verify), rules(true, true, true));
+        assert_eq!(at(Purpose::FlashImage), rules(true, true, false));
+        assert_eq!(at(Purpose::FlashDevice), rules(true, true, false));
+        assert_eq!(at(Purpose::Doctor), rules(true, false, false));
+
+        // A development key in a build that pins a key: the floors of the release line are
+        // neither read nor moved.
+        for policy in [
+            SignaturePolicy::Require(dev),
+            SignaturePolicy::AllowUnsigned(Some(dev)),
+            SignaturePolicy::AllowUnsigned(None),
+            SignaturePolicy::NotChecked,
+        ] {
+            for purpose in [Purpose::Verify, Purpose::FlashImage, Purpose::Doctor] {
+                assert_eq!(
+                    floor_rules(&pinned, &policy, purpose),
+                    rules(false, false, false),
+                    "{purpose:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_development_key_never_raises_the_floor_of_a_release_line_in_a_pinned_build() {
+        let t = tempfile::tempdir().unwrap();
+        let store = store_in(&t);
+        let trust = trust_with(pinned_anchors(), Ok(store.clone()));
+        let verify = |fx: &Fixture, s: &Setup| {
+            verify_at(
+                fx.root(),
+                &s.policy,
+                &s.freshness,
+                HashMode::Full,
+                &mut Progress::disabled(),
+            )
+            .unwrap()
+        };
+
+        // A bundle that only a development key vouches for, at a high sequence.
+        let dev_bundle = Fixture::v2(9, 365);
+        let s = trust
+            .setup(
+                Purpose::Verify,
+                keys(Some(&dev_bundle.key), true, false),
+                NOW,
+            )
+            .unwrap();
+        assert_eq!(s.notes, [DEVELOPMENT_KEY_WARNING]);
+        assert!(matches!(s.freshness.floors, FloorMode::Off));
+        let r = verify(&dev_bundle, &s);
+        assert!(r.ok, "{}", render_human(&r));
+        assert_eq!(store.floor("test-bundle").unwrap(), None);
+        assert!(!store.dir().exists(), "nothing was written for it");
+        // Its expiry is still enforced.
+        let late = trust
+            .setup(
+                Purpose::Verify,
+                keys(Some(&dev_bundle.key), true, false),
+                NOW + 86_400 * 400,
+            )
+            .unwrap();
+        assert_eq!(codes_of(&verify(&dev_bundle, &late)), ["bundle-expired"]);
+
+        // A bundle the pinned key signed does use the floor: it is read, and it is raised.
+        let mut release = Fixture::v2(5, 365);
+        release.key = release_key();
+        release.sign();
+        let s = trust
+            .setup(Purpose::Verify, keys(None, false, false), NOW)
+            .unwrap();
+        assert!(matches!(
+            s.freshness.floors,
+            FloorMode::Store {
+                required: true,
+                record: true,
+                ..
+            }
+        ));
+        let r = verify(&release, &s);
+        assert!(r.ok, "{}", render_human(&r));
+        assert_eq!(store.floor("test-bundle").unwrap().unwrap().sequence, 5);
+
+        // The development bundle at sequence 9 left no trace, so it cannot have raised it: an
+        // older release is still refused only because of the pinned key's own floor.
+        let older = {
+            let mut f = Fixture::v2(4, 365);
+            f.key = release_key();
+            f.sign();
+            f
+        };
+        let r = verify(&older, &s);
+        assert_eq!(codes_of(&r), ["bundle-rollback"]);
+        assert!(r.errors[0].message.contains("below 5"), "{:?}", r.errors);
+    }
+
+    #[test]
+    fn each_command_gets_the_floor_behaviour_of_its_purpose() {
+        let t = tempfile::tempdir().unwrap();
+        let store = store_in(&t);
+        let dev = SigningKey::from_bytes(&[6u8; 32]);
+        let trust = trust_with(TrustAnchors::default(), Ok(store.clone()));
+        let floors_of = |purpose| {
+            trust
+                .setup(purpose, keys(Some(&dev), false, false), NOW)
+                .unwrap()
+                .freshness
+                .floors
+        };
+        assert!(matches!(
+            floors_of(Purpose::Verify),
+            FloorMode::Store {
+                required: false,
+                record: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            floors_of(Purpose::FlashImage),
+            FloorMode::Store {
+                required: false,
+                record: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            floors_of(Purpose::FlashDevice),
+            FloorMode::Store {
+                required: true,
+                record: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            floors_of(Purpose::Doctor),
+            FloorMode::Store {
+                required: false,
+                record: false,
+                ..
+            }
+        ));
+
+        // No state directory: the same rules, as an unavailable store.
+        let trust = trust_with(TrustAnchors::default(), Err("HOME is not set".into()));
+        let s = trust
+            .setup(Purpose::FlashDevice, keys(Some(&dev), false, false), NOW)
+            .unwrap();
+        assert!(matches!(
+            s.freshness.floors,
+            FloorMode::Unavailable { required: true, .. }
+        ));
+        assert!(s.freshness.floors_required());
+    }
+
+    #[test]
+    fn a_device_write_refuses_a_development_key_in_a_pinned_build_and_an_image_does_not() {
+        let dev = SigningKey::from_bytes(&[6u8; 32]);
+        let t = tempfile::tempdir().unwrap();
+        let trust = trust_with(pinned_anchors(), Ok(store_in(&t)));
+        let ask = |purpose| trust.setup(purpose, keys(Some(&dev), true, false), NOW);
+
+        let e = ask(Purpose::FlashDevice)
+            .err()
+            .expect("refused for a device");
+        assert!(format!("{e}").contains("--device"), "{e}");
+        for purpose in [Purpose::FlashImage, Purpose::Verify, Purpose::Doctor] {
+            let s = ask(purpose).unwrap();
+            assert!(
+                matches!(s.policy, SignaturePolicy::Require(_)),
+                "{purpose:?}"
+            );
+            assert_eq!(s.notes, [DEVELOPMENT_KEY_WARNING]);
+        }
+        // Without --development-key a key from the command line is refused everywhere.
+        for purpose in [
+            Purpose::Verify,
+            Purpose::FlashImage,
+            Purpose::FlashDevice,
+            Purpose::Doctor,
+        ] {
+            let e = trust
+                .setup(purpose, keys(Some(&dev), false, false), NOW)
+                .err()
+                .expect("--pubkey needs --development-key");
+            assert!(
+                format!("{e}").contains("--development-key"),
+                "{purpose:?}: {e}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_report_names_no_key_when_none_is_given_and_says_that_none_is_pinned() {
+        let t = tempfile::tempdir().unwrap();
+        let dev = SigningKey::from_bytes(&[6u8; 32]);
+
+        // Nothing pinned, no key: a doctor's report checks no signature and says why.
+        let trust = trust_with(TrustAnchors::default(), Ok(store_in(&t)));
+        let s = trust
+            .setup(Purpose::Doctor, keys(None, false, false), NOW)
+            .unwrap();
+        assert!(matches!(s.policy, SignaturePolicy::NotChecked));
+        assert_eq!(s.notes, [NO_PINNED_KEY_NOTE]);
+        // With a key it checks it, and says the same.
+        let s = trust
+            .setup(Purpose::Doctor, keys(Some(&dev), false, false), NOW)
+            .unwrap();
+        assert!(matches!(s.policy, SignaturePolicy::Require(_)));
+        assert_eq!(s.notes, [NO_PINNED_KEY_NOTE]);
+        // Any other command has to be told which key to trust.
+        for purpose in [Purpose::Verify, Purpose::FlashImage, Purpose::FlashDevice] {
+            assert!(trust.setup(purpose, keys(None, false, false), NOW).is_err());
+        }
+
+        // A pinned key is the default policy, and there is nothing to note.
+        let trust = trust_with(pinned_anchors(), Ok(store_in(&t)));
+        let s = trust
+            .setup(Purpose::Doctor, keys(None, false, false), NOW)
+            .unwrap();
+        assert!(matches!(s.policy, SignaturePolicy::Pinned(_)));
+        assert!(s.notes.is_empty());
     }
 }

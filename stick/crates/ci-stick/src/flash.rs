@@ -69,6 +69,16 @@ impl TargetSpec {
     pub fn is_device(&self) -> bool {
         matches!(self, Self::Device { .. })
     }
+
+    /// What a verification for this target is for: a physical stick makes the sequence floor
+    /// mandatory ([`verify::floor_rules`]).
+    pub fn purpose(&self) -> verify::Purpose {
+        if self.is_device() {
+            verify::Purpose::FlashDevice
+        } else {
+            verify::Purpose::FlashImage
+        }
+    }
 }
 
 pub struct FlashRequest {
