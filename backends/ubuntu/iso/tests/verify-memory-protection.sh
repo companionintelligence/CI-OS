@@ -167,7 +167,7 @@ fx "ssh raised to 3%" "invariant 2: the MemoryMin values add up to 5%" 2 "replac
 fx "an ollama.service ceiling that does not fit next to user.slice" "invariant 3: user.slice MemoryLow (25%) plus ollama.service MemoryHigh (80%) is 105%" 1 "put_file $OLLAMA \"\$(printf '[Service]\nMemoryHigh=80%%')\""
 fx "an ollama.service file with infinity" "MemoryHigh=infinity is not allowed" 1 "put_file $OLLAMA \"\$(printf '[Service]\nMemoryHigh=infinity')\""
 fx "the CachyOS name of the SSH daemon in an Ubuntu root" "sshd.service.d/$CONF belongs to no unit of the ubuntu edition (this edition's SSH daemon is ssh.service)" 1 "mkdir -p $U/sshd.service.d && cp $U/ssh.service.d/$CONF $U/sshd.service.d/$CONF"
-fx "a symlink in place of a file" "docker.service.d/$CONF is a symlink" 1 "mv $U/docker.service.d/$CONF $U/containerd.service.d/real.txt && ln -s ../containerd.service.d/real.txt $U/docker.service.d/$CONF"
+fx "a symlink in place of a file" "docker.service.d/$CONF is a symlink" 2 "mv $U/docker.service.d/$CONF $U/containerd.service.d/real.txt && ln -s ../containerd.service.d/real.txt $U/docker.service.d/$CONF"
 fx "a file of mode 0600" "docker.service.d/$CONF is mode 600, not 0644" 1 "chmod 600 $U/docker.service.d/$CONF"
 fx "an empty drop-in" "user.slice: MemoryLow is not set in any drop-in" 1 ": > $U/user.slice.d/$CONF"
 
