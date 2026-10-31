@@ -25,6 +25,7 @@ HEADLESS = os.path.normpath(os.path.join(HERE, "..", ".."))
 PKG = os.path.join(HEADLESS, "ci_setup")
 
 V = ["test_validators", "test_fuzz_validators"]
+ST = ["test_statement"]
 RP = ["test_replay"]
 
 # (id, file under ci_setup/, exact old text, new text, test modules that must fail)
@@ -169,7 +170,26 @@ MUTANTS = [
     ("parse-cmdline-last-wins", "sysinfo.py", "        params[name[:64]] = value[:256]", "        params.setdefault(name[:64], value[:256])", ["test_parsers_misc"]),
     ("probe-follow-uplink-unchecked", "probe.py", "        if radio.follow_uplink_mhz is not None and not plan.ok:", "        if False:", ["test_probe"]),
     ("probe-hard-block-ignored", "probe.py", "        if name in blocks and blocks[name].hard_blocked:\n            hard_blocked = True", "        if False:\n            hard_blocked = True", ["test_probe"]),
-    # ---- the replay guard (replay.py)
+    # ---- owner statements (statement.py) and the replay guard (replay.py)
+    ("stmt-signature-skipped", "statement.py", "    if not _signature_ok(verifier, SIGNING_PREFIX + data, signature):", "    if False:", ST),
+    ("stmt-namespace-dropped", "statement.py", "verifier.verify(NAMESPACE, message, bytes(signature))", "verifier.verify(\"\", message, bytes(signature))", ST),
+    ("stmt-noncanonical-accepted", "statement.py", "    if canonical != data:", "    if False:", ST),
+    ("stmt-duplicate-key-accepted", "statement.py", "        obj = loads_strict(data)", "        obj = json.loads(data)", ST),
+    ("stmt-float-accepted", "statement.py", "    if t is int:", "    if t is int or t is float:", ST),
+    ("stmt-unknown-field-accepted", "statement.py", "    if set(obj) != FIELD_SET:", "    if not FIELD_SET <= set(obj):", ST),
+    ("stmt-version-ignored", "statement.py", "    if version != VERSION:", "    if False:", ST),
+    ("stmt-size-unbounded", "statement.py", "    if len(data) > MAX_STATEMENT_BYTES:", "    if False:", ST),
+    ("stmt-type-ignored", "statement.py", "    if obj[\"type\"] not in expected.types:", "    if False:", ST),
+    ("stmt-scope-ignored", "statement.py", "    if not consteq(obj[\"scope\"], expected.scope):", "    if False:", ST),
+    ("stmt-target-ignored", "statement.py", "    if not consteq(obj[\"target\"], expected.target):", "    if False:", ST),
+    ("stmt-params-not-bound", "statement.py", "    if not consteq(obj[\"params_hash\"], params_hash(params)):", "    if False:", ST),
+    ("stmt-params-burns-id", "statement.py", "    _check_params(obj, params)\n    t = _read_clock(now)\n    _check_time(obj, t, expected)\n    _claim(store, obj, t, expected)\n", "    t = _read_clock(now)\n    _claim(store, obj, t, expected)\n    _check_params(obj, params)\n    _check_time(obj, t, expected)\n", ST),
+    ("stmt-expiry-off-by-one", "statement.py", "    if t >= obj[\"expires_at\"]:", "    if t > obj[\"expires_at\"]:", ST),
+    ("stmt-ttl-cap-removed", "statement.py", "    if obj[\"expires_at\"] - t > expected.max_ttl_s + expected.skew_s:", "    if False:", ST),
+    ("stmt-skew-widened", "statement.py", "DEFAULT_SKEW_S = 120", "DEFAULT_SKEW_S = 1200", ST),
+    ("stmt-error-echoes-value", "statement.py", "        raise StatementError(\"target\")", "        raise StatementError(\"target\", \"expected \" + obj[\"target\"])", ST),
+    ("canon-sort-keys-removed", "statement.py", "sort_keys=True, ", "sort_keys=False, ", ST),
+    ("canon-separator-changed", "statement.py", "separators=(\",\", \":\")", "separators=(\", \", \": \")", ST),
     ("replay-floor-ignored", "replay.py", "                if now < floor - skew_s:", "                if False:", RP),
     ("replay-floor-advances-on-reject", "replay.py", "                names = _listing(backend)\n", "                backend.write_floor(max(now, floor))\n                names = _listing(backend)\n", RP),
     ("replay-damaged-marker-ignored", "replay.py", "if any(n.endswith(\"-\" + digest) for n in names):", "if any(n.endswith(\"-\" + digest) and backend.marker_body(n) == MARKER_BODY for n in names):", RP),

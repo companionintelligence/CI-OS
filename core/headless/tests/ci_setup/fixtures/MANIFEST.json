@@ -206,6 +206,11 @@
       "tool": "rfkill list / rfkill --json",
       "note": "hand-written from the formats of rfkill (util-linux) as remembered; not captured"
     },
+    "statements/vectors.json": {
+      "origin": "synthetic",
+      "tool": "ci_setup.statement (known answers for other languages)",
+      "note": "member values chosen by hand; the canonical bytes, signing-bytes hashes and parameter hashes are the output of statement.py, re-derived by hand-assembly in test_statement.py and by an independent JavaScript canonicaliser run once (not kept in the repository); no key and no signature"
+    },
     "supplicant/hostapd_all_sta.txt": {
       "origin": "synthetic",
       "tool": "wpa_cli status / hostapd_cli status, all_sta, event stream",
