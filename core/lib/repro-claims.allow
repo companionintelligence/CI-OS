@@ -1,0 +1,11 @@
+# Baseline of the document lines that contain the word "reproducib..." : every markdown file under docs/ (docs/evidence excluded) and every README.md.
+# core/lib/tests/release-names.sh, case repro-claims, fails on a line of that kind that is not listed here, and on an entry whose line is gone, so
+# this list only shrinks. An image is called reproducible only after a recorded two-build comparison under docs/evidence/ says so; the lines below
+# are about something else or deny the claim, and each says which. A comparison record lets its owner remove or reword an entry.
+#
+# Format, tab separated, one entry per line: path<TAB>a fixed substring of the line<TAB>the reason
+backends/ubuntu/chroot/payload/models/README.md	reproducible; the image build needs no Rust	an option table of the model tooling: it calls one pinned prebuilt binary reproducible (the same sha256 every time), not an image
+docs/architecture/cachyos-backend.md	The package set is not reproducible	a negation: the Plasma package set is rolling, and the line says it is not claimed to be reproducible
+docs/architecture/companion-stick.md	what makes a bundle reproducible	a model bundle: the manifest digest and the pack list decide what a bundle holds, nothing about an OS image
+docs/architecture/models-tooling.md	is the reproducible content	a manifest digest of a model store, not an OS image
+docs/architecture/supported-targets.md	Reproducible package set	the title of a capability row that says Partly for Ubuntu and Rolling for Plasma; the changes that pin the archive and measure the build reword it, and whoever merges second updates this entry

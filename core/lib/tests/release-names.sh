@@ -279,7 +279,7 @@ def case_sig_name(T):
                 continue
             token = next((t for t in GPG_TOKENS if t in line), None)
             if token is None:
-                if re.search(r"--sign\b", line) and re.search(r"\.gpg\b", line):             # (iii) a description of our --sign output
+                if re.search(r"--sign\b", line) and re.search(r"\.gpg\b", line) and re.search(r"signature|SUMS", line, re.I):     # (iii) our --sign output
                     f.append(at(path, no, "describes the output of --sign as .gpg; our signature files are SHA256SUMS.asc and MD5SUMS.asc"))
                 continue
             accepted = False
@@ -344,7 +344,7 @@ def run_tool(mod, names, edition, version):
         if rc == 0 and os.path.isfile(os.path.join(out, "manifest.json")):
             with open(os.path.join(out, "manifest.json"), encoding="utf-8") as fh:
                 doc = json.load(fh)
-        return rc, doc
+        return rc, doc, sink.getvalue().strip().split("\n")[-1][:160]
     finally:
         shutil.rmtree(d, True)
         shutil.rmtree(out, True)
@@ -367,32 +367,39 @@ def case_image_grammar(T):
         return [at(TOOL, 0, "does not load: %s: %s" % (type(exc).__name__, exc))]
     uam, ubm = "companion-os-1.0-amd64.iso", "companion-os-1.0-arm64.iso"
 
-    def accepted(edition, version, names, arch):
-        rc, doc = run_tool(mod, names, edition, version)
+    def accepted(edition, version, names, arches):
+        rc, doc, said = run_tool(mod, names, edition, version)
         if rc != 0 or doc is None:
-            f.append(at(TOOL, 0, "--edition %s refuses %s (exit %s)" % (edition, " + ".join(names), rc)))
-        elif list(doc.get("images", {})) != [arch] or doc.get("edition", "ubuntu") != edition or doc.get("product") != "companion-os":
-            f.append(at(TOOL, 0, "--edition %s describes %s as %r in an edition %r" % (edition, names[0], list(doc.get("images", {})), doc.get("edition"))))
+            f.append(at(TOOL, 0, "--edition %s refuses %s (exit %s: %s)" % (edition, " + ".join(names), rc, said)))
+        elif sorted(doc.get("images", {})) != sorted(arches) or doc.get("edition", "ubuntu") != edition or doc.get("product") != "companion-os":
+            f.append(at(TOOL, 0, "--edition %s describes %s as the images %r of the edition %r" % (edition, " + ".join(names), sorted(doc.get("images", {})),
+                                                                                                    doc.get("edition", "ubuntu"))))
 
     def refused(edition, version, names, why):
-        rc, _ = run_tool(mod, names, edition, version)
+        rc, _, _ = run_tool(mod, names, edition, version)
         if rc != 2:
             f.append(at(TOOL, 0, "--edition %s accepts %s (exit %s), and must refuse it: %s" % (edition, " + ".join(names), rc, why)))
 
-    accepted("ubuntu", "1.0", [uam], "amd64")
-    accepted("ubuntu", "1.0", [ubm], "arm64")
-    accepted("ubuntu", "1.0", [uam, ubm], "amd64")                 # the order of the two is not what is checked here, only that both fit
-    accepted("plasma", date, [plasma], parch)
+    accepted("ubuntu", "1.0", [uam], ["amd64"])
+    accepted("ubuntu", "1.0", [ubm], ["arm64"])
+    accepted("ubuntu", "1.0", [uam, ubm], ["amd64", "arm64"])
+    accepted("plasma", date, [plasma], [parch])
     refused("plasma", "1.0", [uam], "an Ubuntu image in a Plasma release")
     refused("ubuntu", date, [plasma], "a Plasma image in an Ubuntu release")
     refused("ubuntu", "1.0", [uam, plasma], "a directory of both editions, as Ubuntu")
     refused("plasma", date, [plasma, uam], "a directory of both editions, as Plasma")
-    near = (("a day without its zeros", "%s-%s.%d.%s-%s.iso" % (pre, y, int(mo), d, parch)), ("a word for the date", "%s-latest-%s.iso" % (pre, parch)),
-            ("the Ubuntu architecture", "%s-%s-amd64.iso" % (pre, date)), ("the other Ubuntu architecture", "%s-%s-arm64.iso" % (pre, date)),
-            ("no architecture", "%s-%s.iso" % (pre, date)), ("something after the architecture", "%s-%s-%s-old.iso" % (pre, date, parch)),
-            ("another edition name", "%sx-%s-%s.iso" % (pre, date, parch)))
-    for why, name in near:
-        refused("plasma", date, [name], "near miss: " + why)
+    # each near miss is offered with the version it carries itself, so that only the grammar of the name can refuse it (a wrong version would)
+    near = (("a date without its zeros", "%s-%s.1.8-%s.iso" % (pre, y, parch), "%s.1.8" % y),
+            ("a date with a two digit year", "%s-%s.%s.%s-%s.iso" % (pre, y[2:], mo, d, parch), "%s.%s.%s" % (y[2:], mo, d)),
+            ("a date with a five digit year", "%s-%s9.%s.%s-%s.iso" % (pre, y, mo, d, parch), "%s9.%s.%s" % (y, mo, d)),
+            ("a date with a three digit day", "%s-%s.%s.%s9-%s.iso" % (pre, y, mo, d, parch), "%s.%s.%s9" % (y, mo, d)),
+            ("a release version where the date goes", "%s-1.0-%s.iso" % (pre, parch), "1.0"),
+            ("a date and a suffix", "%s-%s-rc1-%s.iso" % (pre, date, parch), date + "-rc1"),
+            ("the Ubuntu architecture", "%s-%s-amd64.iso" % (pre, date), date), ("the other Ubuntu architecture", "%s-%s-arm64.iso" % (pre, date), date),
+            ("no architecture", "%s-%s.iso" % (pre, date), date), ("something after the architecture", "%s-%s-%s-old.iso" % (pre, date, parch), date),
+            ("another edition name", "%sx-%s-%s.iso" % (pre, date, parch), date))
+    for why, name, version in near:
+        refused("plasma", version, [name], "near miss: " + why)
     for why, name in (("the Plasma architecture", "companion-os-1.0-%s.iso" % parch), ("a third architecture", "companion-os-1.0-i386.iso"),
                       ("no architecture", "companion-os-1.0.iso")):
         refused("ubuntu", "1.0", [name], "near miss: " + why)
@@ -889,8 +896,11 @@ mutate_sig_stale()       { py delete-lines "$1" docs/guides/iso-build-guide.md '
 mutate_plasma_re()       { py sub "$1" $SB/release-manifest.py '(\d{4}\.\d{2}\.\d{2})' '(.+)'; }
 mutate_ubuntu_re()       { py sub "$1" $SB/release-manifest.py '(amd64|arm64)\.iso' '(amd64|arm64|x86_64)\.iso'; }
 mutate_lock_arch()       { py sub "$1" backends/cachyos/upstream.lock 'EDITION_ARCH=x86_64' 'EDITION_ARCH=aarch64'; }
+mutate_sig_workflow()    { py sub "$1" .github/workflows/build-companion-os-iso.yml '  UBUNTU_VERSION: "26.04"' $'  # the release is signed to SHA256SUMS.gpg\n  UBUNTU_VERSION: "26.04"'; }
 mutate_always_on()       { py sub "$1" .github/workflows/build-companion-os-iso.yml 'name: Build Companion OS ISO' $'name: Build Companion OS ISO\n\n# Always-on: every PR is built.'; }
+mutate_claim_script()    { py sub "$1" core/lib/check-repo.sh '# Fast repo checks: run them before any push.' '# Fast repo checks, run on every PR and before any push.'; }
 mutate_artifact_default() { py sub "$1" .github/workflows/stick-real-iso.yml "default: 'companion-os-amd64'" "default: 'ci-os-iso'"; }
+mutate_ci_md_stale()     { py ci-entry "$1" 'Gone' gone.yml; }
 mutate_ci_md_input()     { py resub "$1" docs/CI.md ' -f ci_os_artifact=[^ ]*' ''; }
 mutate_pin_digit()       { py sub "$1" docs/guides/release-checklist.md "$PIN" "$(flip "$PIN")"; }
 mutate_pin_abbrev()      { py sub "$1" docs/guides/release-checklist.md "${PIN:0:8}...${PIN: -4}" "${PIN:0:8}...$(flip "${PIN: -4}")"; }
@@ -925,12 +935,15 @@ plant sig_build          sig-name        "the build signs to SHA256SUMS.gpg"
 plant sig_publisher      sig-name        "the publisher looks for SHA256SUMS.gpg"
 plant sig_doc            sig-name        "the installation guide tells people to verify with SHA256SUMS.gpg"
 plant sig_stale          sig-name        "an allow-list entry for Ubuntu's stock file whose lines are gone"
+plant sig_workflow       sig-name        "the workflow names SHA256SUMS.gpg outside the stock download and verify steps"
 plant plasma_re          image-grammar   "the Plasma image-name pattern accepts any date"
 plant ubuntu_re          image-grammar   "the Ubuntu image-name pattern accepts x86_64"
 plant lock_arch          image-grammar   "EDITION_ARCH in the lock is not the architecture the tool accepts"
 plant always_on          workflow-claims "a manual workflow header says always-on"
+plant claim_script       workflow-claims "the header of check-repo.sh says it runs on every PR"
 plant artifact_default   artifact-names  "stick-real-iso.yml defaults to an artifact nobody uploads"
 plant ci_md_input        ci-md           "docs/CI.md lacks a workflow_dispatch input"
+plant ci_md_stale        ci-md           "docs/CI.md has an entry for a workflow file that is gone"
 plant fifth_workflow     counts          "a fifth workflow file (with its docs/CI.md entry)"
 plant pin_digit          pins-agree      "one digit of the base ISO pin changed in a document"
 plant pin_abbrev         pins-agree      "the abbreviated pin ends differently"
