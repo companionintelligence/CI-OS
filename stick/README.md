@@ -101,7 +101,7 @@ Exit codes: `0` ok, `1` verification failed, `2` usage or I/O error, or a safety
 | `bundle-rollback` | `sequence` is below the floor stored for the bundle `id` |
 | `bundle-sequence-conflict` | `sequence` equals the floor but `bundle.json` has other bytes (the same bytes are accepted again) |
 | `signature-key-revoked` | the signature verifies under a key whose fingerprint is revoked |
-| `signature-key-unknown` | a pinned-key policy with no key pinned |
+| `signature-key-unknown` | a pinned-key policy with no key pinned (a library case: no command builds one) |
 | `bundle-freshness-missing` | a schema 1 bundle, when this build pins a key |
 
 * **This build pins no release key** (`stick/trust/pinned-keys.json` is `[]`; KI-23), so `--pubkey` is still the only key source and the
@@ -110,10 +110,25 @@ Exit codes: `0` ok, `1` verification failed, `2` usage or I/O error, or a safety
 * **The sequence floor** is the highest `sequence` accepted per bundle `id`, kept in `floors.json` in the state directory:
   `--state-dir <dir>`, else `$CI_STICK_STATE_DIR`, else `$XDG_STATE_HOME/ci-stick` or `~/.local/state/ci-stick` (Linux),
   `~/Library/Application Support/ci-stick` (macOS), `%LOCALAPPDATA%\ci-stick` (Windows). It moves up only after a whole verification
-  succeeded (in `verify`; in `flash` after the stick was written), never in `--dry-run` or `doctor`. A damaged `floors.json` is never reset:
-  the command stops and names it. A `--device` write refuses when there is no usable state directory; a development `--image` flow warns.
+  succeeded (in `verify`; in `flash` after the stick was written), never in `--dry-run` or `doctor`. A damaged `floors.json`, or one that
+  cannot be read, is never reset: the command stops and names it. A schema 2 bundle in a `--device` write refuses when there is no usable
+  state directory; a development `--image` flow warns. A refusal such as `bundle-rollback` names the file and `ci-stick trust show`.
+* **The floor belongs to the account that runs the command.** `verify` as you and `sudo ci-stick flash --device` are two accounts. `sudo`
+  normally starts the command with a fresh environment, so `CI_STICK_STATE_DIR` does not reach it and `HOME` may be root's: the two keep
+  separate floors, and a floor raised by one does not protect the other. Where `HOME` is kept, root creates `floors.json` in your directory and
+  your next run stops with a permission error that names the file. The flag survives `sudo`, so give every command that needs the floor the
+  same directory and run them as the same account:
+  `sudo ci-stick --state-dir /var/lib/ci-stick verify ./staging --pubkey ./dev.pub` and
+  `sudo ci-stick --state-dir /var/lib/ci-stick flash ./staging --pubkey ./dev.pub --device /dev/disk/by-id/usb-XYZ --dry-run`.
+  (UNKNOWN: how the `sudo` of Ubuntu 26.04 treats `HOME` was not checked; the flag works whichever way it does.)
+* **A floor raised by mistake** (a candidate you did not mean to accept, verified on the release machine) is forgotten by moving `floors.json`
+  away; that forgets every floor, so an older bundle is accepted again until a verification records a new one. `ci-stick trust show` lists
+  what it holds, and the file is JSON, so one `id`'s entry can be edited by hand (an invalid file stops every command).
 * **`revoked.txt`** in the state directory (one key fingerprint per line, `#` comments) adds revocations before a new binary does. It can only
-  add refusals, and a line that is not a fingerprint stops the command.
+  add refusals, and a line that is not a fingerprint, or a file that cannot be read, stops the command. If the directory itself cannot be looked
+  at, a `--device` write refuses and any other command carries on with a `revoked-list-not-read` warning.
+* Once a key is pinned, a bundle checked with `--development-key` neither reads nor moves a floor (its expiry is still enforced), so a
+  development bundle cannot lock out a release line.
 * For rehearsals use a throw-away directory, so the real floor stays where it is:
   `CI_STICK_STATE_DIR="$(mktemp -d)" ci-stick verify ./staging --pubkey ./dev.pub`.
 
