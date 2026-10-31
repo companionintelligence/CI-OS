@@ -8,6 +8,8 @@
 #   CI-PROBE-OK <detail>             the display manager's greeter is up and Plymouth has gone: the screen is the login screen
 #   CI-PROBE-FAIL <reason>           the display manager did not come up within the time limit
 #   CI-PROBE: <key>=<value>          facts for the report (root device, command line, system state, failed units, errors)
+#   CI-PROBE: memory <unit> ...      the memory.min, memory.low and memory.high of the cgroup of each unit the memory-protection drop-ins name,
+#                                    what systemd holds for it, and the Docker cgroup driver, systemd-oomd and ssh.socket (facts, not verdicts)
 #
 # The probe judges nothing about the build. It only says whether the greeter is there; the host decides.
 #
@@ -90,6 +92,26 @@ say "CI-PROBE: sudo-nopasswd-files=$(grep -rl NOPASSWD /etc/sudoers /etc/sudoers
 say "CI-PROBE: masked-units=$(systemctl list-unit-files --state=masked --no-legend --plain 2>/dev/null | awk '{ printf "%s ", $1 }')"
 say "CI-PROBE: plymouth-running=$(plymouth --ping >/dev/null 2>&1 && echo yes || echo no)"
 say "CI-PROBE: sessions=$(loginctl list-sessions --no-legend 2>/dev/null | tr -s ' ' | tr '\n' ';')"
+# Memory protection (core/lib/memory-protection.sh; docs/architecture/ubuntu-2604-port-notes.md, section 18): what is set for each unit the five
+# drop-ins name, and for ollama.service, whose ceiling is held back. Facts for the 6 and 16 GiB runs (docs/guides/testing-in-qemu.md), not verdicts.
+# memory.min, memory.low and memory.high are the configured values of the cgroup; the kernel does not expose the effective protection, which is
+# capped by every ancestor. A cgroup exists only while its unit runs (ssh.service starts on the first connection when ssh.socket is in use), so an
+# absent one is said. `systemctl show` prints what the manager holds for a percentage-valued setting (bytes, the percentage or infinity was UNKNOWN).
+mem_cg="${CI_PROBE_CGROUP:-/sys/fs/cgroup}"
+for mem_unit in system.slice user.slice ssh.service docker.service containerd.service ollama.service; do
+    case "$mem_unit" in *.slice) mem_dir="$mem_cg/$mem_unit" ;; *) mem_dir="$mem_cg/system.slice/$mem_unit" ;; esac
+    if [ -d "$mem_dir" ]; then
+        mem_vals="min=$(cat "$mem_dir/memory.min" 2>/dev/null || echo unreadable) low=$(cat "$mem_dir/memory.low" 2>/dev/null || echo unreadable) high=$(cat "$mem_dir/memory.high" 2>/dev/null || echo unreadable)"
+    else
+        mem_vals="cgroup-absent"
+    fi
+    say "CI-PROBE: memory $mem_unit $mem_vals active=$(systemctl is-active "$mem_unit" 2>&1 | head -1) show=$(systemctl show "$mem_unit" -p MemoryMin -p MemoryLow -p MemoryHigh 2>&1 | tr '\n' ' ')"
+done
+say "CI-PROBE: memory-total=$(awk '/^MemTotal:/ { print $2 " kB" }' /proc/meminfo 2>/dev/null) controllers-system.slice=$(tr '\n' ' ' < "$mem_cg/system.slice/cgroup.controllers" 2>/dev/null)"
+if command -v timeout >/dev/null 2>&1; then mem_docker="$(timeout 20 docker info --format '{{.CgroupDriver}}' 2>&1 | head -1)"; else mem_docker="$(docker info --format '{{.CgroupDriver}}' 2>&1 | head -1)"; fi
+say "CI-PROBE: docker-cgroup-driver=${mem_docker:-unknown}"
+say "CI-PROBE: systemd-oomd=$(systemctl is-enabled systemd-oomd 2>&1 | head -1) active=$(systemctl is-active systemd-oomd 2>&1 | head -1)"
+say "CI-PROBE: ssh.socket=$(systemctl cat ssh.socket 2>&1 | tr '\n' '|' | cut -c1-1200)"
 # Errors of this boot, by source ("unit[pid]: message" with the time, host and pid removed), most frequent first.
 journalctl -b -p err --no-pager -o short 2>/dev/null | awk '{ $1 = $2 = $3 = $4 = ""; print }' | sed -e 's/^ *//' -e 's/\[[0-9]*\]//' | cut -c1-180 \
     | sort | uniq -c | sort -rn | head -15 | while IFS= read -r l; do say "CI-PROBE: journal-err $l"; done

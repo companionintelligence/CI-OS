@@ -16,7 +16,9 @@
 #   3.  airootfs.sfs: /etc/os-release has the Companion OS keys and ID=cachyos / ID_LIKE=arch unchanged (D4), the
 #       os-release pacman hook is there, hostname, issue, motd, the About-System file, the wallpaper, the logo icon and
 #       the colour scheme are Companion's, no CachyOS artwork came from our overlay, sshd is masked in the live
-#       image and its drop-ins forbid root and password logins (D7), the live user is still liveuser with passwordless sudo;
+#       image and its drop-ins forbid root and password logins (D7), the memory protection drop-ins (core/lib/memory-protection.sh:
+#       sshd.service keeps a hard minimum, the five files pass the shared lint, carry-over.list names them so the installed system gets
+#       them), the live user is still liveuser with passwordless sudo;
 #   3b. the installer entry point (D6): our launcher .desktop and /usr/local/bin/calamares-online.sh are there and
 #       executable, the script applies the Companion overlay AFTER it reinstalls cachyos-calamares-next, and the
 #       cachyos-hello install gate (cachyos.org/versions.json) cannot be reached from a default session; cachy-update
@@ -581,6 +583,53 @@ v_check_sshd_masked() {
     if [ "$t" = "/dev/null" ]; then pass "sshd.service is masked in the live image (D7)"; else fail "sshd.service is not masked (/etc/systemd/system/sshd.service -> '${t:-<absent>}'); upstream ships it enabled with empty-password root login (D7)"; fi
     s="$(v_lst_target "$l" /etc/systemd/system/sshd.socket)"
     if [ "$s" = "/dev/null" ] || ! v_lst_has "$l" /etc/systemd/system/sockets.target.wants/sshd.socket; then pass "sshd.socket is not enabled"; else fail "sshd.socket is enabled in the live image"; fi
+}
+
+# v_check_memory_protection ROOT CARRYLIST: the five memory protection drop-ins of core/lib/memory-protection.sh (on this edition the SSH daemon is
+# sshd.service). ROOT holds the extracted etc/systemd/system; CARRYLIST is the image's usr/share/ci-os/installed/carry-over.list. Three things:
+#   - sshd.service has a hard minimum (MemoryMin). It is read here, without the library: the way in for a person at a machine that is out of
+#     memory is the point of the change, so a copy of this script outside the repository (no library) still says when it is gone;
+#   - the lint of the shared library judges all five files: valid shares of installed RAM in the right sections, a parent slice that holds more
+#     than its children claim, hard minimums below 5% of RAM, no MemoryMax or infinity, regular files of mode 0644, the last assignment wins
+#     (core/lib/tests/memory-protection.sh shows each of these failing). Without the library it is a SKIPPED group;
+#   - the installed system is pacstrapped and gets none of the live image's /etc unless carry-over.list names it, so each of the five files
+#     must be listed there.
+# [I]: what the kernel does with the values is a boot (docs/guides/testing-in-qemu.md, "Memory protection runs"). The modes the image's files
+# have (0644 expected: mkarchiso copies airootfs without their modes, so the build's umask decides) were not observed on a built Plasma image.
+v_check_memory_protection() {
+    local root="$1" carry="${2:-}" f lib out line n=0 rc u p missing=0
+    f="$root/etc/systemd/system/sshd.service.d/30-ci-os-memory.conf"
+    if grep -v '^[[:space:]]*[#;]' "$f" 2>/dev/null | grep -q -E '^[[:space:]]*MemoryMin[[:space:]]*=[[:space:]]*[1-9][0-9]*%[[:space:]]*$'; then
+        pass "sshd.service has a hard minimum of memory (MemoryMin in sshd.service.d/30-ci-os-memory.conf): the way in stays reachable when memory is short"
+    else
+        fail "sshd.service.d/30-ci-os-memory.conf sets no MemoryMin (or the file is missing): the way in has no hard minimum of memory"
+    fi
+    lib="$V_SCRIPT_DIR/../../../../core/lib/memory-protection.sh"
+    if [ -r "$lib" ]; then
+        # shellcheck source=../../../../core/lib/memory-protection.sh
+        . "$lib"
+        rc=0; out="$(ci_os_memprot_lint "$root" cachyos)" || rc=$?
+        if [ "$rc" -eq 0 ]; then
+            pass "memory protection: the five drop-ins (system.slice, user.slice, sshd.service, docker.service, containerd.service) are valid and their invariants hold at 2 to 64 GiB of RAM"
+        else
+            while IFS= read -r line; do
+                case "$line" in "FAIL: "*) fail "memory protection: ${line#FAIL: }"; n=$((n + 1)) ;; esac
+            done <<EOF
+$out
+EOF
+            [ "$n" -gt 0 ] || fail "memory protection: the lint of core/lib/memory-protection.sh failed (exit $rc) and said nothing"
+        fi
+        for u in $(ci_os_memprot_units cachyos); do
+            p="/etc/systemd/system/$u.d/$CI_OS_MEMPROT_FILE"
+            if ! grep -q -x -F -- "$p" "$carry" 2>/dev/null; then
+                fail "carry-over.list does not name $p: the installed system would not get this drop-in"; missing=$((missing + 1))
+            fi
+        done
+        [ "$missing" -eq 0 ] && pass "carry-over.list names all five memory protection drop-ins, so the installed system gets them"
+    else
+        skip "memory protection drop-ins beyond the sshd.service minimum (core/lib/memory-protection.sh is not next to this script)"
+    fi
+    return 0
 }
 
 # v_check_about FILE OSRELEASE: /etc/xdg/kcm-about-distrorc (System Settings > About, KInfoCenter). KDE falls back to os-release
@@ -2263,6 +2312,7 @@ verify_main() {
     # D7: sshd masked, liveuser, passwordless sudo
     v_check_sshd_masked "$L"
     v_check_sshd_dropin "$R/etc/ssh/sshd_config.d"
+    v_check_memory_protection "$R" "$R/usr/share/ci-os/installed/carry-over.list"
     if grep -q -E '^liveuser:x:1000:' "$R/etc/passwd" 2>/dev/null; then pass "the live user is still liveuser (uid 1000, D7)"; else fail "no liveuser (uid 1000) in /etc/passwd (D7)"; fi
     if v_has "$R/etc/sudoers.d/g_wheel" '^%wheel[[:space:]]+ALL=\(ALL(:ALL)?\)[[:space:]]+NOPASSWD:[[:space:]]*ALL' ; then pass "wheel keeps passwordless sudo (D7: the installer launcher uses sudo)"; else fail "wheel has no NOPASSWD sudo rule in /etc/sudoers.d/g_wheel (D7; calamares-online.sh needs sudo)"; fi
     local dm

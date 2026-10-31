@@ -75,6 +75,7 @@ exit 1
 EOF
 printf '#!/bin/sh\n[ -n "${FAKE_PLYMOUTH:-}" ] && exit 0   # plymouthd still answers\nexit 1                              # `plymouth --ping` fails: plymouthd is gone, the splash has handed over to the greeter\n' > "$PB/plymouth"
 printf '#!/bin/sh\nexit 0\n' > "$PB/sleep"        # the probe's waits are not the test's
+printf '#!/bin/sh\necho systemd\n' > "$PB/docker"   # `docker info --format {{.CgroupDriver}}`: the host's Docker is none of the probe test's business (and may hang)
 chmod +x "$PB"/*
 probe() { # probe <name> <greeter user> <greeter uid> <the user whose gnome-shell runs> <its uid> [limit [plymouth still running: any text]]: run the probe, print its OK/FAIL marker
     local out="$TMP/probe-$1.out"
@@ -93,6 +94,29 @@ got="$(probe wrongshell gdm-greeter 60578 gdm 120 3)"
 case "$got" in "CI-PROBE-FAIL"*) t_pass "probe: a gnome-shell of another user (gdm) does not count as the greeter session's (the 26.04 case the probe got wrong the other way round)" ;; *) t_fail "probe: took another user's gnome-shell for the greeter's: '$got'" ;; esac
 got="$(probe plymouth gdm-greeter 60578 gdm-greeter 60578 3 yes)"
 case "$got" in "CI-PROBE-FAIL"*"plymouth running: yes"*) t_pass "probe: the greeter's gnome-shell is up but Plymouth still answers: not the login screen yet (FAIL at the limit, with the reason)" ;; *) t_fail "probe: reported '$got' while Plymouth was still running" ;; esac
+
+# The memory facts (the memory-protection drop-ins, core/lib/memory-protection.sh): read from a fake cgroup tree (CI_PROBE_CGROUP). A unit that has
+# no cgroup is said to have none, an unreadable file is said to be unreadable, and the verdict of the probe is still given, after the facts.
+CG="$TMP/cg"; mkdir -p "$CG/system.slice/docker.service" "$CG/user.slice"
+printf '42949672\n' > "$CG/system.slice/memory.min"; printf '214748364\n' > "$CG/system.slice/memory.low"; printf 'max\n' > "$CG/system.slice/memory.high"
+printf '0\n' > "$CG/user.slice/memory.min"; printf '536870912\n' > "$CG/user.slice/memory.low"            # no memory.high file
+printf '0\n' > "$CG/system.slice/docker.service/memory.min"; printf '64424509\n' > "$CG/system.slice/docker.service/memory.low"; printf 'max\n' > "$CG/system.slice/docker.service/memory.high"
+printf 'cpu io memory pids\n' > "$CG/system.slice/cgroup.controllers"
+MEMOUT="$TMP/probe-memory.out"; : > "$MEMOUT"
+PATH="$PB:$PATH" CI_PROBE_TTY="$MEMOUT" CI_PROBE_LIMIT=4 FAKE_GREETER_USER=gdm-greeter FAKE_GREETER_UID=60578 FAKE_SHELL_USER=gdm-greeter FAKE_SHELL_UID=60578 CI_PROBE_CGROUP="$CG" \
+    bash "${CI_PROBE_SCRIPT:-$LIB/installed-boot-probe.sh}" >/dev/null 2>&1 || true
+memfact() { grep -q -F -- "$2" "$MEMOUT" && t_pass "$1" || t_fail "$1 (no line contains: $2)"; }
+memfact "probe: system.slice's memory.min, memory.low and memory.high are printed as they are" "CI-PROBE: memory system.slice min=42949672 low=214748364 high=max active=active"
+memfact "probe: a service cgroup is looked for under system.slice (docker.service)" "CI-PROBE: memory docker.service min=0 low=64424509 high=max active=active"
+memfact "probe: user.slice, whose memory.high file is not there, is said to be unreadable there and nowhere else" "CI-PROBE: memory user.slice min=0 low=536870912 high=unreadable"
+memfact "probe: a unit with no cgroup (ssh.service, started by its socket) is said to have none" "CI-PROBE: memory ssh.service cgroup-absent"
+memfact "probe: ollama.service, whose ceiling is held back, is reported too" "CI-PROBE: memory ollama.service cgroup-absent"
+memfact "probe: the memory controller list of system.slice is printed" "controllers-system.slice=cpu io memory pids"
+memfact "probe: the Docker cgroup driver is printed" "CI-PROBE: docker-cgroup-driver=systemd"
+memfact "probe: systemd-oomd (enabled or not) is printed" "CI-PROBE: systemd-oomd="
+memfact "probe: the packaged ssh.socket is printed" "CI-PROBE: ssh.socket="
+[ "$(grep -n '^CI-PROBE: memory system.slice' "$MEMOUT" | head -n 1 | cut -d: -f1)" -lt "$(grep -n '^CI-PROBE-OK' "$MEMOUT" | head -n 1 | cut -d: -f1)" ] 2>/dev/null \
+    && t_pass "probe: the facts come before the verdict, and the verdict (OK) is still given" || t_fail "probe: the memory facts are missing or come after the verdict"
 
 # ── install-source-layers.py against install-sources.yaml samples ─────────────────────────────────────────────────────
 cat > "$TMP/is-v7.yaml" <<'EOF'

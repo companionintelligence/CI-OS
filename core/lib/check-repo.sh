@@ -239,7 +239,8 @@ echo "── setup portal, Ubuntu 26.04 backend, ISO layer split and model tooli
 # step order (it refuses a 24.04 base: ci_os_base_is_supported), the headless package's dependencies, the gnome-shell theme overlay decision and
 # the gresource provenance (these two need the glib tools), the live GRUB menu's modules against the signed GRUB's built-in list, the quiet
 # (Ubuntu Pro, Canonical telemetry) and appearance (dark, green) defaults with the real sections 6b and 6c of verify-iso.sh run on fake roots,
-# and the untracked-file guard's own test. The heavy parts (Part B of the split test, verify-installer-base.sh, no-dracut-pin.sh, about-logo-svg.sh,
+# the memory protection drop-ins (core/lib/memory-protection.sh: the lint and the parity of the two editions' files, with weakened copies of
+# the library, and the real section 3h of verify-iso.sh run on fake roots), and the untracked-file guard's own test. The heavy parts (Part B of the split test, verify-installer-base.sh, no-dracut-pin.sh, about-logo-svg.sh,
 # visible-names.sh and the other container tests, the installed-boot boot, the hwsim harness stick/tests/qemu/hotspot-hwsim.sh,
 # `ci-stick models lock --check`) are manual: see their READMEs and backends/ubuntu/iso/README.md "Script tests".
 for suite in \
@@ -278,6 +279,8 @@ for suite in \
   "ollama pull progress filter|bash backends/ubuntu/chroot/tests/pull-progress-filter.sh" \
   "gresource provenance|bash core/render/tests/gresource-provenance.sh" \
   "live GRUB menu modules|bash backends/ubuntu/iso/tests/grub-live-menu-modules.sh" \
+  "memory protection lint and parity|bash core/lib/tests/memory-protection.sh" \
+  "verify-iso.sh section 3h (memory protection), real block on fake roots|bash backends/ubuntu/iso/tests/verify-memory-protection.sh" \
   "untracked-file guard|bash core/lib/tests/untracked-deps.sh"; do
   sname="${suite%%|*}"; scmd="${suite#*|}"
   sfile="$(printf '%s' "$scmd" | sed -n 's/.*\(core\/[^ ]*\.sh\|backends\/[^ ]*\.sh\).*/\1/p')"

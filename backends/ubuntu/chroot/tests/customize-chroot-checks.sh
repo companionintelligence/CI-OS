@@ -462,5 +462,65 @@ expect "the greeter's database (gdm.d/01-ci-os-login) is found, and has no appea
     bash -c 'printf "%s\n" "$1" | grep -q -F "[org/gnome/login-screen]" && ! printf "%s\n" "$1" | grep -q -E "color-scheme|accent-color"' _ "$gdm_block"
 
 echo
+echo "== 16. memory protection drop-ins (Step 10h, core/lib/memory-protection.sh, backends/ubuntu/chroot/payload/memory)"
+# The values, the units and the lint are tested by core/lib/tests/memory-protection.sh; these pin how the build uses them, and run the
+# real block of Step 10h against fake chroots.
+MEMLIB="$HERE/../../../../core/lib/memory-protection.sh"
+MEMPAY="$HERE/../payload/memory"
+[[ -f "$MEMLIB" && -d "$MEMPAY" ]] || { echo "missing $MEMLIB or $MEMPAY" >&2; exit 2; }
+expect "the header list of the script names Step 10h" bash -c 'sed -n 1,20p "$1" | grep -q "Step 10h"' _ "$SCRIPT"
+expect "the library is sourced" grep -q -F 'source "$REPO_ROOT/core/lib/memory-protection.sh"' "$SCRIPT"
+expect "the units to install come from the library (the build and the lint cannot disagree about the list)" grep -q -F 'for _unit in $(ci_os_memprot_units ubuntu); do' "$SCRIPT"
+expect "each drop-in is installed from the payload with mode 0644 into /etc/systemd/system/<unit>.d/" \
+    bash -c 'grep -q -F "install -m 0644 \"\$MEMORY_PAYLOAD/etc/systemd/system/\${_unit}.d/30-ci-os-memory.conf\"" "$1" && grep -q -F "install -d -m 0755 \"\$CHROOT_PATH/etc/systemd/system/\${_unit}.d\"" "$1"' _ "$SCRIPT"
+expect "the lint runs on the chroot for the Ubuntu edition, and a refusal stops the build (exit 1)" \
+    bash -c 'grep -q -F "if ! _memprot_problems=\"\$(ci_os_memprot_lint \"\$CHROOT_PATH\" ubuntu)\"; then" "$1" && sed -n "/ci_os_memprot_lint/,/^fi$/p" "$1" | grep -q "^    exit 1$"' _ "$SCRIPT"
+before "the drop-ins are installed before the lint looks at them" 'install -m 0644 "\$MEMORY_PAYLOAD' 'ci_os_memprot_lint "\$CHROOT_PATH" ubuntu'
+before "Step 10h comes after the first-boot bootstrap of Step 10c" 'echo "\[\+\] Manual re-run available via: sudo ci-os-setup"' 'echo "\[\*\] Step 10h'
+before "Step 10h comes before Step 11" 'echo "\[\*\] Step 10h' 'echo "\[\*\] Step 11'
+before "the lint has run before Step 11 starts its cleanup" 'ci_os_memprot_lint "\$CHROOT_PATH" ubuntu' 'echo "\[\*\] Step 11'
+expect "no Memory*= literal is in the script (the values live only in the payload files)" \
+    bash -c '! grep -v "^ *#" "$1" | grep -q -E "Memory(Min|Low|High|Max|SwapMax)[A-Za-z]*="' _ "$SCRIPT"
+expect "the payload has exactly the five drop-ins, one per unit the library lists" \
+    bash -c 'n=$(find "$1" -type f | wc -l | tr -d " "); [ "$n" = 5 ] && for u in $(. "$2"; ci_os_memprot_units ubuntu); do [ -f "$1/etc/systemd/system/$u.d/30-ci-os-memory.conf" ] || exit 1; done' _ "$MEMPAY" "$MEMLIB"
+
+# The block of Step 10h, cut out of the script and RUN against a fake chroot: with the real payload it installs five files of mode
+# 0644 and the lint passes; with a payload that holds a MemoryMax it stops with exit 1 and says what is wrong.
+MP_BLOCK="$WORK/mp-block.sh"
+body_of 'Step 10h: Installing the memory protection' 'Memory protection drop-ins installed' > "$MP_BLOCK"
+expect "the Step 10h block is found (and is not empty)" test "$(wc -l < "$MP_BLOCK" | tr -d ' ')" -gt 8
+mp_run() { # mp_run <script dir holding payload/memory> <chroot>: sets MP_RC and MP_OUT
+    MP_OUT="$(SCRIPT_DIR="$1" CHROOT_PATH="$2" bash -c 'set -euo pipefail; . "$1"; . "$2"' _ "$MEMLIB" "$MP_BLOCK" 2>&1)"; MP_RC=$?
+}
+mkdir -p "$WORK/mp-good/chroot"
+mp_run "$HERE/.." "$WORK/mp-good/chroot"
+expect "the real payload: the block exits 0 under set -euo pipefail" test "$MP_RC" -eq 0
+expect "  five files are installed, all of mode 0644" \
+    bash -c '[ "$(find "$1/etc/systemd/system" -name 30-ci-os-memory.conf -perm 644 | wc -l | tr -d " ")" = 5 ]' _ "$WORK/mp-good/chroot"
+expect "  into the directories of the units the library lists (ssh.service on Ubuntu)" \
+    bash -c 'for u in system.slice user.slice ssh.service docker.service containerd.service; do [ -f "$1/etc/systemd/system/$u.d/30-ci-os-memory.conf" ] || exit 1; done; [ ! -e "$1/etc/systemd/system/sshd.service.d" ]' _ "$WORK/mp-good/chroot"
+expect "  and the build log says how many units" bash -c 'printf "%s\n" "$1" | grep -q "Memory protection drop-ins installed (5 units)"' _ "$MP_OUT"
+expect "  and the files are the payload's, byte for byte" \
+    bash -c 'for u in system.slice user.slice ssh.service docker.service containerd.service; do cmp -s "$1/etc/systemd/system/$u.d/30-ci-os-memory.conf" "$2/etc/systemd/system/$u.d/30-ci-os-memory.conf" || exit 1; done' _ "$WORK/mp-good/chroot" "$MEMPAY"
+mkdir -p "$WORK/mp-bad/script/payload" "$WORK/mp-bad/chroot"
+cp -R "$MEMPAY" "$WORK/mp-bad/script/payload/memory"
+printf 'MemoryMax=50%%\n' >> "$WORK/mp-bad/script/payload/memory/etc/systemd/system/docker.service.d/30-ci-os-memory.conf"
+mp_run "$WORK/mp-bad/script" "$WORK/mp-bad/chroot"
+expect "a payload with a MemoryMax in it: the block exits 1" test "$MP_RC" -eq 1
+expect "  names Step 10h and what is wrong" bash -c 'printf "%s\n" "$1" | grep -q "\[ERROR\] Step 10h" && printf "%s\n" "$1" | grep -q "MemoryMax is not allowed"' _ "$MP_OUT"
+expect "  and never says the drop-ins were installed" bash -c '! printf "%s\n" "$1" | grep -q "drop-ins installed"' _ "$MP_OUT"
+rm "$WORK/mp-bad/script/payload/memory/etc/systemd/system/ssh.service.d/30-ci-os-memory.conf"; rm -rf "$WORK/mp-bad/chroot"; mkdir -p "$WORK/mp-bad/chroot"
+mp_run "$WORK/mp-bad/script" "$WORK/mp-bad/chroot"
+expect "a payload that lacks one of the files: the block stops (non-zero) and installs no complete set" test "$MP_RC" -ne 0
+
+echo
+echo "== 17. every Step label of the script is unique (this test finds a step by its label)"
+dup_labels() { grep -o -E '^echo "\[\*\] Step [0-9]+[a-z]*:' | sort | uniq -d; }   # stdin: a script; prints the labels that appear twice
+expect "no two steps of customize-chroot.sh share a label" test -z "$(dup_labels < "$SCRIPT")"
+expect "  the labels are found (more than twenty of them: a pattern that matches nothing proves nothing)" test "$(grep -c -E '^echo "\[\*\] Step [0-9]+[a-z]*:' "$SCRIPT")" -gt 20
+expect "  the check can fail: a script with Step 10h twice reports it" \
+    test "$({ cat "$SCRIPT"; printf 'echo "[*] Step 10h: another step"\n'; } | dup_labels)" = 'echo "[*] Step 10h:'
+
+echo
 echo "$PASS passed, $FAIL failed"
 [[ $FAIL -eq 0 ]]

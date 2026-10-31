@@ -476,6 +476,133 @@ bad "sshd drop-in sets neither keyword" "first PermitRootLogin is '<not set>'" v
 bad "an earlier drop-in wins over ours (sshd takes the first value)" "first PermitRootLogin is 'yes'" v_check_sshd_dropin "$WORK/sshd.first"
 good "a later drop-in cannot override ours (the first value wins)" v_check_sshd_dropin "$WORK/sshd.later"
 bad "no sshd drop-in at all" "no sshd drop-in" v_check_sshd_dropin "$WORK/sshd.empty"
+
+#=== memory protection drop-ins (core/lib/memory-protection.sh; the SSH daemon is sshd.service on this edition) ===========================
+# The overlay's own files and carry-over list are the good fixture, and each broken one plants one defect. The invariants themselves are tested
+# by core/lib/tests/memory-protection.sh; these show that the check calls them right, reads the sshd.service minimum without the library,
+# requires the installed system to get the files (carry-over.list), and then that a weakened copy of verify-iso.sh no longer passes all of it.
+MP_OVERLAY="$HERE/../overlay/files/airootfs"
+MP_LIB="$HERE/../../../../core/lib/memory-protection.sh"
+MPD="etc/systemd/system"; MPF="30-ci-os-memory.conf"
+if [ -f "$MP_LIB" ] && [ -d "$MP_OVERLAY/$MPD" ]; then
+    mp_root() { # mp_root NAME: a root holding the overlay's drop-ins, modes normalised (git keeps only the executable bit); prints its path
+        local r="$WORK/mp.$1"
+        mkdir -p "$r/$MPD"
+        cp -R "$MP_OVERLAY/$MPD/." "$r/$MPD/"
+        find "$r" -type f -exec chmod 644 {} +
+        echo "$r"
+    }
+    mp_root good >/dev/null
+    cp "$MP_OVERLAY/usr/share/ci-os/installed/carry-over.list" "$WORK/mp.carry"
+    sed '\#/docker.service.d/#d' "$WORK/mp.carry" > "$WORK/mp.carry.nodocker"
+    r="$(mp_root nomin)";   printf '[Service]\nMemoryLow=1%%\n' > "$r/$MPD/sshd.service.d/$MPF"
+    r="$(mp_root nofile)";  mv "$r/$MPD/sshd.service.d/$MPF" "$r/$MPD/sshd.service.d/saved.txt"
+    r="$(mp_root inv1)";    mut "$r/$MPD/system.slice.d/$MPF" 's/^MemoryMin=2%$/MemoryMin=1%/'
+    r="$(mp_root inv2)";    mut "$r/$MPD/sshd.service.d/$MPF" 's/^MemoryMin=1%$/MemoryMin=3%/'
+    r="$(mp_root max)";     printf 'MemoryMax=50%%\n' >> "$r/$MPD/docker.service.d/$MPF"
+    r="$(mp_root nopct)";   mut "$r/$MPD/user.slice.d/$MPF" 's/^MemoryLow=25%$/MemoryLow=25/'
+    r="$(mp_root ubuntu)";  mkdir -p "$r/$MPD/ssh.service.d"; cp "$r/$MPD/sshd.service.d/$MPF" "$r/$MPD/ssh.service.d/$MPF"
+    r="$(mp_root symlink)"; mv "$r/$MPD/docker.service.d/$MPF" "$r/$MPD/containerd.service.d/real.txt"; ln -s ../containerd.service.d/real.txt "$r/$MPD/docker.service.d/$MPF"
+    r="$(mp_root mode)";    chmod 600 "$r/$MPD/docker.service.d/$MPF"
+    # kind|root|carry-over list|text a FAIL line must match|what it is
+    mp_scenarios() { cat <<'MPEOF'
+good|good|carry|-|the overlay's own drop-ins and carry-over list
+bad|nomin|carry|sets no MemoryMin|sshd.service without a MemoryMin
+bad|nofile|carry|sets no MemoryMin|no file for sshd.service
+bad|inv1|carry|invariant 1: MemoryMin of system.slice is 1%|system.slice MemoryMin dropped to 1%
+bad|inv2|carry|invariant 2: the MemoryMin values add up to 5%|sshd.service raised to 3%
+bad|max|carry|MemoryMax is not allowed|MemoryMax in docker.service
+bad|nopct|carry|MemoryLow=25 is not a whole percentage|a value without the percent sign
+bad|ubuntu|carry|ssh.service.d/30-ci-os-memory.conf belongs to no unit of the cachyos edition|the Ubuntu name of the SSH daemon in a CachyOS tree
+bad|symlink|carry|docker.service.d/30-ci-os-memory.conf is a symlink|a symlink in place of a file
+bad|mode|carry|docker.service.d/30-ci-os-memory.conf is mode 600, not 0644|a file of mode 0600
+bad|good|carry.nodocker|carry-over.list does not name /etc/systemd/system/docker.service.d/30-ci-os-memory.conf|carry-over.list without the docker.service line
+bad|good|carry.none|carry-over.list does not name /etc/systemd/system/system.slice.d/30-ci-os-memory.conf|no carry-over.list at all
+MPEOF
+    }
+    MP_N=0
+    while IFS='|' read -r kind root carry want label; do
+        [ -n "$kind" ] || continue
+        MP_N=$((MP_N + 1))
+        if [ "$kind" = good ]; then good "memory protection: $label" v_check_memory_protection "$WORK/mp.$root" "$WORK/mp.$carry"
+        else bad "memory protection: $label" "$want" v_check_memory_protection "$WORK/mp.$root" "$WORK/mp.$carry"; fi
+    done <<EOF
+$(mp_scenarios)
+EOF
+    # Without the library (a copy of the script outside the repository) the minimum of sshd.service is still read; a lint that breaks is a FAIL.
+    MP_SD="$V_SCRIPT_DIR"
+    mkdir -p "$WORK/mp.nolib/backends/cachyos/iso/scripts" "$WORK/mp.stub/backends/cachyos/iso/scripts" "$WORK/mp.stub/core/lib"
+    printf 'ci_os_memprot_lint() { return 1; }\nci_os_memprot_units() { echo system.slice; }\nCI_OS_MEMPROT_FILE=30-ci-os-memory.conf\n' > "$WORK/mp.stub/core/lib/memory-protection.sh"
+    V_SCRIPT_DIR="$WORK/mp.nolib/backends/cachyos/iso/scripts"
+    good "memory protection without the library: the minimum of sshd.service is still read, and nothing else fails" v_check_memory_protection "$WORK/mp.good" "$WORK/mp.carry"
+    ok_out "... and the rest is listed as a SKIPPED group" 'SKIPPED: memory protection drop-ins beyond the sshd.service minimum'
+    bad "memory protection without the library: a missing MemoryMin of sshd.service is still found" "sets no MemoryMin" v_check_memory_protection "$WORK/mp.nomin" "$WORK/mp.carry"
+    V_SCRIPT_DIR="$WORK/mp.stub/backends/cachyos/iso/scripts"
+    bad "memory protection with a lint that fails and says nothing: a FAIL, not a pass" "failed \(exit 1\) and said nothing" v_check_memory_protection "$WORK/mp.good" "$WORK/mp.carry"
+    V_SCRIPT_DIR="$MP_SD"
+    # shellcheck source=../../../../core/lib/memory-protection.sh
+    . "$MP_LIB"   # the stub above replaced the lint in this shell
+    MP_N=$((MP_N + 3))
+
+    # The same scenarios, silently, against weakened copies of verify-iso.sh: each weakening must change the result of at least one of them.
+    mp_battery() { # how many of the scenarios behave as they should with the functions of the script sourced in this shell
+        local n=0 kind root carry want label sd="$V_SCRIPT_DIR"
+        while IFS='|' read -r kind root carry want label; do
+            [ -n "$kind" ] || continue
+            vrun v_check_memory_protection "$WORK/mp.$root" "$WORK/mp.$carry"
+            if [ "$kind" = good ]; then [ "$V_F" -eq 0 ] && [ "$V_P" -ge 1 ] && n=$((n + 1))
+            else [ "$V_F" -ge 1 ] && printf '%s\n' "$OUT" | grep -E '^FAIL' | grep -q -E "$want" && n=$((n + 1)); fi
+        done <<EOF
+$(mp_scenarios)
+EOF
+        V_SCRIPT_DIR="$WORK/mp.nolib/backends/cachyos/iso/scripts"
+        vrun v_check_memory_protection "$WORK/mp.good" "$WORK/mp.carry"
+        [ "$V_F" -eq 0 ] && printf '%s\n' "$OUT" | grep -q 'SKIPPED: memory protection drop-ins beyond the sshd.service minimum' && n=$((n + 1))
+        vrun v_check_memory_protection "$WORK/mp.nomin" "$WORK/mp.carry"
+        [ "$V_F" -ge 1 ] && printf '%s\n' "$OUT" | grep -E '^FAIL' | grep -q 'sets no MemoryMin' && n=$((n + 1))
+        V_SCRIPT_DIR="$WORK/mp.stub/backends/cachyos/iso/scripts"
+        vrun v_check_memory_protection "$WORK/mp.good" "$WORK/mp.carry"
+        [ "$V_F" -ge 1 ] && printf '%s\n' "$OUT" | grep -E '^FAIL' | grep -q 'said nothing' && n=$((n + 1))
+        V_SCRIPT_DIR="$sd"
+        echo "$n"
+    }
+    MP_ALL="$MP_N"
+    DESC="control: the unweakened script behaves in all $MP_ALL memory protection scenarios (so a catch below means the weakening, not the machinery)"
+    got="$(mp_battery)"; if [ "$got" = "$MP_ALL" ]; then t_pass "$DESC"; else t_fail "$DESC (got $got)"; fi
+    replace_in() { # replace_in FILE OLD NEW: literal, first occurrence; fails when OLD is not there
+        local file="$1"
+        OLD_TEXT="$2" NEW_TEXT="$3" LC_ALL=C awk 'BEGIN { RS = "\001"; old = ENVIRON["OLD_TEXT"]; new = ENVIRON["NEW_TEXT"] }
+            { i = index($0, old); if (i == 0) { missing = 1; exit 1 } ; printf "%s%s%s", substr($0, 1, i - 1), new, substr($0, i + length(old)) }
+            END { if (missing) exit 1 }' "$file" > "$file.new" || return 1
+        mv -f "$file.new" "$file"
+    }
+    MP_M=0
+    mp_weaken() { # mp_weaken NAME OLD NEW: a copy of the verifier's directory in a mini repository, one replacement, then the battery with that copy sourced
+        local name="$1" old="$2" new="$3" d ok
+        MP_M=$((MP_M + 1)); d="$WORK/mw$MP_M"
+        mkdir -p "$d/backends/cachyos/iso/scripts"
+        cp -R "$HERE/../scripts/." "$d/backends/cachyos/iso/scripts/"
+        ln -s "$HERE/../../../../core" "$d/core"
+        if ! replace_in "$d/backends/cachyos/iso/scripts/verify-iso.sh" "$old" "$new"; then t_fail "weakening '$name': the text to replace is not in verify-iso.sh (a replacement that matches nothing proves nothing)"; return; fi
+        ok="$( . "$d/backends/cachyos/iso/scripts/verify-iso.sh"; mp_battery )"
+        if [ "$ok" -lt "$MP_ALL" ]; then t_pass "caught: $name ($((MP_ALL - ok)) of $MP_ALL scenarios stopped behaving)"; else t_fail "NOT CAUGHT: $name (all $MP_ALL scenarios still behave)"; fi
+    }
+    mp_weaken "the lint call deleted" 'rc=0; out="$(ci_os_memprot_lint "$root" cachyos)" || rc=$?' 'rc=0; out=""'
+    mp_weaken "the lint run for the wrong edition" 'ci_os_memprot_lint "$root" cachyos)" || rc=$?' 'ci_os_memprot_lint "$root" ubuntu)" || rc=$?'
+    mp_weaken "the MemoryMin check of sshd.service removed" "if grep -v '^[[:space:]]*[#;]' \"\$f\" 2>/dev/null | grep -q -E '^[[:space:]]*MemoryMin[[:space:]]*=[[:space:]]*[1-9][0-9]*%[[:space:]]*\$'; then" 'if true; then'
+    mp_weaken "the carry-over check removed" 'if ! grep -q -x -F -- "$p" "$carry" 2>/dev/null; then' 'if false; then'
+    mp_weaken "a FAIL line of the lint no longer becomes a FAIL" 'case "$line" in "FAIL: "*) fail "memory protection: ${line#FAIL: }"' 'case "$line" in "FAIL-: "*) fail "memory protection: ${line#FAIL: }"'
+    mp_weaken "a lint that fails without a message is not noticed" '[ "$n" -gt 0 ] || fail "memory protection: the lint' '[ "$n" -gt 0 ] || true "memory protection: the lint'
+    mp_weaken "the skip without the library becomes a pass" 'skip "memory protection drop-ins beyond the sshd.service minimum' 'pass "memory protection drop-ins beyond the sshd.service minimum'
+    DESC="verify_main calls v_check_memory_protection with the extracted root and the image's carry-over.list, beside the sshd checks"
+    if grep -q 'v_check_memory_protection "\$R" "\$R/usr/share/ci-os/installed/carry-over.list"' "$VERIFY" \
+      && [ "$(grep -n 'v_check_sshd_dropin "\$R/etc/ssh/sshd_config.d"' "$VERIFY" | head -n 1 | cut -d: -f1)" -lt "$(grep -n 'v_check_memory_protection "\$R"' "$VERIFY" | head -n 1 | cut -d: -f1)" ] \
+      && [ "$(grep -n 'v_check_memory_protection "\$R"' "$VERIFY" | head -n 1 | cut -d: -f1)" -lt "$(grep -n 'liveuser:x:1000' "$VERIFY" | head -n 1 | cut -d: -f1)" ]; then t_pass "$DESC"; else t_fail "$DESC"; fi
+    DESC="the extraction list of verify_main brings etc/systemd/system and usr/share/ci-os out of the squashfs (the drop-ins and the carry-over list)"
+    if grep -q 'etc/pacman.d/hooks usr/share/libalpm/hooks etc/systemd/system' "$VERIFY" && grep -q 'usr/share/ci-os usr/lib/ci-os' "$VERIFY"; then t_pass "$DESC"; else t_fail "$DESC"; fi
+else
+    t_skip "memory protection scenarios (core/lib/memory-protection.sh or the overlay's etc/systemd/system is not next to the tests)"
+fi
 printf -- '-rwxr-xr-x\t900\t/usr/lib/systemd/system-generators/companion-vm-timeouts\t\n' > "$WORK/Lgen.ok"
 printf -- '-rw-r--r--\t900\t/usr/lib/systemd/system-generators/companion-vm-timeouts\t\n' > "$WORK/Lgen.mode"
 printf -- '-rwxr-xr-x\t900\t/usr/lib/systemd/system-generators/other-generator\t\n' > "$WORK/Lgen.none"

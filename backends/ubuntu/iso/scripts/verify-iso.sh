@@ -69,6 +69,10 @@
 #      installed base is initramfs-tools based (the live layer whites out dracut) and apt is told never to swap it for dracut
 #      (/etc/apt/preferences.d/ci-os-no-dracut: dracut and dracut-core at Pin-Priority -1).
 #      Why: docs/architecture/ubuntu-iso-layers.md;
+#   3h. the memory protection drop-ins (system.slice, user.slice, ssh.service, docker.service, containerd.service) pass the lint of
+#      core/lib/memory-protection.sh: valid shares of installed RAM in the right sections, a parent slice that holds more than its children
+#      claim, hard minimums below 5% of RAM, no MemoryMax or infinity, regular files of mode 0644. How the packaged ssh.socket starts the
+#      daemon (Accept=) is printed as information. [I]: what the kernel does with the values is a boot, not this check;
 #   8. the medium's /md5sum.txt, which the live system's casper-md5check.service verifies on every boot, is correct: every entry matches the
 #      file in the image (each file is hashed by streaming it out of the ISO, nothing is extracted), no entry names a file that is
 #      gone, and every regular file the stock convention lists (all but /md5sum.txt, /boot.catalog and the BIOS boot image
@@ -1037,6 +1041,46 @@ if [[ -n "${VERIFY_BASE_ISO:-}" && -f "$VERIFY_BASE_ISO" ]]; then
     done
 else
     note "kernel lines not compared with a stock ISO's (skipped: set VERIFY_BASE_ISO=<stock Ubuntu ISO>)"
+fi
+
+section "3h. Memory protection drop-ins: the recovery path, the container engine and the desktop session"
+# Five drop-ins, /etc/systemd/system/<unit>.d/30-ci-os-memory.conf for system.slice, user.slice, ssh.service, docker.service and containerd.service
+# (customize-chroot.sh Step 10h; shares of installed RAM). core/lib/memory-protection.sh holds the list of units and the invariants: a parent slice
+# holds more than its children claim, the hard minimums together stay below 5% of RAM, no MemoryMax and no infinity, the last assignment of a
+# key wins, every file is a regular file of mode 0644; core/lib/tests/memory-protection.sh shows each of them failing on a tree that breaks it.
+# They are read here from the files extracted from the installed layer (etc/systemd/system is in the extraction list above). [I]: what the kernel
+# does with the values is a boot (docs/guides/testing-in-qemu.md, "Memory protection runs").
+MEMPROT_LIB="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/../../../../core/lib/memory-protection.sh"
+if [[ -f "$MEMPROT_LIB" ]]; then
+    # shellcheck source=../../../../core/lib/memory-protection.sh
+    source "$MEMPROT_LIB"
+    memprot_n=0
+    if memprot_out="$(ci_os_memprot_lint "$R" ubuntu)"; then
+        pass "memory protection: the five drop-ins (system.slice, user.slice, ssh.service, docker.service, containerd.service) are valid and their invariants hold at 2 to 64 GiB of RAM"
+    else
+        memprot_rc=$?
+        while IFS= read -r memprot_line; do
+            case "$memprot_line" in "FAIL: "*) fail "memory protection: ${memprot_line#FAIL: }"; memprot_n=$((memprot_n + 1)) ;; esac
+        done <<<"$memprot_out"
+        [[ "$memprot_n" -gt 0 ]] || fail "memory protection: the lint of core/lib/memory-protection.sh failed (exit $memprot_rc) and said nothing"
+    fi
+    # How the packaged ssh.socket starts the daemon, as information only: with Accept=yes systemd starts one sshd@.service per connection, in the
+    # implicit system-sshd.slice, whose own memory.min is 0, so the drop-in on ssh.service would not cover those instances. A later change of the
+    # package's default shows up here and forces a decision.
+    memprot_sock="$R/usr/lib/systemd/system/ssh.socket"
+    if [[ -f "$memprot_sock" ]]; then
+        memprot_files=("$memprot_sock")
+        for memprot_f in "$R"/etc/systemd/system/ssh.socket.d/*.conf; do [[ -f "$memprot_f" ]] && memprot_files+=("$memprot_f"); done
+        memprot_accept="$(awk -F= '/^[[:space:]]*Accept[[:space:]]*=/ { v = $2; gsub(/[[:space:]]/, "", v); a = v } END { print a }' "${memprot_files[@]}" 2>/dev/null)"
+        case "$memprot_accept" in
+            yes | true | on | 1) note "ssh.socket sets Accept=$memprot_accept: systemd starts one sshd@.service per connection, in system-sshd.slice, whose own memory.min is 0; the drop-in on ssh.service does not cover those instances (decide whether the slice needs a drop-in)" ;;
+            *) note "ssh.socket: Accept=${memprot_accept:-<not set, so no>}: one ssh.service serves the connections, and that is the unit the drop-in covers" ;;
+        esac
+    else
+        note "ssh.socket is not in the image (usr/lib/systemd/system/ssh.socket): how the SSH daemon is started per connection could not be read"
+    fi
+else
+    skip "memory protection drop-ins (core/lib/memory-protection.sh not found next to this script)"
 fi
 
 # ── 4. branding ─────────────────────────────────────────────────────────────

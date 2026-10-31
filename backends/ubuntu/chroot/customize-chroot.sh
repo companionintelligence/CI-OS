@@ -11,6 +11,7 @@
 # 5. Sets up Plymouth, GRUB themes, the dock start icon and the Settings > About logo (PNG and SVG)
 # 6. Pre-installs the wireless setup stack, Docker and the CI-Hub tooling (Step 10d)
 # 7. Pre-installs the optional tools: tailscale, cloudflared, gh, Ollama, Companion Launcher (Step 10e)
+# 8. Installs the memory protection drop-ins for the SSH daemon, the container engine and the desktop session (Step 10h)
 #
 # Usage:
 #   ./backends/ubuntu/chroot/customize-chroot.sh <chroot_path> <version>
@@ -51,6 +52,8 @@ source "$REPO_ROOT/backends/ubuntu/lib/deb-members.sh"
 source "$REPO_ROOT/backends/ubuntu/lib/quiet-canonical.sh"
 # shellcheck source=../lib/appearance.sh
 source "$REPO_ROOT/backends/ubuntu/lib/appearance.sh"
+# shellcheck source=../../../core/lib/memory-protection.sh
+source "$REPO_ROOT/core/lib/memory-protection.sh"
 
 # The appearance defaults (dark, green accent) must be values GNOME's schema accepts: checked before anything in the chroot changes.
 if ! _appearance_problem="$(ci_os_appearance_valid)"; then
@@ -1937,6 +1940,28 @@ ln -sf /usr/lib/systemd/system/ci-os-first-boot-setup.timer \
 echo "[+] First-boot bootstrap service installed"
 echo "[+] Bootstrap scripts copied to /usr/lib/ci-os/bootstrap/"
 echo "[+] Manual re-run available via: sudo ci-os-setup"
+
+#=============================================================================
+# 10h. Memory protection: the recovery path, the container engine and the desktop session
+#=============================================================================
+# Five drop-ins under /etc/systemd/system/<unit>.d/, the same files as on the CachyOS edition. A unit's MemoryMin or MemoryLow only counts
+# up to what every parent slice also allows, so system.slice and user.slice carry allocations of their own. The values are shares of
+# installed RAM and live only in the payload files; core/lib/memory-protection.sh names the units and lints the result, and a drop-in
+# it refuses stops the build. Why, the limits and the evidence tags: docs/architecture/ubuntu-2604-port-notes.md, section 18.
+# Off-switch: delete the five 30-ci-os-memory.conf files.
+echo "[*] Step 10h: Installing the memory protection drop-ins..."
+MEMORY_PAYLOAD="$SCRIPT_DIR/payload/memory"
+for _unit in $(ci_os_memprot_units ubuntu); do
+    install -d -m 0755 "$CHROOT_PATH/etc/systemd/system/${_unit}.d"
+    install -m 0644 "$MEMORY_PAYLOAD/etc/systemd/system/${_unit}.d/30-ci-os-memory.conf" \
+        "$CHROOT_PATH/etc/systemd/system/${_unit}.d/30-ci-os-memory.conf"
+done
+if ! _memprot_problems="$(ci_os_memprot_lint "$CHROOT_PATH" ubuntu)"; then
+    echo "[ERROR] Step 10h: the memory protection drop-ins are not valid (core/lib/memory-protection.sh):" >&2
+    printf '%s\n' "$_memprot_problems" >&2
+    exit 1
+fi
+echo "[+] Memory protection drop-ins installed ($(ci_os_memprot_units ubuntu | wc -l | tr -d ' ') units)"
 
 #=============================================================================
 # 11. Final Cleanup
