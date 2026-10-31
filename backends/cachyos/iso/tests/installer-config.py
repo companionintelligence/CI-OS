@@ -597,6 +597,153 @@ check("no casper, apt or Ubuntu mention in the first-boot pieces",
       not re.search(r"casper|/cdrom|apt-get|archive\.ubuntu|snap ", strip_comments(svc + tmr + text(os.path.join(PROV, "first-boot-setup.sh")) + text(os.path.join(PROV, "provision.sh")))))
 
 # ---------------------------------------------------------------------------------------------------------------------------------
+print("== first-boot throttle of ollama.service (RT-N2)")
+# The models are pulled by ollama.service, not by the first-boot script, so the unit's Nice= and I/O class do not reach the downloads. As on the
+# Ubuntu edition (customize-chroot-checks.sh checks the same pair of lines), the script lowers ollama.service to CPUWeight=20 IOWeight=20 for its
+# own run only: a runtime property, set before the provisioning call when the unit exists, and taken off again by the EXIT trap whichever way
+# the script ends. The check reads the text (the order of the lines, where the undo sits), then RUNS the script against a stub systemctl, and
+# shows both can fail: each line removed, the undo behind a return, the throttle after the provisioning, no guard.
+import shutil
+import subprocess
+import tempfile
+
+FB_PATH = os.path.join(PROV, "first-boot-setup.sh")
+THROTTLE = "systemctl set-property --runtime ollama.service CPUWeight=20 IOWeight=20"
+UNTHROTTLE = "systemctl set-property --runtime ollama.service CPUWeight= IOWeight="
+
+
+def throttle_problems(src):
+    """What is wrong with the way a copy of first-boot-setup.sh throttles ollama.service, as a list of sentences (empty = right)."""
+    code = strip_comments(src)
+    problems = []
+    t = code.find(THROTTLE)
+    if t < 0:
+        problems.append("the script never runs: " + THROTTLE)
+    m = re.search(r"^trap (\w+) EXIT$", code, re.M)
+    if not m:
+        return problems + ["the script has no EXIT trap, so nothing takes the throttle off"]
+    fn = m.group(1)
+    body = re.search(r"^%s\(\) \{\n(.*?)^\}$" % re.escape(fn), code, re.M | re.S)
+    if not body:
+        return problems + ["the EXIT trap names %s, which is not a function of the script" % fn]
+    b = body.group(1)
+    u = b.find(UNTHROTTLE)
+    if u < 0:
+        problems.append("the EXIT trap function %s does not undo it (%s)" % (fn, UNTHROTTLE))
+    else:
+        ret = re.search(r"\breturn\b", b)
+        if ret and ret.start() < u:
+            problems.append("the undo in %s sits behind a return, so an exit that takes that return leaves the throttle set" % fn)
+    if t >= 0:
+        if m.start() > t:
+            problems.append("the EXIT trap is installed after the throttle, so an exit in between would leave it set")
+        p = code.find('bash "$PROVISION_SH"')
+        if p < 0 or p < t:
+            problems.append("the throttle does not come before the provisioning call")
+        if code.rfind("systemctl cat ollama.service", 0, t) < 0:
+            problems.append("the throttle is not guarded by `systemctl cat ollama.service` (the unit may not exist)")
+    return problems
+
+
+fb_src = text(FB_PATH)
+check("first-boot-setup.sh throttles ollama.service for its own run and undoes it in the EXIT trap (static: order of the lines, guard, undo before any return)",
+      throttle_problems(fb_src) == [], throttle_problems(fb_src))
+
+
+def mutated(src, old, new):
+    return src.replace(old, new, 1)
+
+
+undo_line = 'if [[ "$OLLAMA_THROTTLED" == 1 ]]; then ' + UNTHROTTLE + " >/dev/null 2>&1 || true; fi\n"
+throttle_block = ("if command -v systemctl >/dev/null 2>&1 && systemctl cat ollama.service >/dev/null 2>&1; then\n"
+                  "    OLLAMA_THROTTLED=1\n    " + THROTTLE + " >/dev/null 2>&1 || true\nfi\n\n")
+return_line = '    [[ -n "${LOG_PID:-}" ]] || return 0\n'
+# The mutants are made from these lines; if one of them is not where it is expected (a line was removed or reworded), that is a FAIL of its own and
+# the mutants are skipped, not a crash that would take the rest of this file with it.
+layout_ok = undo_line in fb_src and throttle_block in fb_src and return_line in fb_src and "trap drain_output EXIT\n" in fb_src \
+    and 'bash "$PROVISION_SH" "${PROVISION_ARGS[@]}"\n' in fb_src and "systemctl cat ollama.service >/dev/null 2>&1; then\n    OLLAMA_THROTTLED=1" in fb_src
+check("the lines of RT-N2 are where this test expects them (the mutants below are made from them)", layout_ok)
+MUTANTS = []
+if layout_ok:
+    MUTANTS = [
+        ("the set-property line removed", mutated(fb_src, THROTTLE, "true"), "never runs"),
+        ("the undo line removed", mutated(fb_src, UNTHROTTLE, "true"), "does not undo it"),
+        ("the undo behind the early return", mutated(mutated(fb_src, "    " + undo_line, ""), return_line, return_line + "    " + undo_line), "behind a return"),
+        ("the throttle after the provisioning call", mutated(mutated(fb_src, throttle_block, ""), 'bash "$PROVISION_SH" "${PROVISION_ARGS[@]}"\n',
+                                                             'bash "$PROVISION_SH" "${PROVISION_ARGS[@]}"\n' + throttle_block), "does not come before the provisioning call"),
+        ("no guard on the unit existing", mutated(fb_src, "systemctl cat ollama.service >/dev/null 2>&1; then\n    OLLAMA_THROTTLED=1", "true; then\n    OLLAMA_THROTTLED=1"), "not guarded"),
+        ("the EXIT trap removed", mutated(fb_src, "trap drain_output EXIT\n", ""), "no EXIT trap"),
+    ]
+for name, src_m, want in MUTANTS:
+    probs = throttle_problems(src_m)
+    check("the static check can fail: %s -> %s" % (name, want), any(want in x for x in probs), probs)
+
+
+def run_first_boot(script_path, has_ollama=True, provision_rc=0, live=False):
+    """Runs a copy of first-boot-setup.sh against a stub systemctl, a stub provisioner and no network probe; returns the events in order:
+    the systemctl calls it made and 'provision-start'. None when it cannot run here (no bash, or the run timed out)."""
+    bash = shutil.which("bash")
+    if not bash:
+        return None
+    with tempfile.TemporaryDirectory() as w:
+        bindir = os.path.join(w, "bin")
+        provdir = os.path.join(w, "boot", "backends", "cachyos", "provision")
+        os.makedirs(bindir)
+        os.makedirs(provdir)
+        events = os.path.join(w, "events")
+        with open(os.path.join(bindir, "systemctl"), "w") as fh:
+            fh.write('#!/bin/bash\necho "systemctl $*" >> "$EV"\n[ "$1" = cat ] && [ "$HAS_OLLAMA" != 1 ] && exit 1\nexit 0\n')
+        with open(os.path.join(provdir, "provision.sh"), "w") as fh:
+            fh.write('#!/bin/bash\necho "provision-start" >> "$EV"\nexit "$PRC"\n')
+        with open(os.path.join(w, "net-up"), "w") as fh:
+            fh.write("#!/bin/bash\nexit 0\n")
+        if not shutil.which("flock"):
+            with open(os.path.join(bindir, "flock"), "w") as fh:
+                fh.write("#!/bin/bash\nexit 0\n")
+        for f in ("systemctl", "flock"):
+            if os.path.exists(os.path.join(bindir, f)):
+                os.chmod(os.path.join(bindir, f), 0o755)
+        os.chmod(os.path.join(w, "net-up"), 0o755)
+        with open(os.path.join(w, "cmdline"), "w") as fh:
+            fh.write("BOOT_IMAGE=/vmlinuz root=UUID=x rw" + (" archisobasedir=arch" if live else "") + "\n")
+        env = {"PATH": bindir + ":/usr/bin:/bin:/usr/sbin:/sbin", "EV": events, "HAS_OLLAMA": "1" if has_ollama else "0", "PRC": str(provision_rc),
+               "CI_OS_BOOTSTRAP_ROOT": os.path.join(w, "boot"), "CI_OS_STATE_DIR": os.path.join(w, "state"), "CI_OS_LOG_FILE": os.path.join(w, "log"),
+               "CI_OS_LOCK_FILE": os.path.join(w, "lock"), "CI_OS_CMDLINE_FILE": os.path.join(w, "cmdline"), "CI_OS_RUN_ARCHISO": os.path.join(w, "no-archiso"),
+               "CI_OS_NETWORK_PROBE": os.path.join(w, "net-up"), "CI_OS_NETWORK_TRIES": "2", "CI_OS_NETWORK_SLEEP": "0"}
+        try:
+            subprocess.run([bash, script_path], env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120)
+        except subprocess.TimeoutExpired:
+            return None
+        if not os.path.exists(events):
+            return []
+        with open(events) as fh:
+            return [l.rstrip("\n") for l in fh if l.strip()]
+
+
+CAT = "systemctl cat ollama.service"
+SET_ON = "systemctl set-property --runtime ollama.service CPUWeight=20 IOWeight=20"
+SET_OFF = "systemctl set-property --runtime ollama.service CPUWeight= IOWeight="
+EXPECT_RUN = [CAT, SET_ON, "provision-start", SET_OFF]
+real = run_first_boot(FB_PATH)
+if real is None:
+    print("SKIP  the behavioural run of first-boot-setup.sh (no bash, or it timed out)")
+else:
+    check("RUN: with ollama.service present the script lowers its weights, provisions, and takes the weights off at exit", real == EXPECT_RUN, real)
+    check("RUN: a failed provisioning (exit 1) still takes them off", run_first_boot(FB_PATH, provision_rc=1) == EXPECT_RUN)
+    check("RUN: a degraded provisioning (exit 74, a model is missing) still takes them off", run_first_boot(FB_PATH, provision_rc=74) == EXPECT_RUN)
+    check("RUN: no ollama.service: no set-property call at all, and the provisioning still runs", run_first_boot(FB_PATH, has_ollama=False) == [CAT, "provision-start"])
+    check("RUN: a live session is never provisioned and touches nothing", run_first_boot(FB_PATH, live=True) == [])
+    # The undo behind the early return (mutant 3) is not run: whether it bites depends on whether this bash sets $! for a process substitution
+    # (bash 3.2 does not, bash 4.4 and newer do), which is exactly why the static check reads where the line sits.
+    with tempfile.TemporaryDirectory() as md:
+        for name, src_m, want in [m for i, m in enumerate(MUTANTS) if i != 2]:
+            mp = os.path.join(md, "mutant.sh")
+            with open(mp, "w") as fh:
+                fh.write(src_m)
+            got = [run_first_boot(mp), run_first_boot(mp, has_ollama=False)]
+            check("RUN: the behaviour check can fail: %s" % name, got != [EXPECT_RUN, [CAT, "provision-start"]], got)
+
+# ---------------------------------------------------------------------------------------------------------------------------------
 print("== shellprocess time limits (ISO #5 died at job 13 of 47: Calamares kills a command after 30 s unless it has a timeout)")
 # Calamares' shellprocess module (CommandList::run): a command's own `timeout` wins, else the file's top-level one, else 30 s. The pinned
 # installer's shellprocess_initialize_pacman.conf gives only update-mirrorlist a limit; `bash /etc/calamares/scripts/create-pacman-keyring`
