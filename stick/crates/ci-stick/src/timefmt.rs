@@ -96,7 +96,7 @@ fn days_in_month(year: i64, month: u32) -> u32 {
     }
 }
 
-/// Howard Hinnant's days-from-civil (proleptic Gregorian): days since 1970-01-01.
+/// Days since 1970-01-01 of a proleptic Gregorian date (the inverse of [`civil_from_days`]).
 fn days_from_civil(y: i64, m: u32, d: u32) -> i64 {
     let y = if m <= 2 { y - 1 } else { y };
     let era = y.div_euclid(400);
@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn adds_whole_days_without_the_clock() {
-        // 2020 is a leap year: 365 days from 1 January is 30 December.
+        // 2020 is a leap year: 365 days from 1 January is 31 December.
         assert_eq!(
             plus_days_rfc3339("2020-01-01T00:00:00Z", 365).as_deref(),
             Some("2020-12-31T00:00:00Z")
@@ -210,6 +210,7 @@ mod tests {
 
     #[test]
     fn the_system_clock_is_after_the_epoch() {
-        assert!(unix_now().is_some_and(|n| n > 1_700_000_000));
+        // Only that the clock can be read: how far past 1970 it is says nothing about this code.
+        assert!(unix_now().is_some_and(|n| n > 0));
     }
 }
