@@ -711,6 +711,28 @@ class Replays(unittest.TestCase):
             self.assertEqual("accepted", h.code_of(h.signed(request_id="%032x" % n)))
         self.assertEqual(20, h.guard.marker_count())
 
+    def test_a_wider_skew_later_cannot_bring_back_a_statement_whose_marker_is_gone(self):
+        """Expected is an argument, so the policy can differ from one call to the next. A marker may therefore be purged only when no
+        policy that Expected allows could still accept its statement, not when the policy of the call that happens to purge says so.
+        The first statement is used under the default policy, later statements raise the floor, the clock is set back to when the
+        first was valid and it is presented again under the widest skew."""
+        wide = Expected(types=(helpers.STMT_TYPE,), scope=helpers.STMT_SCOPE, target=helpers.STMT_TARGET, skew_s=3600)
+        # (the time of the second statement, the answer under the widest skew, how many markers the store holds)
+        for floor_at, wide_code, markers in ((2000, "replayed", 3), (3800, "replayed", 3), (4000, "clock", 3), (4600, "clock", 2),
+                                             (6000, "clock", 2)):
+            h = Harness()
+            first = h.signed(request_id="1" * 32, expires_at=T0 + 300)
+            self.assertEqual("accepted", h.code_of(first))
+            h.clock.set(T0 + floor_at)
+            self.assertEqual("accepted", h.code_of(h.signed(request_id="2" * 32, expires_at=T0 + floor_at + 300)))
+            h.clock.set(T0 + floor_at + 1)
+            self.assertEqual("accepted", h.code_of(h.signed(request_id="3" * 32, expires_at=T0 + floor_at + 301)))   # a claim that purges
+            self.assertEqual(markers, h.guard.marker_count(), floor_at)
+            h.clock.set(T0 + 250)
+            self.assertEqual("clock", h.code_of(first), floor_at)
+            self.assertEqual(wide_code, h.code_of(first, expected=wide), floor_at)
+            self.assertEqual(markers, h.guard.marker_count(), "the refused presentations changed nothing")
+
     def test_the_store_failing_is_a_store_error(self):
         h = Harness()
         signed = h.signed()
@@ -866,6 +888,15 @@ class Expecteds(unittest.TestCase):
         e = Expected(types=("a",), scope="s", target="t")
         with self.assertRaises(Exception):
             e.target = "u"
+
+    def test_the_skew_ceiling_is_the_one_the_guard_purges_by(self):
+        """What Expected allows and what the replay guard assumes are one number, so a policy can never be wider than the guard's
+        purge allows for."""
+        self.assertEqual(3600, replay.MAX_SKEW_CEILING_S)
+        self.assertIs(replay.MAX_SKEW_CEILING_S, statement.MAX_SKEW_CEILING_S)
+        Expected(types=("a",), scope="s", target="t", skew_s=replay.MAX_SKEW_CEILING_S)
+        with self.assertRaises(ValueError):
+            Expected(types=("a",), scope="s", target="t", skew_s=replay.MAX_SKEW_CEILING_S + 1)
 
 
 class WallClocks(unittest.TestCase):

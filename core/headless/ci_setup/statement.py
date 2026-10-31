@@ -62,7 +62,7 @@ from typing import Any, Dict, Optional, Tuple
 
 from .auth import SystemRng, consteq
 from .errors import ValidationError
-from .replay import MAX_TIME, ReplayError
+from .replay import MAX_SKEW_CEILING_S, MAX_TIME, ReplayError
 from .validators import loads_strict
 
 VERSION = 1
@@ -76,7 +76,8 @@ MAX_INT = 2 ** 53 - 1
 DEFAULT_MAX_TTL_S = 600
 DEFAULT_SKEW_S = 120
 MAX_TTL_CEILING_S = 86400
-MAX_SKEW_CEILING_S = 3600
+# The ceiling of skew_s is MAX_SKEW_CEILING_S, imported from replay.py: it is one number because the guard keeps a marker until no
+# claim with a skew up to that ceiling could accept the statement, so what Expected allows and what the guard assumes cannot differ.
 
 FIELDS = ("v", "type", "request_id", "scope", "target", "params_hash", "expires_at")
 FIELD_SET = frozenset(FIELDS)

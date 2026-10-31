@@ -17,8 +17,11 @@ be a vulnerability, a planted bug in mutation_check.py):
   crash between create and write, a bad disk) must never turn into "not used".
 * The floor is raised to ``now`` only when a statement is accepted, so only the holder of the signing key can move it. A claim
   with ``now < floor - skew_s`` fails with ``clock``: the clock went backwards (a restored snapshot, a reset real-time clock).
-* A marker is purged only when ``expiry + skew_s + max_ttl_s < floor``, using the persisted floor and never the current clock, so
-  a later jump of the clock backwards cannot bring back a statement whose marker is gone.
+* A marker is purged only when ``expiry + MAX_SKEW_CEILING_S + max_ttl_s < floor``, using the persisted floor and never the
+  current clock, so a later jump of the clock backwards cannot bring back a statement whose marker is gone. The skew in that sum
+  is the ceiling that any claim may use, not the skew of the claim that happens to purge: the next claim may use a wider one, and
+  a marker must outlive every skew a claim can have. So a marker is never purged earlier than ``expiry + skew_s + max_ttl_s <
+  floor`` would purge it, whatever the skew of the claim.
 * At most 4096 markers. At the bound the guard purges first and then refuses with ``store_full``: it fails closed.
 * Any failure of the backend is ``store``. Nothing is guessed, nothing is repaired on the way.
 
@@ -45,6 +48,7 @@ from .errors import CiSetupError
 
 MAX_MARKERS = 4096
 MAX_TIME = 999999999999            # twelve digits: the expiry in a marker name has a fixed width
+MAX_SKEW_CEILING_S = 3600          # the largest skew_s a claim may use (statement.Expected has the same limit); the purge relies on it
 MARKER_BODY = b"ci-replay/1\n"     # informational; no decision ever reads it
 REPLAY_CODES = ("clock", "replayed", "store", "store_full")
 
@@ -120,6 +124,8 @@ def _check_claim_args(request_id: Any, expires_at: Any, now: Any, max_ttl_s: Any
     for value in (expires_at, now, max_ttl_s, skew_s):
         if type(value) is not int or not 0 <= value <= MAX_TIME:
             raise ValueError("expires_at, now, max_ttl_s and skew_s must be integers from 0 to %d" % MAX_TIME)
+    if skew_s > MAX_SKEW_CEILING_S:
+        raise ValueError("skew_s must be at most %d" % MAX_SKEW_CEILING_S)
 
 
 def _persisted_floor(backend: Any) -> int:
@@ -153,7 +159,9 @@ class ReplayGuard:
 
     def claim(self, request_id: str, expires_at: int, now: int, max_ttl_s: int, skew_s: int) -> str:
         """Consume ``request_id`` and return the name of its marker. ``now`` is the caller's wall-clock reading in whole seconds;
-        ``expires_at`` the expiry of the statement; ``max_ttl_s`` and ``skew_s`` the lifetime policy.
+        ``expires_at`` the expiry of the statement; ``max_ttl_s`` and ``skew_s`` the lifetime policy. The policy may differ from one
+        claim to the next, but ``skew_s`` is at most :data:`MAX_SKEW_CEILING_S` (a larger one is a ``ValueError``): the purge keeps a
+        marker until no claim with any allowed ``skew_s`` could accept its statement.
 
         Under the backend's lock: the store must be safe; ``now`` must not be behind the floor by more than ``skew_s``
         (``clock``); an id that is already consumed is ``replayed`` (the marker is found by the hash, never by its expiry or its
@@ -174,7 +182,7 @@ class ReplayGuard:
                 names = _listing(backend)
                 if any(n.endswith("-" + digest) for n in names):
                     raise ReplayError("replayed")
-                live = self._purge(names, floor, max_ttl_s, skew_s)
+                live = self._purge(names, floor, max_ttl_s)
                 if live >= self.max_markers:
                     raise ReplayError("store_full")
                 try:
@@ -189,15 +197,17 @@ class ReplayGuard:
             raise ReplayError("store") from None
         return name
 
-    def _purge(self, names: List[str], floor: int, max_ttl_s: int, skew_s: int) -> int:
+    def _purge(self, names: List[str], floor: int, max_ttl_s: int) -> int:
         """Remove the markers that no statement can need any more and return how many names are left. A statement is accepted
-        only while ``now < expiry`` and ``now >= floor - skew_s``, and the floor never goes down, so once ``floor - skew_s`` has
-        reached the expiry nothing can accept it again; the extra ``max_ttl_s`` is slack. A name that is not well formed has no
-        provable expiry and stays."""
+        only while ``now < expiry`` and ``now >= floor - skew_s``; the floor never goes down and ``skew_s`` is at most
+        MAX_SKEW_CEILING_S for every claim, so once ``floor - MAX_SKEW_CEILING_S`` has reached the expiry no claim, under any
+        policy, can accept the statement again. The skew of the claim that purges is deliberately not used: the next claim may use
+        a wider one, and a marker purged by a narrower one could be accepted again. The extra ``max_ttl_s`` is slack. A name that
+        is not well formed has no provable expiry and stays."""
         remaining = len(names)
         for n in names:
             expiry = marker_expiry(n)
-            if expiry is not None and expiry + skew_s + max_ttl_s < floor:
+            if expiry is not None and expiry + MAX_SKEW_CEILING_S + max_ttl_s < floor:
                 self._backend.remove_marker(n)
                 remaining -= 1
         return remaining

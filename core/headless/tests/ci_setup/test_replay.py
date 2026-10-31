@@ -14,6 +14,7 @@ from ci_setup.replay import MemoryBackend, ReplayError, ReplayGuard, SimulatedCr
 T = 1790000000
 TTL = 600
 SKEW = 120
+CEILING = 3600         # the largest skew a claim may use; restated here on purpose
 
 
 def rid(n):
@@ -176,11 +177,14 @@ class Claim(unittest.TestCase):
         bad = [dict(request_id=rid(10).upper()), dict(request_id="x" * 32), dict(request_id=rid(1)[:-1]), dict(request_id=None),
                dict(request_id=b"0" * 32), dict(expires_at=-1), dict(expires_at=1000000000000), dict(expires_at=1.5),
                dict(expires_at=True), dict(now=-1), dict(now=None), dict(now=1000000000000), dict(max_ttl_s=-1),
-               dict(max_ttl_s="600"), dict(skew_s=-1), dict(skew_s=1.0)]
+               dict(max_ttl_s="600"), dict(skew_s=-1), dict(skew_s=1.0), dict(skew_s=CEILING + 1), dict(skew_s=10 * CEILING)]
         for over in bad:
             with self.assertRaises(ValueError, msg=repr(over)):
                 guard.claim(**dict(good, **over))
         self.assertEqual(1, guard.marker_count())
+        # the largest skew is allowed; a larger one is refused because the purge relies on the ceiling
+        guard.claim(**dict(good, request_id=rid(2), skew_s=CEILING))
+        self.assertEqual(2, guard.marker_count())
 
     def test_a_lost_race_for_the_exact_name_is_replayed(self):
         """Another claimant creates the marker between the listing and the create: the exclusive create loses and the id is consumed."""
@@ -315,16 +319,17 @@ class Floor(unittest.TestCase):
 
 
 class Purge(unittest.TestCase):
-    """Markers go when expiry + skew + ttl < floor, by the persisted floor and never by the clock."""
+    """Markers go when expiry + the ceiling of the skew + ttl < floor, by the persisted floor and never by the clock. The skew in the
+    sum is the ceiling and not the skew of the claim that purges: the next claim may use a wider one."""
 
     EXPIRY = T + 300
-    LIMIT = EXPIRY + SKEW + TTL
+    LIMIT = EXPIRY + CEILING + TTL
 
-    def run_with_floor(self, floor, now=None):
+    def run_with_floor(self, floor, now=None, **policy):
         backend, guard = fresh()
         backend.put_marker(name_of(9, self.EXPIRY))
         backend.set_floor_raw(replay.encode_floor(floor))
-        claim(guard, 1, now=floor if now is None else now, expires_at=(floor if now is None else now) + 300)
+        claim(guard, 1, now=floor if now is None else now, expires_at=(floor if now is None else now) + 300, **policy)
         return backend
 
     def test_the_boundary(self):
@@ -334,17 +339,41 @@ class Purge(unittest.TestCase):
         self.assertNotIn(name_of(9, self.EXPIRY), gone.list_markers())
         self.assertEqual(1, len(gone.list_markers()))
 
-    def test_the_policy_of_the_claim_decides_the_slack(self):
-        backend, guard = fresh()
-        backend.put_marker(name_of(9, 1000))
-        backend.set_floor_raw(replay.encode_floor(2000))
-        claim(guard, 1, now=2000, expires_at=2300, ttl=600, skew=120)             # 1000 + 720 < 2000: gone
-        self.assertNotIn(name_of(9, 1000), backend.list_markers())
-        backend, guard = fresh()
-        backend.put_marker(name_of(9, 1000))
-        backend.set_floor_raw(replay.encode_floor(2000))
-        claim(guard, 1, now=2000, expires_at=2300, ttl=900, skew=120)             # 1000 + 1020 >= 2000: kept
-        self.assertIn(name_of(9, 1000), backend.list_markers())
+    def test_the_ceiling_is_the_one_the_verifier_allows(self):
+        self.assertEqual(CEILING, replay.MAX_SKEW_CEILING_S)
+
+    def test_the_skew_of_the_claim_does_not_decide_when_a_marker_goes(self):
+        """A marker has to outlive every policy a later claim can have, and the claim that purges cannot know which that will be."""
+        for skew in (0, 1, SKEW, 1000, CEILING):
+            kept = self.run_with_floor(self.LIMIT, skew=skew)
+            self.assertIn(name_of(9, self.EXPIRY), kept.list_markers(), skew)
+            gone = self.run_with_floor(self.LIMIT + 1, skew=skew)
+            self.assertNotIn(name_of(9, self.EXPIRY), gone.list_markers(), skew)
+
+    def test_the_ttl_of_the_claim_is_extra_slack(self):
+        for ttl in (0, 1, TTL, 900):
+            limit = self.EXPIRY + CEILING + ttl
+            self.assertIn(name_of(9, self.EXPIRY), self.run_with_floor(limit, ttl=ttl).list_markers(), ttl)
+            self.assertNotIn(name_of(9, self.EXPIRY), self.run_with_floor(limit + 1, ttl=ttl).list_markers(), ttl)
+
+    def test_a_wider_skew_later_cannot_bring_back_a_purged_statement(self):
+        """The policy may change from one claim to the next. The first statement is consumed under the default policy; later claims
+        raise the floor and purge; then the clock is set back to when the statement was valid and its id is claimed again under a
+        wider skew. It must never be accepted: while its marker is kept the answer is replayed, and once the marker is gone the
+        floor is already further past the expiry than any skew allows."""
+        for floor_at, purged in ((T + 2000, False), (T + 4000, False), (T + 4600, True), (T + 6000, True)):
+            backend, guard = fresh()
+            first = name_of(1, T + 300)
+            claim(guard, 1, now=T, expires_at=T + 300)                            # the default policy
+            claim(guard, 2, now=floor_at, expires_at=floor_at + 300)              # raises the floor
+            claim(guard, 3, now=floor_at + 1, expires_at=floor_at + 301)          # a claim that purges what may be purged
+            self.assertEqual(purged, first not in backend.list_markers(), floor_at)
+            floor = guard.floor()
+            for skew in (0, SKEW, 1000, CEILING):
+                for now in (T, T + 100, T + 299):                                 # the clock set back; the statement is still unexpired
+                    want = "clock" if now < floor - skew else "replayed"
+                    self.assertEqual(want, code(claim, guard, 1, now=now, expires_at=T + 300, skew=skew), (floor_at, skew, now))
+            self.assertEqual(purged, first not in backend.list_markers(), "the refused claims changed nothing")
 
     def test_names_that_are_not_well_formed_are_never_purged(self):
         backend, guard = fresh()
@@ -372,7 +401,7 @@ class Purge(unittest.TestCase):
     def test_a_jump_back_of_the_clock_cannot_bring_back_a_purged_statement(self):
         backend, guard = fresh()
         claim(guard, 1, now=T, expires_at=T + 300)
-        later = T + 300 + SKEW + TTL + 1
+        later = T + 300 + CEILING + TTL + 1
         claim(guard, 2, now=later, expires_at=later + 300)             # raises the floor beyond the first statement's life
         claim(guard, 3, now=later + 1, expires_at=later + 301)         # the purge happens in this claim
         self.assertNotIn(name_of(1, T + 300), backend.list_markers())
@@ -396,7 +425,7 @@ class Purge(unittest.TestCase):
         backend, guard = fresh(max_markers=4)
         for n in range(3):
             claim(guard, n, now=T, expires_at=T + 100 + n)
-        later = T + 100 + 3 + SKEW + TTL + 1
+        later = T + 100 + 3 + CEILING + TTL + 1
         claim(guard, 3, now=later, expires_at=later + 300)             # accepted: the floor moves beyond the three old statements
         self.assertEqual(4, guard.marker_count())
         claim(guard, 4, now=later + 1, expires_at=later + 301)         # the purge happens in this claim

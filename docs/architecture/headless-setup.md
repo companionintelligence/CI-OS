@@ -709,23 +709,27 @@ each have a test and a planted defect [V: `test_replay.py`, `replay-*`, on the i
 * The floor is raised to `now` only when a statement is accepted, so only the holder of the signing key can move it. A claim with
   `now < floor - skew_s` fails with `clock`. The floor file is decimal digits and a final newline; a file without the newline has been cut
   short, and it is damaged, never read as a smaller floor.
-* A marker is purged only when `expiry + skew_s + max_ttl_s < floor`, using the persisted floor and never the current clock, so a clock that
-  later jumps backwards cannot bring back a statement whose marker is gone. At most 4096 markers: the guard purges first, then refuses with
-  `store_full`.
+* A marker is purged only when `expiry + 3600 + max_ttl_s < floor`, using the persisted floor and never the current clock, so a clock that
+  later jumps backwards cannot bring back a statement whose marker is gone. The 3600 is the ceiling of `skew_s` (the number `Expected`
+  enforces), not the skew of the claim that purges: the policy can differ from one claim to the next, and a marker has to outlive every skew
+  a later claim may use. So a marker is never purged earlier than `expiry + skew_s + max_ttl_s < floor` would purge it, whatever the skew of
+  the claim, and a claim with a skew above the ceiling is refused as a programming error [V: `test_replay.py`, `test_statement.py`, planted
+  defects `replay-purge-assumes-default-skew` and `replay-skew-above-ceiling-accepted`]. At most 4096 markers: the guard purges first, then
+  refuses with `store_full`.
 
 Not covered, and for the reviewer to decide [N unless marked otherwise]:
 
 * The durable steps (create, write, flush the file, flush the directory) are modelled in memory and the tests stop the sequence at each one
   [V]. The on-disk store, the flush order on a real file system and a claim from several processes are the next change.
-* Defaults: `max_ttl_s` 600 and `skew_s` 120, with ceilings of 86400 and 3600 that `Expected` enforces [V: `test_statement.py`]. Which values
-  to ship, which signature scheme to inject first and where the store lives are open.
+* Defaults: `max_ttl_s` 600 and `skew_s` 120, with ceilings of 86400 and 3600 that `Expected` enforces [V: `test_statement.py`]; the 3600 is also
+  the number the replay guard purges by. Which values to ship, which signature scheme to inject first and where the store lives are open.
 * A damaged floor makes the guard fail closed with `store` and repair nothing, and a lost store is not handled; the rules for both are open.
 * The floor moves only when a statement is accepted and a marker goes only by the floor, so a store that fills inside one lifetime stays full
-  until a statement can be accepted [V: `test_replay.py`]. Whether to accept that is open.
+  until a statement can be accepted [V: `test_replay.py`]. Whether to accept that is open. A marker is kept until the floor is
+  `3600 + max_ttl_s` seconds past its expiry (4200 with the defaults), so with the defaults 4096 statements accepted within about 82
+  minutes, one every 1.2 seconds, fill the store: the bound is the number to size.
 * The floor notices a clock that goes back past the latest accepted statement, not one set back to a time after it, which is why the life of
   a statement is short by default [V: `test_statement.py`]. Any expiry judged by a wall clock alone has this limit.
-* The purge slack is `max_ttl_s`: a later policy with a `skew_s` larger than the earlier `skew_s + max_ttl_s` could accept a statement whose
-  marker was purged, so the policy values should be constants of the caller.
 
 Run the self-test with `cd core/headless && python3 -m ci_setup selftest`, and the tests with `bash core/headless/tests/ci_setup/run.sh --quick`.
 
@@ -844,15 +848,15 @@ domain) and are not captures of any real chip.
 
 ### 9.4 Mutation check (`mutation_check.py`)
 
-161 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
+163 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
 rotation disabled, a table value changed, the nft hook moved from `raw` to `filter`, the file mode widened ...). Each is applied to a copy
 of the package, the covering tests run, and the mutant must be killed. Every `old` text must occur exactly once, so a refactor cannot turn
 a mutant into a no-op. The first run killed 112 of 115 and exposed three gaps that were closed: a redundant port check (removed, the
 validator already refuses it), an idle-timeout clock that a client could restart by coming and going (test added), and a read-only
-allow-list mutant that was unreachable (rewritten to target the reachable branch). The last 32 (`stmt-*`, `canon-*`, `replay-*`) plant a
+allow-list mutant that was unreachable (rewritten to target the reachable branch). The last 34 (`stmt-*`, `canon-*`, `replay-*`) plant a
 defect in the owner-statement verifier or the replay guard: a check skipped or reordered, an off-by-one at an expiry, a damaged marker read
-as absent, a purge by the clock instead of the floor, the floor written before the marker, a floor file cut short read as a smaller floor,
-a bound on the signature removed, a record that names the wrong type.
+as absent, a purge by the clock instead of the floor, a purge by the skew of the claim that happens to purge, the floor written before
+the marker, a floor file cut short read as a smaller floor, a bound on the signature removed, a record that names the wrong type.
 
 ### 9.5 The hwsim harness and the other test directories
 
