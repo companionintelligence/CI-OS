@@ -343,6 +343,15 @@ class PlasmaTests(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual(buf.getvalue().strip().splitlines()[-1].split("\t")[1], "os-plasma/preview/latest.json")
 
+    def test_an_empty_prefix_is_refused_not_replaced_by_the_default(self):
+        rel = Release(edition="plasma")
+        self.addCleanup(rel.cleanup)
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc = rm.main(["--dir", rel.dir, "--version", PLASMA_DAY, "--channel", "dev", "--base-url", BASE, "--edition", "plasma", "--prefix", ""])
+        self.assertEqual(rc, 2)
+        self.assertIn("prefix", err.getvalue())
+
     def test_the_cli_default_prefix_of_ubuntu_is_still_os(self):
         rel = Release()
         self.addCleanup(rel.cleanup)
@@ -380,7 +389,10 @@ class EditionRefusalTests(unittest.TestCase):
             plasma.build(edition="ubuntu", version="1.0", prefix="os")
 
     def test_names_that_nearly_fit_a_grammar_are_refused(self):
-        near = (("plasma", PLASMA_DAY, "companion-os-plasma-2026.1.18-x86_64.iso"), ("plasma", PLASMA_DAY, "companion-os-plasma-latest-x86_64.iso"),
+        # each name is offered with the version it carries itself, so that only the grammar can refuse it (a version that differs would)
+        near = (("plasma", "2026.1.18", "companion-os-plasma-2026.1.18-x86_64.iso"), ("plasma", "26.10.18", "companion-os-plasma-26.10.18-x86_64.iso"),
+                ("plasma", "20261.10.18", "companion-os-plasma-20261.10.18-x86_64.iso"), ("plasma", "2026.10.181", "companion-os-plasma-2026.10.181-x86_64.iso"),
+                ("plasma", "1.0", "companion-os-plasma-1.0-x86_64.iso"), ("plasma", PLASMA_DAY + "-rc1", "companion-os-plasma-%s-rc1-x86_64.iso" % PLASMA_DAY),
                 ("plasma", PLASMA_DAY, "companion-os-plasma-%s-amd64.iso" % PLASMA_DAY), ("plasma", PLASMA_DAY, "companion-os-plasma-%s-arm64.iso" % PLASMA_DAY),
                 ("plasma", PLASMA_DAY, "companion-os-plasma-%s.iso" % PLASMA_DAY), ("plasma", PLASMA_DAY, "companion-os-plasma-%s-x86_64-old.iso" % PLASMA_DAY),
                 ("ubuntu", "1.0", "companion-os-1.0-x86_64.iso"), ("ubuntu", "1.0", "companion-os-1.0-i386.iso"))

@@ -289,6 +289,7 @@ eq "a Plasma version that is not the image date: refused" "$RC" "2"
 fresh_plasma; pubp --edition nope; eq "an edition that does not exist: refused" "$RC/$(grep -c '^cp ' "$WORK/log" | tr -d ' ')" "2/0"
 has "  and says which" "--edition must be ubuntu or plasma"
 fresh_plasma; run bash "$TOOL" --dir "$WORK/out" --version 2026.10.18 --edition; eq "--edition without its value" "$RC" "2"
+fresh_plasma; pubp --prefix ''; eq "an empty --prefix is refused, not replaced by the edition's prefix" "$RC" "2"
 OUT="$(bash "$TOOL" --help 2>&1)"; has "--help documents the edition" "--edition E"
 
 echo

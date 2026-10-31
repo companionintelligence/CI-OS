@@ -170,6 +170,7 @@ has "  and says why" "is not an architecture of the plasma edition"
 run --edition plasma --arch arm64; eq "  arm64 too" "$RC" "2"
 run --edition nope; eq "an edition that does not exist: refused" "$RC" "2"
 run --edition; eq "--edition without its value" "$RC" "2"
+run --prefix ''; eq "an empty --prefix is refused, not replaced by the edition's prefix" "$RC" "2"
 printf 'X' | dd of="$WORK/root/os-plasma/2026.10.18/x86_64/$PBASE.iso" bs=1 seek=100 conv=notrunc 2>/dev/null
 run --edition plasma --full
 eq "a changed byte in the Plasma image: --full sees it (exit 1)" "$RC" "1"
