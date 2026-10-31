@@ -805,7 +805,7 @@ mutation check; `--pythons "a b"` runs the suites under several interpreters.
 | `test_jobs.py` | happy path, every failure path, cancellation from every active state, every timeout, an exhaustive (state, event) matrix, snapshot and restore in every state, random event sequences |
 | `test_render.py` | goldens for hostapd (three variants), dnsmasq (two), nft (two) and the teardown; injection attempts through every parameter; the template engine and lint; the subnet picker with a real capture; the private-file writer (mode 0600 from creation, umask, symlink, failure cleanup) |
 | `test_cli.py` | all four commands, injected runner and file system, refusals, exit codes, the key never on the command line |
-| `test_statement.py` | the canonical encoding and the known answers in `fixtures/statements/vectors.json`, every structural refusal with its code, the signature step (each member tampered, another namespace), the binding to type, scope, target and parameters, the expiry and lifetime boundaries, the clock floor, the result record, error text that never echoes a value, the self-test vectors |
+| `test_statement.py` | the canonical encoding and the known answers in `fixtures/statements/vectors.json`, every structural refusal with its code, the signer-side `canonical_statement`, the signature step (each member tampered, another namespace, the length bounds), the binding to type, scope, target and parameters, the expiry and lifetime boundaries, the clock floor, the result record (which type it names), error text that never echoes a value, the self-test vectors |
 | `test_replay.py` | single use across a restart, damaged markers that stay consumed, the same id with another expiry, the floor rules, purging by the persisted floor, the bound, crash injection at every durable step, backend failures, the order of the backend calls, threads |
 | `test_fuzz_statements.py` | seeded mutations of a signed statement (never accepted under the old signature, only the module's error escapes), re-signed mutations against an independent oracle, random input of every shape, random clock readings and policies against a plain model, random claims against a dictionary model |
 | `test_hygiene.py` | no side effects on import (audit hook), nothing asks for root, Python 3.8 syntax and API on the AST, no unused imports, executable bits, no block art or retired product names, every fixture listed in `MANIFEST.json` with an honest origin |
@@ -843,12 +843,14 @@ domain) and are not captures of any real chip.
 
 ### 9.4 Mutation check (`mutation_check.py`)
 
-154 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
+159 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
 rotation disabled, a table value changed, the nft hook moved from `raw` to `filter`, the file mode widened ...). Each is applied to a copy
 of the package, the covering tests run, and the mutant must be killed. Every `old` text must occur exactly once, so a refactor cannot turn
 a mutant into a no-op. The first run killed 112 of 115 and exposed three gaps that were closed: a redundant port check (removed, the
 validator already refuses it), an idle-timeout clock that a client could restart by coming and going (test added), and a read-only
-allow-list mutant that was unreachable (rewritten to target the reachable branch). The last 25 (`stmt-*`, `canon-*`, `replay-*`) plant a defect in the owner-statement verifier or the replay guard: a check skipped or reordered, an off-by-one at an expiry, a damaged marker read as absent, a purge by the clock instead of the floor.
+allow-list mutant that was unreachable (rewritten to target the reachable branch). The last 30 (`stmt-*`, `canon-*`, `replay-*`) plant a
+defect in the owner-statement verifier or the replay guard: a check skipped or reordered, an off-by-one at an expiry, a damaged marker read
+as absent, a purge by the clock instead of the floor, a bound on the signature removed, a record that names the wrong type.
 
 ### 9.5 The hwsim harness and the other test directories
 

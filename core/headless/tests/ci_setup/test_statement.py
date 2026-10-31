@@ -175,6 +175,43 @@ class ParamsHash(unittest.TestCase):
         self.assertEqual("params", ctx.exception.code)
 
 
+class CanonicalStatement(unittest.TestCase):
+    """canonical_statement is what a signer calls. It judges the members as the verifier does, so that nobody signs a statement this
+    code would refuse for its shape, and it refuses with the verifier's own code."""
+
+    def test_a_good_statement_is_written_canonically(self):
+        fields = helpers.statement_fields()
+        raw = canonical_statement(fields)
+        self.assertEqual(helpers.canon_bytes(fields), raw)
+        self.assertEqual("accepted", Harness().code_signed(raw))
+
+    def test_it_refuses_what_the_verifier_would_refuse(self):
+        good = helpers.statement_fields()
+        wrong_shape = {"v": "1", "type": "Wifi.join", "request_id": "A" * 32, "scope": "", "target": "\x7f", "params_hash": "0" * 63,
+                       "expires_at": 0}
+        self.assertEqual(sorted(good), sorted(wrong_shape))
+        cases = [("an extra member", dict(good, extra=1), "field"), ("two extra members", dict(good, extra=1, other=[1]), "field"),
+                 ("another version", dict(good, v=2), "version"), ("another version and an extra member", dict(good, v=2, extra=1), "version"),
+                 ("no member at all", {}, "field")]
+        cases += [("no " + name, helpers.statement_fields(**{name: helpers.OMIT}), "field") for name in good]
+        cases += [("a wrong shape for " + name, dict(good, **{name: value}), "field") for name, value in wrong_shape.items()]
+        for name, fields, want in cases:
+            with self.assertRaises(StatementError, msg=name) as ctx:
+                canonical_statement(fields)
+            self.assertEqual(want, ctx.exception.code, name)
+            # the same members, written canonically with the standard library and signed, get the same code from the verifier
+            self.assertEqual(want, Harness().code_signed(helpers.canon_bytes(fields)), name)
+
+    def test_something_that_is_not_a_dict_is_a_format_error(self):
+        class Fields(dict):
+            pass
+
+        for bad in (None, [], (), "x", b"{}", 5, 1.5, True, [("v", 1)], Fields(helpers.statement_fields()), object()):
+            with self.assertRaises(StatementError, msg=repr(bad)[:30]) as ctx:
+                canonical_statement(bad)
+            self.assertEqual("format", ctx.exception.code, repr(bad)[:30])
+
+
 class Structure(unittest.TestCase):
     """What the bytes alone decide, with a verifier that says yes to everything: the codes of the steps before the binding."""
 
@@ -397,11 +434,33 @@ class Signature(unittest.TestCase):
         self.assertTrue(h.untouched())
 
     def test_the_shape_of_the_signature_argument(self):
+        """The bounds belong to the verifier, not to the scheme behind it: the injected check must never see a signature of a length
+        the module did not agree to. The HMAC stand-in would refuse such input on its own, so it cannot show this; a check that
+        says yes to everything, and counts its calls, can. Each case gets its own harness because an accepted id is consumed."""
+
+        class Counting(object):
+            def __init__(self):
+                self.calls = 0
+
+            def verify(self, namespace, message, signature):
+                self.calls += 1
+                return True
+
+        signed = Harness().signed()
+        for bad in (None, "text", 5, b"", bytearray(), b"x" * 1025, b"x" * 2000, bytearray(b"x" * 1025), [b"x"], 1.5, True):
+            h = Harness()
+            self.assertEqual("signature", h.code(signed.raw, bad), repr(bad)[:30])               # with the stand-in
+            self.assertTrue(h.untouched())
+            counting = Counting()
+            h = Harness()
+            self.assertEqual("signature", h.code(signed.raw, bad, verifier=counting), repr(bad)[:30])
+            self.assertEqual(0, counting.calls, repr(bad)[:30])
+            self.assertTrue(h.untouched())
+        for good in (b"x", b"xy", b"x" * 64, b"x" * 1023, b"x" * 1024, bytearray(b"x"), bytearray(b"x" * 1024)):
+            counting = Counting()
+            self.assertEqual("accepted", Harness().code(signed.raw, good, verifier=counting), len(good))
+            self.assertEqual(1, counting.calls, len(good))
         h = Harness()
-        signed = h.signed()
-        for bad in (None, "text", 5, b"", b"x" * 1025, [b"x"], 1.5, True):
-            self.assertEqual("signature", h.code(signed.raw, bad), repr(bad)[:30])
-        self.assertTrue(h.untouched())
         self.assertEqual("accepted", h.code(signed.raw, bytearray(signed.signature)))
 
     def test_the_signature_is_checked_before_any_member_is_judged(self):
@@ -438,8 +497,12 @@ class Binding(unittest.TestCase):
 
     def test_several_types_may_be_allowed(self):
         h = Harness(types=("wifi.join", "wifi.leave"))
-        self.assertEqual("accepted", h.code_of(h.signed(type="wifi.leave", request_id="1" * 32)))
-        self.assertEqual("accepted", h.code_of(h.signed(type="wifi.join", request_id="2" * 32)))
+        leave = h.signed(type="wifi.leave", request_id="1" * 32)
+        join = h.signed(type="wifi.join", request_id="2" * 32)
+        # The record carries the type that was signed, whichever place it has in the allow-list: the caller dispatches on it, so a
+        # record that named the first allowed type would turn the approval of one operation into the approval of another.
+        self.assertEqual("wifi.leave", h.run(leave.raw, leave.signature).type)
+        self.assertEqual("wifi.join", h.run(join.raw, join.signature).type)
         self.assertEqual("type", h.code_of(h.signed(type="wifi", request_id="3" * 32)))
 
     def test_parameters_are_compared_by_their_canonical_form(self):
