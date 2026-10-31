@@ -128,6 +128,10 @@ if [ -n "${REGISTRY_USERNAME:-}" ] && [ -n "${REGISTRY_PASSWORD:-}" ]; then
     echo "Configuring docker auth manually to bypass registry root 404 issue..."
     # Calculate base64 auth string (user:pass)
     AUTH_STRING=$(echo -n "${REGISTRY_USERNAME}:${REGISTRY_PASSWORD}" | base64)
+    # Owner-only (umask 077) while the Docker config is written: it holds the registry login. jq writes a new file that
+    # replaces the old one, so a config an older run left readable is tightened too. Restored right after this block.
+    saved_umask="$(umask)"
+    umask 077
     mkdir -p "${HOME}/.docker"
     if [ ! -f "${HOME}/.docker/config.json" ]; then
         echo '{"auths":{}}' > "${HOME}/.docker/config.json"
@@ -145,6 +149,7 @@ if [ -n "${REGISTRY_USERNAME:-}" ] && [ -n "${REGISTRY_PASSWORD:-}" ]; then
         echo -e "${RED}Error: jq is required for manual auth configuration.${NC}"
         exit 1
     fi
+    umask "$saved_umask"
 else
     echo "If you are already logged in, this step will just verify credentials."
     # We attempt docker login, but warn it might fail
@@ -161,7 +166,6 @@ echo -e "${YELLOW}Generating Traefik configuration...${NC}"
 cat > "${INSTALL_DIR}/data/state/traefik/config/traefik.yml" <<EOF
 api:
   dashboard: true
-  insecure: true
 
 providers:
   docker:
@@ -225,11 +229,16 @@ EOF
 touch "${INSTALL_DIR}/data/state/traefik/acme_storage.json"
 chmod 600 "${INSTALL_DIR}/data/state/traefik/acme_storage.json"
 
-# Generate .env file
+# Generate .env file. .env and .env.bak are written owner-only: umask 077 from here to the end of the .env, and chmod 600
+# for a file an older run created with a wider mode. They hold JWT_SECRET, the API key and the database and queue logins.
+# The umask is restored before docker-compose.yml; the files written above keep the caller's umask.
 echo -e "${YELLOW}Generating configuration...${NC}"
+saved_umask="$(umask)"
+umask 077
 if [ -f "${INSTALL_DIR}/.env" ]; then
     echo "Existing .env found, backing up to .env.bak"
     cp "${INSTALL_DIR}/.env" "${INSTALL_DIR}/.env.bak"
+    chmod 600 "${INSTALL_DIR}/.env.bak"
 fi
 
 # DEVICE_ID: respect a caller-provided value (e.g. pull-dev-manual.sh -d, or
@@ -343,6 +352,8 @@ ARCHITECTURE=amd64
 # Device ID
 DEVICE_ID=${DEVICE_ID}
 ENVEOF
+chmod 600 "${INSTALL_DIR}/.env"
+umask "$saved_umask"
 
 # Generate docker-compose.yml
 echo -e "${YELLOW}Generating docker-compose.yml...${NC}"
@@ -355,8 +366,9 @@ services:
     volumes:
       - ci_hub_pgdata:/var/lib/postgresql/data
     command: -p 6543
+    # The Hub reaches the database over the compose network. The host port is for tools on this machine only.
     ports:
-      - 6543:6543
+      - "127.0.0.1:6543:6543"
     environment:
       POSTGRES_PASSWORD: \${POSTGRES_PASSWORD:-postgres}
       POSTGRES_USER: \${POSTGRES_USER:-tipi}
@@ -371,8 +383,9 @@ services:
     container_name: \${QUEUE_CONTAINER_NAME:-ci-os-hub-queue}
     image: rabbitmq:4-alpine
     restart: unless-stopped
+    # Like the database: the Hub uses the compose network, the host port is for this machine only.
     ports:
-      - "5001:5672"
+      - "127.0.0.1:5001:5672"
     environment:
       RABBITMQ_DEFAULT_USER: \${RABBITMQ_USERNAME:-tipi}
       RABBITMQ_DEFAULT_PASS: \${RABBITMQ_PASSWORD:-tipi}
@@ -423,10 +436,10 @@ services:
     restart: unless-stopped
     command:
       - --configfile=/etc/traefik/traefik.yml
+    # The two entrypoints only. Port 8080 belonged to the API's insecure mode, which traefik.yml no longer turns on.
     ports:
       - "18080:80"
       - "18443:443"
-      - "18081:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./data/state/traefik/config/traefik.yml:/etc/traefik/traefik.yml:ro
