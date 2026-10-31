@@ -370,21 +370,27 @@ class Lifetimes(unittest.TestCase):
 
 
 class Model(unittest.TestCase):
-    """The guard against a dictionary: random claims with ids from a small pool, random clock readings and expiries."""
+    """The guard against a dictionary: random claims with ids from a small pool, random clock readings and expiries, and a lifetime
+    policy that changes from one claim to the next (Expected is an argument, so nothing makes it constant)."""
+
+    POLICIES = ((600, 120), (10, 0), (50, 7), (600, 3600), (60, 1000), (1, 3600))
+    CEILING = 3600                  # restated on purpose: the largest skew a claim may use
 
     def test_the_guard_agrees_with_a_model_of_the_rules(self):
         rnd = random.Random(helpers.fuzz_seed() + 6)
         for run in range(max(1, helpers.fuzz_n(10000) // 2000)):
             bound = rnd.choice((3, 8, 40))
-            ttl, skew = rnd.choice(((600, 120), (10, 0), (50, 7)))
             backend = MemoryBackend()
             guard = ReplayGuard(backend, max_markers=bound)
-            consumed = {}                      # request id -> expiry
+            consumed = {}                      # request id -> expiry: the markers the store should hold
+            accepted_before = {}               # request id -> expiry of the latest acceptance, whether or not its marker is gone
             floor = 0
             now = T0
             outcomes = set()
             for step in range(300):
-                now = max(1, now + rnd.choice((-3 * skew - 1, -skew, -1, 0, 1, 5, ttl, ttl + skew + 2, 3 * (ttl + skew))))
+                ttl, skew = rnd.choice(self.POLICIES)
+                now = max(1, now + rnd.choice((-3 * skew - 1, -skew, -1, 0, 1, 5, ttl, ttl + skew + 2, 3 * (ttl + skew),
+                                               self.CEILING + ttl + 2)))
                 n = rnd.randrange(60)
                 expires_at = now + rnd.randint(1, ttl + skew)
                 if now < floor - skew:
@@ -392,7 +398,8 @@ class Model(unittest.TestCase):
                 elif n in consumed:
                     want = "replayed"
                 else:
-                    for k in [k for k, e in consumed.items() if e + skew + ttl < floor]:
+                    # a marker goes when the floor is past its expiry by the ceiling of the skew and the ttl of this claim
+                    for k in [k for k, e in consumed.items() if e + self.CEILING + ttl < floor]:
                         del consumed[k]
                     if len(consumed) >= bound:
                         want = "store_full"
@@ -408,6 +415,12 @@ class Model(unittest.TestCase):
                 self.assertEqual(want, got, (run, step, n, now, floor))
                 self.assertEqual(floor, guard.floor())
                 self.assertEqual(len(consumed), guard.marker_count())
+                if got == "ok":
+                    if n in accepted_before:
+                        # an id that is accepted a second time had a marker that was purged: its first statement must be over by
+                        # now, under whatever policy the purging claim and this claim had
+                        self.assertGreaterEqual(now, accepted_before[n], (run, step, n, now))
+                    accepted_before[n] = expires_at
                 outcomes.add(got)
             self.assertIn("ok", outcomes)
 

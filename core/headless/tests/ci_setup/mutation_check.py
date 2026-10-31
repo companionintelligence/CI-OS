@@ -199,10 +199,12 @@ MUTANTS = [
     ("replay-floor-advances-on-reject", "replay.py", "                names = _listing(backend)\n", "                backend.write_floor(max(now, floor))\n                names = _listing(backend)\n", RP),
     ("replay-damaged-marker-ignored", "replay.py", "if any(n.endswith(\"-\" + digest) for n in names):", "if any(n.endswith(\"-\" + digest) and backend.marker_body(n) == MARKER_BODY for n in names):", RP),
     ("replay-lookup-by-exact-name", "replay.py", "if any(n.endswith(\"-\" + digest) for n in names):", "if name in names:", RP),
-    ("replay-purge-by-now", "replay.py", "live = self._purge(names, floor, max_ttl_s, skew_s)", "live = self._purge(names, now, max_ttl_s, skew_s)", RP),
+    ("replay-purge-by-now", "replay.py", "live = self._purge(names, floor, max_ttl_s)", "live = self._purge(names, now, max_ttl_s)", RP),
     ("replay-store-unbounded", "replay.py", "                if live >= self.max_markers:", "                if False:", RP),
     ("replay-floor-truncation-accepted", "replay.py", " or raw[-1:] != b\"\\n\":", ":", RP),
     ("replay-floor-before-marker", "replay.py", "                try:\n                    backend.create_marker(name)\n                except MarkerExists:\n                    raise ReplayError(\"replayed\") from None\n                if now > floor:\n                    backend.write_floor(now)\n", "                if now > floor:\n                    backend.write_floor(now)\n                try:\n                    backend.create_marker(name)\n                except MarkerExists:\n                    raise ReplayError(\"replayed\") from None\n", RP),
+    ("replay-purge-assumes-default-skew", "replay.py", "if expiry is not None and expiry + MAX_SKEW_CEILING_S + max_ttl_s < floor:", "if expiry is not None and expiry + 120 + max_ttl_s < floor:", RP),
+    ("replay-skew-above-ceiling-accepted", "replay.py", "    if skew_s > MAX_SKEW_CEILING_S:", "    if False:", RP),
 ]
 
 
