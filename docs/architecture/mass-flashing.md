@@ -372,6 +372,14 @@ Abort or flag a stick whose average MB/s is below a floor (suggest less than hal
 9. **Label** the physical stick with its serial and batch id; record in `batch.csv`.
 10. **Archive** the log directory with the bundle id, signature fingerprint and station hostname.
 
+**One sequence floor for the whole station.** `verify` (step 3) and the `sudo ci-stick flash` of step 7 are two accounts unless both
+run under `sudo`, and `sudo` usually does not pass `CI_STICK_STATE_DIR` on, so they would keep separate floors. Give both the same
+directory with the flag, which does survive `sudo`, and run both as the same account:
+`sudo ci-stick --state-dir /var/lib/ci-stick verify <bundle> --pubkey <key>` and
+`sudo ci-stick --state-dir /var/lib/ci-stick flash <bundle> ...`. The parallel flashes record the same floor and are safe together
+(`simultaneous_writers_do_not_lose_updates`). A floor raised by mistake is forgotten by moving `floors.json` away, which forgets every floor
+([companion-stick.md](companion-stick.md#bundle-format-and-trust-model)). UNKNOWN: how the `sudo` of Ubuntu 26.04 treats `HOME` was not checked.
+
 ---
 
 ## 9. Gaps in the repo that this design depends on

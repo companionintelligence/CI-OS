@@ -20,6 +20,9 @@ use ci_stick::packs::{self, PackCatalog};
 use ci_stick::progress::Progress;
 use ci_stick::size::{fmt_binary, parse_size};
 use ci_stick::slot::{self, SlotTarget};
+use ci_stick::state::{self, Floor, FloorStore, Os, StateEnv};
+use ci_stick::trust::TrustAnchors;
+use ci_stick::verify::{KeyArgs, Purpose, Setup, Trust};
 use ci_stick::{devices, doctor, host, layout, lock, signing, timefmt, verify};
 
 const EXIT_FAILED: u8 = 1;
@@ -38,6 +41,11 @@ const EXIT_USAGE: u8 = 2;
                   safety refusal."
 )]
 struct Cli {
+    /// Directory for the sequence floors and the optional revoked.txt (default: $CI_STICK_STATE_DIR,
+    /// else the platform's per-user state directory; see `ci-stick trust show`). Name it
+    /// explicitly under sudo: the variable is usually not passed on.
+    #[arg(long, global = true, value_name = "DIR")]
+    state_dir: Option<PathBuf>,
     #[command(subcommand)]
     command: Command,
 }
@@ -46,7 +54,11 @@ struct Cli {
 enum Command {
     /// Hash a staging directory and write/update its bundle.json.
     Lock(LockArgs),
-    /// Verify a bundle's signature and every artifact's size and SHA-256.
+    /// Verify a bundle: signature, expiry and sequence floor, then every artifact's size and SHA-256.
+    ///
+    /// Verifying is accepting: a bundle that passes raises this machine's floor for its id, and
+    /// an older release is refused afterwards. For a candidate you do not mean to accept, point
+    /// --state-dir at a throw-away directory. `ci-stick trust show` lists the floors.
     Verify(VerifyArgs),
     /// Partition layout planning.
     #[command(subcommand)]
@@ -64,6 +76,9 @@ enum Command {
     /// Show or switch the active A/B boot slot on a flashed stick or image.
     #[command(subcommand)]
     Slot(SlotCommand),
+    /// Release keys pinned in this build and what this machine has accepted so far.
+    #[command(subcommand)]
+    Trust(TrustCommand),
 }
 
 #[derive(Args)]
@@ -97,6 +112,10 @@ struct FlashArgs {
     /// Trusted ed25519 public key: 64 hex characters, or a file containing it.
     #[arg(long)]
     pubkey: Option<String>,
+    /// DEVELOPMENT ONLY, --image only: accept the key given with --pubkey although this build
+    /// pins release keys (without a pinned key it is not needed). Refused with --device.
+    #[arg(long, requires = "pubkey")]
+    development_key: bool,
     /// DEVELOPMENT ONLY, --image only: accept an unsigned bundle.
     #[arg(long)]
     allow_unsigned: bool,
@@ -104,7 +123,8 @@ struct FlashArgs {
     /// development GRUB (the stick then boots only with Secure Boot disabled).
     #[arg(long)]
     allow_unsigned_bootloader: bool,
-    /// Print the plan and write nothing.
+    /// Print the plan and write nothing to the target. A --device dry run also makes sure the
+    /// state directory can hold the sequence floor, and never records one.
     #[arg(long)]
     dry_run: bool,
     /// Device writes: must equal the device node shown in the plan (e.g. /dev/sdb).
@@ -196,6 +216,14 @@ struct LockArgs {
     /// Fixed created_at (RFC 3339 UTC). Defaults to SOURCE_DATE_EPOCH when set.
     #[arg(long)]
     created_at: Option<String>,
+    /// Write schema_version 2 with this release counter (1 or more). Without it a schema 2
+    /// bundle that changed gets the previous bundle.json's plus one (1 for a new one).
+    #[arg(long, value_parser = clap::value_parser!(u64).range(1..))]
+    sequence: Option<u64>,
+    /// Write schema_version 2 that expires this many days after created_at (default 365).
+    /// Counted from created_at, never from the clock, so the output stays reproducible.
+    #[arg(long, value_parser = clap::value_parser!(u32).range(1..))]
+    valid_days: Option<u32>,
     /// Machine-readable output.
     #[arg(long)]
     json: bool,
@@ -208,6 +236,10 @@ struct VerifyArgs {
     /// Trusted ed25519 public key: 64 hex characters, or a file containing it.
     #[arg(long)]
     pubkey: Option<String>,
+    /// DEVELOPMENT ONLY: accept the key given with --pubkey although this build pins release
+    /// keys (without a pinned key it is not needed).
+    #[arg(long, requires = "pubkey")]
+    development_key: bool,
     /// DEVELOPMENT ONLY: accept a bundle with no signature.
     #[arg(long)]
     allow_unsigned: bool,
@@ -271,6 +303,9 @@ struct DoctorArgs {
     /// With --bundle: trusted public key to check the signature against.
     #[arg(long, requires = "bundle")]
     pubkey: Option<String>,
+    /// DEVELOPMENT ONLY: accept the key given with --pubkey although this build pins release keys.
+    #[arg(long, requires = "pubkey")]
+    development_key: bool,
     #[arg(long)]
     json: bool,
 }
@@ -287,6 +322,16 @@ enum DevCommand {
         root: PathBuf,
         #[arg(long)]
         key: PathBuf,
+    },
+}
+
+#[derive(Subcommand)]
+enum TrustCommand {
+    /// Pinned and revoked key fingerprints, the state directory, and each stored sequence floor.
+    /// Read-only.
+    Show {
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -328,9 +373,10 @@ fn print_json<T: Serialize>(value: &T) -> anyhow::Result<()> {
 }
 
 fn run(cli: Cli) -> anyhow::Result<ExitCode> {
+    let state_dir = cli.state_dir;
     match cli.command {
         Command::Lock(a) => cmd_lock(a),
-        Command::Verify(a) => cmd_verify(a),
+        Command::Verify(a) => cmd_verify(a, state_dir.as_deref()),
         Command::Layout(LayoutCommand::Plan { size, json }) => {
             let bytes = parse_size(&size)?;
             let plan = layout::plan(bytes)?;
@@ -346,36 +392,52 @@ fn run(cli: Cli) -> anyhow::Result<ExitCode> {
         Command::Models(ModelsCommand::Lock(a)) => cmd_models::cmd_lock(a),
         Command::Models(ModelsCommand::Fetch(a)) => cmd_models::cmd_fetch(a),
         Command::Models(ModelsCommand::CacheInfo(a)) => cmd_models::cmd_cache_info(a),
-        Command::Doctor(a) => cmd_doctor(a),
+        Command::Doctor(a) => cmd_doctor(a, state_dir.as_deref()),
         Command::Dev(d) => cmd_dev(d),
-        Command::Flash(a) => cmd_flash(*a),
+        Command::Flash(a) => cmd_flash(*a, state_dir.as_deref()),
         Command::Slot(s) => cmd_slot(s),
+        Command::Trust(TrustCommand::Show { json }) => cmd_trust_show(json, state_dir.as_deref()),
     }
 }
 
-fn signature_policy(
-    pubkey: Option<&str>,
-    allow_unsigned: bool,
-) -> anyhow::Result<verify::SignaturePolicy> {
-    let key = pubkey.map(signing::parse_public_key).transpose()?;
-    Ok(match (key, allow_unsigned) {
-        (Some(k), false) => verify::SignaturePolicy::Require(k),
-        (k, true) => {
-            eprintln!(
-                "WARNING: --allow-unsigned given. An unsigned bundle proves NOTHING about who \
-                 built it. Use this only for local development bundles, never for a stick you \
-                 will hand to someone."
-            );
-            verify::SignaturePolicy::AllowUnsigned(k)
-        }
-        (None, false) => bail!(
-            "a trusted public key is required: --pubkey <hex|file> \
-             (or --allow-unsigned for development bundles)"
-        ),
-    })
+/// Load the build's trust anchors plus what this machine's state directory adds to them.
+fn load_trust(state_dir_flag: Option<&Path>) -> anyhow::Result<Trust> {
+    // Malformed lists in this build: refuse to verify anything.
+    let builtin = TrustAnchors::builtin()?;
+    Trust::load(
+        builtin,
+        state::resolve_state_dir(Os::current(), &StateEnv::from_process(), state_dir_flag),
+    )
 }
 
-fn cmd_flash(a: FlashArgs) -> anyhow::Result<ExitCode> {
+fn print_notes(notes: &[String]) {
+    for n in notes {
+        eprintln!("{n}");
+    }
+}
+
+/// The policy and the freshness context for one command. Every decision about keys, revocations
+/// and floors is made in [`Trust::setup`]; this only supplies the command line and the clock.
+fn setup(
+    trust: &Trust,
+    purpose: Purpose,
+    pubkey: Option<&str>,
+    development_key: bool,
+    allow_unsigned: bool,
+) -> anyhow::Result<Setup> {
+    let now = timefmt::unix_now()
+        .context("the system clock reads a time before 1970, so an expiry cannot be checked")?;
+    let keys = KeyArgs {
+        pubkey: pubkey.map(signing::parse_public_key).transpose()?,
+        development_key,
+        allow_unsigned,
+    };
+    let chosen = trust.setup(purpose, keys, now)?;
+    print_notes(&chosen.notes);
+    Ok(chosen)
+}
+
+fn cmd_flash(a: FlashArgs, state_dir: Option<&Path>) -> anyhow::Result<ExitCode> {
     let target = match (&a.image, &a.device) {
         (Some(path), None) => {
             let size = a.size.as_deref().context("--image requires --size")?;
@@ -393,9 +455,20 @@ fn cmd_flash(a: FlashArgs) -> anyhow::Result<ExitCode> {
              from a signed bundle (it is accepted with --image for development)"
         );
     }
+    let trust = load_trust(state_dir)?;
+    // A device or a pinned key makes the floor mandatory: no state directory, no write. The
+    // floor itself is recorded by `flash` after the stick was written, never by a dry run.
+    let chosen = setup(
+        &trust,
+        target.purpose(),
+        a.pubkey.as_deref(),
+        a.development_key,
+        a.allow_unsigned,
+    )?;
     let req = FlashRequest {
         bundle_root: a.root,
-        policy: signature_policy(a.pubkey.as_deref(), a.allow_unsigned)?,
+        freshness: chosen.freshness,
+        policy: chosen.policy,
         target,
         boot_image: a.boot_image,
         slot_b_from: a.slot_b_from,
@@ -528,6 +601,8 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
         packs,
         device_bytes,
         created_at,
+        sequence: a.sequence,
+        valid_days: a.valid_days,
     };
     let mut progress = if a.json {
         Progress::disabled()
@@ -540,6 +615,11 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
         #[derive(Serialize)]
         struct LockJson<'a> {
             bundle_json: String,
+            schema_version: u32,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            sequence: Option<u64>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            expires_at: Option<&'a str>,
             changed: bool,
             stale_signature: bool,
             artifacts: usize,
@@ -548,6 +628,9 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
         }
         print_json(&LockJson {
             bundle_json: a.dir.join(BUNDLE_FILE).display().to_string(),
+            schema_version: out.bundle.schema_version,
+            sequence: out.bundle.sequence,
+            expires_at: out.bundle.expires_at.as_deref(),
             changed: out.changed,
             stale_signature: out.stale_signature,
             artifacts: out.bundle.artifacts.len(),
@@ -565,6 +648,9 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
             out.bundle.model_packs.len(),
             out.bundle.layout.policy
         );
+        if let (Some(n), Some(until)) = (out.bundle.sequence, &out.bundle.expires_at) {
+            println!("sequence {n}, expires {until}");
+        }
         println!(
             "{} {}",
             if out.changed { "wrote" } else { "unchanged" },
@@ -577,14 +663,28 @@ fn cmd_lock(a: LockArgs) -> anyhow::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_verify(a: VerifyArgs) -> anyhow::Result<ExitCode> {
-    let policy = signature_policy(a.pubkey.as_deref(), a.allow_unsigned)?;
+fn cmd_verify(a: VerifyArgs, state_dir: Option<&Path>) -> anyhow::Result<ExitCode> {
+    let trust = load_trust(state_dir)?;
+    // Verifying is accepting: the floor moves up once the whole bundle checked out.
+    let chosen = setup(
+        &trust,
+        Purpose::Verify,
+        a.pubkey.as_deref(),
+        a.development_key,
+        a.allow_unsigned,
+    )?;
     let mut progress = if a.json {
         Progress::disabled()
     } else {
         Progress::auto(0)
     };
-    let report = verify::verify(&a.root, &policy, verify::HashMode::Full, &mut progress)?;
+    let report = verify::verify_at(
+        &a.root,
+        &chosen.policy,
+        &chosen.freshness,
+        verify::HashMode::Full,
+        &mut progress,
+    )?;
     if a.json {
         print_json(&report)?;
     } else {
@@ -632,18 +732,19 @@ fn cmd_models_list(a: ModelsListArgs) -> anyhow::Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-fn cmd_doctor(a: DoctorArgs) -> anyhow::Result<ExitCode> {
+fn cmd_doctor(a: DoctorArgs, state_dir: Option<&Path>) -> anyhow::Result<ExitCode> {
     let bundle = match &a.bundle {
         Some(root) => {
-            let policy = match a
-                .pubkey
-                .as_deref()
-                .map(signing::parse_public_key)
-                .transpose()?
-            {
-                Some(k) => verify::SignaturePolicy::Require(k),
-                None => verify::SignaturePolicy::NotChecked,
-            };
+            let trust = load_trust(state_dir)?;
+            // Read-only: the floors are looked at, never raised, and a missing state
+            // directory does not make a diagnostic fail.
+            let chosen = setup(
+                &trust,
+                Purpose::Doctor,
+                a.pubkey.as_deref(),
+                a.development_key,
+                false,
+            )?;
             let mode = if a.full {
                 verify::HashMode::Full
             } else {
@@ -654,7 +755,13 @@ fn cmd_doctor(a: DoctorArgs) -> anyhow::Result<ExitCode> {
             } else {
                 Progress::auto(0)
             };
-            Some(verify::verify(root, &policy, mode, &mut progress)?)
+            Some(verify::verify_at(
+                root,
+                &chosen.policy,
+                &chosen.freshness,
+                mode,
+                &mut progress,
+            )?)
         }
         None => None,
     };
@@ -669,6 +776,91 @@ fn cmd_doctor(a: DoctorArgs) -> anyhow::Result<ExitCode> {
     } else {
         ExitCode::from(EXIT_FAILED)
     })
+}
+
+fn cmd_trust_show(json: bool, state_dir: Option<&Path>) -> anyhow::Result<ExitCode> {
+    #[derive(Serialize)]
+    struct TrustShow {
+        /// Fingerprints of the release keys pinned in this build (none today: KI-23).
+        pinned_keys: Vec<String>,
+        /// Revoked by the committed list.
+        revoked_built_in: Vec<String>,
+        /// Revoked by the state directory's revoked.txt.
+        revoked_state_file: Vec<String>,
+        state_dir: Option<String>,
+        state_dir_source: Option<&'static str>,
+        state_dir_error: Option<String>,
+        floors: std::collections::BTreeMap<String, Floor>,
+    }
+    let builtin = TrustAnchors::builtin()?;
+    let mut show = TrustShow {
+        pinned_keys: builtin.pinned().iter().map(|k| k.id.clone()).collect(),
+        revoked_built_in: builtin.revoked().map(str::to_string).collect(),
+        revoked_state_file: Vec::new(),
+        state_dir: None,
+        state_dir_source: None,
+        state_dir_error: None,
+        floors: Default::default(),
+    };
+    match state::resolve_state_dir(Os::current(), &StateEnv::from_process(), state_dir) {
+        Ok((dir, source)) => {
+            let store = FloorStore::new(dir);
+            show.state_dir = Some(store.dir().display().to_string());
+            show.state_dir_source = Some(source.as_str());
+            show.revoked_state_file = store.extra_revoked()?;
+            show.floors = store.load()?;
+        }
+        Err(e) => show.state_dir_error = Some(e.to_string()),
+    }
+    if json {
+        print_json(&show)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+    let list = |items: &[String]| {
+        if items.is_empty() {
+            "none".to_string()
+        } else {
+            items.join(", ")
+        }
+    };
+    let mut text = String::new();
+    text.push_str(&format!(
+        "Pinned release keys   {}\n",
+        if show.pinned_keys.is_empty() {
+            "none: no release key is pinned in this build (KI-23), so --pubkey is the only key source"
+                .to_string()
+        } else {
+            show.pinned_keys.join(", ")
+        }
+    ));
+    text.push_str(&format!(
+        "Revoked fingerprints  built in: {}\n                      state file: {}\n",
+        list(&show.revoked_built_in),
+        list(&show.revoked_state_file)
+    ));
+    match (&show.state_dir, &show.state_dir_error) {
+        (Some(dir), _) => text.push_str(&format!(
+            "State directory       {dir} ({})\n",
+            show.state_dir_source.unwrap_or("default location")
+        )),
+        (None, Some(e)) => text.push_str(&format!("State directory       none: {e}\n")),
+        (None, None) => {}
+    }
+    if show.floors.is_empty() {
+        text.push_str("Sequence floors       none recorded\n");
+    } else {
+        text.push_str("Sequence floors\n");
+        for (id, f) in &show.floors {
+            text.push_str(&format!(
+                "  {id}  sequence {}  bundle.json sha256 {}  signer {}\n",
+                f.sequence,
+                &f.bundle_sha256[..12],
+                f.signer
+            ));
+        }
+    }
+    write_stdout(&text)?;
+    Ok(ExitCode::SUCCESS)
 }
 
 fn cmd_dev(d: DevCommand) -> anyhow::Result<ExitCode> {

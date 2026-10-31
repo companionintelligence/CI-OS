@@ -10,14 +10,16 @@
 //! | `paths`     | relative-path validation (no `..`, absolute, or odd components)       |
 //! | `hashing`   | streaming SHA-256                                                      |
 //! | `signing`   | detached ed25519 signatures over the exact bytes of `bundle.json`     |
+//! | `trust`     | pinned release keys and revoked fingerprints (empty today, KI-23)     |
+//! | `state`     | per-user state directory: sequence floors, extra revocations          |
 //! | `lock`      | staging directory -> deterministic `bundle.json`                       |
-//! | `verify`    | bundle root -> signature + artifact integrity report                  |
+//! | `verify`    | bundle root -> signature, expiry, sequence floor + artifact integrity |
 //! | `packs`     | model-pack catalog loading and "does it fit" logic                     |
 //! | `devices`   | read-only removable block-device discovery (lsblk / diskutil parsing) |
 //! | `host`      | host OS/arch capability matrix                                         |
 //! | `doctor`    | read-only host + device + bundle diagnostics                          |
 //! | `progress`  | TTY-only progress reporting                                            |
-//! | `timefmt`   | RFC 3339 timestamps without a date/time dependency                     |
+//! | `timefmt`   | RFC 3339 timestamps (format, parse, add days) without a date crate    |
 //! | `grubenv`   | GRUB environment block (the A/B slot pointer) encode/decode            |
 //! | `bootcfg`   | the stick's grub.cfg, rendered from the layout                         |
 //! | `gpt`       | `sgdisk` arguments from a plan; read-only GPT parser for read-back     |
@@ -64,7 +66,9 @@ pub mod signing;
 pub mod size;
 pub mod slot;
 pub mod sparse;
+pub mod state;
 pub mod target;
 pub mod timefmt;
 pub mod tools;
+pub mod trust;
 pub mod verify;

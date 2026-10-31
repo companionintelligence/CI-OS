@@ -8,6 +8,12 @@ use std::process::{Command, Output};
 fn ci_stick(args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_ci-stick"))
         .args(args)
+        // Never the state directory of the person who runs the tests: their revoked.txt would
+        // apply to these bundles.
+        .env(
+            "CI_STICK_STATE_DIR",
+            Path::new(env!("CARGO_TARGET_TMPDIR")).join("state-cli-tests"),
+        )
         .env_remove("SOURCE_DATE_EPOCH")
         .output()
         .expect("failed to run ci-stick")
