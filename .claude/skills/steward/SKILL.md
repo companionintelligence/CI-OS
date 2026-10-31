@@ -18,7 +18,7 @@ mechanics.
 
 It is exactly what the `PR checks` workflow runs (bash -n, `shellcheck -S error`,
 `py_compile`, yamllint, no tracked build artifacts, no retired product name such as "CI OS" or
-"Companion Ubuntu" back in `backends/`, `core/` or `.github/`: the name is "Companion OS"; no retired distro name back outside `core/lib/retired-names.allow`: a retired target is restored from tag `pre-retire-multidistro-2026-10-17`, not re-described; and no block-letter banner art, which can spell one in a way a text grep cannot read; and **no tracked file that names an untracked one** (`core/lib/check-untracked-deps.sh`: check-repo and the unit tests run on the working tree, so a new script, fixture or payload file that was never `git add`ed passes them and is missing from the commit; `git add -N <path>` is enough for `git add -u` / `git commit -a` to take it). If it fails locally, don't push. The
+"Companion Ubuntu" back in `backends/`, `core/` or `.github/`: the name is "Companion OS"; no retired distro name back outside `core/lib/retired-names.allow`: a retired target is restored from tag `pre-retire-multidistro-2026-10-17`, not re-described; and no block-letter banner art, which can spell one in a way a text grep cannot read; and **no tracked file that names an untracked one** (`core/lib/check-untracked-deps.sh`: check-repo and the unit tests run on the working tree, so a new script, fixture or payload file that was never `git add`ed passes them and is missing from the commit; `git add -N <path>` is enough for `git add -u` / `git commit -a` to take it); and **the workflow and secret guards** (`core/lib/check-guards.sh`: every `uses:` pinned to a full commit sha or a digest with the release in a trailing comment, no `pull_request_target` or `workflow_run` trigger, also not inside a gated block, no `secrets: inherit`, a `permissions:` block in every workflow, `persist-credentials: false` on every checkout, no private-key block in a tracked text file; an exception goes into `core/lib/guards.allow` with a reason, and a stale entry fails)). If it fails locally, don't push. A pin bump is its own commit with the old and the new release in its message (`docs/guides/release-checklist.md`, "Pinned inputs and how to refresh them"). The
 other workflows (`build-companion-os-iso.yml`, `style-canon-lint.yml`) are manual-only
 (`ci-local:gated` markers) — don't restore their triggers in a PR; that's a maintainer call.
 
@@ -87,6 +87,8 @@ the required-file list in the Arch `install.sh` (the oracle) — and add it wher
 - Build outputs: `*.deb`, `*.iso`, `*.rpm`, `.pkgroot/` — `.gitignore` excludes them and the
   check fails on force-adds.
 - Secrets, device keys, tunnel tokens, `env.*` files with real values — templates only.
+- A private-key block of any kind, a test fixture included: a test assembles its header at run time (`core/lib/check-guards.sh` refuses a tracked one).
+- An action called by tag or branch, or a build image by tag alone: pin the full commit sha (release in a trailing comment) or the digest.
 - "stashed changes" / WIP commits on a branch meant for review.
 
 ## Stale branches

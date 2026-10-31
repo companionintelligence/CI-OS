@@ -22,7 +22,7 @@ decision). Policy, capability matrix and evidence tags: `docs/architecture/suppo
 ## Validate before every push
 
 ```bash
-./core/lib/check-repo.sh   # bash -n, shellcheck (errors), py_compile, yamllint, retired-name guards, untracked-file guard, fast suites
+./core/lib/check-repo.sh   # bash -n, shellcheck (errors), py_compile, yamllint, retired-name guards, untracked-file guard, workflow and secret guards, fast suites
 (cd stick && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test)   # when you touched stick/
 ```
 
@@ -47,7 +47,8 @@ The same script is the `PR checks` GitHub workflow. A new file must be `git add`
 
 - Never `git reset --hard`, `git clean -f`, or force-push someone else's branch without user
   confirmation: multiple agents work this repo in parallel. Never use a bare `git stash`.
-- Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`); build them. Never commit secrets or copy a credential value anywhere.
+- Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`); build them. Never commit secrets or a private key, or copy a credential value anywhere.
+  Pin every action to a full commit sha and every build image to a digest (`core/lib/check-guards.sh` refuses an unpinned action).
 - Never write to a block device unless the user named it; `--dry-run` first.
 - Claims about behaviour carry an evidence tag: **[V]** verified, **[I]** implemented not proven, **[N]** not implemented.
 - Commit messages: imperative mood, ≤ 72 chars.

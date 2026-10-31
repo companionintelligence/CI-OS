@@ -16,7 +16,8 @@ by Lifescope Inc.
 - Package management is per-backend; `core/` has no package-manager assumptions.
 - The Ubuntu ISO builds on Ubuntu 26.04 only (on a Mac: a privileged ARM64 `ubuntu:26.04` container, see `CLAUDE.md`); the CachyOS ISO builds anywhere with Docker.
 - Validate with `./core/lib/check-repo.sh` (same as the `PR checks` workflow); `git add` new files first.
-- Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`) or secrets, and never copy a credential value anywhere.
+- Never commit build outputs (`*.deb`, `*.iso`, `*.rpm`), secrets or a private key, and never copy a credential value anywhere. Pin every
+  action to a full commit sha and every build image to a digest; `check-repo.sh` runs the workflow and secret guards (`core/lib/check-guards.sh`).
 - Never write to a block device unless the user named it.
 - Images are published to Cloudflare R2 with `publish-r2.sh`, a dry run until `--apply`: never apply, create a bucket or a token, or print an R2 or signing credential unless asked.
 - Keep PRs small and linked to CI-Engineering issues.

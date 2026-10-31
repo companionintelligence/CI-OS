@@ -123,7 +123,8 @@ in [`backends/ubuntu/iso/README.md`](backends/ubuntu/iso/README.md) and the
 **On a Mac or any host that is not Ubuntu 26.04**, build inside a privileged container. On Apple silicon use an **ARM64**
 `ubuntu:26.04` container: it is the route that produced the verified image, and the image's x86-64 chroot runs through the Docker VM's
 Rosetta binfmt handlers. An amd64 `ubuntu:26.04` container may fail (GNU tar 1.35 reported "Function not implemented" under Rosetta once; the
-trigger was not isolated), so it is not the recommended route. On an x86-64 Linux host drop `--platform linux/arm64`.
+trigger was not isolated), so it is not the recommended route. On an x86-64 Linux host drop `--platform linux/arm64`. The image is pinned by
+the digest of its image index (both architectures), the `BUILD_IMAGE` of `build-in-docker.sh` and of the workflow.
 
 ```bash
 export ISO="$HOME/Downloads/ubuntu-26.04.1-desktop-amd64.iso"        # the 26.04.1 file, not the 26.04.0 image
@@ -132,7 +133,8 @@ echo '601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f  '"$ISO" 
 rm -rf "$BUILD" && mkdir -p "$BUILD" && git archive HEAD | tar -x -C "$BUILD"      # a clean tree of the commit you want to build
 docker volume create ci-os-ubuild-vol
 docker run -d --name ci-os-ubuild --privileged --platform linux/arm64 -v ci-os-ubuild-vol:/vol -v "$BUILD":/src:ro \
-  -v "$ISO":/base/ubuntu-base.iso:ro -w /vol -e DEBIAN_FRONTEND=noninteractive ubuntu:26.04 sleep infinity
+  -v "$ISO":/base/ubuntu-base.iso:ro -w /vol -e DEBIAN_FRONTEND=noninteractive \
+  ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c sleep infinity
 docker exec ci-os-ubuild bash -euc 'for i in $(seq 0 127); do [ -e /dev/loop$i ] || mknod -m 0660 /dev/loop$i b 7 $i; done; [ -e /dev/loop-control ] || mknod -m 0660 /dev/loop-control c 10 237'
 docker exec ci-os-ubuild bash -euo pipefail -c 'apt-get update -qq && apt-get install -y -qq ca-certificates squashfs-tools xorriso rsync gpg curl cpio zstd initramfs-tools-core imagemagick librsvg2-bin libglib2.0-bin libglib2.0-dev-bin yaru-theme-gnome-shell python3 python3-yaml diffutils mount util-linux file'
 docker exec ci-os-ubuild bash -euc 'mkdir -p /vol/repo /vol/work /vol/out /vol/cache && rsync -a --delete /src/ /vol/repo/'
@@ -586,7 +588,7 @@ change is in [Running the tests](docs/guides/running-the-tests.md); the per-suit
 
 | Layer | Command | Needs | Time | What it proves |
 |---|---|---|---|---|
-| 1. The gate | `./core/lib/check-repo.sh` | `git`, `shellcheck`, `python3` with PyYAML, `yamllint` (macOS: `brew install shellcheck yamllint`; a bare Debian or Ubuntu container also wants `libarchive-tools`, `libglib2.0-bin` and `curl`, or four suites print `!` and do not run) | about 6 minutes on a quiet laptop, 25 to 40 on a Mac that is also running builds and VMs | Syntax and lint of every shell, Python and YAML file, the retired-name and block-art guards, and about 40 host-side suites of both editions |
+| 1. The gate | `./core/lib/check-repo.sh` | `git`, `shellcheck`, `python3` with PyYAML, `yamllint` (macOS: `brew install shellcheck yamllint`; a bare Debian or Ubuntu container also wants `libarchive-tools`, `libglib2.0-bin` and `curl`, or four suites print `!` and do not run) | about 6 minutes on a quiet laptop, 25 to 40 on a Mac that is also running builds and VMs | Syntax and lint of every shell, Python and YAML file, the retired-name and block-art guards, the workflow and secret guards (pinned actions, no dangerous trigger, no blanket secrets, explicit permissions, no token left in a checkout, no private key in the tree), and about 40 host-side suites of both editions |
 | 2. One behaviour | `bash <suite>` from [Running the tests](docs/guides/running-the-tests.md), for example `backends/ubuntu/chroot/tests/customize-chroot-checks.sh` (159 checks) | `bash` | seconds | One script, one rule: the dock list (40), the Companion links and welcome page (70), the first-boot load gate (11), the headless Hub start (20), the download-progress filter (21), the one-click installer (121 unit tests) |
 | 3. A built image, read | `VERIFY_BASE_ISO=<stock ISO> VERIFY_REQUIRE_CANON=1 backends/ubuntu/iso/scripts/verify-iso.sh <ISO>` | `xorriso`, `squashfs-tools`, `zstd`, `cpio`, `python3` | 35 to 90 s | The finished ISO against the stock one and against what the build meant to do: 444 checks on amd64, 436 on arm64 (the architecture is read from the volume id) |
 | 4. A built image, run | `backends/ubuntu/iso/tests/boot-arm64-vm.sh`, `installed-boot.sh`, `stick/tests/qemu/run.sh` | QEMU, firmware, a container for some | 2 to 20 min (arm64 with hardware acceleration); hours for x86-64 under emulation | The live desktop, the one-click install, the installed boot and the first-boot job, as a person would see them |
@@ -658,7 +660,7 @@ captured from an image (`backends/ubuntu/chroot/tests/fixtures/`). A claim about
 ├── core/                 distro-portable: no package-manager assumptions
 │   ├── manifest/         ecosystem.yaml, role-map/{apt,pacman}.yaml, model-packs.yaml + lock, tier-b-pins.env, licenses.yaml
 │   ├── render/           tokens + assets -> GRUB background, MOTD, mark PNGs, GNOME Shell gresource; inputs/, tests/
-│   ├── lib/              theme-lib.sh, gpu-detect.sh, ci-os-models.sh, ci-hub.sh, vendor-brand.sh, check-repo.sh, retired-names.allow, tests/
+│   ├── lib/              theme-lib.sh, gpu-detect.sh, ci-os-models.sh, ci-hub.sh, vendor-brand.sh, check-repo.sh, retired-names.allow, check-guards.sh, guards.allow, tests/
 │   └── headless/         payload/ (setup backend, portal, hostapd/dnsmasq/nginx, units), ci_setup/ (tested library), tests/
 ├── backends/
 │   ├── ubuntu/           Companion OS on Ubuntu 26.04.1: apt/dpkg + Bash
@@ -682,7 +684,7 @@ captured from an image (`backends/ubuntu/chroot/tests/fixtures/`). A claim about
 ├── assets/               logos, wallpaper, branding/brand-guidelines.md, GNOME Shell theme assets
 ├── docs/                 README.md (index), architecture/, guides/, evidence/ (text records behind the verified rows), plans/, ui/, CI.md
 ├── pull-dev-manual.sh    thin wrapper around core/lib/ci-hub.sh
-└── LICENSE.md, License-FAQ.md, NOTICE.md, THIRD_PARTY.md, CREDITS.md
+└── LICENSE.md, License-FAQ.md, NOTICE.md, THIRD_PARTY.md, CREDITS.md, SECURITY.md
 ```
 
 ---
@@ -748,6 +750,7 @@ The Ubuntu and Plasma/CachyOS editions have different bases and verification det
 ## Support
 
 * **Issues**: https://github.com/companionintelligence/CI-OS/issues
+* **Security**: report a vulnerability privately, never in a public issue: [`SECURITY.md`](SECURITY.md)
 * **Website**: https://ci.computer
 
 © Companion Intelligence, Lifescope Inc

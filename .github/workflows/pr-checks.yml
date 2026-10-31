@@ -26,7 +26,9 @@ jobs:
   check-repo:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
       - name: Install linters (and xorriso, so the md5sum.txt mini-ISO tests run instead of skipping)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck yamllint xorriso
       - run: ./core/lib/check-repo.sh
@@ -38,11 +40,14 @@ jobs:
       run:
         working-directory: stick
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1   # pinned to a commit, the action takes the compiler from this input, not from its ref name
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: stick
       - name: Install flash tools (so the flash tests run instead of skipping)
@@ -52,8 +57,8 @@ jobs:
       - run: cargo test --locked
       - name: MSRV (rust-version in stick/Cargo.toml)
         run: |
-          rustup toolchain install 1.75 --profile minimal
-          cargo +1.75 check --locked --all-targets
+          rustup toolchain install 1.75.0 --profile minimal
+          cargo +1.75.0 check --locked --all-targets
 
   # Companion Stick: flash a sparse 64 GB image and boot it in QEMU as a USB stick under
   # UEFI, three times (slot A, persistence across reboot, slot B), plus negative safety
@@ -66,9 +71,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
+        with:
+          toolchain: 1.99.1
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: stick
       - name: Build ci-stick (the binary runs unchanged in the 26.04 container)
@@ -87,6 +96,8 @@ jobs:
           # --privileged: /dev/kvm, and a disk the system-disk write refusals can aim at. Ephemeral
           # runner: CI_STICK_TEST_SYSDISK_WRITE_REFUSAL=1 also checks that write attempts at the
           # runner's own system disk are refused (skipped by default on developer machines).
+          # The image is pinned by the digest of its index, the BUILD_IMAGE of build-companion-os-iso.yml; it pins the starting
+          # userland only, the container then installs from the live archive.
           docker run --rm --privileged \
             -v "$GITHUB_WORKSPACE":/src -w /src \
             -v "$CI_STICK_QEMU_WORK":"$CI_STICK_QEMU_WORK" \
@@ -94,7 +105,7 @@ jobs:
             -e CI_STICK_BIN=/src/stick/target/release/ci-stick \
             -e CI_STICK_TEST_SYSDISK_WRITE_REFUSAL=1 \
             -e DEBIAN_FRONTEND=noninteractive \
-            ubuntu:26.04 bash -euo pipefail -c '
+            ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c bash -euo pipefail -c '
               apt-get update -qq
               apt-get install -y -qq --no-install-recommends ca-certificates qemu-system-x86 \
                 ovmf-generic grub-efi-amd64-bin grub-common gdisk dosfstools mtools exfatprogs \
@@ -102,7 +113,7 @@ jobs:
               stick/tests/qemu/run.sh'
       - name: Upload serial logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: stick-qemu-logs
           path: |

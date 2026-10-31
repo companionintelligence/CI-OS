@@ -30,6 +30,7 @@ Evidence tags used throughout: **[V]** verified, **[I]** implemented and not pro
 | Add a target, or bring a retired one back | [Supported targets, sections 7 and 8](architecture/supported-targets.md#7-retired-targets-and-the-restore-recipe) |
 | Understand how the repository is organised | [Core and backends design](architecture/multi-distro-design.md) |
 | Open a pull request that will merge | [`.claude/skills/steward/SKILL.md`](../.claude/skills/steward/SKILL.md) |
+| Report a security vulnerability | [Security policy](../SECURITY.md): privately, never in a public issue |
 
 ## Overview
 

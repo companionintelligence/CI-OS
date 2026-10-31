@@ -64,13 +64,16 @@ echo '601e30fbf5d97759367c632e2c33630665039b7e2158fd068403da3ccf1bda1f  '"$ISO" 
 # 3. A clean tree of the commit you want to build.
 rm -rf "$BUILD" && mkdir -p "$BUILD" && git archive HEAD | tar -x -C "$BUILD"
 
-# 4. A privileged ARM64 container with a named volume for the work, output and cache.
+# 4. A privileged ARM64 container with a named volume for the work, output and cache. The image is pinned by the digest of
+#    its image index (both architectures; --platform picks the arm64 one), the BUILD_IMAGE of build-in-docker.sh. It pins the
+#    starting userland only: step 6 installs from the live archive.
 docker volume create ci-os-ubuild-vol
 docker run -d --name ci-os-ubuild --privileged --platform linux/arm64 \
   -v ci-os-ubuild-vol:/vol \
   -v "$BUILD":/src:ro \
   -v "$ISO":/base/ubuntu-base.iso:ro \
-  -w /vol -e DEBIAN_FRONTEND=noninteractive ubuntu:26.04 sleep infinity
+  -w /vol -e DEBIAN_FRONTEND=noninteractive \
+  ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c sleep infinity
 
 # 5. Loop device nodes: a container's /dev only has the loop nodes that existed at start,
 #    and `mount -o loop` takes the first free one.

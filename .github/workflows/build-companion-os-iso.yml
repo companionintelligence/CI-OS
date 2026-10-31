@@ -90,7 +90,10 @@ env:
   # Where the image is built. The runner is only the host (Docker, disk, artifacts); the build runs in
   # this privileged container so that the build host is Ubuntu 26.04 whatever the runner image is
   # (Yaru theme and GNOME 50 resources, initramfs-tools 0.151 with its unmkinitramfs, squashfs-tools, ...).
-  BUILD_IMAGE: "ubuntu:26.04"
+  # Pinned by the digest of its OCI image index (amd64 and arm64), so a moved tag cannot change what the build starts from. The digest pins
+  # the starting userland only: the container then runs apt-get update against the live archive. build-in-docker.sh pins the same reference
+  # (backends/ubuntu/iso/tests/build-in-docker.sh compares the two); refresh: docs/guides/release-checklist.md, "Pinned inputs".
+  BUILD_IMAGE: "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -174,7 +177,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Choose the base ISO of this architecture
         run: |
@@ -329,7 +334,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload the image as an artifact (short retention, because storage is billed)
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: companion-os-${{ matrix.arch }}
           path: |
@@ -357,7 +362,9 @@ jobs:
 
     steps:
       - name: Checkout repository (for the publishing scripts)
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: Free disk space (both images, and one downloaded again to verify, are on this disk at once)
         run: |
@@ -380,7 +387,7 @@ jobs:
           if [ "$CHANNEL" = production ] && [ "$GPG_KEY_PRESENT" != true ]; then echo "::error::the production environment has no GPG_PRIVATE_KEY secret"; exit 1; fi
 
       - name: Download both images
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: companion-os-*
           path: release
@@ -453,7 +460,7 @@ jobs:
 
       - name: Draft GitHub release with the small files (production only; the images stay on R2)
         if: ${{ inputs.publish == 'production' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: v${{ needs.plan.outputs.version }}
           name: Companion OS ${{ needs.plan.outputs.version }}
