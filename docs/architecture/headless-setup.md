@@ -707,7 +707,8 @@ each have a test and a planted defect [V: `test_replay.py`, `replay-*`, on the i
 * A marker is found by the hash in its name, so any name ending in `-<hash>` means consumed, whatever its expiry digits or its body. A damaged
   marker stays consumed: existence is the signal and the body is never read for the decision.
 * The floor is raised to `now` only when a statement is accepted, so only the holder of the signing key can move it. A claim with
-  `now < floor - skew_s` fails with `clock`.
+  `now < floor - skew_s` fails with `clock`. The floor file is decimal digits and a final newline; a file without the newline has been cut
+  short, and it is damaged, never read as a smaller floor.
 * A marker is purged only when `expiry + skew_s + max_ttl_s < floor`, using the persisted floor and never the current clock, so a clock that
   later jumps backwards cannot bring back a statement whose marker is gone. At most 4096 markers: the guard purges first, then refuses with
   `store_full`.
@@ -843,14 +844,15 @@ domain) and are not captures of any real chip.
 
 ### 9.4 Mutation check (`mutation_check.py`)
 
-159 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
+161 deliberate bugs in the security-relevant code (a comparison weakened to `==`, a check removed, an escape dropped, a lockout or
 rotation disabled, a table value changed, the nft hook moved from `raw` to `filter`, the file mode widened ...). Each is applied to a copy
 of the package, the covering tests run, and the mutant must be killed. Every `old` text must occur exactly once, so a refactor cannot turn
 a mutant into a no-op. The first run killed 112 of 115 and exposed three gaps that were closed: a redundant port check (removed, the
 validator already refuses it), an idle-timeout clock that a client could restart by coming and going (test added), and a read-only
-allow-list mutant that was unreachable (rewritten to target the reachable branch). The last 30 (`stmt-*`, `canon-*`, `replay-*`) plant a
+allow-list mutant that was unreachable (rewritten to target the reachable branch). The last 32 (`stmt-*`, `canon-*`, `replay-*`) plant a
 defect in the owner-statement verifier or the replay guard: a check skipped or reordered, an off-by-one at an expiry, a damaged marker read
-as absent, a purge by the clock instead of the floor, a bound on the signature removed, a record that names the wrong type.
+as absent, a purge by the clock instead of the floor, the floor written before the marker, a floor file cut short read as a smaller floor,
+a bound on the signature removed, a record that names the wrong type.
 
 ### 9.5 The hwsim harness and the other test directories
 

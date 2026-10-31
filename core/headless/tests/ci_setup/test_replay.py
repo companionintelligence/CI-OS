@@ -114,9 +114,24 @@ class Names(unittest.TestCase):
 
     def test_anything_else_is_a_damaged_floor(self):
         for raw in (b"", b"\n", b"0", b"01\n", b"-1\n", b"+1\n", b" 1\n", b"1 \n", b"1\n\n", b"1\r\n", b"\xd9\xa1\n", b"1.5\n",
-                    b"12345678901234\n", b"garbage\n", b"1\x00\n", None, "1\n", 5):
+                    b"12345678901234\n", b"garbage\n", b"1\x00\n", None, "1\n", 5,
+                    b"17", b"17900003", b"1790000300", b"999999999999"):      # the last four: digits only, no final newline
             with self.assertRaises(StoreError, msg=repr(raw)):
                 replay.decode_floor(raw)
+
+    def test_a_floor_that_lost_its_last_byte_is_damaged(self):
+        """A floor file cut short by a crash is made of digits only. Read as a smaller number it would lower the floor, and a lower
+        floor accepts a clock that has gone further back than the real one allows. Only the final newline tells a whole file from a
+        cut one."""
+        whole = replay.encode_floor(T)
+        self.assertEqual(b"1790000000\n", whole)
+        for cut in range(len(whole)):
+            raw = whole[:cut]
+            with self.assertRaises(StoreError, msg=repr(raw)):
+                replay.decode_floor(raw)
+            with self.assertRaises(StoreError, msg=repr(bytearray(raw))):
+                replay.decode_floor(bytearray(raw))
+        self.assertEqual(T, replay.decode_floor(whole))
 
 
 class Claim(unittest.TestCase):
@@ -279,7 +294,8 @@ class Floor(unittest.TestCase):
         self.assertNotEqual(before, steps)
 
     def test_a_damaged_floor_fails_closed(self):
-        for raw in (b"", b"garbage", b"-5\n", b"1.5\n", b"12345678901234\n", b"\n"):
+        # the last four are floors that lost their final newline: they must not read as smaller numbers
+        for raw in (b"", b"garbage", b"-5\n", b"1.5\n", b"12345678901234\n", b"\n", b"17", b"17900003", b"1790000000", b"1790000300"):
             backend, guard = fresh()
             backend.set_floor_raw(raw)
             self.assertEqual("store", code(claim, guard, 1), raw)
