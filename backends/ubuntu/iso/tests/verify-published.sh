@@ -186,6 +186,17 @@ has "  and says which" "is the 'ubuntu' edition, and this check is for plasma"
 run --arch amd64; eq "the Ubuntu architectures are still accepted for an Ubuntu manifest" "$RC" "0"
 
 echo
+echo "== a PREFIX in the environment is ignored: only --prefix and the edition choose the key prefix"
+PREFIX=zzz run; eq "an exported PREFIX does not move the check off the Ubuntu release (exit 0)" "$RC" "0"
+has "  the release is found under os/" "/os: all checks passed"
+PREFIX=/usr/local run; eq "an exported PREFIX that is no key prefix at all is not a refusal (exit 0)" "$RC" "0"
+build_plasma_release
+PREFIX=zzz run --edition plasma; eq "nor does it move a Plasma check off os-plasma (exit 0)" "$RC" "0"
+has "  the release is found under os-plasma/" "/os-plasma: all checks passed"
+PREFIX=zzz run --edition plasma --prefix os-plasma; eq "--prefix still decides when it is given" "$RC" "0"
+PREFIX=os-plasma run --edition plasma --prefix os; eq "  and the environment still does not (the manifest is not under os/)" "$RC" "1"
+
+echo
 echo "== arguments"
 build_release
 run --base-url "http://dl.ci.computer"; eq "http for a real host: refused (exit 2)" "$RC" "2"

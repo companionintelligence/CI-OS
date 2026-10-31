@@ -53,7 +53,8 @@ MANIFEST_TOOL="$HERE/release-manifest.py"
 die() { echo "publish-r2: $*" >&2; exit 2; }
 fail() { echo "publish-r2: $*" >&2; exit 1; }
 
-DIR="" VERSION="" CHANNEL="dev" EDITION="ubuntu" BUCKET="" BASE_URL="" PUBKEY=""      # PREFIX stays unset until --prefix or the edition sets it
+DIR="" VERSION="" CHANNEL="dev" EDITION="ubuntu" BUCKET="" BASE_URL="" PUBKEY=""
+PREFIX="" PREFIX_GIVEN=0      # only --prefix or the edition sets the prefix: a PREFIX exported in the environment is ignored
 REPOSITORY="" COMMIT="" RUN_URL="" APPLY=0 OVERWRITE=0 CHECK_PUBLIC=0 MAKE_SUMS=0
 
 need_value() { [ $# -ge 2 ] || die "$1 needs a value"; }
@@ -64,7 +65,7 @@ while [ $# -gt 0 ]; do
     --channel) need_value "$@"; CHANNEL="$2"; shift 2 ;;
     --edition) need_value "$@"; EDITION="$2"; shift 2 ;;
     --bucket) need_value "$@"; BUCKET="$2"; shift 2 ;;
-    --prefix) need_value "$@"; PREFIX="$2"; shift 2 ;;
+    --prefix) need_value "$@"; PREFIX="$2"; PREFIX_GIVEN=1; shift 2 ;;
     --base-url) need_value "$@"; BASE_URL="$2"; shift 2 ;;
     --pubkey) need_value "$@"; PUBKEY="$2"; shift 2 ;;
     --repository) need_value "$@"; REPOSITORY="$2"; shift 2 ;;
@@ -83,7 +84,7 @@ done
 [ -n "$VERSION" ] || die "--version is required"
 case "$CHANNEL" in dev|production) ;; *) die "--channel must be dev or production" ;; esac
 case "$EDITION" in ubuntu|plasma) ;; *) die "--edition must be ubuntu or plasma" ;; esac
-[ -n "${PREFIX+x}" ] || { [ "$EDITION" = plasma ] && PREFIX="os-plasma" || PREFIX="os"; }
+[ "$PREFIX_GIVEN" = 1 ] || { [ "$EDITION" = plasma ] && PREFIX="os-plasma" || PREFIX="os"; }
 [ -n "$BUCKET" ] || { [ "$CHANNEL" = production ] && BUCKET="dl-prod" || BUCKET="dl-dev"; }
 [ -n "$BASE_URL" ] || { [ "$CHANNEL" = production ] && BASE_URL="https://dl.ci.computer" || BASE_URL="https://dl-dev.ci.computer"; }
 echo "$BUCKET" | grep -q -E '^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$' || die "bucket name '$BUCKET' is not a bucket name"

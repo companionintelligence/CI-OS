@@ -318,6 +318,24 @@ fresh_plasma; pubp --prefix ''; eq "an empty --prefix is refused, not replaced b
 OUT="$(bash "$TOOL" --help 2>&1)"; has "--help documents the edition" "--edition E"
 
 echo
+echo "== a PREFIX in the environment is ignored: only --prefix and the edition choose the key prefix"
+fresh; run env PREFIX=zzz bash "$TOOL" --dir "$WORK/out" --version 1.0
+eq "an exported PREFIX does not move an Ubuntu release (exit 0)" "$RC" "0"
+has "  the keys are under os/" "os/1.0/amd64/companion-os-1.0-amd64.iso"
+lacks "  and none under the exported value" "zzz"
+has "  and the pointer is os/latest.json" "/os/latest.json moves last"
+fresh_plasma; run env PREFIX=zzz bash "$TOOL" --dir "$WORK/out" --version 2026.10.18 --edition plasma
+has "  nor a Plasma release: its keys are under os-plasma/" "os-plasma/2026.10.18/x86_64/$PBASE.iso"
+lacks "  and none under the exported value" "zzz"
+fresh; run env PREFIX=/usr/local bash "$TOOL" --dir "$WORK/out" --version 1.0
+eq "an exported PREFIX that is no key prefix at all is not a refusal either (exit 0)" "$RC" "0"
+fresh; run env PREFIX=zzz bash "$TOOL" --dir "$WORK/out" --version 1.0 --prefix os/preview
+has "--prefix still decides when it is given" "os/preview/1.0/amd64/companion-os-1.0-amd64.iso"
+lacks "  and the environment still does not" "zzz"
+fresh; run env PREFIX=zzz bash "$TOOL" --dir "$WORK/out" --version 1.0 --apply
+eq "--apply puts the objects under os/ too (five under os/1.0/ and the pointer)" "$RC/$(puts | grep -c '^dl-dev/os/1.0/')/$(puts | grep -c '^dl-dev/os/latest.json$')/$(puts | grep -c zzz)" "0/5/1/0"
+
+echo
 echo "== the script itself"
 if bash -n "$TOOL"; then pass "it parses"; else fail "it does not parse"; fi
 if [[ -x "$TOOL" ]]; then pass "it is executable"; else fail "it is not executable"; fi
