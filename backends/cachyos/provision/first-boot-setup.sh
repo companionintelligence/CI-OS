@@ -36,6 +36,13 @@
 # the EXIT trap (drain_output) closes this script's stdout and stderr, which gives the pipeline its end of input, and waits for the
 # substitution to finish, for at most 5 s: a background child of the provisioner that still holds the pipe cannot keep the unit up.
 #
+# The Ollama server. The models are pulled by ollama.service, not by this script, so the Nice= and I/O class of the unit that runs this
+# script do not reach the downloads, and the first desktop login would compete with them. Before the provisioning call ollama.service gets
+# CPUWeight=20 IOWeight=20 as a RUNTIME property (systemctl set-property --runtime: it lives in /run, so a reboot drops it too), when the
+# unit exists, and the EXIT trap (drain_output) takes it off again however this script ends. The Ubuntu edition does the same for its
+# first boot (backends/ubuntu/chroot/customize-chroot.sh, Step 10c). Nothing here sets a memory limit; the memory protection drop-ins are
+# static files (core/lib/memory-protection.sh).
+#
 # Environment (tests; the defaults are the installed system): CI_OS_BOOTSTRAP_ROOT, CI_OS_STATE_DIR, CI_OS_LOG_FILE,
 # CI_OS_LOCK_FILE, CI_OS_CMDLINE_FILE, CI_OS_RUN_ARCHISO, CI_OS_NETWORK_TRIES, CI_OS_NETWORK_SLEEP, CI_OS_NETWORK_PROBE (an executable),
 # CI_OS_FORCE_TTY=1 (take the interactive branch of the output set-up without a terminal).
@@ -83,7 +90,12 @@ else
 fi
 # The pid of the substitution just made (empty where bash does not set $!, and then there is nothing to wait for; set -u would abort).
 set +u; LOG_PID=$!; set -u
+# 1 once the throttle of ollama.service below has been asked for; drain_output takes it off again.
+OLLAMA_THROTTLED=0
 drain_output() {
+    # First, while the output still works: give ollama.service its normal weights back, whichever way this script ends. (The first line must not
+    # sit behind the early return below: a bash that sets no $! for the substitution would skip it.)
+    if [[ "$OLLAMA_THROTTLED" == 1 ]]; then systemctl set-property --runtime ollama.service CPUWeight= IOWeight= >/dev/null 2>&1 || true; fi
     [[ -n "${LOG_PID:-}" ]] || return 0
     exec >&- 2>&-
     local t0=$SECONDS
@@ -162,6 +174,13 @@ if [[ "$MANUAL" != true ]]; then
     echo "[CI-OS] Running provision.sh ${PROVISION_ARGS[*]} (automatic attempt $attempts/$MAX_AUTO_ATTEMPTS)..."
 else
     echo "[CI-OS] Running provision.sh ${PROVISION_ARGS[*]}..."
+fi
+
+# Keep the model downloads out of the desktop's way for this run: ollama.service does them (see the header). A runtime property, and only when
+# the unit exists. The flag is set before the call, so that an attempt that half worked is still undone by the EXIT trap.
+if command -v systemctl >/dev/null 2>&1 && systemctl cat ollama.service >/dev/null 2>&1; then
+    OLLAMA_THROTTLED=1
+    systemctl set-property --runtime ollama.service CPUWeight=20 IOWeight=20 >/dev/null 2>&1 || true
 fi
 
 bash "$PROVISION_SH" "${PROVISION_ARGS[@]}"
