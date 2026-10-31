@@ -30,8 +30,9 @@ can find it again.
 | 11 | Size gate of 8 GiB | a 64 GB Stick has 8 GiB boot slots | `verify-iso.sh` section 9 | [V] |
 | 12 | `/.disk/info` says `Companion OS`, with a blank | the installer's last page prints it | `verify-iso.sh` section 5, `tests/boot-media-plymouth.sh` | [V] static, [N] on a booted installer |
 | 13 | Build and test host rules | Docker Desktop on Apple silicon behaves differently | `check_build_host` in `build-iso.sh` | [V] |
+| 18 | Memory protection: five static drop-ins, the parent slices included | nothing protected memory, and a unit's `MemoryMin` only counts up to what its parent slice allows | `core/lib/tests/memory-protection.sh`, `iso/tests/verify-memory-protection.sh`, `verify-iso.sh` section 3h | [I] |
 
-Section 14 lists the smaller changes. Section 15 says what has been run and what is pending.
+Section 14 lists the smaller changes. Section 15 says what has been run and what is pending. Section 18 was added later, for the memory protection drop-ins.
 
 ## 2. md5sum.txt convention
 
@@ -338,3 +339,71 @@ These were found while writing this page and sit in code or documents outside it
 | Strix Halo GTT boot parameters (`strix-halo-boot-params.sh`) exist only in this backend | CachyOS has no equivalent |
 
 See also: [ubuntu-iso-layers.md](ubuntu-iso-layers.md) (the layer split), [one-click-install.md](one-click-install.md) (the automatic installer), [docker-in-live-sessions.md](docker-in-live-sessions.md), [tier-b-tools.md](tier-b-tools.md) and `backends/ubuntu/iso/README.md`.
+
+## 18. Memory protection: the parent slice needs an allocation too
+
+**Fact.** At the base commit (`6ac68ac`) nothing protected memory: `git grep -E 'Memory(Min|Low|High|Max)' -- backends core` finds no key. [V] The only cgroup settings were `CPUWeight=10` in the models prefetch unit and the runtime `CPUWeight=20 IOWeight=20` that the first-boot script puts on `ollama.service` for its own run (Step 10c of `customize-chroot.sh`). That one is gone when the run ends: the run shows it (`docs/evidence/2026-10-19-ubuntu-arm64/installed-failed-units-and-errors.txt`, line 36) and the machine afterwards shows `[not set]` (`docs/evidence/2026-10-19-ubuntu-arm64-4b7597d/guest-text/status-3.txt`, lines 20 and 21). [V]
+
+**What the design rests on.** These statements come from `systemd.resource-control(5)` and the kernel's cgroup-v2 documentation as they were read when the change was planned; they were not re-read or run for this page. [I]
+
+- `memory.min` is a hard floor: memory inside the effective floor is not reclaimed, and if nothing unprotected can be reclaimed the OOM killer runs. The effective floor is capped by the same setting on every ancestor, and when children claim more than their parent allows each gets a share in proportion. Protecting more than is generally available can cause constant OOM kills. `memory.low` is the soft version, given back before an OOM. `memory.high` throttles and reclaims and does not invoke the OOM killer.
+- systemd takes `MemoryMin=`, `MemoryLow=`, `MemoryHigh=` and `MemoryMax=` as a percentage of installed RAM, resolved when it loads the unit. These files use whole percentages only; whether `1.5%` is accepted is UNKNOWN.
+- With recursive protection (systemd 247 and newer; this image has 259.5, section 10) a parent's allocation is shared by all its children. Protection on `system.slice` therefore also covers `ollama.service`, a sibling. That is why the design has a hard minimum for the way in (`ssh.service`) and, held back, a ceiling for the one big consumer.
+- Docker's default cgroup parent is `system.slice` with the systemd cgroup driver, so containers are `docker-<id>.scope` units in `system.slice`, not inside `docker.service`. Protecting `docker.service` protects the daemon, not the Hub's containers. Whether the images use the systemd driver is UNKNOWN until a VM run prints `docker info` (the installed-boot probe does).
+
+**Change.** Five static drop-ins, `30-ci-os-memory.conf` under `/etc/systemd/system/<unit>.d/` (the name sorts after the existing `10-` and `20-` files and before `override.conf`), mode 0644, each with its reason and its evidence tag in a header comment. All values are shares of installed RAM, so no first-boot step is needed and a small machine is not starved. `backends/ubuntu/chroot/customize-chroot.sh` installs them in Step 10h from `backends/ubuntu/chroot/payload/memory/`, lints the result with `core/lib/memory-protection.sh` and stops the build if the lint refuses it. The CachyOS edition ships the same five files (the SSH daemon is `sshd.service` there) in its overlay and in `carry-over.list`.
+
+| Unit | Section | Key | Value | Why |
+|---|---|---|---|---|
+| `ssh.service` (CachyOS: `sshd.service`) | `[Service]` | `MemoryMin` | 1% | the way in for a person at a machine that is short of memory; the daemon uses tens of MiB, so this almost never binds |
+| `system.slice` | `[Slice]` | `MemoryMin` | 2% | must exceed what its children claim (1%), or theirs is not fully effective |
+| `system.slice` | `[Slice]` | `MemoryLow` | 10% | a shared best-effort share for the system daemons and the containers |
+| `docker.service`, `containerd.service` | `[Service]` | `MemoryLow` | 3% each | the engine daemons (not the containers) |
+| `user.slice` | `[Slice]` | `MemoryLow` | 25% | the desktop session; given back before anything is killed |
+| `ollama.service` | | | not shipped | held back, see below |
+
+All of these are proposals. [I] They are implemented and checked as text and arithmetic; nobody has booted an image with them. The sizes they come to (MiB, rounded down, from `ci_os_memprot_bytes`):
+
+| RAM | ssh `MemoryMin` 1% | system.slice `MemoryMin` 2% | system.slice `MemoryLow` 10% | docker or containerd `MemoryLow` 3% | user.slice `MemoryLow` 25% |
+|---|---|---|---|---|---|
+| 2 GiB | 20 | 40 | 204 | 61 | 512 |
+| 4 GiB | 40 | 81 | 409 | 122 | 1024 |
+| 6 GiB | 61 | 122 | 614 | 184 | 1536 |
+| 8 GiB | 81 | 163 | 819 | 245 | 2048 |
+| 16 GiB | 163 | 327 | 1638 | 491 | 4096 |
+| 32 GiB | 327 | 655 | 3276 | 983 | 8192 |
+| 64 GiB | 655 | 1310 | 6553 | 1966 | 16384 |
+
+**The invariants.** `ci_os_memprot_lint ROOT EDITION` computes them in bytes at 2, 4, 6, 8, 16, 32 and 64 GiB of RAM and prints one `FAIL:` line per problem. A claim is rounded up and a limit down, so a violation of the percentages shows at every size. Invariants 1 and 2 are strict, so a proposal that sits exactly on the boundary fails; the shipped values (2% over 1%, a total of 3%) are well inside.
+
+| # | Invariant | A planted defect that turns it red |
+|---|---|---|
+| 1 | For `system.slice`, what its children claim (the SSH daemon, `docker.service`, `containerd.service`, and `ollama.service` when a file for it exists) is below its own value, for `MemoryMin` and for `MemoryLow`. The parent keeps at least one point of slack for services that are not listed. | `system.slice` `MemoryMin` dropped to 1% |
+| 2 | All `MemoryMin` values together are below 5% of RAM. A child's value is also part of its parent's, so this overcounts on purpose. | the SSH daemon raised to 3% (this also trips 1); `system.slice` raised to 6% (only this one) |
+| 3 | With an `ollama.service` file, `user.slice` `MemoryLow` plus its `MemoryHigh` is at most 100% of RAM. | a ceiling of 80% next to 25% |
+| 4 | No `MemoryMax`, `MemorySwapMax`, `MemoryZSwapMax` or `infinity`. | `MemoryMax=50%` |
+| 5 | Every value is a whole percentage from 1% to 100%; every key is `MemoryMin`, `MemoryLow` or `MemoryHigh`, in the section of its unit type; every file is a regular file of mode 0644 in a real directory; each unit's file exists and sets the keys the unit needs; no file belongs to another edition's unit. | a missing file, `25` without `%`, `Memorylow`, `[Service]` in a slice file, a symlink, mode 0600, the Ubuntu name of the SSH daemon in a CachyOS tree |
+| 6 | The effective value of a key is its last assignment, in C-locale order of the `*.conf` files of the unit's directory under `etc/systemd/system`. | a later `99-x.conf` that resets (`MemoryMin=0`) or raises it |
+
+**Not shipped: a ceiling for `ollama.service`.** A `MemoryHigh` for the Ollama server is held back (deferred item `B1-ollama-high`). It is unmeasured, it could stall model loading on 8 GiB class machines, and whether GPU buffer memory is charged to the Ollama cgroup on a unified-memory machine is UNKNOWN. [N] The lint already accepts an `ollama.service` file, so the item is one file away once the 6 and 16 GiB runs are recorded ([`testing-in-qemu.md`](../guides/testing-in-qemu.md#memory-protection-runs) lists what they must answer). `MemoryMax` is never used: it ends in the OOM killer inside the unit.
+
+**Limits that are not hidden.**
+
+- Containers are not covered individually. They share the allocations of `system.slice`. A separate slice for the Hub's containers would mean editing the Docker daemon configuration and is an owner question, not part of this change.
+- On a unified-memory machine (Strix Halo class) the RAM the system sees is what is left after the GPU's share, and the percentages are of that. Whether GPU buffer memory is charged to a cgroup there is UNKNOWN.
+- Connections that systemd starts one by one (`sshd@.service`, when `ssh.socket` has `Accept=yes`) live in the implicit `system-sshd.slice`, whose own `memory.min` is 0, so the drop-in on `ssh.service` does not cover them. `verify-iso.sh` section 3h prints, as information, which mode the packaged `ssh.socket` uses, so a later change of the package forces a decision. [I]
+- The lint reads `etc/systemd/system` of the image. Drop-ins that a package ships under `/usr/lib/systemd/system`, and anything in `/run`, are not read; the VM runs read the cgroup files and settle it.
+- The kernel does not expose the effective protection, only the configured `memory.min`, `memory.low` and `memory.high` of each cgroup. The runs print those and what `systemctl show` holds for each unit.
+
+**Off-switch.** Delete the five `30-ci-os-memory.conf` files (and, on CachyOS, their lines in `usr/share/ci-os/installed/carry-over.list`). Nothing else depends on them. A drop-in that systemd cannot parse is ignored with a journal warning and does not stop a boot. [I]
+
+**The same change on CachyOS.** The first boot of the CachyOS edition now lowers `ollama.service` to `CPUWeight=20 IOWeight=20` for its own run, as Step 10c does here: the models are pulled by the server, so the `Nice=` and I/O class of the first-boot unit never reached the downloads. It is a runtime property set before the provisioning call when the unit exists, and the EXIT trap of `backends/cachyos/provision/first-boot-setup.sh` takes it off again however the script ends. [I]
+
+| Check | What it shows | Result |
+|---|---|---|
+| `core/lib/tests/memory-protection.sh` | the lint on both editions' real files, parity, the planted defects and fixture roots (each red with its own message and green again once undone), 20 weakened copies of the library | [V] on a Mac, bash 3.2; no systemd |
+| `iso/tests/verify-memory-protection.sh` | the real section 3h of `verify-iso.sh` on fake roots, one defect one FAIL, 7 weakened copies of the verifier | [V] on a Mac, bash 3.2 |
+| `chroot/tests/customize-chroot-checks.sh` | Step 10h is sourced, linted, before Step 11; the real block run on fake chroots; step labels unique | [V] on a Mac, bash 3.2 |
+| CachyOS `iso/tests/verify-selftest.sh`, `iso/tests/installer-config.py` | `v_check_memory_protection` on good and broken fixtures and 7 weakened copies; the first-boot throttle read and run against a stub `systemctl` | [V] on a Mac, bash 3.2 |
+| a built Ubuntu image through `verify-iso.sh` section 3h, and the container suites the steward skill names for a verifier change | not run (no Docker here) | pending evidence |
+| the 6 and 16 GiB VM runs of [`testing-in-qemu.md`](../guides/testing-in-qemu.md#memory-protection-runs) | what the kernel does with the values | pending evidence |
