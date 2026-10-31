@@ -25,7 +25,8 @@
 # Options
 #   --dir DIR            the build output: the edition's images and SHA256SUMS (required); SHA256SUMS.asc, MD5SUMS and SBOM.txt are published
 #                        when present, and for plasma the image's .pkgs.txt and .build-info. --make-checksums writes SHA256SUMS from the edition's
-#                        images (companion-os-<digit>*.iso for ubuntu, companion-os-plasma-*.iso for plasma) when there is none
+#                        images (companion-os-<digit>*.iso for ubuntu, companion-os-plasma-*.iso for plasma) when there is none; it leaves no
+#                        file behind when it finds no image, and a SHA256SUMS that lists no file is refused
 #   --version V          1.0, 1.0-rc1 ... (required; must be the version in the image names; for plasma the image date, 2026.10.18)
 #   --edition E          ubuntu (default) or plasma: which images --dir holds, and so the default prefix and the files that are published
 #   --channel C          dev (default) or production. Production REQUIRES a good signature on SHA256SUMS
@@ -96,13 +97,19 @@ trap 'rm -rf "$WORK"' EXIT
 if [ ! -f "$DIR/SHA256SUMS" ]; then
   [ "$MAKE_SUMS" = 1 ] || die "$DIR/SHA256SUMS is missing (the build writes it; --make-checksums writes it from the images)"
   # the edition's own images only (an Ubuntu version starts with a digit): a directory that also holds the other edition's image is then refused
-  # by the manifest step below, as an image that is not this release's, and not checksummed into this release's SHA256SUMS
+  # by the manifest step below, as an image that is not this release's, and not checksummed into this release's SHA256SUMS.
+  # The list is made in the work directory and moved into place only when it names a file: a glob that matches nothing (an --edition that does
+  # not fit the directory) must leave no SHA256SUMS behind, because an empty one would be taken for a list by the next run.
   case "$EDITION" in
-    plasma) ( cd "$DIR" && sha_make companion-os-plasma-*.iso > SHA256SUMS ) || die "could not write SHA256SUMS" ;;
-    *)      ( cd "$DIR" && sha_make companion-os-[0-9]*.iso > SHA256SUMS ) || die "could not write SHA256SUMS" ;;
+    plasma) ( cd "$DIR" && sha_make companion-os-plasma-*.iso > "$WORK/SHA256SUMS" ) || die "could not write SHA256SUMS: there is no image of the plasma edition in $DIR (is --edition right for this directory?)" ;;
+    *)      ( cd "$DIR" && sha_make companion-os-[0-9]*.iso > "$WORK/SHA256SUMS" ) || die "could not write SHA256SUMS: there is no image of the ubuntu edition in $DIR (is --edition right for this directory?)" ;;
   esac
+  [ -s "$WORK/SHA256SUMS" ] || die "could not write SHA256SUMS: no image of the $EDITION edition was listed"
+  mv "$WORK/SHA256SUMS" "$DIR/SHA256SUMS" || die "could not write $DIR/SHA256SUMS"
   echo "wrote $DIR/SHA256SUMS"
 fi
+# a list that names no file checks nothing (some checksum tools accept it), so it is a refusal here, whoever made it
+[ -s "$DIR/SHA256SUMS" ] || die "$DIR/SHA256SUMS is empty: it must list the images (remove it and run again with --make-checksums)"
 ( cd "$DIR" && sha_check --quiet SHA256SUMS >/dev/null 2>&1 ) || die "SHA256SUMS does not match the files in $DIR (the bytes changed after the checksums were made)"
 echo "checksums: every file in SHA256SUMS matches"
 

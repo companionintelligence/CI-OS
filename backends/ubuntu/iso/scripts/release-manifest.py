@@ -155,6 +155,10 @@ def build(directory, version, channel, base_url, prefix, repository="", commit="
     images = find_images(directory, version, edition)
     sums_path = os.path.join(directory, "SHA256SUMS")
     claimed = read_sums(sums_path) if os.path.exists(sums_path) else {}
+    if os.path.exists(sums_path) and not claimed:
+        # both cross-checks below are skipped for a list without lines, so an empty file (or one this tool cannot read) would switch them off
+        raise Problem("SHA256SUMS lists no file (a line is '<64 hex digits>  <file name>'): a list that names nothing checks nothing. Remove it and "
+                      "run publish-r2.sh with --make-checksums, or `sha256sum companion-os-*.iso > SHA256SUMS` in the directory")
     date = date or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     manifest = {"product": "companion-os", "version": version, "channel": channel, "date": date, "images": {}}
     if repository or commit or run_url:

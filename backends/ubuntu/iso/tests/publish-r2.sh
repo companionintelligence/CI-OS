@@ -278,6 +278,31 @@ eq "  and the release is refused (exit 2)" "$RC" "2"
 has "  with the reason" "image of the plasma edition"
 
 echo
+echo "== no empty SHA256SUMS is left behind, and an empty one is refused"
+# the slip that matters: the edition does not fit the directory, so the glob matches nothing; a zero-byte SHA256SUMS left by that run would be
+# taken for the list by the next one, and some checksum tools accept a list that names no file
+nofile() { [[ -e "$WORK/out/SHA256SUMS" ]] && echo yes || echo no; }
+fresh_plasma; rm "$WORK/out/SHA256SUMS"; pub --version 2026.10.18 --make-checksums
+eq "a Plasma directory published with the edition forgotten: refused (exit 2), and no SHA256SUMS is left behind" "$RC/$(nofile)" "2/no"
+has "  and it says the edition may be the wrong one" "is --edition right for this directory"
+pubp --make-checksums
+eq "  the corrected run then writes the list from the Plasma image and passes" "$RC/$(awk '{print $2}' "$WORK/out/SHA256SUMS" | tr '\n' ' ')" "0/$PBASE.iso "
+eq "  and the dry run lists a SHA256SUMS that has bytes" "$(grep -c 'SHA256SUMS  *0 bytes' <<<"$OUT" | tr -d ' ')" "0"
+fresh; rm "$WORK/out/SHA256SUMS"; pub --edition plasma --make-checksums
+eq "an Ubuntu directory published as plasma: refused (exit 2), and no SHA256SUMS is left behind" "$RC/$(nofile)" "2/no"
+fresh; rm "$WORK/out/SHA256SUMS" "$WORK/out"/companion-os-1.0-*.iso; pub --make-checksums
+eq "a directory with no image at all: refused (exit 2), and no SHA256SUMS is left behind" "$RC/$(nofile)" "2/no"
+fresh; : >"$WORK/out/SHA256SUMS"; pub --apply
+eq "an empty SHA256SUMS: refused (exit 2), nothing uploaded" "$RC/$(grep -c '^cp ' "$WORK/log" | tr -d ' ')" "2/0"
+has "  and says it is empty" "SHA256SUMS is empty"
+fresh; : >"$WORK/out/SHA256SUMS"; pub --make-checksums
+eq "  --make-checksums does not replace an empty list (it writes one only when there is none)" "$RC" "2"
+fresh; printf '\n' >"$WORK/out/SHA256SUMS"; pub --apply
+eq "a SHA256SUMS that holds only a blank line: refused (exit 2), nothing uploaded" "$RC/$(grep -c '^cp ' "$WORK/log" | tr -d ' ')" "2/0"
+fresh_plasma; : >"$WORK/out/SHA256SUMS"; pubp --apply
+eq "an empty SHA256SUMS for the Plasma edition: refused (exit 2), nothing uploaded" "$RC/$(grep -c '^cp ' "$WORK/log" | tr -d ' ')" "2/0"
+
+echo
 echo "== the edition is checked before anything else"
 fresh_plasma; pub --version 2026.10.18
 eq "a Plasma directory published as the default edition: refused (exit 2)" "$RC" "2"
